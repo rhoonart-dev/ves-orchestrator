@@ -50,7 +50,27 @@ clone_and_venv() { # $1 url  $2 dest  $3 reqs(optional)
 clone_and_venv "$REPO_ORCH"    "$VES_HOME/orchestrator"
 clone_and_venv "$REPO_AIVIDEO" "$VES_HOME/engines/ai-video"
 clone_and_venv "$REPO_BRAIN"   "$VES_HOME/engines/ai-improvement-edit-video"
-clone_and_venv "$REPO_LOCAL"   "$VES_HOME/engines/video-localization-project"
+clone_and_venv "$REPO_LOCAL"   "$VES_HOME/engines/video-localization-project" || \
+  echo "⚠ 현지화 레포 clone 실패 — mm-06 외 노드에선 불필요, 계속 진행"
+
+echo "== [4.5/7] 엔진 venv 검증·자가수리 (mm-01/02 실전 3연타 재발 방지) =="
+verify_ai_video_venv() {
+  local py="$VES_HOME/engines/ai-video/.venv/bin/python"
+  [[ -x "$py" ]] || return 0
+  # yt-dlp: requirements.txt 누락분 (import 모듈 필요 — brew CLI로는 부족)
+  "$py" -c "import yt_dlp" 2>/dev/null || {
+    echo "  yt_dlp 없음 → 설치"; "$py" -m pip install -q yt-dlp; }
+  # opencv cascade: deepface와의 조합에서 data 디렉토리가 깨지는 케이스
+  "$py" - <<'PY' 2>/dev/null || {
+import os, sys
+import cv2
+sys.exit(0 if os.path.exists(cv2.data.haarcascades + "haarcascade_frontalface_default.xml") else 1)
+PY
+    echo "  opencv cascade 손상 → 복구"
+    "$py" -m pip install -q --force-reinstall --no-deps opencv-python; }
+  echo "  ai-video venv ✓"
+}
+verify_ai_video_venv
 
 echo "== [5/7] /etc/ves/node.env =="
 sudo mkdir -p /etc/ves
