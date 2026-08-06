@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>com.rhoonart.ves-scheduler</string>
+    <!-- scheduler 태그 노드에만 설치. advisory lock 이라 여러 대에 깔려도 안전(자동 승계, §3) -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>__VES_HOME__/orchestrator/.venv/bin/python</string>
+        <string>-m</string><string>ves.scheduler.main</string>
+    </array>
+    <key>WorkingDirectory</key><string>__VES_HOME__/orchestrator</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>VES_HOME</key><string>__VES_HOME__</string>
+        <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+    <key>RunAtLoad</key><true/>
+    <key>KeepAlive</key><true/>
+    <key>ThrottleInterval</key><integer>10</integer>
+    <key>StandardOutPath</key><string>__VES_HOME__/logs/scheduler.log</string>
+    <key>StandardErrorPath</key><string>__VES_HOME__/logs/scheduler.log</string>
+</dict>
+</plist>
