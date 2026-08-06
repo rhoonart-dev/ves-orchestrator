@@ -66,8 +66,8 @@ import os, sys
 import cv2
 sys.exit(0 if os.path.exists(cv2.data.haarcascades + "haarcascade_frontalface_default.xml") else 1)
 PY
-    echo "  opencv cascade 손상 → 복구"
-    "$py" -m pip install -q --force-reinstall --no-deps opencv-python; }
+    echo "  opencv cascade 없음 → 4.x 로 고정 재설치 (OpenCV 5.x 는 cascade 미번들 — mm-01/02 실측)"
+    "$py" -m pip install -q --force-reinstall --no-deps "opencv-python<5"; }
   echo "  ai-video venv ✓"
 }
 verify_ai_video_venv

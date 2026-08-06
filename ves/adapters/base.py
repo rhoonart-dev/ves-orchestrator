@@ -52,7 +52,10 @@ def classify_by_patterns(stderr: str, stdout: str = "") -> str:
     blob = f"{stderr}\n{stdout}".lower()
     if any(s in blob for s in ("429", "resource_exhausted", "quota", "rate limit")):
         return "quota"
-    if any(s in blob for s in ("no such file", "filenotfound", "unrecognized arguments",
+    if any(s in blob for s in ("private video", "video unavailable")):
+        return "human_required"   # 소스 사멸 — 재시도 무의미, 사람이 소스를 바꿔야 함(스모크 실측)
+    if any(s in blob for s in ("no module named", "modulenotfounderror",
+                               "no such file", "filenotfound", "unrecognized arguments",
                                "invalid choice", "credential", "unauthorized")):
         return "permanent"
     return "transient"

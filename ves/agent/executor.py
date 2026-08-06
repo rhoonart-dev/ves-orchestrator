@@ -20,6 +20,18 @@ CAFFEINATE = "/usr/bin/caffeinate"
 RESOURCE_RETRY_SEC = 120
 
 
+def merge_dep_outputs(params, deps) -> dict:
+    """선행 잡 결과에서 run_id/run_dir 를 params 로 승계(기존 값 우선). 순수 — 테스트 대상."""
+    merged = dict(params or {})
+    for d in (deps or {}).values():
+        if not isinstance(d, dict):
+            continue
+        for k in ("run_id", "run_dir"):
+            if d.get(k) and not merged.get(k):
+                merged[k] = d[k]
+    return merged
+
+
 def _dep_results(conn, job) -> dict:
     """선행 잡 결과 모음 {kind: result} — upload_artifacts 등이 run_dir 를 읽는 용도."""
     ids = job.get("depends_on") or []
@@ -35,6 +47,11 @@ def run_job(cfg, conn, job) -> None:
     if ad is None:
         lease.fail(conn, job, f"어댑터 없음: {job['kind']}", "permanent")
         return
+
+    # ★체인 계약: 선행 잡 결과(run_id·run_dir)를 params 에 병합 — ingest/evaluate/publish
+    # (subprocess형)가 generate 산출 위치를 알게 한다. (스모크2에서 발견한 전파 누락 수정)
+    deps = _dep_results(conn, job)
+    job = {**job, "params": merge_dep_outputs(job.get("params"), deps)}
 
     # 멱등 스킵(§6-6): 이미 된 일은 다시 하지 않는다
     try:
@@ -55,7 +72,7 @@ def run_job(cfg, conn, job) -> None:
 
     try:
         if hasattr(ad, "run"):                       # 네이티브 어댑터
-            result = ad.run(cfg, conn, job, _dep_results(conn, job))
+            result = ad.run(cfg, conn, job, deps)
         else:                                        # subprocess 어댑터
             result = _run_subprocess(cfg, conn, job, ad)
         result = dict(result or {})

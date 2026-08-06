@@ -119,3 +119,18 @@ def test_job_chain_kr_vs_jp():
     assert jp[-1] == "localize"
     gen = dict((k, (p, c, t)) for k, p, c, t in job_chain(base_wo))["generate"]
     assert gen[0]["resource"] == "gemini:VES01" and gen[2] == 300   # §7 자원 · §6-2 lease
+
+
+# ── 체인 전파(스모크2 실측 수정) · 에러 분류 보강 ──
+def test_merge_dep_outputs():
+    from ves.agent.executor import merge_dep_outputs
+    deps = {"generate": {"run_id": "r1", "run_dir": "/x/r1", "provenance_complete": True}}
+    m = merge_dep_outputs({"channel_slug": "TETOCHIP"}, deps)
+    assert m["run_id"] == "r1" and m["run_dir"] == "/x/r1" and m["channel_slug"] == "TETOCHIP"
+    assert merge_dep_outputs({"run_id": "keep"}, deps)["run_id"] == "keep"   # 기존 값 우선
+    assert merge_dep_outputs(None, {}) == {}
+
+
+def test_classify_smoke_lessons():
+    assert classify_by_patterns("ModuleNotFoundError: No module named 'yt_dlp'") == "permanent"
+    assert classify_by_patterns("ERROR: [youtube] X: Private video. Sign in") == "human_required"
