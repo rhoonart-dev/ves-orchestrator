@@ -22,14 +22,21 @@ def _p(job, **kw):
 
 
 def renew(conn, job) -> bool:
-    """lease 연장. False = 소유권 상실(만료 회수·취소 포함) → 호출측은 작업을 즉시 중단."""
+    """lease 연장. False = 소유권 상실(만료 회수·취소 포함) → 호출측은 작업을 즉시 중단.
+    노드 심박 피기백: 장시간 잡(68분 생성) 동안 워커 루프가 막혀도 last_seen_at 이 갱신되어
+    '노드 침묵 5분' 경보(지표1)가 오탐하지 않는다."""
     with conn.cursor() as c:
         c.execute(
             f"""UPDATE public.job_queue
                    SET lease_expires_at = now() + make_interval(secs => lease_ttl_sec),
                        updated_at = now()
                  WHERE {_FENCE} RETURNING id""", _p(job))
-        return c.fetchone() is not None
+        ok = c.fetchone() is not None
+    if ok:
+        with conn.cursor() as c:
+            c.execute("UPDATE public.node_registry SET last_seen_at = now() "
+                      "WHERE node_id = %(node)s", _p(job))
+    return ok
 
 
 def complete(conn, job, result: dict) -> bool:

@@ -54,8 +54,8 @@ class Config:
     laeebly_url: str | None
     supabase_url: str | None
     supabase_service_key: str | None
-    poll_sec: float = 3.0
-    poll_max_sec: float = 30.0
+    poll_sec: float = 180.0      # 유휴 폴링 간격(초). 일감 있는 동안은 연속 — sleep은 빈 큐에서만
+    poll_max_sec: float = 180.0  # 유휴 백오프 상한
 
 
 def get_config() -> Config:
@@ -70,6 +70,8 @@ def get_config() -> Config:
         laeebly_url=os.environ.get("LAEEBLY_DB_URL"),
         supabase_url=os.environ.get("SUPABASE_URL"),
         supabase_service_key=os.environ.get("SUPABASE_SERVICE_KEY"),
+        poll_sec=float(os.environ.get("VES_POLL_SEC", "180")),
+        poll_max_sec=float(os.environ.get("VES_POLL_MAX_SEC", "180")),
     )
 
 
