@@ -72,7 +72,10 @@ def run_job(cfg, conn, job) -> None:
 
     try:
         if hasattr(ad, "run"):                       # 네이티브 어댑터
-            result = ad.run(cfg, conn, job, deps)
+            # 네이티브도 lease 갱신 필요(스모크3 후속): 업로드·judge 가 TTL 을 넘으면
+            # reaper 가 산 잡을 뺏는다. complete 는 펜싱이 있으니 갱신만 보장하면 된다.
+            with lease.LeaseRenewer(lambda: db.connect(cfg.db_url), job):
+                result = ad.run(cfg, conn, job, deps)
         else:                                        # subprocess 어댑터
             result = _run_subprocess(cfg, conn, job, ad)
         result = dict(result or {})

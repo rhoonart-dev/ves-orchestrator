@@ -81,6 +81,18 @@ def extract_partial_run_id(stdout: str) -> str | None:
     return m.group(1) if m else None
 
 
+def provenance_ok(run_log: dict) -> bool:
+    """R8 판정 — ai-video run_log 실제 스키마는 {input, steps, job_id, provenance}
+    (스모크3 실측: 최상위 'provenance_complete' 키는 존재한 적이 없다. 그 키를 읽던
+    종전 코드는 건강한 런을 전부 막았다). ingest(T0-2)와 같은 기준을 쓴다:
+    provenance 에 git_sha 와 config 스냅샷이 있으면 완전. 레거시 키는 관용 허용."""
+    rl = run_log or {}
+    prov = rl.get("provenance") or {}
+    if bool(prov.get("git_sha")) and bool(prov.get("config")):
+        return True
+    return bool(rl.get("provenance_complete"))   # 레거시/미래 엔진 호환
+
+
 # ───────── 어댑터 인터페이스 ─────────
 def cwd(cfg, job):
     return cfgmod.engine_dir(cfg, "ai_video")
@@ -122,15 +134,16 @@ def parse_result(cfg, job, stdout):
         raise base.PermanentError("stdout 에서 run_id 를 못 찾음 — ai-video 출력 계약 확인")
     outdir = (job["params"].get("outdir") or "outputs")
     run_dir = pathlib.Path(cfgmod.engine_dir(cfg, "ai_video")) / outdir / rid
-    prov = False
+    run_log = {}
     rl = run_dir / "run_log.json"
     if rl.exists():
         try:
-            prov = bool(json.loads(rl.read_text(encoding="utf-8")).get("provenance_complete"))
+            run_log = json.loads(rl.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
-            prov = False
-    if not prov:   # R8: provenance 없이 succeeded 불가
-        raise base.PermanentError(f"provenance_complete=false — R8 위반 (run={rid})")
+            run_log = {}
+    if not provenance_ok(run_log):   # R8: provenance 없이 succeeded 불가
+        raise base.PermanentError(
+            f"provenance 불완전(provenance.git_sha/config 스냅샷 없음) — R8 (run={rid})")
     return {"run_id": rid, "run_dir": str(run_dir), "provenance_complete": True}
 
 

@@ -160,6 +160,28 @@ def test_storage_key_ascii_and_shared_convention():
     assert k.split("/")[0] != storage_key("다른_런", "preview.mp4").split("/")[0]
 
 
+def test_provenance_ok_real_schema():
+    """스모크3 실측 스키마: {input,steps,job_id,provenance:{git_sha,config,...}}."""
+    from ves.adapters.aivideo import provenance_ok
+    real = {"input": {}, "steps": [], "job_id": "도깨비_10주년_여행_d6",
+            "provenance": {"git_sha": "af00557d2e74", "config": {"app": {"x": 1}},
+                           "prompt_set_hash": "b8a1"}}
+    assert provenance_ok(real)
+    assert not provenance_ok({"provenance": {"git_sha": "x"}})     # config 스냅샷 없음
+    assert not provenance_ok({"provenance": {"config": {"a": 1}}})  # git_sha 없음
+    assert not provenance_ok({}) and not provenance_ok(None)
+    assert provenance_ok({"provenance_complete": True})             # 레거시 관용
+
+
+def test_brain_evaluate_argvs():
+    from ves.adapters.brain import feature_argv, judge_argv
+    f = feature_argv("/py", "/s")
+    assert f[:2] == ["/py", "/s/run_feature_extraction.py"] and "--limit" in f
+    j = judge_argv("/py", "/s", "clip-uuid", "/out/shorts_1.mp4")
+    assert j[1].endswith("run_judge.py") and "--clip-id" in j and "--video" in j
+    assert "--video" not in judge_argv("/py", "/s", "clip-uuid", None)
+
+
 def test_storage_4xx_permanent_except_429():
     from ves.adapters.upload_artifacts import _is_permanent_storage_error
     assert _is_permanent_storage_error('storage upload 400: {"error":"InvalidKey"}')

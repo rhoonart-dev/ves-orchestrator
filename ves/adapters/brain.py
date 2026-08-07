@@ -57,30 +57,64 @@ class Ingest:
         return base.classify_by_patterns(stderr, stdout)
 
 
+def feature_argv(py: str, scripts: str) -> list:
+    """피처 추출은 배치형 — DB 에서 미처리 클립을 스스로 고른다(--limit 안전빵). 순수."""
+    return [py, f"{scripts}/run_feature_extraction.py", "--limit", "50"]
+
+
+def judge_argv(py: str, scripts: str, clip_id: str, video: str | None) -> list:
+    """judge 는 클립 단위(--clip-id). 로컬 영상이 있으면 --video 로 다운로드 생략. 순수."""
+    argv = [py, f"{scripts}/run_judge.py", "--clip-id", clip_id]
+    if video:
+        argv += ["--video", video]
+    return argv
+
+
 class Evaluate:
-    """피처 + judge 안전게이트 (evaluate_run.py). judge 는 성과 예측에 쓰지 않는다(D3)."""
+    """피처(배치) + judge 안전게이트 — 네이티브 2단 실행. judge 는 성과 예측에 쓰지 않는다(D3).
+    ⚠ 스모크3 실측: 종전의 evaluate_run.py 는 brain 에 존재한 적 없는 스크립트였다.
+    실제 CLI 는 run_feature_extraction.py(배치) + run_judge.py(--clip-id) 2종이며,
+    클립 ID 는 ingest 가 만든 clips/clip_metadata 에서 (ai_video_run_id, episode)로 찾는다."""
+
+    FIND_CLIP_SQL = """SELECT c.id FROM public.clips c
+                         JOIN public.clip_metadata m ON m.clip_id = c.id
+                        WHERE m.ai_video_run_id = %s AND c.source = 'auto_edit'
+                          AND c.episode IS NOT DISTINCT FROM %s LIMIT 1"""
 
     @staticmethod
-    def cwd(cfg, job):
-        return cfgmod.engine_dir(cfg, "brain")
-
-    @staticmethod
-    def env(cfg, job):
-        return _env(cfg)
-
-    @staticmethod
-    def build_argv(cfg, job):
+    def run(cfg, conn, job, deps):
+        import subprocess
         p = job["params"]
-        return [_py(cfg), f"{_scripts(cfg)}/evaluate_run.py",
-                "--run-dir", p["run_dir"], "--channel", p["channel_name"]]
+        run_id = p.get("run_id")
+        if not run_id:
+            raise base.PermanentError("params.run_id 없음 — 의존 결과/planner 확인")
+        with conn.cursor() as c:
+            c.execute(Evaluate.FIND_CLIP_SQL, (run_id, p.get("short_label", "shorts_1")))
+            row = c.fetchone()
+        if not row:
+            raise base.PermanentError(f"ingest 된 클립 없음 (run={run_id}) — ingest 선행 확인")
+        clip_id = str(row["id"] if isinstance(row, dict) else row[0])
 
-    @staticmethod
-    def parse_result(cfg, job, stdout):
-        return {"stdout_tail": (stdout or "")[-400:]}
+        video = None
+        if p.get("run_dir"):
+            vids = [v for v in glob.glob(f"{p['run_dir']}/shorts*.mp4") if "_480" not in v]
+            video = vids[0] if vids else None
 
-    @staticmethod
-    def classify_error(rc, stderr, stdout):
-        return base.classify_by_patterns(stderr, stdout)
+        py, scripts = _py(cfg), _scripts(cfg)
+        env, cwd = _env(cfg), cfgmod.engine_dir(cfg, "brain")
+        for argv, timeout in ((feature_argv(py, scripts), 900),
+                              (judge_argv(py, scripts, clip_id, video), 1200)):
+            r = subprocess.run(argv, cwd=cwd, env=env, capture_output=True,
+                               text=True, timeout=timeout)
+            if r.returncode != 0:
+                msg = (r.stderr or r.stdout or "")[-800:]
+                cls = base.classify_by_patterns(r.stderr or "", r.stdout or "")
+                if cls == "quota":
+                    raise base.QuotaError(msg)
+                if cls in ("permanent", "human_required"):
+                    raise base.PermanentError(msg)
+                raise RuntimeError(msg)
+        return {"clip_id": clip_id, "judged": True}
 
     @staticmethod
     def post_success(cfg, conn, job, result):
