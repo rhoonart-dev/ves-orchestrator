@@ -47,6 +47,15 @@ def backoff_minutes(attempt: int) -> int:
     return 3 ** max(int(attempt) - 1, 0)
 
 
+def storage_key(run_id: str, filename: str) -> str:
+    """Storage 오브젝트 키 — ASCII 안전 (스모크3 실측: 한글 키 → 400 InvalidKey).
+    run_id 를 sha256 16자로 접은 결정론적 prefix. 원문 run_id 는 DB(artifacts·review
+    payload)에 남으므로 사람이 역추적할 수 있다. 업로더(upload_artifacts)와 소비자
+    (brain.Evaluate 의 preview_key)가 반드시 이 함수 하나를 같이 쓴다."""
+    h = hashlib.sha256(str(run_id).encode("utf-8")).hexdigest()[:16]
+    return f"{h}/{filename}"
+
+
 def classify_by_patterns(stderr: str, stdout: str = "") -> str:
     """공통 에러 분류 폴백 — 어댑터별 classify_error 가 먼저, 못 정하면 이걸로."""
     blob = f"{stderr}\n{stdout}".lower()

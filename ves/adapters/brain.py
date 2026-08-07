@@ -100,7 +100,8 @@ class Evaluate:
                    VALUES ('publish_gate', %s, %s, %s, %s::jsonb)""",
                 (job["work_order_id"], job["id"], p.get("channel_slug"),
                  json.dumps({"run_id": p.get("run_id"),
-                             "preview_key": f"{p.get('run_id')}/preview.mp4",
+                             # 업로더와 같은 키 규약(base.storage_key) — 한글 키 금지(스모크3)
+                             "preview_key": base.storage_key(p.get("run_id"), "preview.mp4"),
                              "note": result.get("stdout_tail", "")[-300:]},
                             ensure_ascii=False)))
 

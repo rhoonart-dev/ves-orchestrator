@@ -149,3 +149,21 @@ def test_pin_dependent_kinds_cover_local_readers():
     from ves.adapters import aivideo
     # upload=글롭 · ingest/evaluate=--run-dir — 로컬 읽기 3종 전부 고정 대상이어야 한다
     assert set(aivideo.PIN_DEPENDENT_KINDS) == {"upload_artifacts", "ingest", "evaluate"}
+
+
+# ── Storage 키 ASCII 규약 (스모크3 실측: 한글 키 → 400 InvalidKey) ──
+def test_storage_key_ascii_and_shared_convention():
+    from ves.adapters.base import storage_key
+    k = storage_key("도깨비_10주년_여행_d6", "preview.mp4")
+    assert k.isascii() and k.endswith("/preview.mp4") and len(k.split("/")[0]) == 16
+    assert k == storage_key("도깨비_10주년_여행_d6", "preview.mp4")   # 결정론
+    assert k.split("/")[0] != storage_key("다른_런", "preview.mp4").split("/")[0]
+
+
+def test_storage_4xx_permanent_except_429():
+    from ves.adapters.upload_artifacts import _is_permanent_storage_error
+    assert _is_permanent_storage_error('storage upload 400: {"error":"InvalidKey"}')
+    assert _is_permanent_storage_error("storage upload 404: not found")
+    assert not _is_permanent_storage_error("storage upload 429: rate limited")
+    assert not _is_permanent_storage_error("storage upload 544: DatabaseTimeout")
+    assert not _is_permanent_storage_error("Connection reset by peer")

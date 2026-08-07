@@ -39,15 +39,24 @@ def run(cfg, conn, job, deps):
 
     store = Store(cfg.supabase_url, cfg.supabase_service_key)
     uploaded = []
-    plan = [(shorts, f"{run_id}/shorts.mp4", "shorts_mp4", "90 days"),
-            (preview, f"{run_id}/preview.mp4", "preview_mp4", "30 days")]
+    # 키는 base.storage_key 로 ASCII 화(★스모크3: 한글 run_id 그대로 쓰면 400 InvalidKey)
+    plan = [(shorts, base.storage_key(run_id, "shorts.mp4"), "shorts_mp4", "90 days"),
+            (preview, base.storage_key(run_id, "preview.mp4"), "preview_mp4", "30 days")]
     thumb = next(iter(glob.glob(f"{run_dir}/*.jpg") + glob.glob(f"{run_dir}/*.png")), None)
     if thumb:
-        plan.append((pathlib.Path(thumb), f"{run_id}/thumb{pathlib.Path(thumb).suffix}",
+        plan.append((pathlib.Path(thumb),
+                     base.storage_key(run_id, f"thumb{pathlib.Path(thumb).suffix}"),
                      "thumb", "90 days"))
 
     for path, key, kind, keep in plan:
-        store.upload("ves-outputs", key, str(path))
+        try:
+            store.upload("ves-outputs", key, str(path))
+        except RuntimeError as e:
+            # 스토리지 4xx(429 제외)는 재시도 무의미 — attempt 3회 소각 방지(스모크3 실측)
+            msg = str(e)
+            if _is_permanent_storage_error(msg):
+                raise base.PermanentError(msg)
+            raise
         sha = _sha256(path)
         with conn.cursor() as c:
             c.execute(
@@ -58,6 +67,13 @@ def run(cfg, conn, job, deps):
                 (job["id"], job["work_order_id"], kind, sha, path.stat().st_size, key, keep))
         uploaded.append(key)
     return {"run_id": run_id, "run_dir": run_dir, "uploaded": uploaded}
+
+
+def _is_permanent_storage_error(msg: str) -> bool:
+    """'storage upload 4xx' 중 429(쿼터)만 빼고 permanent. 순수 — 테스트 대상."""
+    import re
+    m = re.search(r"storage upload (\d{3})", msg)
+    return bool(m) and m.group(1).startswith("4") and m.group(1) != "429"
 
 
 def _sha256(path):
