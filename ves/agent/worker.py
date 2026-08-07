@@ -28,7 +28,8 @@ def register_node(conn, cfg):
                  SET capabilities=EXCLUDED.capabilities,
                      max_concurrency=EXCLUDED.max_concurrency,
                      disk_free_gb=EXCLUDED.disk_free_gb, last_seen_at=now()""",
-            (cfg.node_id, cfg.capabilities, cfg.max_concurrency, free_gb))
+            (cfg.node_id, claim_mod.effective_caps(cfg.capabilities, cfg.node_id),
+             cfg.max_concurrency, free_gb))
 
 
 def heartbeat(conn, cfg):

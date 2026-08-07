@@ -25,6 +25,11 @@ STEP_ORDER = ["research", "probe", "proxy", "chunk", "character_index",
 
 _RUNLOG_RE = re.compile(r"([^/\s]+)/run_log\.json")
 
+# 이 잡의 산출물(run_dir)을 로컬에서 읽는 후속 kind — executor 가 완료 시 이 노드로 고정
+# (upload=글롭, ingest/evaluate=--run-dir. publish 는 검수 후 별도 생성이라 대상 밖 —
+#  스토리지 폴백(Phase 2)이 정답이며, 그 전까지는 같은 노드 유지가 사실상 강제됨)
+PIN_DEPENDENT_KINDS = ("upload_artifacts", "ingest", "evaluate")
+
 
 # ───────── 순수 (테스트 대상) ─────────
 def build_argv_pure(py: str, params: dict, source_path: str | None) -> list:

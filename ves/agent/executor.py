@@ -78,6 +78,7 @@ def run_job(cfg, conn, job) -> None:
         result = dict(result or {})
         result["engine_sha"] = _local_shas(cfg)      # 디버깅용 실행 시점 sha(§11-1)
         if lease.complete(conn, job, result):
+            _pin_dependents(conn, job, ad)           # 로컬 산출물 어피니티(스모크3 실측)
             hook = getattr(ad, "post_success", None)
             if hook:
                 try:
@@ -143,6 +144,28 @@ def _run_subprocess(cfg, conn, job, ad) -> dict:
     e = RuntimeError(msg)
     e.patch = patch  # type: ignore[attr-defined]
     raise e
+
+
+def _pin_dependents(conn, job, ad) -> None:
+    """산출물을 로컬 디스크에 남기는 잡(generate)이 끝나면, 그 파일을 읽는 후속 kind 들을
+    이 노드로 고정한다 — required_caps 에 'node:<노드>' 를 추가(claim 의 <@ 가 걸러줌).
+    스모크3 실측: upload_artifacts 재시도가 다른 노드에 떨어져 'shorts 없음' 즉사.
+    수동 해제(노드 사망 시): UPDATE job_queue SET required_caps=array_remove(required_caps,
+    'node:mm-0X') WHERE work_order_id='…' AND status='pending';"""
+    kinds = getattr(ad, "PIN_DEPENDENT_KINDS", ())
+    if not kinds:
+        return
+    cap = [f"node:{job['node_id']}"]
+    try:
+        with conn.cursor() as c:
+            c.execute(
+                """UPDATE public.job_queue
+                      SET required_caps = required_caps || %s::text[], updated_at=now()
+                    WHERE work_order_id=%s AND kind = ANY(%s) AND status='pending'
+                      AND NOT required_caps @> %s::text[]""",
+                (cap, job["work_order_id"], list(kinds), cap))
+    except Exception as e:  # noqa: BLE001 — 고정 실패는 종전(비고정) 동작으로 강등될 뿐
+        print(f"[executor] 어피니티 고정 실패(무시): {e}")
 
 
 def _record_orphan(conn, job, result):

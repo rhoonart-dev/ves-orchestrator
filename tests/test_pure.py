@@ -134,3 +134,18 @@ def test_merge_dep_outputs():
 def test_classify_smoke_lessons():
     assert classify_by_patterns("ModuleNotFoundError: No module named 'yt_dlp'") == "permanent"
     assert classify_by_patterns("ERROR: [youtube] X: Private video. Sign in") == "human_required"
+
+
+# ── 노드 어피니티(스모크3 실측: 재시도 노드 이탈 → 'shorts 없음' 즉사) ──
+def test_effective_caps_adds_self_tag_once():
+    from ves.agent.claim import effective_caps
+    caps = effective_caps(["generate", "network"], "mm-01")
+    assert caps[-1] == "node:mm-01" and caps[:2] == ["generate", "network"]
+    assert effective_caps(["node:mm-01"], "mm-01").count("node:mm-01") == 1
+    assert effective_caps(None, "mm-02") == ["node:mm-02"]
+
+
+def test_pin_dependent_kinds_cover_local_readers():
+    from ves.adapters import aivideo
+    # upload=글롭 · ingest/evaluate=--run-dir — 로컬 읽기 3종 전부 고정 대상이어야 한다
+    assert set(aivideo.PIN_DEPENDENT_KINDS) == {"upload_artifacts", "ingest", "evaluate"}

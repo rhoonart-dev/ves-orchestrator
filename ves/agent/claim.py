@@ -28,10 +28,22 @@ RETURNING j.*;
 """
 
 
+def effective_caps(capabilities, node_id: str) -> list:
+    """선언 캡 + 자기 지칭 캡('node:mm-01') — 로컬 산출물 어피니티의 짝(§6-1 보강).
+    generate 완료 시 executor 가 후속 잡에 'node:<노드>' 캡을 박으면(_pin_dependents),
+    그 파일을 가진 노드만 이 캡을 만족해 claim 할 수 있다. (스모크3 실측: 재시도가
+    다른 노드로 튀어 'shorts 없음'으로 죽는 사고의 재발 방지)"""
+    caps = list(capabilities or [])
+    tag = f"node:{node_id}"
+    if tag not in caps:
+        caps.append(tag)
+    return caps
+
+
 def claim(conn, node_id: str, capabilities: list):
     """잡 1건 원자적 획득. 없으면 None. ('일 있나 보기'와 '내가 가져가기'가 한 쿼리)"""
     with conn.cursor() as c:
-        c.execute(CLAIM_SQL, {"node": node_id, "caps": capabilities})
+        c.execute(CLAIM_SQL, {"node": node_id, "caps": effective_caps(capabilities, node_id)})
         row = c.fetchone()
     if row:
         from ves.db import job_event

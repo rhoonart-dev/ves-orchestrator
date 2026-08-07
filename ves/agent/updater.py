@@ -80,7 +80,10 @@ def check_and_update(cfg, conn) -> None:
         if eng == "orchestrator":
             print("[updater] 오케스트레이터 자기 갱신 — 재기동을 위해 종료(launchd KeepAlive)")
             sys.exit(SELF_UPDATE_EXIT)
-    _set_node(conn, cfg.node_id, status="active", updating=False)
+    # 갱신 사이클이 '스스로' 드레인한 경우(updating_since 有)에만 복귀시킨다.
+    # 무조건 active 로 되돌리면 사람/대시보드가 내린 draining 을 매 사이클 밟는다(스모크3 실측).
+    # 자기 갱신 exit(42) 재기동 후의 복귀도 이 조건이 담당한다(updating_since 가 남아 있음).
+    _reactivate_if_self_drained(conn, cfg.node_id)
 
 
 def _update_engine(cfg, conn, eng, path, prev_sha, target) -> bool:
@@ -146,6 +149,14 @@ def _smoke(cfg, eng, path) -> bool:
     if r.returncode != 0:
         print(f"[updater] smoke 실패({eng}): {(r.stderr or r.stdout)[-400:]}")
     return r.returncode == 0
+
+
+def _reactivate_if_self_drained(conn, node_id):
+    with conn.cursor() as c:
+        c.execute(
+            """UPDATE public.node_registry
+                  SET status='active', updating_since=NULL, last_seen_at=now()
+                WHERE node_id=%s AND updating_since IS NOT NULL""", (node_id,))
 
 
 def _set_node(conn, node_id, status, updating):
