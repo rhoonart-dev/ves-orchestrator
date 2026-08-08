@@ -80,16 +80,19 @@ def _load_channels(cfg):
 
 
 def _pick_source(conn, work):
-    """이 작품의 등록 소스 중, 이 pipeline 으로 work_order 가 없는 최저 회차."""
+    """회차 순환(사용자 결정 2026-08-07): 활성 소스 중 사용횟수(취소·실패 제외)가
+    use_limit(기본 3) 미만인 최저 회차. 한도 도달 시 자동으로 다음 회차,
+    전 회차 소진이면 None(→ 알림+대기, 관제 소스 섹션에 표시)."""
     with conn.cursor() as c:
         c.execute(
             """SELECT s.* FROM public.sources s
-                WHERE s.work_title = %s
-                  AND NOT EXISTS (SELECT 1 FROM public.work_orders w
-                                   WHERE w.work_title = s.work_title
-                                     AND w.episode IS NOT DISTINCT FROM s.episode
-                                     AND w.pipeline = 'shorts_kr'
-                                     AND w.status <> 'cancelled')
+                LEFT JOIN public.work_orders w
+                  ON w.work_title = s.work_title
+                 AND w.episode IS NOT DISTINCT FROM s.episode
+                 AND w.status NOT IN ('cancelled','failed')
+                WHERE s.work_title = %s AND s.is_active
+                GROUP BY s.id
+               HAVING COUNT(w.id) < s.use_limit
                 ORDER BY s.episode NULLS LAST LIMIT 1""", (work,))
         return c.fetchone()
 
@@ -154,4 +157,10 @@ def _create_work_order(conn, cfg, today, ch, work, src) -> bool:
 
 
 def _note_missing_source(conn, work, ch):
-    print(f"[planner] 소스 미등록: {ch['name']} / {work} — 대시보드 [소스 등록] 필요(지표14)")
+    """미등록과 소진을 구분해 알린다 — 관제 소스 섹션이 시각화(소진=빨간 칩)."""
+    with conn.cursor() as c:
+        c.execute("SELECT COUNT(*) AS n FROM public.sources WHERE work_title=%s AND is_active",
+                  (work,))
+        n = (c.fetchone() or {}).get("n", 0)
+    why = "전 회차 소진(한도 도달) — 새 회차 보충 필요" if n else "소스 미등록"
+    print(f"[ALERT] {why}: {ch['name']} / {work} — deploy/register_source.py 로 등록(지표14)")

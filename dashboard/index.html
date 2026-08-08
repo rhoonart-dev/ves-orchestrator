@@ -149,6 +149,9 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     <div class="tiles" id="tiles"></div>
     <section class="card"><h2>노드</h2><div class="nodes" id="nodes"></div></section>
     <section class="card"><h2>검수 대기</h2><div id="reviews"></div></section>
+    <section class="card"><h2>소스 (회차 사용 현황)</h2>
+      <div class="tblwrap"><table id="sources"></table></div>
+    </section>
     <section class="card"><h2>잡 큐</h2>
       <div class="filters" id="jobFilters"></div>
       <div class="tblwrap"><table id="jobs"></table></div>
@@ -239,21 +242,23 @@ function armed(btn, label, fire){
 let jobFilter = "all", state = {};
 async function refresh(){
   if (!(await sb.auth.getSession()).data.session) return;
-  const [nodes, deps, jobs, reviews, events, wos] = await Promise.all([
+  const [nodes, deps, jobs, reviews, events, wos, srcs] = await Promise.all([
     sb.from("node_registry").select("*").order("node_id"),
     sb.from("deployments").select("*").order("engine"),
     sb.from("job_queue").select("id,work_order_id,kind,status,attempt,max_attempts,node_id,error,error_class,required_caps,run_after,created_at,updated_at,started_at,finished_at").order("updated_at",{ascending:false}).limit(60),
     sb.from("review_queue").select("*").eq("status","waiting").order("created_at"),
     sb.from("job_events").select("*").order("at",{ascending:false}).limit(30),
     sb.from("work_orders").select("*").order("created_at",{ascending:false}).limit(30),
+    sb.from("source_usage").select("*").order("work_title").order("episode"),
   ]);
-  const err = [nodes,deps,jobs,reviews,events,wos].find(r => r.error);
+  const err = [nodes,deps,jobs,reviews,events,wos,srcs].find(r => r.error);
   if (err){ toast("조회 실패: " + err.error.message, true); return; }
   state = { nodes:nodes.data, deps:deps.data, jobs:jobs.data,
-            reviews:reviews.data, events:events.data,
+            reviews:reviews.data, events:events.data, srcs:srcs.data,
             wo:Object.fromEntries((wos.data||[]).map(w=>[w.id,w])),
             jobById:Object.fromEntries((jobs.data||[]).map(j=>[j.id,j])) };
-  renderTiles(); renderNodes(); renderReviews(); renderJobs(); renderDeps(); renderEvents();
+  renderTiles(); renderNodes(); renderReviews(); renderSources();
+  renderJobs(); renderDeps(); renderEvents();
   $("#lastSync").textContent = "갱신 " + new Date().toLocaleTimeString("ko-KR");
 }
 
@@ -341,6 +346,18 @@ window.approve = rid => {
       "승인 — publish 잡 생성됨");
 };
 window.reject = rid => rpc("reject_review", { p_review_id: rid, p_note: null }, "반려됨");
+
+function renderSources(){
+  // 회차 순환(0010): 사용횟수는 work_orders 집계(source_usage 뷰) — 소진=빨강, planner 대기
+  $("#sources").innerHTML = `<tr><th>작품</th><th>회차</th><th>사용/한도</th><th>상태</th></tr>` +
+    ((state.srcs||[]).map(r => {
+      const st = !r.is_active ? chip("mut","–","비활성")
+               : Number(r.remaining) === 0 ? chip("crit","✕","소진 — 보충 필요")
+               : chip("good","✓",`남음 ${r.remaining}`);
+      return `<tr><td>${esc(r.work_title)}</td><td class="num">${r.episode ?? "단편"}</td>
+        <td class="num">${r.times_used}/${r.use_limit}</td><td>${st}</td></tr>`;
+    }).join("") || `<tr><td colspan="4" class="empty">등록된 소스 없음 — 메인 맥에서 deploy/register_source.py 로 등록</td></tr>`);
+}
 
 const JOB_FILTERS = [["all","전체"],["pending","대기"],["running","실행"],
   ["failed","실패"],["dead","dead"],["blocked","보류"],["succeeded","완료"],["cancelled","취소"]];
