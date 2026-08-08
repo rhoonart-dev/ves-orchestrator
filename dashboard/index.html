@@ -390,22 +390,31 @@ function renderHome(){
     ["활성 노드", n.filter(x=>x.status==="active").length + "/" + n.length,
      stale.length ? `무응답 ${stale.length}` : ""],
   ];
-  const woToday = ch => (state.wos||[]).filter(w =>
+  // 오늘(KST) 작업이 있으면 구 규칙 그대로 오늘 기준. 없으면 "마지막 작업분"을
+  // 날짜 배지와 함께 보여준다(취소분 제외) — 신호등·잡·검수함 불일치 방지(운영 피드백 8/9).
+  const alive = (state.wos||[]).filter(w => w.status !== "cancelled");
+  const woToday = ch => alive.filter(w =>
     w.channel_slug === ch.token_slug && (kstDay(w.service_date||w.created_at) === today));
+  const woRecent = ch => alive.find(w => w.channel_slug === ch.token_slug);
   const board = (state.chans||[]).map(ch => {
     const ws = woToday(ch);
-    const st = ws.length ? woStatus(ws[0]) : "none";
+    const cur = ws.length ? ws[0] : woRecent(ch);
+    const st = cur ? woStatus(cur) : "none";
     const [gc, gl] = GEN_DOT[st] || GEN_DOT.none;
-    const [pc, pl] = ws.length ? pubDot(ws[0]) : ["none","없음"];
+    const [pc, pl] = cur ? pubDot(cur) : ["none","없음"];
+    const dateBadge = cur && !ws.length
+      ? `<span class="fpill fp-mut" title="오늘 작업은 없음 — 마지막 작업분 표시">${
+          esc(kstDay(cur.service_date||cur.created_at).slice(5).replace("-","/"))} 작업분</span>` : "";
     const open = boardOpen === ch.token_slug;
     return `<div class="bch" onclick="boardOpen=boardOpen==='${esc(ch.token_slug)}'?null:'${esc(ch.token_slug)}';render()">
       <div class="nm">${esc(ch.name || ch.token_slug)}
-        <span class="sub">${ws.length ? esc(ws[0].work_title) : "오늘 작업 없음"}</span></div>
+        <span class="sub">${cur ? esc(cur.work_title) : "작업 이력 없음"}</span></div>
       <div class="dots">
         <div class="dcol"><span class="chdot ${gc}" title="${esc(gl)}"></span>생성 · ${esc(gl)}</div>
         <div class="dcol"><span class="chdot ${pc}" title="${esc(pl)}"></span>공개 · ${esc(pl)}</div>
+        ${dateBadge}
       </div></div>` +
-      (open && ws.length ? `<div class="bdetail">${chainHtml(ws[0])}</div>` : "");
+      (open && cur ? `<div class="bdetail">${chainHtml(cur)}</div>` : "");
   }).join("");
   const snaps = (state.snaps||[]).map(s => {
     const k = (s.payload||{}).kpis || {};
@@ -423,7 +432,8 @@ function renderHome(){
         <span class="lg"><span class="chdot run"></span>진행</span>
         <span class="lg"><span class="chdot rej"></span>반려</span>
         <span class="lg"><span class="chdot bad"></span>실패</span>
-        <span class="lg"><span class="chdot none"></span>없음</span></div>
+        <span class="lg"><span class="chdot none"></span>없음</span>
+        <span class="sub">오늘(KST) 기준 · 오늘 작업이 없으면 마지막 작업분을 날짜 배지와 함께 표시</span></div>
       <div class="board">${board || '<div class="empty">channels_mirror 비어 있음</div>'}</div></section>
     ${failsToday.length ? `<section class="card"><h2>오늘 실패 상세</h2><div class="tblwrap">
       <table><tr><th>kind</th><th>작품</th><th>분류</th><th>오류</th></tr>${
