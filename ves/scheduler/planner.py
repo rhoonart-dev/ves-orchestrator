@@ -108,6 +108,8 @@ def run(conn, cfg):
     works_ovr = _load_works_overrides(conn)  # 0017: 채널 작품 배정 수정본
     made = 0
     for ch in channels:
+        if ch.get("pipeline") == "zanmang_autopilot":
+            continue  # 전용 파이프라인(§10-①) — zanmang_daily(매일 10시, mm-06)가 담당
         if ch.get("country") == "JP" and not jp_on:
             continue  # 스위치 off — 현지화 autopilot 담당 유지(이중 생산 방지)
         slug = ch.get("token_slug")

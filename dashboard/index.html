@@ -315,6 +315,8 @@ const kindKo = k => KIND_KO[k] || k || "?";
 const chName = slug => { const c = (state.chans||[]).find(x => x.token_slug === slug);
   return (c && c.name) || slug || "?"; };
 const JP_SLUGS = new Set(["SHOTCONE"]);   // 일본 채널(가동 스위치 별도)
+/* 전용 파이프라인 채널(§10-①): 작업지시 체인이 아니라 일일 자동화 잡으로 도는 채널 */
+const EXT_PIPE = { LOOPY: "잔망루피 자동화 — 더빙 현지화·일 1편·19시 JST 예약" };
 
 // ───────── 인증 ─────────
 let myRole = "viewer";
@@ -496,6 +498,19 @@ function renderHome(){
     w.channel_slug === ch.token_slug && (kstDay(w.service_date||w.created_at) === today));
   const woRecent = ch => alive.find(w => w.channel_slug === ch.token_slug);
   const board = (state.chans||[]).map(ch => {
+    // 전용 파이프라인 채널(잔망루피): 작업지시 대신 오늘의 자동화 잡 상태를 보여준다
+    if (EXT_PIPE[ch.token_slug]){
+      const zj = j.find(x => x.kind === "zanmang_autopilot" && isToday(x.created_at));
+      const [zc, zl] = !zj ? ["none","오늘 실행 전"]
+        : zj.status === "succeeded" ? ["ok","오늘 실행 완료"]
+        : zj.status === "running" ? ["run","실행 중"]
+        : ["failed","dead"].includes(zj.status) ? ["bad","실패"] : ["wait","대기"];
+      return `<div class="bch"><div class="nm">${esc(ch.name || ch.token_slug)}
+          <span class="sub">${esc(EXT_PIPE[ch.token_slug])}</span></div>
+        <div class="dots"><div class="dcol"><span class="chdot ${zc}"></span>자동화 · ${esc(zl)}</div>
+          <div class="dcol"><span class="chdot ok" title="승인분은 19:00 JST 예약 공개"></span>공개 · 예약제</div>
+        </div></div>`;
+    }
     const ws = woToday(ch);
     const cur = ws.length ? ws[0] : woRecent(ch);
     const st = cur ? woStatus(cur) : "none";
@@ -818,6 +833,8 @@ function renderChannels(){
         </div>
         <div class="sub">⚠ 작품명은 권리 정본(laeebly)·소스 등록과 글자까지 같아야 합니다 — 한 글자 차이가 조회 전체를 깨뜨립니다</div>
       </div>` : "");
+    // 전용 파이프라인 채널은 작품·회차 지정이 무의미(플래너 대상 아님) — 숨긴다
+    const isExt = !!EXT_PIPE[ch.token_slug];
     // 0016: 다음 작업(작품·회차) 지정
     const plan = state.planOvr[ch.token_slug];
     const planTxt = plan
@@ -839,9 +856,10 @@ function renderChannels(){
     return `<div class="chcard"><div class="h"><b>${esc(ch.name || ch.token_slug)}</b>${st}
         ${ovr ? `<span class="sub right">${esc((ovr.updated_by||"").split("@")[0])} · ${ago(ovr.updated_at)}</span>` : ""}</div>
       ${worksLine}
-      <div class="dsum" style="margin-bottom:6px"><b>다음 작업:</b> ${planTxt}
+      ${isExt ? `<div class="dsum" style="margin-bottom:6px"><b>파이프라인:</b> ${esc(EXT_PIPE[ch.token_slug])}</div>`
+        : `<div class="dsum" style="margin-bottom:6px"><b>다음 작업:</b> ${planTxt}
         ${plan ? `<span class="sub"> · ${esc((plan.updated_by||"").split("@")[0])}</span>` : ""}</div>
-      ${planEdit}
+      ${planEdit}`}
       <div style="border-top:1px solid var(--line);margin:8px 0"></div>
       <div class="dsum">${sum}</div>${form}</div>`;
   }).join("");
