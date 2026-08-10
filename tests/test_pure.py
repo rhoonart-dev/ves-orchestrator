@@ -191,6 +191,17 @@ def test_channel_design_flags():
         pass
 
 
+def test_plan_for_channel():
+    """0016: 채널별 작품·회차 지정 — 정본(works) 안에서만 적용, 밖이면 자동 유지."""
+    from ves.scheduler.planner import plan_for_channel
+    works = ["유미의 세포들 시즌3", "언더커버셰프"]
+    assert plan_for_channel(works, None) == (works, None)                       # 자동
+    assert plan_for_channel(works, {"work_title": "언더커버셰프"}) == (["언더커버셰프"], None)
+    assert plan_for_channel(works, {"work_title": "언더커버셰프", "episode": 3}) == (["언더커버셰프"], 3)
+    assert plan_for_channel(works, {"work_title": "남의 작품"}) == (works, None)  # R14 방어
+    assert plan_for_channel(None, {"work_title": "x"}) == ([], None)
+
+
 def test_zanmang_daily_argv():
     """잔망루피 편입(8/10): 구 레포 .venv 로 autopilot daily 를 그대로 실행."""
     from ves.adapters.zanmang import daily_argv

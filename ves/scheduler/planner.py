@@ -58,6 +58,28 @@ def pipeline_for(ch: dict) -> str:
     return "shorts_jp_localized" if ch.get("country") == "JP" else "shorts_kr"
 
 
+def plan_for_channel(works, ovr) -> tuple:
+    """(시도할 작품 목록, 고정 회차 | None). 오버라이드(0016)가 정본 작품 안에 있을 때만
+    적용 — 정본 밖이면 무시(자동 유지)하고 실행부가 경고를 찍는다. 순수 — 테스트 대상."""
+    works = list(works or [])
+    if not ovr or not ovr.get("work_title"):
+        return works, None
+    w = ovr["work_title"]
+    if w not in works:
+        return works, None
+    return [w], ovr.get("episode")
+
+
+def _load_plan_overrides(conn) -> dict:
+    try:
+        with conn.cursor() as c:
+            c.execute("SELECT token_slug, work_title, episode FROM public.channel_plan_overrides")
+            return {r["token_slug"]: r for r in c.fetchall()}
+    except Exception as e:  # noqa: BLE001 — 0016 이전 DB 호환(테이블 없음 → 자동)
+        print(f"[planner] plan_overrides 조회 실패(자동 진행): {e}")
+        return {}
+
+
 def _jp_enabled(conn) -> bool:
     """JP 가동 스위치(ops_config.jp_pipeline='on') — 기존 현지화 autopilot 과의
     이중 생산을 막는 컷오버 장치(2026-08-10). 켜기 전에 구 autopilot 을 내릴 것."""
@@ -71,14 +93,24 @@ def run(conn, cfg):
     today = dt.datetime.now(dt.timezone(dt.timedelta(hours=9))).date()
     channels = _load_channels(cfg)
     jp_on = _jp_enabled(conn)
+    plan_ovr = _load_plan_overrides(conn)   # 0016: 채널별 작품·회차 지정
     made = 0
     for ch in channels:
         if ch.get("country") == "JP" and not jp_on:
             continue  # 스위치 off — 현지화 autopilot 담당 유지(이중 생산 방지)
-        for work in ch.get("works") or []:
-            src = _pick_source(conn, work)
+        ovr = plan_ovr.get(ch.get("token_slug"))
+        works_try, pin_ep = plan_for_channel(ch.get("works"), ovr)
+        if ovr and ovr.get("work_title") and works_try != [ovr["work_title"]]:
+            print(f"[planner] ⚠ {ch['name']}: 지정 작품 '{ovr['work_title']}' 이 "
+                  f"채널 정본(works)에 없음 — 자동으로 진행(R14)")
+        for work in works_try:
+            src = _pick_source(conn, work, episode=pin_ep)
             if src is None:
-                _note_missing_source(conn, work, ch)   # 지표14의 재료
+                if pin_ep is not None:
+                    print(f"[ALERT] 지정 회차 사용 불가: {ch['name']} / {work} {pin_ep}회차 — "
+                          f"소진·비활성·미등록. 관제에서 지정 해제 또는 회차 변경 필요")
+                else:
+                    _note_missing_source(conn, work, ch)   # 지표14의 재료
                 continue
             if _create_work_order(conn, cfg, today, ch, work, src):
                 made += 1
@@ -95,10 +127,11 @@ def _load_channels(cfg):
     return data if isinstance(data, list) else data.get("channels") or []
 
 
-def _pick_source(conn, work, pipeline="shorts_kr"):
+def _pick_source(conn, work, pipeline="shorts_kr", episode=None):
     """회차 순환(사용자 결정 2026-08-07): 활성 소스 중 사용횟수(취소·실패 제외)가
     use_limit(기본 3) 미만인 최저 회차. 한도 도달 시 자동으로 다음 회차,
-    전 회차 소진이면 None(→ 알림+대기, 관제 소스 섹션에 표시)."""
+    전 회차 소진이면 None(→ 알림+대기, 관제 소스 섹션에 표시).
+    episode 지정(0016) 시 그 회차만 — 소진이면 None(사람 결정을 조용히 바꾸지 않는다)."""
     with conn.cursor() as c:
         c.execute(
             """SELECT s.* FROM public.sources s
@@ -107,9 +140,10 @@ def _pick_source(conn, work, pipeline="shorts_kr"):
                  AND w.episode IS NOT DISTINCT FROM s.episode
                  AND w.status NOT IN ('cancelled','failed')
                 WHERE s.work_title = %s AND s.is_active
+                  AND (%s::int IS NULL OR s.episode = %s::int)
                 GROUP BY s.id
                HAVING COUNT(w.id) < s.use_limit
-                ORDER BY s.episode NULLS LAST LIMIT 1""", (work,))
+                ORDER BY s.episode NULLS LAST LIMIT 1""", (work, episode, episode))
         return c.fetchone()
 
 

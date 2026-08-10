@@ -382,6 +382,7 @@ async function refresh(){
     soft(sb.from("dashboard_daily_snapshots").select("*").order("snapshot_date",{ascending:false}).limit(7)),
   ]);
   const ovr = await soft(sb.from("channel_design_overrides").select("*"));   // 0014 이전엔 빈 배열
+  const plans = await soft(sb.from("channel_plan_overrides").select("*"));   // 0016 이전엔 빈 배열
   const err = [nodes,deps,jobs,reviews,events,wos,srcs,chans].find(r => r.error);
   if (err){ toast("조회 실패: " + err.error.message, true); return; }
   const runToClip = {}, judgeByClip = {}, clipById = {};
@@ -400,6 +401,7 @@ async function refresh(){
   state = { nodes:nodes.data, deps:deps.data, jobs:jobs.data, reviews:reviews.data,
             events:events.data, wos:wos.data, srcs:srcs.data, chans:chans.data,
             designOvr:Object.fromEntries((ovr.data||[]).map(o=>[o.token_slug,o])),
+            planOvr:Object.fromEntries((plans.data||[]).map(o=>[o.token_slug,o])),
             snaps:snaps.data||[], runToClip, judgeByClip, clipById, artByWo, jobsByWo, reviewByWo,
             wo:Object.fromEntries((wos.data||[]).map(w=>[w.id,w])),
             jobById:Object.fromEntries((jobs.data||[]).map(j=>[j.id,j])),
@@ -654,10 +656,25 @@ window.reject = rid => {
 const FEED_PILL = { published:["fp-pub","공개/발행"], scheduled:["fp-wait","예약"],
   approved:["fp-wait","합격·대기"], review:["fp-wait","검수 대기"], rejected:["fp-rej","반려"],
   failed:["fp-rej","실패"], running:["fp-run","제작 중"], pending:["fp-mut","대기"], none:["fp-mut","—"] };
+let feedQ = "";
+window.feedSearch = v => {
+  feedQ = v; render();
+  const el = $("#feedQ");
+  if (el){ el.focus(); const n = el.value.length; el.setSelectionRange(n, n); }
+};
 function renderFeed(){
-  const wos = (state.wos||[]).filter(w => showRejected || woStatus(w) !== "rejected");
-  const goneCount = (state.wos||[]).length - wos.length;
+  const nq = feedQ.trim().toLowerCase().replace(/\s+/g, "");
+  const match = w => !nq
+    || (w.work_title||"").toLowerCase().replace(/\s+/g,"").includes(nq)
+    || chName(w.channel_slug).toLowerCase().replace(/\s+/g,"").includes(nq)
+    || (w.channel_slug||"").toLowerCase().includes(nq);
+  const base = (state.wos||[]).filter(match);
+  const wos = base.filter(w => showRejected || woStatus(w) !== "rejected");
+  const goneCount = base.length - wos.length;
   $("#page").innerHTML = `<section class="card"><h2>영상 피드 — 최신순
+      <input id="feedQ" value="${esc(feedQ)}" placeholder="🔍 작품·채널 검색" oninput="feedSearch(this.value)"
+        style="margin-left:10px;font-size:12.5px;padding:4px 10px;width:200px">
+      ${feedQ ? `<span class="sub">${wos.length}건</span> <button class="mini" onclick="feedSearch('')">지우기</button>` : ""}
       ${goneCount ? `<button class="mini" style="margin-left:8px" onclick="showRejected=!showRejected;render()">반려 ${goneCount}건 ${showRejected?"숨기기":"보기"}</button>` : ""}</h2>
     <div class="grid">${wos.map(w => {
       const st = woStatus(w), [pc, pl] = FEED_PILL[st] || FEED_PILL.none;
@@ -782,8 +799,30 @@ function renderChannels(){
     : `<div class="dacts">${can("operator")
         ? `<button class="mini" onclick="chEdit='${esc(ch.token_slug)}';render()">✎ 편집</button>`
         : '<span class="sub">편집은 operator 권한</span>'}</div>`;
+    // 0016: 다음 작업(작품·회차) 지정
+    const plan = state.planOvr[ch.token_slug];
+    const planTxt = plan
+      ? `📌 ${esc(plan.work_title)} · ${plan.episode != null ? plan.episode + "회차 고정" : "회차 자동"}`
+      : "자동 (작품 순서 · 회차 순환)";
+    const epOpts = w => [`<option value="">회차 자동(순환)</option>`,
+      ...(state.srcs||[]).filter(s => s.work_title === w && s.is_active !== false && s.episode != null)
+        .sort((a,b) => a.episode - b.episode)
+        .map(s => `<option value="${s.episode}" ${plan && plan.episode === s.episode ? "selected" : ""}>${
+          s.episode}회차 (남음 ${s.remaining}/${s.use_limit})</option>`)].join("");
+    const planEdit = can("operator") ? `
+      <div class="form" style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <select id="pw_${ch.token_slug}" onchange="planWorkChanged('${esc(ch.token_slug)}')">${
+          (ch.works||[]).map(w => `<option value="${esc(w)}" ${plan && plan.work_title === w ? "selected" : ""}>${esc(w)}</option>`).join("")}</select>
+        <select id="pe_${ch.token_slug}">${epOpts(plan ? plan.work_title : (ch.works||[])[0])}</select>
+        <button class="mini pri" onclick="planSave('${esc(ch.token_slug)}')">지정</button>
+        ${plan ? `<button class="mini" onclick="planClear('${esc(ch.token_slug)}')">자동으로</button>` : ""}
+      </div>` : "";
     return `<div class="chcard"><div class="h"><b>${esc(ch.name || ch.token_slug)}</b>${st}
         ${ovr ? `<span class="sub right">${esc((ovr.updated_by||"").split("@")[0])} · ${ago(ovr.updated_at)}</span>` : ""}</div>
+      <div class="dsum" style="margin-bottom:6px"><b>다음 작업:</b> ${planTxt}
+        ${plan ? `<span class="sub"> · ${esc((plan.updated_by||"").split("@")[0])}</span>` : ""}</div>
+      ${planEdit}
+      <div style="border-top:1px solid var(--line);margin:8px 0"></div>
       <div class="dsum">${sum}</div>
       <div class="sub" style="margin-top:4px">${esc((ch.works||[]).join(", "))}</div>${form}</div>`;
   }).join("");
@@ -808,6 +847,21 @@ window.chClear = slug => {
   chEdit = null;
   rpc("set_channel_design", { p_slug: slug, p_design: null }, "해제됨 — 파일 기본으로 복귀");
 };
+// 0016: 다음 작업(작품·회차) 지정
+window.planWorkChanged = slug => {
+  const w = $("#pw_" + slug).value;
+  $("#pe_" + slug).innerHTML = [`<option value="">회차 자동(순환)</option>`,
+    ...(state.srcs||[]).filter(s => s.work_title === w && s.is_active !== false && s.episode != null)
+      .sort((a,b) => a.episode - b.episode)
+      .map(s => `<option value="${s.episode}">${s.episode}회차 (남음 ${s.remaining}/${s.use_limit})</option>`)].join("");
+};
+window.planSave = slug => {
+  const w = $("#pw_" + slug).value, e = $("#pe_" + slug).value;
+  rpc("set_channel_plan", { p_slug: slug, p_work: w, p_episode: e ? parseInt(e,10) : null },
+      `지정됨 — 다음 계획부터 ${w}${e ? " " + e + "회차" : ""}`);
+};
+window.planClear = slug =>
+  rpc("set_channel_plan", { p_slug: slug, p_work: null }, "자동으로 복귀");
 
 // ───────── 잡·이벤트 ─────────
 const JOB_FILTERS = [["all","전체"],["pending","대기"],["running","실행"],
@@ -1047,10 +1101,13 @@ window.adminSave = (i, email) => {
 
 // ───────── 폴링 ─────────
 let auto = true;
-// v3: 영상 시청 중엔 자동 갱신을 잠시 멈춘다 — 재생 중 화면이 갈리지 않게
+// v3: 영상 시청·입력 중엔 자동 갱신을 잠시 멈춘다 — 재생/타이핑 중 화면이 갈리지 않게
 const anyVideoPlaying = () =>
   [...document.querySelectorAll("video")].some(v => !v.paused && !v.ended);
-setInterval(() => { if (auto && !document.hidden && tab !== "perf" && !anyVideoPlaying()) refresh(); }, 15000);
+const userTyping = () => { const a = document.activeElement;
+  return !!a && ["INPUT","TEXTAREA","SELECT"].includes(a.tagName); };
+setInterval(() => { if (auto && !document.hidden && tab !== "perf"
+                    && !anyVideoPlaying() && !userTyping()) refresh(); }, 15000);
 $("#btnRefresh").onclick = () => refresh();
 $("#btnTheme").onclick = () =>
   applyTheme(document.documentElement.dataset.theme === "light" ? "dark" : "light");
