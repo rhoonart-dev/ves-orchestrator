@@ -51,6 +51,12 @@ def run(conn, cfg):
         except Exception as e:  # noqa: BLE001 — laeebly 장애가 외부폴더 감시를 막지 않는다
             print(f"[drive_watch] laeebly 조회 실패(건너뜀): {e}")
 
+    # rclone.conf 가 있는 노드로 고정(권리사 폴더 인증 접근 — 실측 2026-08-10)
+    with conn.cursor() as c:
+        c.execute("SELECT value FROM public.ops_config WHERE key='drive_sync_node'")
+        row = c.fetchone()
+    caps = ["network"] + ([f"node:{row['value']}"] if row and row.get("value") else [])
+
     made = 0
     for label, url, work, mode in targets:
         params = {"folder_url": url, "mode": mode, "use_limit": 3}
@@ -62,8 +68,8 @@ def run(conn, cfg):
                        (kind, params, idempotency_key, required_caps, lease_ttl_sec)
                    VALUES ('sync_drive_folder', %s::jsonb,
                            encode(extensions.digest(%s,'sha256'),'hex'),
-                           ARRAY['network'], 600)
+                           %s, 600)
                    ON CONFLICT (idempotency_key) DO NOTHING""",
-                (json.dumps(params, ensure_ascii=False), f"drive-sync|{url}|{today}"))
+                (json.dumps(params, ensure_ascii=False), f"drive-sync|{url}|{today}", caps))
             made += c.rowcount
-    print(f"[drive_watch] 대상 {len(targets)}곳 · 신규 잡 {made}건 ({today})")
+    print(f"[drive_watch] 대상 {len(targets)}곳 · 신규 잡 {made}건 · caps={caps} ({today})")

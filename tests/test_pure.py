@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """순수 로직 단위테스트 — DB/네트워크 의존 없음 (엔진 레포들의 테스트 관행 계승)."""
+import json
 import sys
 import pathlib
 
@@ -192,10 +193,25 @@ def test_guess_episode_and_drive_plan():
     files = [("f1", "유부녀 킬러/유부녀킬러_E01.mp4"), ("f2", "유부녀 킬러/자막_E01.srt"),
              ("f3", "루트직치기.mp4"), ("f4", "김부장/김부장 2화.mp4"), ("f1", "중복/x.mp4")]
     got = plan_new(files, "external", None, known_ids={"f4"})
-    assert got == [("f1", "유부녀 킬러", "유부녀킬러_E01.mp4"),
-                   ("f1", "중복", "x.mp4")]                 # srt·루트파일·기등록 제외
+    assert got == [("f1", "유부녀 킬러", "유부녀 킬러/유부녀킬러_E01.mp4"),
+                   ("f1", "중복", "중복/x.mp4")]            # srt·루트파일·기등록 제외
     single = plan_new([("a", "sub/ep1.mp4")], "single", "참교육", set())
-    assert single == [("a", "참교육", "ep1.mp4")]
+    assert single == [("a", "참교육", "sub/ep1.mp4")]
+
+
+def test_rclone_helpers():
+    """rclone 인증 경로(실측 2026-08-10): 원격 파싱·lsjson 매핑·폴더 ID 추출."""
+    from ves.adapters.register_drive import first_remote, folder_id_of, lsjson_files
+    assert first_remote("gdrive:\n") == "gdrive:" and first_remote("") is None
+    assert folder_id_of("https://drive.google.com/drive/folders/"
+                        "1nbob1KhTt-x68xKUKb8P8GoHfo2uqKSj?usp=sharing") \
+        == "1nbob1KhTt-x68xKUKb8P8GoHfo2uqKSj"
+    files = lsjson_files(json.dumps([
+        {"Path": "참교육/참교육_E01.mp4", "Name": "참교육_E01.mp4", "ID": "abc123"},
+        {"Path": "메모.txt", "Name": "메모.txt"}]))
+    assert files[0] == ("abc123", "참교육/참교육_E01.mp4")
+    assert len(files) == 2 and files[1][0]                     # ID 없으면 해시 대체
+    assert lsjson_files("깨진 json") == []
 
 
 def test_drive_watch_folder_url():

@@ -22,7 +22,7 @@ esac; done
 [[ -n "$NODE_ID" && -n "$CAPS" ]] || { echo "사용법: $0 --node-id mm-0X --caps a,b,c"; exit 1; }
 
 echo "== [1/7] Homebrew 의존 =="
-for pkg in ffmpeg yt-dlp git; do
+for pkg in ffmpeg yt-dlp git rclone; do
   command -v "$pkg" >/dev/null || brew install "$pkg"
 done
 command -v python3.12 >/dev/null || brew install python@3.12
