@@ -27,6 +27,13 @@ def run(cfg, conn, job, deps):
             return {"source": "url"}
         raise base.HumanRequired(
             f"소스 미등록: {p['work_title']} ep{p.get('episode')} — 대시보드 [소스 등록] 필요")
+    if not src.get("sha256"):
+        # 0012 URL 소스 행(sha 없음) — 캐시 불필요, generate 가 --youtube-url 로 직접
+        # (첫 전체 회전 실측: URL 행이 존재한다는 이유로 sha 경로에 빠져 404 나던 결함)
+        if p.get("source_url"):
+            return {"source": "url"}
+        raise base.PermanentError(
+            f"소스 행에 sha·URL 둘 다 없음: {p['work_title']} ep{p.get('episode')}")
 
     dest = pathlib.Path(cfgmod.source_cache_path(cfg, src["sha256"]))
     if dest.exists() and dest.stat().st_size == (src["bytes"] or dest.stat().st_size):
