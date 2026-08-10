@@ -124,11 +124,12 @@ def _create_work_order(conn, cfg, today, ch, work, src) -> bool:
         c.execute(
             """INSERT INTO public.work_orders
                    (service_date, channel_slug, work_title, episode, source_sha256,
-                    pipeline, geoblock_required, has_subtitle)
-               VALUES (%s,%s,%s,%s,%s,'shorts_kr',%s,%s)
+                    source_url, pipeline, geoblock_required, has_subtitle)
+               VALUES (%s,%s,%s,%s,%s,%s,'shorts_kr',%s,%s)
                ON CONFLICT (service_date, channel_slug, work_title, pipeline) DO NOTHING
                RETURNING id""",
-            (today, ch["token_slug"], work, src.get("episode"), src["sha256"],
+            (today, ch["token_slug"], work, src.get("episode"), src.get("sha256"),
+             src.get("source_url"),   # 0012: URL 소스(laeebly 유튜브형 이관)
              _geoblock_required(cfg, work), bool(src.get("has_subtitle"))))
         row = c.fetchone()
     if row is None:
@@ -136,7 +137,8 @@ def _create_work_order(conn, cfg, today, ch, work, src) -> bool:
     wo_id = row["id"]
 
     wo = {"work_title": work, "episode": src.get("episode"), "channel_slug": ch["token_slug"],
-          "channel_name": ch["name"], "source_sha256": src["sha256"],
+          "channel_name": ch["name"], "source_sha256": src.get("sha256"),
+          "source_url": src.get("source_url"),
           "has_subtitle": bool(src.get("has_subtitle")), "gcp_project": ch.get("gcp_project"),
           "pipeline": "shorts_kr", "knob_config": {}}
     prev_id = None

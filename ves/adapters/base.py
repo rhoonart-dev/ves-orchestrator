@@ -85,7 +85,8 @@ def get(kind: str):
 
 def _load_all():
     """어댑터 지연 로드 — import 순환·무거운 의존 회피."""
-    from ves.adapters import acquire, aivideo, brain, localize, upload_artifacts
+    from ves.adapters import (acquire, aivideo, brain, localize, register_sources,
+                              upload_artifacts)
     register("acquire", acquire)
     register("generate", aivideo)
     register("upload_artifacts", upload_artifacts)
@@ -93,3 +94,4 @@ def _load_all():
     register("evaluate", brain.Evaluate)
     register("publish", brain.Publish)
     register("localize", localize)
+    register("register_playlist", register_sources)   # 구 관제 소스 이관(0012)

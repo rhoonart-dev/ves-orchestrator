@@ -182,6 +182,24 @@ def test_brain_evaluate_argvs():
     assert "--video" not in judge_argv("/py", "/s", "clip-uuid", None)
 
 
+def test_register_playlist_plan_rows():
+    """구 관제 이관: 사멸 항목 스킵·제목 필터·순번 회차 (0012)."""
+    from ves.adapters.register_sources import plan_rows
+    entries = [
+        {"id": "a1", "title": "[Private video]"},                 # 도깨비 1번 실측
+        {"id": "b2", "title": "도깨비 10주년 여행 EP.2"},
+        {"id": None, "title": "이상 항목"},
+        {"id": "c3", "title": "산지직송 하이라이트"},
+    ]
+    rows = plan_rows("도깨비 10주년 여행", entries)
+    assert [(r[0], r[1]) for r in rows] == [
+        (2, "https://www.youtube.com/watch?v=b2"),
+        (4, "https://www.youtube.com/watch?v=c3")]                # 순번 유지, 사멸·불량 제외
+    only = plan_rows("언니네 산지직송 in 칼라페", entries, title_filter="산지직송")
+    assert len(only) == 1 and only[0][0] == 4
+    assert plan_rows("x", None) == []
+
+
 def test_storage_4xx_permanent_except_429():
     from ves.adapters.upload_artifacts import _is_permanent_storage_error
     assert _is_permanent_storage_error('storage upload 400: {"error":"InvalidKey"}')
