@@ -8,13 +8,16 @@ scheduler capability 를 2~3대에 켜두면 리더 선출 없이 자동 승계�
 from __future__ import annotations
 
 import datetime as dt
+import subprocess
+import sys
 import time
 import traceback
 
+from ves import config as cfgmod
 from ves import db
 from ves.config import get_config
-from ves.scheduler import (channels_sync, drive_watch, planner, reaper, reconcile,
-                           storage_gc, version_watch)
+from ves.scheduler import (channels_sync, drive_watch, perf_sync, planner, reaper,
+                           reconcile, storage_gc, version_watch, zanmang_daily)
 
 KST = dt.timezone(dt.timedelta(hours=9))
 TICK_SEC = 30
@@ -50,15 +53,32 @@ def _read_kick(conn) -> str | None:
     return row and row["value"]
 
 
+def _code_sha(cfg) -> str | None:
+    """체크아웃의 현재 sha — 워커 updater 가 새 코드를 받아놓으면 값이 바뀐다."""
+    try:
+        r = subprocess.run(["git", "-C", cfgmod.engine_dir(cfg, "orchestrator"),
+                            "rev-parse", "HEAD"], capture_output=True, text=True, timeout=10)
+        return r.stdout.strip() if r.returncode == 0 else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def main():
     cfg = get_config()
     conn = db.connect(cfg.db_url)
     lock_conn = db.connect(cfg.db_url)   # advisory lock 전용 세션(세션 락)
     last: dict = {}
-    print(f"[scheduler] {cfg.node_id} 기동")
+    boot_sha = _code_sha(cfg)
+    print(f"[scheduler] {cfg.node_id} 기동 (sha {(boot_sha or '?')[:7]})")
 
     while True:
         try:
+            # ★자기 재시작(8/10 실측 구멍): 워커 updater 는 exit(42) 로 새 코드를 태우지만
+            # 스케줄러는 옛 임포트로 계속 돌았다 — 체크아웃 sha 가 바뀌면 종료(KeepAlive 재기동).
+            cur_sha = _code_sha(cfg)
+            if boot_sha and cur_sha and cur_sha != boot_sha:
+                print(f"[scheduler] 코드 갱신 감지({boot_sha[:7]}→{cur_sha[:7]}) — 재기동 종료")
+                sys.exit(0)
             with lock_conn.cursor() as c:
                 c.execute("SELECT pg_try_advisory_lock(hashtext('ves:scheduler')) AS got")
                 got = c.fetchone()["got"]
@@ -85,6 +105,8 @@ def main():
                     ("drive_watch",   lambda: drive_watch.run(conn, cfg),   _due_daily(last.get("drive_watch"), now, 7)),
                     ("planner",       lambda: planner.run(conn, cfg),       _due_daily(last.get("planner"), now, 9)),
                     ("channels_sync", lambda: channels_sync.run(conn, cfg), _due_daily(last.get("channels_sync"), now, 8)),
+                    ("perf_sync",     lambda: perf_sync.run(conn, cfg),     _due_interval(last.get("perf_sync"), now, 60)),
+                    ("zanmang_daily", lambda: zanmang_daily.run(conn, cfg), _due_daily(last.get("zanmang_daily"), now, 10)),
                     ("storage_gc",    lambda: storage_gc.run(conn, cfg),    _due_daily(last.get("storage_gc"), now, 6)),
                 ]
                 for name, fn, due in tasks:

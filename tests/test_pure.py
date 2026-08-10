@@ -191,6 +191,23 @@ def test_channel_design_flags():
         pass
 
 
+def test_zanmang_daily_argv():
+    """잔망루피 편입(8/10): 구 레포 .venv 로 autopilot daily 를 그대로 실행."""
+    from ves.adapters.zanmang import daily_argv
+    argv = daily_argv("/Users/steve/dev/video-localization-project")
+    assert argv[0].endswith("/.venv/bin/python")
+    assert argv[1:] == ["-m", "src.autopilot", "daily"]
+
+
+def test_perf_sync_chunks():
+    """IN 절 안전 분할(0015) — 대량 content_id 를 laeebly 에 한 방에 던지지 않는다."""
+    from ves.scheduler.perf_sync import chunks
+    assert chunks([]) == []
+    assert chunks([1, 2, 3], n=2) == [[1, 2], [3]]
+    assert sum(len(c) for c in chunks(list(range(450)))) == 450
+    assert max(len(c) for c in chunks(list(range(450)))) == 200
+
+
 def test_effective_design_precedence():
     """0014: 관제 오버라이드 > 파일 정본 > 없음(엔진 기본). 통째 교체 의미."""
     from ves.adapters.aivideo import effective_design

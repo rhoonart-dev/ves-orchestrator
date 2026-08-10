@@ -111,3 +111,5 @@ def _load_all():
     register("localize", localize)
     register("register_playlist", register_sources)    # 구 관제 소스 이관(0012)
     register("sync_drive_folder", register_drive)      # 드라이브 자동 인입(0013)
+    from ves.adapters import zanmang
+    register("zanmang_autopilot", zanmang)             # 잔망루피 현지화 편입(8/10)

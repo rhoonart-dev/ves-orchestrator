@@ -34,6 +34,25 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     --good:#0ca30c; --warn:#fab219; --serious:#ec835a; --crit:#d03b3b;
     --info:#3987e5;
   }
+  /* v3.2: 화이트 테마 — 같은 변수만 갈아끼운다(컴포넌트 CSS 무변경) */
+  :root[data-theme="light"]{
+    color-scheme:light;
+    --page:#f4f4f2; --surface:#ffffff; --surface-2:#f0efec;
+    --ink:#191918; --ink-2:#44433f; --muted:#807e78;
+    --line:#dcdbd6; --ring:rgba(0,0,0,.10);
+    --good:#0b8a0b; --warn:#b07500; --serious:#c05a2e; --crit:#c22525;
+    --info:#1f6fd0;
+  }
+  :root[data-theme="light"] .st-good{color:#0b8a0b}
+  :root[data-theme="light"] .st-crit{color:#c22525}
+  :root[data-theme="light"] .st-info{color:#1f6fd0}
+  :root[data-theme="light"] nav.tabs button.on{color:var(--ink)}
+  :root[data-theme="light"] .fp-pub{color:#0b8a0b}
+  :root[data-theme="light"] .fp-rej{color:#c22525}
+  :root[data-theme="light"] .fp-run{color:#1f6fd0}
+  :root[data-theme="light"] .judgebox .q{color:var(--ink)}
+  :root[data-theme="light"] .now .what .st{color:#1f6fd0}
+  :root[data-theme="light"] .gauge{background:#dcdbd6}
   *{box-sizing:border-box}
   body{margin:0;background:var(--page);color:var(--ink);
        font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
@@ -231,6 +250,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     <span class="pill" id="whoami">—</span>
     <span class="sp"></span>
     <span class="sub" id="lastSync">—</span>
+    <button class="mini" id="btnTheme" title="화이트/블랙 전환">🌙</button>
     <button class="mini" id="btnRefresh">지금 갱신</button>
     <button class="mini" id="btnAuto">자동 15s: 켬</button>
     <button class="mini" id="btnLogout">로그아웃</button>
@@ -243,13 +263,21 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 const SB_URL = "https://fdidiqdhcyctdbogxkdu.supabase.co";
 const SB_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZkaWRpcWRoY3ljdGRib2d4a2R1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1Mzc4NDAsImV4cCI6MjA5NzExMzg0MH0.78tkMDmruPKGzkmtOwCYpHyeaRYNG3myELr0Gj2VPs8"; // 공개값(anon) — RLS 가 지킨다
-const EDGE = SB_URL + "/functions/v1/dashboard";   // 성과 탭: 구 대시보드 Edge Function 재사용
 
 const memStore = (() => { const m = new Map(); return {
   getItem: k => m.has(k) ? m.get(k) : null,
   setItem: (k,v) => m.set(k,v), removeItem: k => m.delete(k) }; })();
 let storage = memStore;
 try { localStorage.setItem("_t","1"); localStorage.removeItem("_t"); storage = localStorage; } catch(e){}
+
+// v3.2: 화이트/블랙 테마 — 저장해서 재방문에도 유지
+function applyTheme(t){
+  document.documentElement.dataset.theme = t;
+  storage.setItem("ves_theme", t);
+  const b = document.getElementById("btnTheme");
+  if (b) b.textContent = t === "light" ? "☀️" : "🌙";
+}
+applyTheme(storage.getItem("ves_theme") === "light" ? "light" : "dark");
 const sb = supabase.createClient(SB_URL, SB_ANON, {
   auth: { storage, persistSession: storage === localStorage, autoRefreshToken: true } });
 
@@ -280,7 +308,8 @@ const JOB_ST = { pending:["mut","⏳","대기"], running:["info","▶","실행"]
 /* v3: 단계 이름 한글화 — 사람 눈에 보이는 모든 곳은 이 이름으로 */
 const KIND_KO = { acquire:"소스 준비", generate:"영상 제작", upload_artifacts:"결과 업로드",
   ingest:"기록 적재", evaluate:"자동 검사", publish:"발행", localize:"일본어 번역",
-  sync_drive_folder:"드라이브 인입", register_playlist:"유튜브 소스 등록" };
+  sync_drive_folder:"드라이브 인입", register_playlist:"유튜브 소스 등록",
+  zanmang_autopilot:"잔망루피 자동화" };
 const kindKo = k => KIND_KO[k] || k || "?";
 /* v3: 채널 한글명 — channels_mirror 기준, 없으면 코드 그대로 */
 const chName = slug => { const c = (state.chans||[]).find(x => x.token_slug === slug);
@@ -415,13 +444,15 @@ function pubDot(wo){
 // ───────── 탭 셸 ─────────
 const TABS = [["home","홈"],["review","검수함"],["feed","영상 피드"],["sources","소스 창고"],
               ["channels","채널 템플릿"],["jobs","작업 내역"],["infra","맥·배포"],["perf","성과"]];
+const tabsFor = () => myRole === "admin" ? [...TABS, ["admin","권한 관리"]] : TABS;
 function render(){
   const waiting = (state.reviews||[]).filter(r => r.status === "waiting").length;
-  $("#tabs").innerHTML = TABS.map(([k,l]) =>
+  $("#tabs").innerHTML = tabsFor().map(([k,l]) =>
     `<button class="${tab===k?"on":""}" onclick="tab='${k}';render()">${l}${
       k==="review"&&waiting?`<span class="badge">${waiting}</span>`:""}</button>`).join("");
   ({home:renderHome, review:renderReview, feed:renderFeed, sources:renderSources,
-    channels:renderChannels, jobs:renderJobsTab, infra:renderInfra, perf:renderPerf}[tab])();
+    channels:renderChannels, jobs:renderJobsTab, infra:renderInfra, perf:renderPerf,
+    admin:renderAdmin}[tab] || renderHome)();
 }
 
 // ───────── 홈 ─────────
@@ -657,7 +688,9 @@ window.playFeed = async (woId, key, bucket) => {
   } catch(e){ toast("재생 실패: " + e.message, true); }
 };
 
-// ───────── 소스 (v3: 작품별 그룹 + 사용량 게이지 — 어느 작품이 얼마나 남았나 한눈에) ─────────
+// ───────── 소스 (v3.2: 작품별 토글 그룹 + 사용량 게이지) ─────────
+let srcOpen = new Set();
+window.srcToggle = w => { srcOpen.has(w) ? srcOpen.delete(w) : srcOpen.add(w); render(); };
 function renderSources(){
   const by = {};
   (state.srcs||[]).forEach(r => (by[r.work_title] = by[r.work_title] || []).push(r));
@@ -672,25 +705,34 @@ function renderSources(){
       ? chip("crit","✕","전 회차 소진 — 새 소스 보충 필요")
       : chip("good","✓",`앞으로 ${remainTot}편 더 만들 수 있음`);
     const nextChip = next ? `<span class="pill">다음 사용: ${next.episode != null ? next.episode + "회차" : "단편"}</span>` : "";
-    const eps = rows.map(r => {
+    const open = srcOpen.has(w);
+    const eps = !open ? "" : rows.map(r => {
       const used = Number(r.times_used)||0, lim = Number(r.use_limit)||1;
       const pct = Math.min(100, Math.round(used / lim * 100));
       const full = r.is_active === false || Number(r.remaining) === 0;
       const tag = r.is_active === false ? '<span class="sub">비활성</span>'
                 : Number(r.remaining) === 0 ? '<span style="color:var(--crit)">소진</span>'
-                : (next && r.episode === next.episode ? '<span style="color:#7ddc7d">← 다음</span>' : "");
+                : (next && r.episode === next.episode ? '<span style="color:var(--good)">← 다음</span>' : "");
       return `<div class="eprow"><span class="ep">${r.episode != null ? r.episode + "회차" : "단편"}</span>
         <span class="gauge"><i class="${full ? "full" : ""}" style="width:${pct}%"></i></span>
         <span class="cnt">${used}/${lim}</span>${tag}</div>`;
     }).join("");
-    return `<div class="srcwork"><div class="swh"><b>${esc(w)}</b>
+    return `<div class="srcwork"><div class="swh" style="cursor:pointer" onclick="srcToggle('${esc(w).replace(/'/g,"\\'")}')">
+        <span class="sub">${open ? "▾" : "▸"}</span><b>${esc(w)}</b>
+        <span class="sub">${rows.length}개 회차</span>
         ${chans.length ? `<span class="sub">→ ${esc(chans.join(", "))}</span>` : ""}
         <span class="right"></span>${nextChip}${head}</div>${eps}</div>`;
   }).join("");
   $("#page").innerHTML = `<section class="card">
-    <h2>소스 창고 — 작품별 사용 현황 (회차마다 쓸 수 있는 횟수가 정해져 있고, 다 쓰면 다음 회차로 자동 이동)</h2>
+    <h2>소스 창고 — 작품명을 누르면 회차별 상세가 열립니다
+      <button class="mini right" onclick="srcAll()">모두 ${srcOpen.size ? "접기" : "펼치기"}</button></h2>
     ${blocks || '<div class="empty">등록된 소스 없음 — 유튜브형은 자동, 파일형은 메인 맥에서 deploy/register_source.py 로 등록</div>'}</section>`;
 }
+window.srcAll = () => {
+  const ws = [...new Set((state.srcs||[]).map(r => r.work_title))];
+  srcOpen = srcOpen.size ? new Set() : new Set(ws);
+  render();
+};
 
 // ───────── 채널 템플릿 (0014: 관제 오버라이드 > 파일 정본, 저장 즉시 다음 생성부터) ─────────
 const DESIGN_FIELDS = [   // [키, 라벨, 종류] — brain channel_registry 허용 키와 1:1
@@ -863,71 +905,145 @@ window.pinAsk = eng => {
   if (sha) rpc("pin_engine", { p_engine: eng, p_sha: sha.trim(), p_note: "dashboard" }, "핀 설정");
 };
 
-// ───────── 성과 (구 Edge Function 재사용 — 접속코드는 메모리에만) ─────────
-let edgeKey = "", perfData = null, perfMsg = "", perfSort = { col: null, dir: -1 };
-async function edgeApi(path){
-  const r = await fetch(EDGE + path, { headers: { "x-ves-key": encodeURIComponent(edgeKey) } });
-  if (r.status === 401) throw new Error("unauthorized");
-  if (!r.ok) throw new Error("HTTP " + r.status);
-  return r.json();
+// ───────── 성과 (v3.2: laeebly youtube_*_snapshot 미러 직결 — perf_sync 가 매시간 복사) ─────────
+let perf = null, perfLoading = false, perfSort = { col: "views", dir: -1 };
+const fmtN = v => v == null ? "—" : Number(v).toLocaleString("ko-KR");
+const fmtD = v => v == null ? "—" : (v > 0 ? "+" : "") + Number(v).toLocaleString("ko-KR");
+const chNameById = id => { const c = (state.chans||[]).find(x => x.channel_id === id);
+  return (c && c.name) || (id || "").slice(0,10); };
+async function loadPerf(){
+  if (perfLoading) return; perfLoading = true;
+  try {
+    const md = await sb.from("perf_video_snapshot").select("snapshot_date")
+      .order("snapshot_date",{ascending:false}).limit(1);
+    const maxDate = md.data && md.data[0] && md.data[0].snapshot_date;
+    if (!maxDate){ perf = { empty: true }; return; }
+    const dOf = n => { const t = new Date(maxDate + "T00:00:00Z");
+      t.setUTCDate(t.getUTCDate() - n); return t.toISOString().slice(0,10); };
+    const dates = [maxDate, dOf(1), dOf(28)];
+    const [vs, vm, cs] = await Promise.all([
+      sb.from("perf_video_snapshot").select("*").in("snapshot_date", dates).limit(9000),
+      sb.from("perf_video_map").select("*").limit(3000),
+      sb.from("perf_channel_snapshot").select("*").gte("snapshot_date", dOf(29)).limit(2000),
+    ]);
+    if (vs.error || vm.error || cs.error)
+      throw new Error((vs.error||vm.error||cs.error).message);
+    perf = { maxDate, dates, vs: vs.data||[], vm: vm.data||[], cs: cs.data||[] };
+  } catch(e){ perf = { error: String(e.message || e) }; }
+  finally { perfLoading = false; render(); }
+}
+function perfRows(){
+  const [d0, d1, d28] = perf.dates;
+  const snap = {};
+  perf.vs.forEach(s => (snap[s.content_id] = snap[s.content_id] || {})[s.snapshot_date] = s);
+  return perf.vm.map(m => {
+    const s = snap[m.content_id] || {};
+    const cur = s[d0] || s[d1], prev = s[d1], old = s[d28];
+    return { title: m.title || m.content_id, work: m.work_title || "",
+      ch: chNameById(m.channel_id), cid: m.content_id, dead: !!m.dead_at,
+      views: cur ? Number(cur.view_count) : null,
+      d1: cur && prev && cur !== prev ? Number(cur.view_count) - Number(prev.view_count) : null,
+      d28: cur && old ? Number(cur.view_count) - Number(old.view_count) : null,
+      likes: cur ? Number(cur.like_count) : null,
+      pub: m.published_at ? kstDay(m.published_at) : "" };
+  }).filter(r => r.views != null);
 }
 function renderPerf(){
-  if (!edgeKey){
-    $("#page").innerHTML = `<section class="card"><h2>채널 성과 (laeebly 기준 — 구 대시보드 API 재사용)</h2>
-      <div class="form" style="display:flex;gap:8px">
-        <input id="ek" type="password" placeholder="팀 접속코드 (x-ves-key) — 메모리에만 보관">
-        <button class="pri mini" onclick="edgeKey=$('#ek').value;perfLoad()">연결</button></div>
-      <div class="sub" style="margin-top:6px">${esc(perfMsg)}</div></section>`;
-    return;
-  }
-  if (!perfData){
-    $("#page").innerHTML = `<section class="card"><div class="empty">불러오는 중…</div></section>`;
-    return;
-  }
-  const chs = perfData.channels || perfData.league || (Array.isArray(perfData) ? perfData : []);
-  const PERF_KO = { channel:"채널", channel_name:"채널", name:"채널", slug:"채널코드",
-    token_slug:"채널코드", views:"조회수", view_count:"조회수", total_views:"총 조회수",
-    avg_views:"평균 조회수", subs:"구독자", subscribers:"구독자", subscriber_count:"구독자",
-    videos:"영상 수", video_count:"영상 수", shorts:"쇼츠 수", published:"발행 수",
-    likes:"좋아요", comments:"댓글", engagement:"참여율", watch_hours:"시청시간(h)",
-    rank:"순위", grade:"등급", score:"점수", delta:"증감", date:"날짜", days:"기간(일)" };
-  const cols = chs.length ? Object.keys(chs[0]).filter(k =>
-    typeof chs[0][k] !== "object").slice(0, 10) : [];
-  let rows = chs.slice();
-  if (perfSort.col && cols.includes(perfSort.col)){
-    const c = perfSort.col, d = perfSort.dir;
-    rows.sort((a,b) => { const x = a[c], y = b[c];
-      const nx = parseFloat(x), ny = parseFloat(y);
-      const cmp = (isFinite(nx) && isFinite(ny)) ? nx - ny : String(x??"").localeCompare(String(y??""), "ko");
-      return d * cmp; });
-  }
-  const fmt = v => { const n = Number(v);
-    return (v !== null && v !== "" && isFinite(n) && String(v).trim() !== "")
-      ? n.toLocaleString("ko-KR") : esc(String(v ?? "")); };
-  $("#page").innerHTML = `<section class="card"><h2>채널 성과 (28일) — 열 제목을 누르면 정렬됩니다
-      <button class="mini right" onclick="perfData=null;perfLoad()">새로고침</button></h2>
-    <div class="tblwrap"><table><tr>${cols.map(c =>
-      `<th class="sortable" onclick="perfSortBy('${esc(c)}')">${esc(PERF_KO[c] || c)}${
-        perfSort.col===c ? (perfSort.dir>0?" ▲":" ▼") : ""}</th>`).join("")}</tr>${
-    rows.map(r => `<tr>${cols.map(c => {
-      const raw = r[c];
-      const isCh = /channel|name|slug/.test(c);
-      const shown = isCh ? esc(chName(String(raw ?? ""))) : fmt(raw);
-      return `<td class="${isCh ? "" : "num"}">${shown}</td>`; }).join("")}</tr>`).join("")
-    || '<tr><td class="empty">데이터 없음</td></tr>'}</table></div>
-    <div class="sub" style="margin-top:6px">원천: laeebly ETL — 지연 있음. 세부 드릴다운은 구 대시보드 참조.</div></section>`;
+  if (!perf){ loadPerf();
+    $("#page").innerHTML = '<section class="card"><div class="empty">성과 불러오는 중…</div></section>'; return; }
+  if (perf.error){
+    $("#page").innerHTML = `<section class="card"><h2>성과</h2><div class="empty">불러오기 실패: ${esc(perf.error)}
+      <button class="mini" onclick="perf=null;render()">다시 시도</button></div></section>`; return; }
+  if (perf.empty){
+    $("#page").innerHTML = `<section class="card"><h2>성과</h2><div class="empty">아직 미러된 성과 데이터가 없습니다 —
+      perf_sync(매시간)가 첫 회전을 돌면 여기에 채워집니다.</div></section>`; return; }
+  // 채널 요약 — 구독자(최신·28일 증감) + 영상 28일 조회 증가 합
+  const rows = perfRows();
+  const byCh = {};
+  rows.forEach(r => { const g = byCh[r.ch] = byCh[r.ch] || { ch:r.ch, vids:0, views:0, d28:0 };
+    g.vids++; g.views += r.views||0; g.d28 += r.d28||0; });
+  const csByCh = {};
+  perf.cs.forEach(s => (csByCh[s.channel_id] = csByCh[s.channel_id] || []).push(s));
+  const chSum = Object.keys(csByCh).map(cid => {
+    const arr = csByCh[cid].slice().sort((a,b) => a.snapshot_date < b.snapshot_date ? 1 : -1);
+    const cur = arr[0], old = arr[arr.length-1];
+    const g = byCh[chNameById(cid)] || {};
+    return { ch: chNameById(cid), subs: Number(cur.subscriber_count),
+      dsubs: Number(cur.subscriber_count) - Number(old.subscriber_count),
+      vids: g.vids || 0, d28: g.d28 || 0 };
+  }).sort((a,b) => (b.d28||0) - (a.d28||0));
+  // 영상 표 — 정렬 + 상위 200
+  const COLS = [["title","영상 제목"],["work","작품"],["ch","채널"],["views","조회수"],
+    ["d1","+1일"],["d28","+28일"],["likes","좋아요"],["pub","게시일"]];
+  const c = perfSort.col, dir = perfSort.dir;
+  rows.sort((a,b) => { const x = a[c], y = b[c];
+    const cmp = (typeof x === "number" || typeof y === "number")
+      ? (Number(x)||0) - (Number(y)||0) : String(x??"").localeCompare(String(y??""), "ko");
+    return dir * cmp; });
+  const top = rows.slice(0, 200);
+  $("#page").innerHTML = `
+    <section class="card"><h2>채널 요약 — 기준일 ${esc(perf.maxDate)} (laeebly 수집분 미러, 매시간 갱신)
+      <button class="mini right" onclick="perf=null;render()">새로고침</button></h2>
+    <div class="tblwrap"><table><tr><th>채널</th><th>구독자</th><th>구독 +28일</th>
+      <th>추적 영상</th><th>조회 +28일</th></tr>${
+    chSum.map(r => `<tr><td>${esc(r.ch)}</td><td class="num">${fmtN(r.subs)}</td>
+      <td class="num">${fmtD(r.dsubs)}</td><td class="num">${fmtN(r.vids)}</td>
+      <td class="num">${fmtD(r.d28)}</td></tr>`).join("")
+    || '<tr><td colspan="5" class="empty">채널 스냅샷 없음</td></tr>'}</table></div></section>
+    <section class="card"><h2>영상별 성과 — 열 제목 클릭으로 정렬${rows.length > 200 ? ` (상위 200/${rows.length}개 표시)` : ""}</h2>
+    <div class="tblwrap"><table><tr>${COLS.map(([k,l]) =>
+      `<th class="sortable" onclick="perfSortBy('${k}')">${l}${perfSort.col===k?(dir>0?" ▲":" ▼"):""}</th>`).join("")}</tr>${
+    top.map(r => `<tr><td>${r.dead?'<span class="sub" title="내려간 영상">†</span> ':""}<a href="https://youtu.be/${esc(r.cid)}" target="_blank" rel="noopener" style="color:inherit">${esc(r.title)}</a></td>
+      <td>${esc(r.work)}</td><td>${esc(r.ch)}</td>
+      <td class="num">${fmtN(r.views)}</td><td class="num">${fmtD(r.d1)}</td>
+      <td class="num">${fmtD(r.d28)}</td><td class="num">${fmtN(r.likes)}</td>
+      <td class="num">${esc(r.pub)}</td></tr>`).join("")
+    || '<tr><td colspan="8" class="empty">영상 스냅샷 없음</td></tr>'}</table></div></section>`;
 }
 window.perfSortBy = c => {
   perfSort = perfSort.col === c ? { col:c, dir:-perfSort.dir } : { col:c, dir:-1 };
   render();
 };
-async function perfLoad(){
-  perfMsg = "";
-  try { perfData = await edgeApi("/api/perf?days=28"); }
-  catch(e){ perfData = null; edgeKey = ""; perfMsg = e.message === "unauthorized" ? "접속코드가 틀립니다" : "연결 실패: " + e.message; }
+
+// ───────── 권한 관리 (admin 전용 — RPC 로만, 0015) ─────────
+let adminUsers = null;
+async function loadAdmin(){
+  const { data, error } = await sb.rpc("list_user_roles");
+  adminUsers = error ? { error: error.message } : { rows: data || [] };
   render();
 }
-window.perfLoad = perfLoad;
+function renderAdmin(){
+  if (myRole !== "admin"){
+    $("#page").innerHTML = '<section class="card"><div class="empty">admin 전용 화면입니다</div></section>'; return; }
+  if (!adminUsers){ loadAdmin();
+    $("#page").innerHTML = '<section class="card"><div class="empty">사용자 목록 불러오는 중…</div></section>'; return; }
+  if (adminUsers.error){
+    $("#page").innerHTML = `<section class="card"><h2>권한 관리</h2>
+      <div class="empty">불러오기 실패: ${esc(adminUsers.error)}
+      <button class="mini" onclick="adminUsers=null;render()">다시 시도</button></div></section>`; return; }
+  const ROLES = ["viewer","reviewer","operator","admin"];
+  const ROLE_KO = { viewer:"보기만", reviewer:"검수 가능", operator:"운영(잡·노드)", admin:"관리자" };
+  const meEmail = ($("#whoami").textContent || "").split(" ·")[0];
+  $("#page").innerHTML = `<section class="card">
+    <h2>권한 관리 — 변경은 즉시 적용 <button class="mini right" onclick="adminUsers=null;render()">새로고침</button></h2>
+    <div class="sub" style="margin-bottom:8px">viewer(보기) < reviewer(검수) < operator(운영) < admin(관리) ·
+      새 팀원은 먼저 로그인 계정(Supabase Auth)이 만들어져 있어야 목록에 보입니다.
+      자기 자신의 권한은 바꿀 수 없습니다(잠금 사고 방지).</div>
+    <div class="tblwrap"><table><tr><th>이메일</th><th>권한</th><th>메모</th><th></th></tr>${
+    adminUsers.rows.map((u,i) => {
+      const self = u.email === meEmail;
+      return `<tr><td>${esc(u.email)}${self ? ' <span class="sub">(나)</span>' : ""}</td>
+        <td><select id="ur_${i}" ${self ? "disabled" : ""}>${ROLES.map(r =>
+          `<option value="${r}" ${u.role===r?"selected":""}>${r} — ${ROLE_KO[r]}</option>`).join("")}</select></td>
+        <td><input id="un_${i}" value="${esc(u.note||"")}" placeholder="메모(선택)" ${self ? "disabled" : ""}></td>
+        <td>${self ? "" : `<button class="mini pri" onclick="adminSave(${i},'${esc(u.email)}')">저장</button>`}</td></tr>`;
+    }).join("") || '<tr><td colspan="4" class="empty">사용자 없음</td></tr>'}</table></div></section>`;
+}
+window.adminSave = (i, email) => {
+  const role = $(`#ur_${i}`).value, note = ($(`#un_${i}`).value || "").trim() || null;
+  adminUsers = null;
+  rpc("set_user_role", { p_email: email, p_role: role, p_note: note }, `${email} → ${role}`);
+};
 
 // ───────── 폴링 ─────────
 let auto = true;
@@ -936,6 +1052,8 @@ const anyVideoPlaying = () =>
   [...document.querySelectorAll("video")].some(v => !v.paused && !v.ended);
 setInterval(() => { if (auto && !document.hidden && tab !== "perf" && !anyVideoPlaying()) refresh(); }, 15000);
 $("#btnRefresh").onclick = () => refresh();
+$("#btnTheme").onclick = () =>
+  applyTheme(document.documentElement.dataset.theme === "light" ? "dark" : "light");
 $("#btnAuto").onclick = e => { auto = !auto; e.target.textContent = `자동 15s: ${auto?"켬":"끔"}`; };
 document.addEventListener("visibilitychange", () => { if (!document.hidden && auto) refresh(); });
 window.rpc = rpc; window.armed = armed; window.$ = $;
