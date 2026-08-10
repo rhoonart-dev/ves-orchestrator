@@ -46,8 +46,8 @@ def plan_new(files, mode: str, work_title, known_ids) -> list:
 def _list_folder(url: str) -> list:
     import gdown
     try:
-        got = gdown.download_folder(url=url, skip_download=True, quiet=True,
-                                    remaining_ok=True)
+        # gdown 6.x 시그니처(remaining_ok 제거됨 — 플릿 실측 2026-08-10).
+        got = gdown.download_folder(url=url, skip_download=True, quiet=True)
     except Exception as e:  # noqa: BLE001
         raise RuntimeError(f"드라이브 목록 실패(공유 설정·URL 확인): {e}")
     files = []

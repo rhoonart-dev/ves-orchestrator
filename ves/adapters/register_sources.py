@@ -18,7 +18,8 @@ def plan_rows(work_title: str, entries, title_filter: str = "", use_limit: int =
     """flat-playlist entries → [(episode, url, title)]. 순수 — 테스트 대상.
     회차 번호는 원천 목록의 순번(1-base) — 항목이 빠져도 남은 회차 번호가 안 흔들린다."""
     out = []
-    filt = (title_filter or "").strip()
+    norm = lambda s: "".join(str(s or "").split())   # noqa: E731 — 띄어쓰기 무시 대조
+    filt = norm(title_filter)
     for idx, e in enumerate(entries or [], start=1):
         vid = (e or {}).get("id")
         title = str((e or {}).get("title") or "")
@@ -26,8 +27,8 @@ def plan_rows(work_title: str, entries, title_filter: str = "", use_limit: int =
             continue
         if title in ("[Private video]", "[Deleted video]"):
             continue                      # 사멸 항목 — 등록해봤자 acquire 에서 죽는다
-        if filt and filt not in title:
-            continue
+        if filt and filt not in norm(title):
+            continue                      # '놀라운토요일'≈'놀라운 토요일' (플릿 실측)
         out.append((idx, f"https://www.youtube.com/watch?v={vid}", title))
     return out
 

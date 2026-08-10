@@ -222,6 +222,9 @@ def test_register_playlist_plan_rows():
     only = plan_rows("언니네 산지직송 in 칼라페", entries, title_filter="산지직송")
     assert len(only) == 1 and only[0][0] == 4
     assert plan_rows("x", None) == []
+    # 띄어쓰기 무시 대조 (플릿 실측: '놀라운 토요일' 필터가 '놀라운토요일' 제목을 놓침)
+    sp = [{"id": "z9", "title": "[놀라운토요일] 도레미마켓 레전드"}]
+    assert len(plan_rows("놀라운 토요일", sp, title_filter="놀라운 토요일")) == 1
 
 
 def test_storage_4xx_permanent_except_429():
