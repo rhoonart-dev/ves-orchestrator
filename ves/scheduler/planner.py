@@ -52,13 +52,28 @@ def job_chain(wo: dict) -> list:
 
 
 # ───────── 실행부 ─────────
+def pipeline_for(ch: dict) -> str:
+    """채널 → 파이프라인. JP 채널은 현지화 체인(generate 후 localize). 순수 — 테스트 대상."""
+    return "shorts_jp_localized" if ch.get("country") == "JP" else "shorts_kr"
+
+
+def _jp_enabled(conn) -> bool:
+    """JP 가동 스위치(ops_config.jp_pipeline='on') — 기존 현지화 autopilot 과의
+    이중 생산을 막는 컷오버 장치(2026-08-10). 켜기 전에 구 autopilot 을 내릴 것."""
+    with conn.cursor() as c:
+        c.execute("SELECT value FROM public.ops_config WHERE key='jp_pipeline'")
+        row = c.fetchone()
+    return bool(row and row.get("value") == "on")
+
+
 def run(conn, cfg):
     today = dt.datetime.now(dt.timezone(dt.timedelta(hours=9))).date()
     channels = _load_channels(cfg)
+    jp_on = _jp_enabled(conn)
     made = 0
     for ch in channels:
-        if ch.get("country") == "JP":
-            continue  # JP 파이프라인은 Phase 3 통합 전까지 현지화 autopilot 이 담당
+        if ch.get("country") == "JP" and not jp_on:
+            continue  # 스위치 off — 현지화 autopilot 담당 유지(이중 생산 방지)
         for work in ch.get("works") or []:
             src = _pick_source(conn, work)
             if src is None:
@@ -79,7 +94,7 @@ def _load_channels(cfg):
     return data if isinstance(data, list) else data.get("channels") or []
 
 
-def _pick_source(conn, work):
+def _pick_source(conn, work, pipeline="shorts_kr"):
     """회차 순환(사용자 결정 2026-08-07): 활성 소스 중 사용횟수(취소·실패 제외)가
     use_limit(기본 3) 미만인 최저 회차. 한도 도달 시 자동으로 다음 회차,
     전 회차 소진이면 None(→ 알림+대기, 관제 소스 섹션에 표시)."""
@@ -125,11 +140,12 @@ def _create_work_order(conn, cfg, today, ch, work, src) -> bool:
             """INSERT INTO public.work_orders
                    (service_date, channel_slug, work_title, episode, source_sha256,
                     source_url, pipeline, geoblock_required, has_subtitle)
-               VALUES (%s,%s,%s,%s,%s,%s,'shorts_kr',%s,%s)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
                ON CONFLICT (service_date, channel_slug, work_title, pipeline) DO NOTHING
                RETURNING id""",
             (today, ch["token_slug"], work, src.get("episode"), src.get("sha256"),
              src.get("source_url"),   # 0012: URL 소스(laeebly 유튜브형 이관)
+             pipeline_for(ch),
              _geoblock_required(cfg, work), bool(src.get("has_subtitle"))))
         row = c.fetchone()
     if row is None:
@@ -140,7 +156,7 @@ def _create_work_order(conn, cfg, today, ch, work, src) -> bool:
           "channel_name": ch["name"], "source_sha256": src.get("sha256"),
           "source_url": src.get("source_url"),
           "has_subtitle": bool(src.get("has_subtitle")), "gcp_project": ch.get("gcp_project"),
-          "pipeline": "shorts_kr", "knob_config": {}}
+          "pipeline": pipeline_for(ch), "knob_config": {}}
     prev_id = None
     for kind, params, caps, ttl in job_chain(wo):
         with conn.cursor() as c:

@@ -500,7 +500,7 @@ function renderReview(){
           ${geo ? '<span class="geo">⚠ 지오블락 필수 — 공개 전환은 Studio 수동(R9-a)</span>' : ""}
           <span class="right sub">${ago(r.created_at)}</span></div>
         ${pay.preview_key ? `<div id="pv_${r.id}">
-          <button class="mini" style="margin-top:8px" onclick="loadPreview('${esc(r.id)}','${esc(pay.preview_key)}')">▶ 프리뷰 재생 (Storage 사본)</button></div>` : '<div class="sub">preview_key 없음</div>'}
+          <button class="mini" style="margin-top:8px" onclick="loadPreview('${esc(r.id)}','${esc(pay.preview_key)}','${esc(pay.bucket||"ves-outputs")}')">▶ 프리뷰 재생 (Storage 사본)</button></div>` : '<div class="sub">preview_key 없음</div>'}
         ${jg}${form}</div>`;
     }).join("") || '<div class="empty">검수 대기 항목 없음 🎉</div>') + `</section>
     <section class="card"><h2>최근 결정</h2><div class="tblwrap"><table>
@@ -515,9 +515,9 @@ function renderReview(){
           <td class="sub">${esc((r.decision_note||"").slice(0,80))}</td></tr>`;
       }).join("") || '<tr><td colspan="5" class="empty">아직 없음</td></tr>'}</table></div></section>`;
 }
-window.loadPreview = async (rid, key) => {
+window.loadPreview = async (rid, key, bucket) => {
   try {
-    const url = await signedUrl("ves-outputs", key);
+    const url = await signedUrl(bucket || "ves-outputs", key);   // JP QA 는 ves-localized
     $(`#pv_${CSS.escape(rid)}`).innerHTML =
       `<video controls playsinline src="${esc(url)}"></video>`;
   } catch(e){ toast("서명URL 실패: " + e.message, true); }

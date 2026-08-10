@@ -199,6 +199,32 @@ def test_guess_episode_and_drive_plan():
     assert single == [("a", "참교육", "sub/ep1.mp4")]
 
 
+def test_branding_flags():
+    """가이드 자동화(로고): works.json branding 규약 — channel_registry 와 동일 플래그."""
+    from ves.adapters.aivideo import branding_flags
+    assert branding_flags(None, {"logo_box": "395x280"}) == []           # 카드 없음 → 텍스트
+    f = branding_flags({"branding": {"logo": "Vt1NV"}},
+                       {"logo_box": "395x280", "logo_align": "center"})
+    assert f[:2] == ["--design-work-image", "Vt1NV"]
+    assert "--design-work-image-width" in f and "395" in f and "center" in f
+    f2 = branding_flags({"branding": {"logo": "x", "box": "100x50", "align": "top"}}, {})
+    assert "100" in f2 and "50" in f2 and "top" in f2                    # 카드 예외가 정책보다 우선
+
+
+def test_jp_pipeline_wiring():
+    """JP 현지화 배선: 채널→파이프라인, localize argv, 체인 마지막에 localize."""
+    from ves.scheduler.planner import job_chain, pipeline_for
+    assert pipeline_for({"country": "JP"}) == "shorts_jp_localized"
+    assert pipeline_for({"country": "KR"}) == "shorts_kr"
+    from ves.adapters.localize import localize_argv
+    a = localize_argv("/py", "/v.mp4", "run1", {"content_type": "anime", "backend": "lama"})
+    assert a[:4] == ["/py", "-m", "src.process_video", "--video"]
+    assert "run1" in a and "anime" in a and "lama" in a
+    jp = {"work_title": "혜미리예채파", "channel_slug": "SHOTCONE", "channel_name": "ショトコン",
+          "gcp_project": "VES03", "pipeline": "shorts_jp_localized"}
+    assert [k for k, *_ in job_chain(jp)][-1] == "localize"
+
+
 def test_rclone_helpers():
     """rclone 인증 경로(실측 2026-08-10): 원격 파싱·lsjson 매핑·폴더 ID 추출."""
     from ves.adapters.register_drive import first_remote, folder_id_of, lsjson_files

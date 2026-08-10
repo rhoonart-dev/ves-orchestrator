@@ -31,6 +31,37 @@ _RUNLOG_RE = re.compile(r"([^/\s]+)/run_log\.json")
 PIN_DEPENDENT_KINDS = ("upload_artifacts", "ingest", "evaluate")
 
 
+def branding_flags(card, policy) -> list:
+    """작품 카드 branding.logo → --design-work-image 플래그 (가이드 자동화 2026-08-10).
+    규약 정본은 brain channel_registry.py(§로고) — 여기와 그쪽이 같은 works.json 을 읽으므로
+    scene_loop 과 신규 파이프라인의 로고가 항상 일치한다. 카드에 logo 없으면 텍스트(종전)."""
+    brand = ((card or {}).get("branding") or {})
+    if not brand.get("logo"):
+        return []
+    flags = ["--design-work-image", str(brand["logo"])]
+    box = brand.get("box") or (policy or {}).get("logo_box")
+    if box and "x" in str(box).lower():
+        w, h = str(box).lower().split("x", 1)
+        try:
+            flags += ["--design-work-image-width", str(int(w)),
+                      "--design-work-image-height", str(int(h))]
+        except ValueError:
+            pass
+    align = brand.get("align") or (policy or {}).get("logo_align")
+    if align in ("top", "center"):
+        flags += ["--design-work-align", str(align)]
+    return flags
+
+
+def _brain_json(cfg, name):
+    p = pathlib.Path(cfgmod.engine_dir(cfg, "brain")) / "config" / name
+    try:
+        raw = json.loads(p.read_text(encoding="utf-8"))
+        return raw.get("works", raw) if isinstance(raw, dict) and "works" in raw else raw
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
 # ───────── 순수 (테스트 대상) ─────────
 def build_argv_pure(py: str, params: dict, source_path: str | None) -> list:
     p = params
@@ -113,7 +144,11 @@ def build_argv(cfg, job):
     src = cfgmod.source_cache_path(cfg, p["source_sha256"]) if p.get("source_sha256") else None
     if src and not pathlib.Path(src).exists():
         raise base.PermanentError(f"소스 캐시 없음: {src} — acquire 선행 확인")
-    return build_argv_pure(cfgmod.engine_py(cfg, "ai_video"), p, src)
+    argv = build_argv_pure(cfgmod.engine_py(cfg, "ai_video"), p, src)
+    # 로고(가이드 자동화): 작품 카드에 branding.logo 가 있으면 scene_loop 과 같은 플래그
+    argv += branding_flags(_brain_json(cfg, "works.json").get(p.get("work_title")),
+                           _brain_json(cfg, "loop_policy.json"))
+    return argv
 
 
 def resume_argv(cfg, job, partial_run_id):
