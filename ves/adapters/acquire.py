@@ -56,3 +56,25 @@ def run(cfg, conn, job, deps):
     if src.get("subtitle_key"):
         store.download("ves-sources", src["subtitle_key"], str(dest) + ".srt")
     return {"source": "downloaded", "sha256": src["sha256"], "bytes": dest.stat().st_size}
+
+
+def should_pin(result) -> bool:
+    """파일형(내려받음/캐시 적중)만 generate 를 이 노드로 고정. URL 소스는 아무 노드나
+    generate 가 스스로 내려받으므로 핀 없음 — 한 노드 쏠림 방지. 순수 — 테스트 대상."""
+    return (result or {}).get("source") in ("downloaded", "cache_hit")
+
+
+def post_success(cfg, conn, job, result):
+    """★acquire→generate 어피니티(첫 전체 회전 실측): acquire 는 mm-06, generate 는
+    다른 노드에 떨어져 '소스 캐시 없음' 즉사 — upload/ingest/evaluate 핀(_pin_dependents)과
+    같은 규약으로 이 구간만 빠져 있던 것을 메운다."""
+    if not should_pin(result):
+        return
+    cap = [f"node:{cfg.node_id}"]
+    with conn.cursor() as c:
+        c.execute(
+            """UPDATE public.job_queue
+                  SET required_caps = required_caps || %s::text[], updated_at=now()
+                WHERE work_order_id=%s AND kind='generate' AND status='pending'
+                  AND NOT required_caps @> %s::text[]""",
+            (cap, job["work_order_id"], cap))

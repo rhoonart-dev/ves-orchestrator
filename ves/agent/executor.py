@@ -32,6 +32,17 @@ def merge_dep_outputs(params, deps) -> dict:
     return merged
 
 
+def carry_chain_keys(params, result) -> dict:
+    """★체인 계약(첫 전체 회전 실측): run_id/run_dir 를 결과에 자동 재방출 —
+    ingest 처럼 어댑터가 되돌려주길 잊어도 다음 잡(evaluate/localize)으로 끊기지 않는다.
+    어댑터가 스스로 넣은 값이 우선. 순수 — 테스트 대상."""
+    out = dict(result or {})
+    for k in ("run_id", "run_dir"):
+        if (params or {}).get(k) and not out.get(k):
+            out[k] = params[k]
+    return out
+
+
 def _dep_results(conn, job) -> dict:
     """선행 잡 결과 모음 {kind: result} — upload_artifacts 등이 run_dir 를 읽는 용도."""
     ids = job.get("depends_on") or []
@@ -78,7 +89,7 @@ def run_job(cfg, conn, job) -> None:
                 result = ad.run(cfg, conn, job, deps)
         else:                                        # subprocess 어댑터
             result = _run_subprocess(cfg, conn, job, ad)
-        result = dict(result or {})
+        result = carry_chain_keys(job["params"], result)
         result["engine_sha"] = _local_shas(cfg)      # 디버깅용 실행 시점 sha(§11-1)
         if lease.complete(conn, job, result):
             _pin_dependents(conn, job, ad)           # 로컬 산출물 어피니티(스모크3 실측)

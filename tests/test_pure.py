@@ -132,6 +132,29 @@ def test_merge_dep_outputs():
     assert merge_dep_outputs(None, {}) == {}
 
 
+def test_carry_chain_keys():
+    """첫 전체 회전 실측: ingest 결과에 run_id 가 없어 evaluate 가 permanent 사망.
+    완료 시 params 의 run_id/run_dir 를 결과에 자동 재방출 — 체인이 어댑터 기억력에
+    의존하지 않게 한다(유미의 세포들 ep1 회귀)."""
+    from ves.agent.executor import carry_chain_keys
+    p = {"run_id": "유미의_세포들_시즌3_12", "run_dir": "/x/r12", "channel_slug": "C"}
+    r = carry_chain_keys(p, {"stdout_tail": "inserted clip …"})   # ingest 꼴
+    assert r["run_id"] == p["run_id"] and r["run_dir"] == p["run_dir"]
+    assert carry_chain_keys(p, {"run_id": "own"})["run_id"] == "own"   # 어댑터 값 우선
+    assert carry_chain_keys({}, None) == {}
+    assert carry_chain_keys(None, {"a": 1}) == {"a": 1}
+
+
+def test_acquire_should_pin():
+    """첫 전체 회전 실측: 참교육 acquire(mm-06)→generate(다른 노드) '소스 캐시 없음' 즉사.
+    파일형만 핀, URL 소스는 쏠림 방지를 위해 핀 없음."""
+    from ves.adapters.acquire import should_pin
+    assert should_pin({"source": "downloaded", "sha256": "x"})
+    assert should_pin({"source": "cache_hit"})
+    assert not should_pin({"source": "url"})
+    assert not should_pin(None)
+
+
 def test_classify_smoke_lessons():
     assert classify_by_patterns("ModuleNotFoundError: No module named 'yt_dlp'") == "permanent"
     assert classify_by_patterns("ERROR: [youtube] X: Private video. Sign in") == "human_required"
