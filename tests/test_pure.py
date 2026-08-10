@@ -173,6 +173,24 @@ def test_job_chain_acquire_carries_sha():
     assert acq["source_sha256"] == "abc123"
 
 
+def test_channel_design_flags():
+    """채널 템플릿(첫 회전 실측: 템플릿 채널 4곳 미적용) — registry 규약 1:1 미러."""
+    from ves.adapters.aivideo import channel_design_flags
+    from ves.adapters.base import PermanentError
+    f = channel_design_flags({"title_color": "white", "title_color2": "#FFD84D",
+                              "work_title_y": 1560, "_note": "메모"}, "킥킥극장")
+    s = " ".join(f)
+    assert "--design-title-color white" in s and "--design-title-color2 #FFD84D" in s
+    assert "--design-work-title-y 1560" in s and "_note" not in s
+    assert channel_design_flags({"face_tracking": False}, "c") == ["--no-reframe"]
+    assert channel_design_flags({"face_tracking": True}, "c") == []
+    assert channel_design_flags(None, "c") == []
+    try:
+        channel_design_flags({"title_colour": "x"}, "c"); assert False, "오타 키가 통과"
+    except PermanentError:
+        pass
+
+
 def test_acquire_should_pin():
     """첫 전체 회전 실측: 참교육 acquire(mm-06)→generate(다른 노드) '소스 캐시 없음' 즉사.
     파일형만 핀, URL 소스는 쏠림 방지를 위해 핀 없음."""

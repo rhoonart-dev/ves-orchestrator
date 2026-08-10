@@ -31,6 +31,63 @@ _RUNLOG_RE = re.compile(r"([^/\s]+)/run_log\.json")
 PIN_DEPENDENT_KINDS = ("upload_artifacts", "ingest", "evaluate")
 
 
+# 채널 템플릿(channels.json "design") → --design-* 플래그. 규약 정본은 brain
+# channel_registry.py(CHANNEL_DESIGN_FLAGS) — 1:1 미러(2026-08-10, 첫 회전 실측:
+# 템플릿 채널 4곳이 기본 디자인으로 생성됨). 두 층 구분: 템플릿=채널 정체성, 로고=작품 권리물.
+CHANNEL_DESIGN_FLAGS = {
+    "title_y": "--design-title-y",
+    "title_font": "--design-title-font",
+    "title_size": "--design-title-size",
+    "title_color": "--design-title-color",      # 제목 1번째 줄
+    "title_color2": "--design-title-color2",    # 제목 2번째 줄
+    "subtitle_font": "--design-subtitle-font",  # 자막·TTS 자막 공통
+    "subtitle_size": "--design-subtitle-size",
+    "subtitle_color": "--design-subtitle-color",
+    "subtitle_y_margin": "--design-subtitle-y-margin",
+    "subtitle_style": "--design-subtitle-style",
+    "tts_color": "--design-tts-color",
+    "tts_size": "--design-tts-size",
+    "tts_y_margin": "--design-tts-y-margin",
+    "work_title_y": "--design-work-title-y",    # 작품명(하단) Y
+    "work_font_size": "--design-work-font-size",
+    "work_color": "--design-work-color",        # 작품명 색
+    "aspect_ratio": "--design-aspect-ratio",
+}
+CHANNEL_DESIGN_SWITCHES = {
+    "face_tracking": ("--no-reframe", False),   # false 면 얼굴 추종 크롭 끔
+}
+
+
+def channel_design_flags(design, channel) -> list:
+    """채널 'design' dict → CLI 플래그. '_' 키 무시, 모르는 키는 즉시 실패 —
+    조용히 무시하면 오타 난 템플릿이 기본값으로 발행되고 아무도 모른다(registry 원칙). 순수."""
+    flags = []
+    for k, v in (design or {}).items():
+        if k.startswith("_"):
+            continue
+        if k in CHANNEL_DESIGN_SWITCHES:
+            flag, on_value = CHANNEL_DESIGN_SWITCHES[k]
+            if v is on_value:
+                flags.append(flag)
+            continue
+        flag = CHANNEL_DESIGN_FLAGS.get(k)
+        if not flag:
+            raise base.PermanentError(
+                f"채널 '{channel}': 알 수 없는 design 키 {k!r} — "
+                f"허용: {sorted(CHANNEL_DESIGN_FLAGS) + sorted(CHANNEL_DESIGN_SWITCHES)}")
+        flags += [flag, str(v)]
+    return flags
+
+
+def _channel_record(cfg, channel_name):
+    raw = _brain_json(cfg, "channels.json")
+    chans = raw.get("channels") if isinstance(raw, dict) else raw
+    for rec in chans or []:
+        if isinstance(rec, dict) and rec.get("name") == channel_name:
+            return rec
+    return None
+
+
 def branding_flags(card, policy) -> list:
     """작품 카드 branding.logo → --design-work-image 플래그 (가이드 자동화 2026-08-10).
     규약 정본은 brain channel_registry.py(§로고) — 여기와 그쪽이 같은 works.json 을 읽으므로
@@ -145,6 +202,9 @@ def build_argv(cfg, job):
     if src and not pathlib.Path(src).exists():
         raise base.PermanentError(f"소스 캐시 없음: {src} — acquire 선행 확인")
     argv = build_argv_pure(cfgmod.engine_py(cfg, "ai_video"), p, src)
+    # 채널 템플릿(채널 정체성): channels.json "design" → --design-* (registry 와 동일 규약)
+    rec = _channel_record(cfg, p.get("channel_name"))
+    argv += channel_design_flags((rec or {}).get("design"), p.get("channel_name"))
     # 로고(가이드 자동화): 작품 카드에 branding.logo 가 있으면 scene_loop 과 같은 플래그
     argv += branding_flags(_brain_json(cfg, "works.json").get(p.get("work_title")),
                            _brain_json(cfg, "loop_policy.json"))
