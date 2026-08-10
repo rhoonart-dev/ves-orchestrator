@@ -182,6 +182,30 @@ def test_brain_evaluate_argvs():
     assert "--video" not in judge_argv("/py", "/s", "clip-uuid", None)
 
 
+def test_guess_episode_and_drive_plan():
+    """드라이브 자동 인입(0013): 회차 추정·작품 하위폴더 규약·기등록 제외."""
+    from ves.adapters.base import guess_episode
+    assert guess_episode("약한영웅_E01.mp4") == 1 and guess_episode("참교육 3화.mkv") == 3
+    assert guess_episode("하트시그널5_제2회.mp4") == 2      # '시즌5' 숫자 오인 금지
+    assert guess_episode("finale.mp4") is None
+    from ves.adapters.register_drive import plan_new
+    files = [("f1", "유부녀 킬러/유부녀킬러_E01.mp4"), ("f2", "유부녀 킬러/자막_E01.srt"),
+             ("f3", "루트직치기.mp4"), ("f4", "김부장/김부장 2화.mp4"), ("f1", "중복/x.mp4")]
+    got = plan_new(files, "external", None, known_ids={"f4"})
+    assert got == [("f1", "유부녀 킬러", "유부녀킬러_E01.mp4"),
+                   ("f1", "중복", "x.mp4")]                 # srt·루트파일·기등록 제외
+    single = plan_new([("a", "sub/ep1.mp4")], "single", "참교육", set())
+    assert single == [("a", "참교육", "ep1.mp4")]
+
+
+def test_drive_watch_folder_url():
+    from ves.scheduler.drive_watch import folder_url_of
+    u = folder_url_of('산문 <a href="https://drive.google.com/drive/folders/'
+                      '1nbob1KhTt-x68xKUKb8P8GoHfo2uqKSj?usp=sharing">폴더</a>')
+    assert u == "https://drive.google.com/drive/folders/1nbob1KhTt-x68xKUKb8P8GoHfo2uqKSj"
+    assert folder_url_of("링크 없음") is None
+
+
 def test_register_playlist_plan_rows():
     """구 관제 이관: 사멸 항목 스킵·제목 필터·순번 회차 (0012)."""
     from ves.adapters.register_sources import plan_rows

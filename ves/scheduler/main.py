@@ -13,7 +13,8 @@ import traceback
 
 from ves import db
 from ves.config import get_config
-from ves.scheduler import channels_sync, planner, reaper, reconcile, storage_gc, version_watch
+from ves.scheduler import (channels_sync, drive_watch, planner, reaper, reconcile,
+                           storage_gc, version_watch)
 
 KST = dt.timezone(dt.timedelta(hours=9))
 TICK_SEC = 30
@@ -51,6 +52,7 @@ def main():
                     ("reaper",        lambda: reaper.run(conn),            _due_interval(last.get("reaper"), now, 1)),
                     ("version_watch", lambda: version_watch.run(conn, cfg), _due_interval(last.get("version_watch"), now, 60)),
                     ("reconcile",     lambda: reconcile.run(conn, cfg),     _due_interval(last.get("reconcile"), now, 60)),
+                    ("drive_watch",   lambda: drive_watch.run(conn, cfg),   _due_daily(last.get("drive_watch"), now, 7)),
                     ("planner",       lambda: planner.run(conn, cfg),       _due_daily(last.get("planner"), now, 9)),
                     ("channels_sync", lambda: channels_sync.run(conn, cfg), _due_daily(last.get("channels_sync"), now, 8)),
                     ("storage_gc",    lambda: storage_gc.run(conn, cfg),    _due_daily(last.get("storage_gc"), now, 6)),

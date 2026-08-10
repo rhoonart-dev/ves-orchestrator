@@ -56,6 +56,21 @@ def storage_key(run_id: str, filename: str) -> str:
     return f"{h}/{filename}"
 
 
+def guess_episode(filename: str):
+    """파일명 → 회차 추정. 명시 표기만 신뢰(E01·ep.2·제3회·4화) — '시즌5' 같은
+    제목 속 숫자를 회차로 오인하지 않는다. 못 찾으면 None. 순수 — 테스트 대상.
+    (deploy/register_source.py 의 동명 함수와 같은 규칙 — 스크립트는 무의존이라 사본 유지)"""
+    import re as _re
+    stem = str(filename).rsplit("/", 1)[-1].rsplit(".", 1)[0]
+    for pat in (r"[Ee][Pp]?\.?\s*(\d{1,4})(?!\d)",
+                r"제\s*(\d{1,4})\s*[화회]?",
+                r"(\d{1,4})\s*[화회]"):
+        m = _re.search(pat, stem)
+        if m:
+            return int(m.group(1))
+    return None
+
+
 def classify_by_patterns(stderr: str, stdout: str = "") -> str:
     """공통 에러 분류 폴백 — 어댑터별 classify_error 가 먼저, 못 정하면 이걸로."""
     blob = f"{stderr}\n{stdout}".lower()
@@ -85,8 +100,8 @@ def get(kind: str):
 
 def _load_all():
     """어댑터 지연 로드 — import 순환·무거운 의존 회피."""
-    from ves.adapters import (acquire, aivideo, brain, localize, register_sources,
-                              upload_artifacts)
+    from ves.adapters import (acquire, aivideo, brain, localize, register_drive,
+                              register_sources, upload_artifacts)
     register("acquire", acquire)
     register("generate", aivideo)
     register("upload_artifacts", upload_artifacts)
@@ -94,4 +109,5 @@ def _load_all():
     register("evaluate", brain.Evaluate)
     register("publish", brain.Publish)
     register("localize", localize)
-    register("register_playlist", register_sources)   # 구 관제 소스 이관(0012)
+    register("register_playlist", register_sources)    # 구 관제 소스 이관(0012)
+    register("sync_drive_folder", register_drive)      # 드라이브 자동 인입(0013)

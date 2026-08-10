@@ -1,3 +1,4 @@
 psycopg[binary]>=3.1
 requests>=2.31
 pytest>=8.0          # updater smoke 가 테스트 축약 세트를 돌린다(§11-1) — 배포 필수 의존
+gdown>=5.1           # 구글 드라이브 소스 자동 인입(sync_drive_folder, 0013)
