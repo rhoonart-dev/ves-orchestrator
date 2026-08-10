@@ -106,20 +106,33 @@ def _rc(bin_, conf, *args, timeout=300):
 
 
 class _Rclone:
-    def __init__(self, bin_, conf, folder_id):
+    """검증된 패턴 그대로: `rclone copy gdrive: <캐시> --drive-root-folder-id <id>`
+    (find_work_source.py 실측 — lsjson 은 공유폴더에서 빈 목록을 주는 케이스가 있어 폐기).
+    캐시 디렉토리가 남아 있으므로 copy 는 자체 증분 — 새 파일만 내려온다."""
+
+    def __init__(self, bin_, conf, folder_id, cache_root):
         self.b, self.c, self.fid = bin_, conf, folder_id
         self.remote = first_remote(_rc(bin_, conf, "listremotes", timeout=30))
         if not self.remote:
             raise RuntimeError("rclone.conf 에 원격이 없음")
+        self.cache = pathlib.Path(cache_root) / folder_id
+        self.cache.mkdir(parents=True, exist_ok=True)
 
     def list(self):
-        raw = _rc(self.b, self.c, "lsjson", "-R", "--files-only",
-                  "--drive-root-folder-id", self.fid, self.remote, timeout=300)
-        return lsjson_files(raw)
+        _rc(self.b, self.c, "copy", self.remote, str(self.cache),
+            "--drive-root-folder-id", self.fid, timeout=3600 * 6)
+        out = []
+        for p in sorted(self.cache.rglob("*")):
+            if p.is_file():
+                rel = str(p.relative_to(self.cache))
+                out.append((f"path|{self.fid}|{rel}", rel))
+        return out
 
     def fetch(self, fid, rel, dest):
-        _rc(self.b, self.c, "copyto", "--drive-root-folder-id", self.fid,
-            f"{self.remote}{rel}", str(dest), timeout=3600 * 3)
+        src = self.cache / rel
+        if not src.is_file():
+            raise RuntimeError(f"캐시에 없음: {rel}")
+        shutil.copyfile(src, dest)
 
 
 class _Gdown:
@@ -152,7 +165,8 @@ def run(cfg, conn, job, deps):
 
     bin_, conf = _rclone_bin(), _rclone_conf(cfg)
     if bin_ and conf and fid_folder:
-        client, via = _Rclone(bin_, conf, fid_folder), "rclone"
+        cache_root = pathlib.Path(cfg.home) / "cache" / "drive_sync"
+        client, via = _Rclone(bin_, conf, fid_folder, cache_root), "rclone"
     else:
         client, via = _Gdown(url), "gdown"
 
