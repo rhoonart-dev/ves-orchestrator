@@ -172,6 +172,32 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .sub{color:var(--muted);font-size:12px}
   details summary{cursor:pointer;color:var(--muted);font-size:12px}
   .tblwrap{overflow-x:auto}
+  /* v3: 맥별 현재 작업 */
+  .nowgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(215px,1fr));gap:10px}
+  .now{background:var(--surface-2);border:1px solid var(--ring);border-radius:10px;padding:10px 12px}
+  .now .hd{display:flex;align-items:center;gap:8px;margin-bottom:5px}
+  .now .hd b{font-size:14px}
+  .now .what{font-size:13px;line-height:1.5}
+  .now .what .st{color:#9cc4f2;font-weight:600}
+  .now .idle{color:var(--muted);font-size:13px}
+  /* v3: 검수함 카드 그리드 */
+  .rvgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:12px;align-items:start}
+  .rvgrid .review{margin-bottom:0}
+  .review video{max-width:100%}
+  .review .rt-big{font-size:15px;font-weight:700}
+  /* v3: 소스 게이지 */
+  .srcwork{border:1px solid var(--ring);border-radius:10px;background:var(--surface-2);
+    padding:10px 12px;margin-bottom:10px}
+  .srcwork .swh{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px}
+  .srcwork .swh b{font-size:14px}
+  .gauge{flex:1;min-width:80px;height:9px;background:#333331;border-radius:5px;overflow:hidden}
+  .gauge i{display:block;height:100%;border-radius:5px;background:var(--good)}
+  .gauge i.full{background:var(--crit)}
+  .eprow{display:flex;align-items:center;gap:10px;font-size:12.5px;padding:3px 0;color:var(--ink-2)}
+  .eprow .ep{flex:none;width:52px;font-variant-numeric:tabular-nums}
+  .eprow .cnt{flex:none;width:44px;text-align:right;font-variant-numeric:tabular-nums}
+  th.sortable{cursor:pointer;user-select:none}
+  th.sortable:hover{color:var(--ink)}
 </style>
 </head>
 <body>
@@ -236,8 +262,17 @@ const chip = (cls, icon, label) =>
 const NODE_ST = { active:["good","✓","가동"], draining:["warn","⏸","드레인"],
                   disabled:["crit","✕","차단"] };
 const JOB_ST = { pending:["mut","⏳","대기"], running:["info","▶","실행"],
-  succeeded:["good","✓","완료"], failed:["crit","✕","실패"], dead:["crit","☠","dead"],
+  succeeded:["good","✓","완료"], failed:["crit","✕","실패"], dead:["crit","☠","중단"],
   blocked:["serious","⚠","보류"], cancelled:["mut","–","취소"] };
+/* v3: 단계 이름 한글화 — 사람 눈에 보이는 모든 곳은 이 이름으로 */
+const KIND_KO = { acquire:"소스 준비", generate:"영상 제작", upload_artifacts:"결과 업로드",
+  ingest:"기록 적재", evaluate:"자동 검사", publish:"발행", localize:"일본어 번역",
+  sync_drive_folder:"드라이브 인입", register_playlist:"유튜브 소스 등록" };
+const kindKo = k => KIND_KO[k] || k || "?";
+/* v3: 채널 한글명 — channels_mirror 기준, 없으면 코드 그대로 */
+const chName = slug => { const c = (state.chans||[]).find(x => x.token_slug === slug);
+  return (c && c.name) || slug || "?"; };
+const JP_SLUGS = new Set(["SHOTCONE"]);   // 일본 채널(가동 스위치 별도)
 
 // ───────── 인증 ─────────
 let myRole = "viewer";
@@ -363,8 +398,8 @@ function pubDot(wo){
 }
 
 // ───────── 탭 셸 ─────────
-const TABS = [["home","홈"],["review","검수함"],["feed","피드"],["sources","소스"],
-              ["jobs","잡·이벤트"],["infra","노드·배포"],["perf","성과"]];
+const TABS = [["home","홈"],["review","검수함"],["feed","영상 피드"],["sources","소스 창고"],
+              ["jobs","작업 내역"],["infra","맥·배포"],["perf","성과"]];
 function render(){
   const waiting = (state.reviews||[]).filter(r => r.status === "waiting").length;
   $("#tabs").innerHTML = TABS.map(([k,l]) =>
@@ -390,6 +425,20 @@ function renderHome(){
     ["활성 노드", n.filter(x=>x.status==="active").length + "/" + n.length,
      stale.length ? `무응답 ${stale.length}` : ""],
   ];
+  // v3: 지금 각 맥이 하는 일 — 실행 중 잡을 노드별로 붙인다(사람이 제일 궁금해하는 것)
+  const nowCards = n.map(nd => {
+    const [cls,ic,lb] = NODE_ST[nd.status] || ["mut","?",nd.status];
+    const running = j.filter(x => x.status === "running" && x.node_id === nd.node_id);
+    const body = running.length ? running.map(x => {
+      const wo = state.wo[x.work_order_id] || {};
+      const ch = wo.channel_slug ? chName(wo.channel_slug)
+               : (x.params && x.params.channel_name) || "";
+      const what = wo.work_title || (x.params && (x.params.work_title || x.params.folder_name)) || "";
+      return `<div class="what"><span class="st">${esc(kindKo(x.kind))}</span> · ${esc(what || "—")}
+        <div class="sub">${esc(ch || "")} · ${ago(x.updated_at)} 시작</div></div>`;
+    }).join("") : `<div class="idle">${nd.status === "active" ? "쉬는 중 — 다음 일감 대기" : "작업 안 받음"}</div>`;
+    return `<div class="now"><div class="hd"><b>${esc(nd.node_id)}</b>${chip(cls,ic,lb)}</div>${body}</div>`;
+  }).join("");
   // 오늘(KST) 작업이 있으면 구 규칙 그대로 오늘 기준. 없으면 "마지막 작업분"을
   // 날짜 배지와 함께 보여준다(취소분 제외) — 신호등·잡·검수함 불일치 방지(운영 피드백 8/9).
   const alive = (state.wos||[]).filter(w => w.status !== "cancelled");
@@ -406,9 +455,13 @@ function renderHome(){
       ? `<span class="fpill fp-mut" title="오늘 작업은 없음 — 마지막 작업분 표시">${
           esc(kstDay(cur.service_date||cur.created_at).slice(5).replace("-","/"))} 작업분</span>` : "";
     const open = boardOpen === ch.token_slug;
+    // v3: 작업 이력 없는 채널도 "왜 없는지"를 말해준다 (JP 대기 / 소스 준비됨 / 소스 인입 대기)
+    const noWo = JP_SLUGS.has(ch.token_slug) ? "일본 채널 · 가동 대기"
+      : ((state.srcs||[]).some(s => (ch.works||[]).includes(s.work_title) && s.is_active !== false)
+         ? "소스 준비됨 · 다음 회차 합류" : "소스 인입 대기 중");
     return `<div class="bch" onclick="boardOpen=boardOpen==='${esc(ch.token_slug)}'?null:'${esc(ch.token_slug)}';render()">
       <div class="nm">${esc(ch.name || ch.token_slug)}
-        <span class="sub">${cur ? esc(cur.work_title) : "작업 이력 없음"}</span></div>
+        <span class="sub">${cur ? esc(cur.work_title) : noWo}</span></div>
       <div class="dots">
         <div class="dcol"><span class="chdot ${gc}" title="${esc(gl)}"></span>생성 · ${esc(gl)}</div>
         <div class="dcol"><span class="chdot ${pc}" title="${esc(pl)}"></span>공개 · ${esc(pl)}</div>
@@ -425,6 +478,8 @@ function renderHome(){
   $("#page").innerHTML = `
     <div class="tiles">${tiles.map(([k,v,w]) => `<div class="tile"><div class="v">${v}</div>
       <div class="k">${k}${w?` · <span style="color:var(--serious)">${w}</span>`:""}</div></div>`).join("")}</div>
+    <section class="card"><h2>지금 각 맥이 하는 일</h2>
+      <div class="nowgrid">${nowCards || '<div class="empty">등록된 맥 없음</div>'}</div></section>
     <section class="card"><h2>채널 신호등 — 오늘(KST) 기준</h2>
       <div style="margin-bottom:8px">
         <span class="lg"><span class="chdot ok"></span>완료</span>
@@ -436,8 +491,8 @@ function renderHome(){
         <span class="sub">오늘(KST) 기준 · 오늘 작업이 없으면 마지막 작업분을 날짜 배지와 함께 표시</span></div>
       <div class="board">${board || '<div class="empty">channels_mirror 비어 있음</div>'}</div></section>
     ${failsToday.length ? `<section class="card"><h2>오늘 실패 상세</h2><div class="tblwrap">
-      <table><tr><th>kind</th><th>작품</th><th>분류</th><th>오류</th></tr>${
-      failsToday.map(x => `<tr><td class="mono">${esc(x.kind)}</td>
+      <table><tr><th>단계</th><th>작품</th><th>분류</th><th>오류</th></tr>${
+      failsToday.map(x => `<tr><td>${esc(kindKo(x.kind))}</td>
         <td>${esc((state.wo[x.work_order_id]||{}).work_title||"")}</td>
         <td>${esc(x.error_class||"")}</td>
         <td class="err">${esc((x.error||"").slice(0,160))}</td></tr>`).join("")}</table></div></section>` : ""}
@@ -447,11 +502,11 @@ function renderHome(){
 }
 function chainHtml(wo){
   const js = (state.jobsByWo[wo.id]||[]).slice().sort((a,b)=>a.created_at<b.created_at?-1:1);
-  return `<b>${esc(wo.work_title)}</b> <span class="sub">${esc(wo.channel_slug)} · ${esc(kstDay(wo.created_at))}</span>
+  return `<b>${esc(wo.work_title)}</b> <span class="sub">${esc(chName(wo.channel_slug))} · ${esc(kstDay(wo.created_at))}</span>
     <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">${
     js.map(x => { const [c,i,l] = JOB_ST[x.status]||["mut","?",x.status];
       return `<span class="chip st-${c}" title="${esc((x.error||"").slice(0,200))}">
-        <span class="d"></span>${esc(x.kind)} ${i} ${esc(l)}</span>`; }).join("") || '<span class="sub">잡 없음</span>'}</div>`;
+        <span class="d"></span>${esc(kindKo(x.kind))} ${i} ${esc(l)}</span>`; }).join("") || '<span class="sub">잡 없음</span>'}</div>`;
 }
 
 // ───────── 검수함 (구 대시보드 검수 UX 계승: judge 참고표시·환각경고·반려유형) ─────────
@@ -470,7 +525,7 @@ function judgeBox(run){
 }
 function renderReview(){
   const rs = (state.reviews||[]).filter(r => r.status === "waiting");
-  $("#page").innerHTML = `<section class="card"><h2>검수 대기 ${rs.length}건 — 결정은 100% 사람</h2>` +
+  $("#page").innerHTML = `<section class="card"><h2>검수 대기 ${rs.length}건 — 결정은 100% 사람 · 프리뷰는 카드에서 바로 재생</h2><div class="rvgrid">` +
     (rs.map(r => {
       const wo = state.wo[r.work_order_id] || {};
       const pay = r.payload || {}, geo = wo.geoblock_required;
@@ -494,15 +549,13 @@ function renderReview(){
           <button class="pri mini" onclick="approve('${r.id}')">✅ 합격·발행</button>
           <button class="mini danger" data-l="반려" onclick="armed(this,'반려',()=>reject('${r.id}'))">❌ 반려</button>
         </div>` : '<div class="sub">reviewer 권한 필요</div>';
-      return `<div class="review"><div class="rh"><b>${esc(wo.work_title || run || r.id.slice(0,8))}</b>
-          <span class="pill">${esc(wo.channel_slug || r.channel_slug || "?")}</span>
-          <span class="pill">${esc(run)}</span>
-          ${geo ? '<span class="geo">⚠ 지오블락 필수 — 공개 전환은 Studio 수동(R9-a)</span>' : ""}
+      return `<div class="review"><div class="rh"><span class="rt-big">${esc(wo.work_title || run || r.id.slice(0,8))}</span>
+          <span class="pill">${esc(chName(wo.channel_slug || r.channel_slug))}</span>
           <span class="right sub">${ago(r.created_at)}</span></div>
-        ${pay.preview_key ? `<div id="pv_${r.id}">
-          <button class="mini" style="margin-top:8px" onclick="loadPreview('${esc(r.id)}','${esc(pay.preview_key)}','${esc(pay.bucket||"ves-outputs")}')">▶ 프리뷰 재생 (Storage 사본)</button></div>` : '<div class="sub">preview_key 없음</div>'}
+        ${geo ? '<div class="geo">⚠ 지오블락 필수 — 공개 전환은 Studio 수동(R9-a)</div>' : ""}
+        ${pay.preview_key ? `<div id="pv_${r.id}"><video id="pvv_${r.id}" controls playsinline preload="metadata" poster=""></video></div>` : '<div class="sub">프리뷰 파일 없음</div>'}
         ${jg}${form}</div>`;
-    }).join("") || '<div class="empty">검수 대기 항목 없음 🎉</div>') + `</section>
+    }).join("") || '<div class="empty">검수 대기 항목 없음 🎉</div>') + `</div></section>
     <section class="card"><h2>최근 결정</h2><div class="tblwrap"><table>
       <tr><th>시각</th><th>작품</th><th>결정</th><th>결정자</th><th>사유</th></tr>${
       (state.reviews||[]).filter(r => r.status !== "waiting").slice(0,20).map(r => {
@@ -514,6 +567,18 @@ function renderReview(){
           <td class="sub">${esc((r.decided_by||"").slice(0,18))}</td>
           <td class="sub">${esc((r.decision_note||"").slice(0,80))}</td></tr>`;
       }).join("") || '<tr><td colspan="5" class="empty">아직 없음</td></tr>'}</table></div></section>`;
+  // v3: 프리뷰 자동 로드 — 버튼 없이 카드에서 바로 본다(서명 URL)
+  rs.forEach(async r => {
+    const pay = r.payload || {}; if (!pay.preview_key) return;
+    try {
+      const url = await signedUrl(pay.bucket || "ves-outputs", pay.preview_key, 1800);
+      const v = document.getElementById("pvv_" + r.id);
+      if (v && v.src !== url) v.src = url;
+    } catch(e){
+      const d = document.getElementById("pv_" + r.id);
+      if (d) d.innerHTML = `<div class="sub">프리뷰 로드 실패 — ${esc(e.message)}</div>`;
+    }
+  });
 }
 window.loadPreview = async (rid, key, bucket) => {
   try {
@@ -557,7 +622,7 @@ function renderFeed(){
         <div class="th" id="th_${w.id}" ${pv?`onclick="playFeed('${w.id}','${esc(pv.object_key)}','${esc(pv.bucket||"ves-outputs")}')"`:""}>${pv?"▶ 재생":"미리보기 없음"}</div>
         <div class="bd"><div class="t">${esc(w.work_title)}</div>
           <div class="m"><span class="fpill ${pc}">${pl}</span>
-            <span>${esc(w.channel_slug)}</span><span>${esc(kstDay(w.created_at))}</span>
+            <span>${esc(chName(w.channel_slug))}</span><span>${esc(kstDay(w.created_at))}</span>
             ${vid ? `<a href="https://youtu.be/${esc(vid)}" target="_blank" rel="noopener" style="color:#9cc4f2">YouTube ↗</a>` : ""}
           </div></div></div>`;
     }).join("") || '<div class="empty">작업 이력 없음</div>'}</div></section>`;
@@ -577,17 +642,39 @@ window.playFeed = async (woId, key, bucket) => {
   } catch(e){ toast("재생 실패: " + e.message, true); }
 };
 
-// ───────── 소스 ─────────
+// ───────── 소스 (v3: 작품별 그룹 + 사용량 게이지 — 어느 작품이 얼마나 남았나 한눈에) ─────────
 function renderSources(){
-  $("#page").innerHTML = `<section class="card"><h2>소스 — 회차 사용 현황 (한도 소진 시 planner 가 다음 회차로)</h2>
-    <div class="tblwrap"><table><tr><th>작품</th><th>회차</th><th>사용/한도</th><th>상태</th></tr>${
-    ((state.srcs||[]).map(r => {
-      const st = !r.is_active ? chip("mut","–","비활성")
-               : Number(r.remaining) === 0 ? chip("crit","✕","소진 — 보충 필요")
-               : chip("good","✓",`남음 ${r.remaining}`);
-      return `<tr><td>${esc(r.work_title)}</td><td class="num">${r.episode ?? "단편"}</td>
-        <td class="num">${r.times_used}/${r.use_limit}</td><td>${st}</td></tr>`;
-    }).join("")) || '<tr><td colspan="4" class="empty">등록된 소스 없음 — 메인 맥에서 deploy/register_source.py 로 등록</td></tr>'}</table></div></section>`;
+  const by = {};
+  (state.srcs||[]).forEach(r => (by[r.work_title] = by[r.work_title] || []).push(r));
+  const works = Object.keys(by).sort((a,b) => a.localeCompare(b, "ko"));
+  const blocks = works.map(w => {
+    const rows = by[w].slice().sort((a,b) => (a.episode??1e9) - (b.episode??1e9));
+    const act = rows.filter(r => r.is_active !== false);
+    const remainTot = act.reduce((s,r) => s + Math.max(0, Number(r.remaining)||0), 0);
+    const next = act.find(r => Number(r.remaining) > 0);
+    const chans = (state.chans||[]).filter(c => (c.works||[]).includes(w)).map(c => c.name);
+    const head = remainTot === 0
+      ? chip("crit","✕","전 회차 소진 — 새 소스 보충 필요")
+      : chip("good","✓",`앞으로 ${remainTot}편 더 만들 수 있음`);
+    const nextChip = next ? `<span class="pill">다음 사용: ${next.episode != null ? next.episode + "회차" : "단편"}</span>` : "";
+    const eps = rows.map(r => {
+      const used = Number(r.times_used)||0, lim = Number(r.use_limit)||1;
+      const pct = Math.min(100, Math.round(used / lim * 100));
+      const full = r.is_active === false || Number(r.remaining) === 0;
+      const tag = r.is_active === false ? '<span class="sub">비활성</span>'
+                : Number(r.remaining) === 0 ? '<span style="color:var(--crit)">소진</span>'
+                : (next && r.episode === next.episode ? '<span style="color:#7ddc7d">← 다음</span>' : "");
+      return `<div class="eprow"><span class="ep">${r.episode != null ? r.episode + "회차" : "단편"}</span>
+        <span class="gauge"><i class="${full ? "full" : ""}" style="width:${pct}%"></i></span>
+        <span class="cnt">${used}/${lim}</span>${tag}</div>`;
+    }).join("");
+    return `<div class="srcwork"><div class="swh"><b>${esc(w)}</b>
+        ${chans.length ? `<span class="sub">→ ${esc(chans.join(", "))}</span>` : ""}
+        <span class="right"></span>${nextChip}${head}</div>${eps}</div>`;
+  }).join("");
+  $("#page").innerHTML = `<section class="card">
+    <h2>소스 창고 — 작품별 사용 현황 (회차마다 쓸 수 있는 횟수가 정해져 있고, 다 쓰면 다음 회차로 자동 이동)</h2>
+    ${blocks || '<div class="empty">등록된 소스 없음 — 유튜브형은 자동, 파일형은 메인 맥에서 deploy/register_source.py 로 등록</div>'}</section>`;
 }
 
 // ───────── 잡·이벤트 ─────────
@@ -598,8 +685,8 @@ function renderJobsTab(){
   $("#page").innerHTML = `<section class="card"><h2>잡 큐</h2>
     <div class="filters">${JOB_FILTERS.map(([k,l]) =>
       `<button class="mini ${jobFilter===k?"on":""}" onclick="jobFilter='${k}';render()">${l}</button>`).join("")}</div>
-    <div class="tblwrap"><table><tr><th>kind</th><th>상태</th><th>시도</th><th>노드</th>
-      <th>작품</th><th>경과</th><th>비고</th><th></th></tr>${
+    <div class="tblwrap"><table><tr><th>단계</th><th>상태</th><th>시도</th><th>맥</th>
+      <th>작품 · 채널</th><th>경과</th><th>비고</th><th></th></tr>${
     rows.map(j => {
       const [cls,ic,lb] = JOB_ST[j.status] || ["mut","?",j.status];
       const wo = state.wo[j.work_order_id] || {};
@@ -612,10 +699,11 @@ function renderJobsTab(){
         ["pending","running","blocked"].includes(j.status)
           ? `<button class="mini danger" data-l="취소" onclick="armed(this,'취소',()=>rpc('cancel_job',{p_job:'${j.id}',p_note:'dashboard'},'취소됨'))">취소</button>` : "",
       ].join("") : "";
-      return `<tr><td class="mono">${esc(j.kind)}</td><td>${chip(cls,ic,lb)}</td>
+      return `<tr><td>${esc(kindKo(j.kind))}</td><td>${chip(cls,ic,lb)}</td>
         <td class="num">${j.attempt}/${j.max_attempts??3}</td>
         <td class="mono">${esc(j.node_id||"")}${pin?` <span class="sub" title="노드 고정">${esc(pin)}</span>`:""}</td>
-        <td>${esc(wo.work_title || "")}</td>
+        <td>${esc(wo.work_title || (j.params && (j.params.work_title || j.params.folder_name)) || "")}
+          ${wo.channel_slug ? `<div class="sub">${esc(chName(wo.channel_slug))}</div>` : ""}</td>
         <td class="num" title="${esc(j.updated_at||"")}">${ago(j.updated_at)}</td>
         <td>${err}</td><td>${acts}</td></tr>`;
     }).join("") || `<tr><td colspan="8" class="empty">해당 상태의 잡 없음</td></tr>`}</table></div></section>
@@ -625,7 +713,7 @@ function renderJobsTab(){
       const j = state.jobById[e.job_id];
       const note = e.detail && (e.detail.error || e.detail.note || "") || "";
       return `<tr><td class="num" title="${esc(e.at)}">${ago(e.at)}</td>
-        <td class="mono">${esc(j ? j.kind : (e.job_id||"").slice(0,8))}</td>
+        <td>${esc(j ? kindKo(j.kind) : (e.job_id||"").slice(0,8))}</td>
         <td class="mono">${esc(e.node_id||"")}</td>
         <td class="mono">${esc(e.from_status)} → ${esc(e.to_status)}</td>
         <td class="err">${esc(String(note).slice(0,140))}</td></tr>`;
@@ -673,8 +761,8 @@ function renderInfra(){
       <td class="mono">${esc((d.pinned_sha||"").slice(0,9))}</td><td>${acts}</td></tr>`;
   }).join("");
   $("#page").innerHTML = `
-    <section class="card"><h2>노드</h2><div class="nodes">${nodeCards || '<div class="empty">없음</div>'}</div></section>
-    <section class="card"><h2>배포 매트릭스 — 노드×엔진 SHA (노랑 = origin 과 불일치)</h2>
+    <section class="card"><h2>맥 (작업 기계) 상태</h2><div class="nodes">${nodeCards || '<div class="empty">없음</div>'}</div></section>
+    <section class="card"><h2>배포 매트릭스 — 맥×엔진 SHA (노랑 = origin 과 불일치)</h2>
       <div class="tblwrap"><table>${matrix}</table></div></section>
     <section class="card"><h2>배포 설정</h2><div class="tblwrap"><table>
       <tr><th>engine</th><th>origin 최신</th><th>추적</th><th>핀</th><th></th></tr>${depRows}</table></div></section>`;
@@ -686,7 +774,7 @@ window.pinAsk = eng => {
 };
 
 // ───────── 성과 (구 Edge Function 재사용 — 접속코드는 메모리에만) ─────────
-let edgeKey = "", perfData = null, perfMsg = "";
+let edgeKey = "", perfData = null, perfMsg = "", perfSort = { col: null, dir: -1 };
 async function edgeApi(path){
   const r = await fetch(EDGE + path, { headers: { "x-ves-key": encodeURIComponent(edgeKey) } });
   if (r.status === 401) throw new Error("unauthorized");
@@ -707,15 +795,42 @@ function renderPerf(){
     return;
   }
   const chs = perfData.channels || perfData.league || (Array.isArray(perfData) ? perfData : []);
+  const PERF_KO = { channel:"채널", channel_name:"채널", name:"채널", slug:"채널코드",
+    token_slug:"채널코드", views:"조회수", view_count:"조회수", total_views:"총 조회수",
+    avg_views:"평균 조회수", subs:"구독자", subscribers:"구독자", subscriber_count:"구독자",
+    videos:"영상 수", video_count:"영상 수", shorts:"쇼츠 수", published:"발행 수",
+    likes:"좋아요", comments:"댓글", engagement:"참여율", watch_hours:"시청시간(h)",
+    rank:"순위", grade:"등급", score:"점수", delta:"증감", date:"날짜", days:"기간(일)" };
   const cols = chs.length ? Object.keys(chs[0]).filter(k =>
-    typeof chs[0][k] !== "object").slice(0, 8) : [];
-  $("#page").innerHTML = `<section class="card"><h2>채널 성과 (28일)
+    typeof chs[0][k] !== "object").slice(0, 10) : [];
+  let rows = chs.slice();
+  if (perfSort.col && cols.includes(perfSort.col)){
+    const c = perfSort.col, d = perfSort.dir;
+    rows.sort((a,b) => { const x = a[c], y = b[c];
+      const nx = parseFloat(x), ny = parseFloat(y);
+      const cmp = (isFinite(nx) && isFinite(ny)) ? nx - ny : String(x??"").localeCompare(String(y??""), "ko");
+      return d * cmp; });
+  }
+  const fmt = v => { const n = Number(v);
+    return (v !== null && v !== "" && isFinite(n) && String(v).trim() !== "")
+      ? n.toLocaleString("ko-KR") : esc(String(v ?? "")); };
+  $("#page").innerHTML = `<section class="card"><h2>채널 성과 (28일) — 열 제목을 누르면 정렬됩니다
       <button class="mini right" onclick="perfData=null;perfLoad()">새로고침</button></h2>
-    <div class="tblwrap"><table><tr>${cols.map(c=>`<th>${esc(c)}</th>`).join("")}</tr>${
-    chs.map(r => `<tr>${cols.map(c => `<td class="num">${esc(String(r[c] ?? ""))}</td>`).join("")}</tr>`).join("")
+    <div class="tblwrap"><table><tr>${cols.map(c =>
+      `<th class="sortable" onclick="perfSortBy('${esc(c)}')">${esc(PERF_KO[c] || c)}${
+        perfSort.col===c ? (perfSort.dir>0?" ▲":" ▼") : ""}</th>`).join("")}</tr>${
+    rows.map(r => `<tr>${cols.map(c => {
+      const raw = r[c];
+      const isCh = /channel|name|slug/.test(c);
+      const shown = isCh ? esc(chName(String(raw ?? ""))) : fmt(raw);
+      return `<td class="${isCh ? "" : "num"}">${shown}</td>`; }).join("")}</tr>`).join("")
     || '<tr><td class="empty">데이터 없음</td></tr>'}</table></div>
     <div class="sub" style="margin-top:6px">원천: laeebly ETL — 지연 있음. 세부 드릴다운은 구 대시보드 참조.</div></section>`;
 }
+window.perfSortBy = c => {
+  perfSort = perfSort.col === c ? { col:c, dir:-perfSort.dir } : { col:c, dir:-1 };
+  render();
+};
 async function perfLoad(){
   perfMsg = "";
   try { perfData = await edgeApi("/api/perf?days=28"); }
@@ -726,7 +841,10 @@ window.perfLoad = perfLoad;
 
 // ───────── 폴링 ─────────
 let auto = true;
-setInterval(() => { if (auto && !document.hidden && tab !== "perf") refresh(); }, 15000);
+// v3: 영상 시청 중엔 자동 갱신을 잠시 멈춘다 — 재생 중 화면이 갈리지 않게
+const anyVideoPlaying = () =>
+  [...document.querySelectorAll("video")].some(v => !v.paused && !v.ended);
+setInterval(() => { if (auto && !document.hidden && tab !== "perf" && !anyVideoPlaying()) refresh(); }, 15000);
 $("#btnRefresh").onclick = () => refresh();
 $("#btnAuto").onclick = e => { auto = !auto; e.target.textContent = `자동 15s: ${auto?"켬":"끔"}`; };
 document.addEventListener("visibilitychange", () => { if (!document.hidden && auto) refresh(); });

@@ -31,6 +31,25 @@ def _due_interval(last: dt.datetime | None, now: dt.datetime, minutes: int) -> b
     return last is None or (now - last) >= dt.timedelta(minutes=minutes)
 
 
+def kick_due(seen: str | None, cur: str | None, booted: bool) -> tuple[bool, str | None]:
+    """ops_config.planner_kick 값 '변경' 시에만 due — '오늘 다시 계획' 스위치(8/10).
+    기동 직후엔 현재값을 승계만 한다(재시작 오발사 방지). 순수 — 테스트 대상.
+    사용법: INSERT INTO ops_config(key,value) VALUES('planner_kick', now()::text)
+            ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=now();"""
+    if not booted:
+        return False, cur
+    if cur is not None and cur != seen:
+        return True, cur
+    return False, seen
+
+
+def _read_kick(conn) -> str | None:
+    with conn.cursor() as c:
+        c.execute("SELECT value FROM public.ops_config WHERE key='planner_kick'")
+        row = c.fetchone()
+    return row and row["value"]
+
+
 def main():
     cfg = get_config()
     conn = db.connect(cfg.db_url)
@@ -48,6 +67,17 @@ def main():
                 continue
             try:
                 now = dt.datetime.now(KST)
+                # planner_kick: 값이 바뀌면 planner 즉시 1회(멱등 — R7·소스순환이 중복을 걸러줌)
+                try:
+                    due_kick, seen = kick_due(last.get("planner_kick"),
+                                              _read_kick(conn), "planner_kick" in last)
+                    last["planner_kick"] = seen
+                    if due_kick:
+                        print("[scheduler] planner_kick 감지 — planner 즉시 실행")
+                        planner.run(conn, cfg)
+                        last["planner"] = now
+                except Exception as e:  # noqa: BLE001
+                    print(f"[scheduler] planner_kick 처리 실패(무시): {e}")
                 tasks = [
                     ("reaper",        lambda: reaper.run(conn),            _due_interval(last.get("reaper"), now, 1)),
                     ("version_watch", lambda: version_watch.run(conn, cfg), _due_interval(last.get("version_watch"), now, 60)),

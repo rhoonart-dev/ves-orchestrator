@@ -18,9 +18,15 @@ from ves.storage.supabase_storage import Store
 def run(cfg, conn, job, deps):
     p = job["params"]
     with conn.cursor() as c:
-        c.execute("SELECT sha256, object_key, bytes, subtitle_key FROM public.sources "
-                  "WHERE work_title=%s AND episode IS NOT DISTINCT FROM %s",
-                  (p["work_title"], p.get("episode")))
+        if p.get("source_sha256"):
+            # WO 가 고른 바로 그 파일(sha)로 조회 — (작품, 회차)에 행이 여러 개일 때
+            # 엉뚱한 파일을 캐싱하던 위험 제거(SNL8 회차 NULL 6행 실측, 2026-08-10)
+            c.execute("SELECT sha256, object_key, bytes, subtitle_key FROM public.sources "
+                      "WHERE sha256=%s", (p["source_sha256"],))
+        else:
+            c.execute("SELECT sha256, object_key, bytes, subtitle_key FROM public.sources "
+                      "WHERE work_title=%s AND episode IS NOT DISTINCT FROM %s",
+                      (p["work_title"], p.get("episode")))
         src = c.fetchone()
     if src is None:
         if p.get("source_url"):                    # YouTube 소스 작품은 캐시 불필요

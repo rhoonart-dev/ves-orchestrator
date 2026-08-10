@@ -145,6 +145,34 @@ def test_carry_chain_keys():
     assert carry_chain_keys(None, {"a": 1}) == {"a": 1}
 
 
+def test_episode_from_path_checks_parent_dirs():
+    """SNL8 실측(8/10): 회차가 폴더명에 있고 파일명(SNL_803)엔 패턴이 없다."""
+    from ves.adapters.register_drive import episode_from_path
+    assert episode_from_path("SNL 코리아 시즌 8/ 3화/SNL_803_2997_FHD_MASTER_V1.mp4") == 3
+    assert episode_from_path("SNL 코리아 시즌 8/10화/SNL_810_X.mp4") == 10
+    assert episode_from_path("작품/E07/무제.mp4") == 7
+    assert episode_from_path("작품/단편.mp4") is None
+    assert episode_from_path(None) is None
+
+
+def test_scheduler_kick_due():
+    """planner_kick: 기동 승계(오발사 방지) → 값 변경 시에만 due."""
+    from ves.scheduler.main import kick_due
+    assert kick_due(None, "t1", False) == (False, "t1")     # 기동: 승계만
+    assert kick_due("t1", "t1", True) == (False, "t1")      # 변화 없음
+    assert kick_due("t1", "t2", True) == (True, "t2")       # 변경 → 발사
+    assert kick_due(None, "t1", True) == (True, "t1")       # 최초 등록도 발사
+    assert kick_due("t1", None, True) == (False, "t1")      # 행 삭제 → 무시
+
+
+def test_job_chain_acquire_carries_sha():
+    """acquire 가 WO 의 sha 로 정확 조회하도록 params 에 승계(SNL8 중복행 실측)."""
+    wo = {"work_title": "w", "channel_slug": "S", "channel_name": "n",
+          "source_sha256": "abc123", "pipeline": "shorts_kr"}
+    acq = dict((k, p) for k, p, *_ in job_chain(wo))["acquire"]
+    assert acq["source_sha256"] == "abc123"
+
+
 def test_acquire_should_pin():
     """첫 전체 회전 실측: 참교육 acquire(mm-06)→generate(다른 노드) '소스 캐시 없음' 즉사.
     파일형만 핀, URL 소스는 쏠림 방지를 위해 핀 없음."""

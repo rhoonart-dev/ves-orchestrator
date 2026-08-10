@@ -72,6 +72,18 @@ def lsjson_files(raw: str) -> list:
     return out
 
 
+def episode_from_path(rel: str):
+    """파일명 → 상위 폴더명 순으로 회차 추정. 순수 — 테스트 대상.
+    실측(SNL8, 2026-08-10): 회차가 파일명(SNL_803…)이 아니라 폴더명(' 3화/')에 있었다 —
+    파일명만 보던 종전 로직은 6개 전부 NULL 등록 → 회차 순환·사용집계가 깨졌다."""
+    parts = [s.strip() for s in str(rel or "").replace("\\", "/").split("/") if s.strip()]
+    for seg in reversed(parts):                     # 파일명 → 가까운 폴더 순
+        ep = base.guess_episode(seg)
+        if ep is not None:
+            return ep
+    return None
+
+
 def plan_new(files, mode: str, work_title, known_ids, aliases=None) -> list:
     """목록 → [(file_id, 작품, 상대경로)]. external 모드는 첫 경로 조각=작품명.
     aliases: 영문 폴더명 → 작품 정본명(ops_config.drive_folder_aliases, 실측 2026-08-10)."""
@@ -242,7 +254,7 @@ def run(cfg, conn, job, deps):
                 finally:
                     stmp.unlink(missing_ok=True)
 
-            ep = base.guess_episode(name)
+            ep = episode_from_path(rel)
             with conn.cursor() as c:
                 c.execute(
                     """INSERT INTO public.sources

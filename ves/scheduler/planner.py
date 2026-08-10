@@ -40,7 +40,8 @@ def job_chain(wo: dict) -> list:
            "resource": f"gemini:{wo.get('gcp_project') or 'DEFAULT'}",
            "outdir": "outputs"}
     chain = [
-        ("acquire",          {**p_common, "source_url": wo.get("source_url")}, ["network"], 120),
+        ("acquire",          {**p_common, "source_url": wo.get("source_url"),
+                              "source_sha256": wo.get("source_sha256")},      ["network"], 120),
         ("generate",         gen,                                              ["generate"], LONG_LEASE),
         ("upload_artifacts", dict(p_common),                                   ["analyze"], 120),
         ("ingest",           dict(p_common),                                   ["analyze"], 120),
