@@ -36,14 +36,24 @@ def folder_id_of(url: str):
 
 
 def first_remote(listremotes_out: str):
-    """`rclone listremotes` 출력 → 'gdrive:' 우선(검증 컨벤션), 없으면 첫 원격.
+    """`rclone listremotes --long` 출력('이름: 타입') → 선택 우선순위:
+    ① 이름 gdrive(검증 컨벤션) ② 타입 drive 인 첫 원격 ③ 첫 원격.
     (실측 2026-08-10: 알파벳순 첫 원격을 집으면 다른 계정/백엔드로 새는 사고)"""
-    remotes = [ln.strip() for ln in str(listremotes_out or "").splitlines()
-               if ln.strip().endswith(":")]
-    for r in remotes:
+    rows = []
+    for ln in str(listremotes_out or "").splitlines():
+        ln = ln.strip()
+        if not ln:
+            continue
+        if ":" in ln:
+            name, _, typ = ln.partition(":")
+            rows.append((name.strip() + ":", typ.strip()))
+    for r, _t in rows:
         if r.lower() == "gdrive:":
             return r
-    return remotes[0] if remotes else None
+    for r, t in rows:
+        if t == "drive":
+            return r
+    return rows[0][0] if rows else None
 
 
 def lsjson_files(raw: str) -> list:
@@ -116,7 +126,7 @@ class _Rclone:
 
     def __init__(self, bin_, conf, folder_id, cache_root):
         self.b, self.c, self.fid = bin_, conf, folder_id
-        self.remote = first_remote(_rc(bin_, conf, "listremotes", timeout=30))
+        self.remote = first_remote(_rc(bin_, conf, "listremotes", "--long", timeout=30))
         if not self.remote:
             raise RuntimeError("rclone.conf 에 원격이 없음")
         self.cache = pathlib.Path(cache_root) / folder_id

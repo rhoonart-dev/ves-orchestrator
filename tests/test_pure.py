@@ -203,6 +203,10 @@ def test_rclone_helpers():
     """rclone 인증 경로(실측 2026-08-10): 원격 파싱·lsjson 매핑·폴더 ID 추출."""
     from ves.adapters.register_drive import first_remote, folder_id_of, lsjson_files
     assert first_remote("gdrive:\n") == "gdrive:" and first_remote("") is None
+    # --long 형식: 이름 gdrive 우선 → 없으면 타입 drive → 없으면 첫 원격 (실측 2026-08-10)
+    assert first_remote("backup: s3\ngdrive: drive\n") == "gdrive:"
+    assert first_remote("backup: s3\nmydrv: drive\n") == "mydrv:"
+    assert first_remote("backup: s3\nother: sftp\n") == "backup:"
     assert folder_id_of("https://drive.google.com/drive/folders/"
                         "1nbob1KhTt-x68xKUKb8P8GoHfo2uqKSj?usp=sharing") \
         == "1nbob1KhTt-x68xKUKb8P8GoHfo2uqKSj"
