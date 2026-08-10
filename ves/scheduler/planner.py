@@ -80,6 +80,17 @@ def _load_plan_overrides(conn) -> dict:
         return {}
 
 
+def _load_works_overrides(conn) -> dict:
+    """0017: 채널 작품 배정 관제 수정본 — 있으면 channels.json works 대신 이것이 유효."""
+    try:
+        with conn.cursor() as c:
+            c.execute("SELECT token_slug, works FROM public.channel_works_overrides")
+            return {r["token_slug"]: list(r["works"] or []) for r in c.fetchall()}
+    except Exception as e:  # noqa: BLE001
+        print(f"[planner] works_overrides 조회 실패(파일 정본 진행): {e}")
+        return {}
+
+
 def _jp_enabled(conn) -> bool:
     """JP 가동 스위치(ops_config.jp_pipeline='on') — 기존 현지화 autopilot 과의
     이중 생산을 막는 컷오버 장치(2026-08-10). 켜기 전에 구 autopilot 을 내릴 것."""
@@ -93,13 +104,16 @@ def run(conn, cfg):
     today = dt.datetime.now(dt.timezone(dt.timedelta(hours=9))).date()
     channels = _load_channels(cfg)
     jp_on = _jp_enabled(conn)
-    plan_ovr = _load_plan_overrides(conn)   # 0016: 채널별 작품·회차 지정
+    plan_ovr = _load_plan_overrides(conn)    # 0016: 채널별 작품·회차 지정
+    works_ovr = _load_works_overrides(conn)  # 0017: 채널 작품 배정 수정본
     made = 0
     for ch in channels:
         if ch.get("country") == "JP" and not jp_on:
             continue  # 스위치 off — 현지화 autopilot 담당 유지(이중 생산 방지)
-        ovr = plan_ovr.get(ch.get("token_slug"))
-        works_try, pin_ep = plan_for_channel(ch.get("works"), ovr)
+        slug = ch.get("token_slug")
+        eff_works = works_ovr.get(slug, ch.get("works"))
+        ovr = plan_ovr.get(slug)
+        works_try, pin_ep = plan_for_channel(eff_works, ovr)
         if ovr and ovr.get("work_title") and works_try != [ovr["work_title"]]:
             print(f"[planner] ⚠ {ch['name']}: 지정 작품 '{ovr['work_title']}' 이 "
                   f"채널 정본(works)에 없음 — 자동으로 진행(R14)")

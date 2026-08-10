@@ -383,6 +383,7 @@ async function refresh(){
   ]);
   const ovr = await soft(sb.from("channel_design_overrides").select("*"));   // 0014 이전엔 빈 배열
   const plans = await soft(sb.from("channel_plan_overrides").select("*"));   // 0016 이전엔 빈 배열
+  const wovr = await soft(sb.from("channel_works_overrides").select("*"));   // 0017 이전엔 빈 배열
   const err = [nodes,deps,jobs,reviews,events,wos,srcs,chans].find(r => r.error);
   if (err){ toast("조회 실패: " + err.error.message, true); return; }
   const runToClip = {}, judgeByClip = {}, clipById = {};
@@ -402,6 +403,7 @@ async function refresh(){
             events:events.data, wos:wos.data, srcs:srcs.data, chans:chans.data,
             designOvr:Object.fromEntries((ovr.data||[]).map(o=>[o.token_slug,o])),
             planOvr:Object.fromEntries((plans.data||[]).map(o=>[o.token_slug,o])),
+            worksOvr:Object.fromEntries((wovr.data||[]).map(o=>[o.token_slug,o])),
             snaps:snaps.data||[], runToClip, judgeByClip, clipById, artByWo, jobsByWo, reviewByWo,
             wo:Object.fromEntries((wos.data||[]).map(w=>[w.id,w])),
             jobById:Object.fromEntries((jobs.data||[]).map(j=>[j.id,j])),
@@ -764,7 +766,7 @@ const DESIGN_FIELDS = [   // [키, 라벨, 종류] — brain channel_registry �
   ["tts_color","TTS 자막 색","color"],   ["tts_size","TTS 자막 크기","num"],
   ["tts_y_margin","TTS Y여백","num"],    ["aspect_ratio","화면비","text"],
 ];
-let chEdit = null;
+let chEdit = null, worksEdit = null;
 function effDesign(ch){
   const o = state.designOvr[ch.token_slug];
   return { design: (o && o.design) || ch.design || null, isOvr: !!o, ovr: o };
@@ -799,6 +801,23 @@ function renderChannels(){
     : `<div class="dacts">${can("operator")
         ? `<button class="mini" onclick="chEdit='${esc(ch.token_slug)}';render()">✎ 편집</button>`
         : '<span class="sub">편집은 operator 권한</span>'}</div>`;
+    // 0017: 유효 작품 배정(관제 수정본 > 파일 정본) — planner·회차지정 모두 이 값 기준
+    const wOvr = state.worksOvr[ch.token_slug];
+    const effWorks = (wOvr && wOvr.works) || ch.works || [];
+    const worksEditing = worksEdit === ch.token_slug;
+    const worksLine = `<div class="dsum" style="margin-bottom:6px"><b>작품 배정:</b> ${esc(effWorks.join(", ")) || "—"}
+      ${wOvr ? chip("info","✎","관제 수정본") : ""}
+      ${can("operator") && !worksEditing ? `<button class="mini" onclick="worksEdit='${esc(ch.token_slug)}';render()">작품 편집</button>` : ""}</div>`
+      + (worksEditing ? `<div style="margin-bottom:8px">
+        <textarea id="wk_${ch.token_slug}" rows="3" style="width:100%"
+          placeholder="작품명을 줄 단위로 — laeebly 정본 표기와 똑같이">${esc(effWorks.join("\n"))}</textarea>
+        <div class="dacts">
+          <button class="mini pri" onclick="worksSave('${esc(ch.token_slug)}')">저장 — 다음 계획부터 적용</button>
+          ${wOvr ? `<button class="mini" onclick="worksClear('${esc(ch.token_slug)}')">파일 기본으로</button>` : ""}
+          <button class="mini" onclick="worksEdit=null;render()">닫기</button>
+        </div>
+        <div class="sub">⚠ 작품명은 권리 정본(laeebly)·소스 등록과 글자까지 같아야 합니다 — 한 글자 차이가 조회 전체를 깨뜨립니다</div>
+      </div>` : "");
     // 0016: 다음 작업(작품·회차) 지정
     const plan = state.planOvr[ch.token_slug];
     const planTxt = plan
@@ -812,19 +831,19 @@ function renderChannels(){
     const planEdit = can("operator") ? `
       <div class="form" style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
         <select id="pw_${ch.token_slug}" onchange="planWorkChanged('${esc(ch.token_slug)}')">${
-          (ch.works||[]).map(w => `<option value="${esc(w)}" ${plan && plan.work_title === w ? "selected" : ""}>${esc(w)}</option>`).join("")}</select>
-        <select id="pe_${ch.token_slug}">${epOpts(plan ? plan.work_title : (ch.works||[])[0])}</select>
+          effWorks.map(w => `<option value="${esc(w)}" ${plan && plan.work_title === w ? "selected" : ""}>${esc(w)}</option>`).join("")}</select>
+        <select id="pe_${ch.token_slug}">${epOpts(plan ? plan.work_title : effWorks[0])}</select>
         <button class="mini pri" onclick="planSave('${esc(ch.token_slug)}')">지정</button>
         ${plan ? `<button class="mini" onclick="planClear('${esc(ch.token_slug)}')">자동으로</button>` : ""}
       </div>` : "";
     return `<div class="chcard"><div class="h"><b>${esc(ch.name || ch.token_slug)}</b>${st}
         ${ovr ? `<span class="sub right">${esc((ovr.updated_by||"").split("@")[0])} · ${ago(ovr.updated_at)}</span>` : ""}</div>
+      ${worksLine}
       <div class="dsum" style="margin-bottom:6px"><b>다음 작업:</b> ${planTxt}
         ${plan ? `<span class="sub"> · ${esc((plan.updated_by||"").split("@")[0])}</span>` : ""}</div>
       ${planEdit}
       <div style="border-top:1px solid var(--line);margin:8px 0"></div>
-      <div class="dsum">${sum}</div>
-      <div class="sub" style="margin-top:4px">${esc((ch.works||[]).join(", "))}</div>${form}</div>`;
+      <div class="dsum">${sum}</div>${form}</div>`;
   }).join("");
   $("#page").innerHTML = `<section class="card">
     <h2>채널 템플릿 — 영상 디자인(제목·자막·작품명 색과 폰트). 저장하면 그 채널의 다음 생성부터 바로 적용</h2>
@@ -862,15 +881,40 @@ window.planSave = slug => {
 };
 window.planClear = slug =>
   rpc("set_channel_plan", { p_slug: slug, p_work: null }, "자동으로 복귀");
+// 0017: 작품 배정 편집
+window.worksSave = slug => {
+  const works = ($("#wk_" + slug).value || "").split("\n").map(s => s.trim()).filter(Boolean);
+  if (!works.length){ toast("작품을 한 개 이상 입력하세요", true); return; }
+  worksEdit = null;
+  rpc("set_channel_works", { p_slug: slug, p_works: works }, "작품 배정 저장 — 다음 계획부터 적용");
+};
+window.worksClear = slug => {
+  worksEdit = null;
+  rpc("set_channel_works", { p_slug: slug, p_works: null }, "파일 정본으로 복귀");
+};
 
-// ───────── 잡·이벤트 ─────────
+// ───────── 잡·이벤트 (v3.3: 맥별·채널별 필터) ─────────
 const JOB_FILTERS = [["all","전체"],["pending","대기"],["running","실행"],
-  ["failed","실패"],["dead","dead"],["blocked","보류"],["succeeded","완료"],["cancelled","취소"]];
+  ["failed","실패"],["dead","중단"],["blocked","보류"],["succeeded","완료"],["cancelled","취소"]];
+let jobNode = "all", jobChan = "all";
 function renderJobsTab(){
-  const rows = (state.jobs||[]).filter(j => jobFilter==="all" || j.status===jobFilter);
-  $("#page").innerHTML = `<section class="card"><h2>잡 큐</h2>
+  const chOf = j => (state.wo[j.work_order_id]||{}).channel_slug
+                 || (j.params && j.params.channel_slug) || null;
+  const rows = (state.jobs||[])
+    .filter(j => jobFilter==="all" || j.status===jobFilter)
+    .filter(j => jobNode==="all" || j.node_id===jobNode
+              || (!j.node_id && (j.required_caps||[]).includes("node:"+jobNode)))
+    .filter(j => jobChan==="all" || chOf(j)===jobChan);
+  $("#page").innerHTML = `<section class="card"><h2>작업 내역 — ${rows.length}건</h2>
     <div class="filters">${JOB_FILTERS.map(([k,l]) =>
-      `<button class="mini ${jobFilter===k?"on":""}" onclick="jobFilter='${k}';render()">${l}</button>`).join("")}</div>
+      `<button class="mini ${jobFilter===k?"on":""}" onclick="jobFilter='${k}';render()">${l}</button>`).join("")}
+      <select onchange="jobNode=this.value;render()" title="맥(작업 기계)별 보기">
+        <option value="all" ${jobNode==="all"?"selected":""}>맥 전체</option>
+        ${(state.nodes||[]).map(n => `<option value="${esc(n.node_id)}" ${jobNode===n.node_id?"selected":""}>${esc(n.node_id)}</option>`).join("")}</select>
+      <select onchange="jobChan=this.value;render()" title="채널별 보기">
+        <option value="all" ${jobChan==="all"?"selected":""}>채널 전체</option>
+        ${(state.chans||[]).map(c => `<option value="${esc(c.token_slug)}" ${jobChan===c.token_slug?"selected":""}>${esc(c.name||c.token_slug)}</option>`).join("")}</select>
+      ${jobNode!=="all"||jobChan!=="all" ? `<button class="mini" onclick="jobNode='all';jobChan='all';render()">필터 지우기</button>` : ""}</div>
     <div class="tblwrap"><table><tr><th>단계</th><th>상태</th><th>시도</th><th>맥</th>
       <th>작품 · 채널</th><th>경과</th><th>비고</th><th></th></tr>${
     rows.map(j => {
