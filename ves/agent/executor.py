@@ -64,6 +64,14 @@ def run_job(cfg, conn, job) -> None:
     deps = _dep_results(conn, job)
     job = {**job, "params": merge_dep_outputs(job.get("params"), deps)}
 
+    # 실행 직전 주입(관제 오버라이드 등, 0014) — 어댑터 선택 훅. 실패는 기본값 강등일 뿐.
+    hook = getattr(ad, "enrich_params", None)
+    if hook:
+        try:
+            job = {**job, "params": hook(cfg, conn, job) or job["params"]}
+        except Exception as e:  # noqa: BLE001
+            print(f"[executor] enrich_params 오류(기본값 진행): {e}")
+
     # 멱등 스킵(§6-6): 이미 된 일은 다시 하지 않는다
     try:
         if getattr(ad, "is_already_done", None) and ad.is_already_done(cfg, job):

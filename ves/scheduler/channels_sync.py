@@ -44,15 +44,18 @@ def run(conn, cfg):
             c.execute(
                 """INSERT INTO public.channels_mirror
                        (token_slug, name, channel_id, gcp_project, geoblock_capable, works,
-                        synced_sha, synced_at)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,now())
+                        design, synced_sha, synced_at)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s,now())
                    ON CONFLICT (token_slug) DO UPDATE SET
                        name=EXCLUDED.name, channel_id=EXCLUDED.channel_id,
                        gcp_project=EXCLUDED.gcp_project,
                        geoblock_capable=EXCLUDED.geoblock_capable,
-                       works=EXCLUDED.works, synced_sha=EXCLUDED.synced_sha, synced_at=now()""",
+                       works=EXCLUDED.works, design=EXCLUDED.design,
+                       synced_sha=EXCLUDED.synced_sha, synced_at=now()""",
                 (r["token_slug"], r.get("name"), r.get("channel_id"), r.get("gcp_project"),
-                 bool(r.get("geoblock_capable")), r.get("works") or [], sha))
+                 bool(r.get("geoblock_capable")), r.get("works") or [],
+                 json.dumps(r["design"], ensure_ascii=False) if r.get("design") is not None else None,
+                 sha))
         for slug in deletes:
             c.execute("DELETE FROM public.channels_mirror WHERE token_slug=%s", (slug,))
     print(f"[channels_sync] upsert {len(upserts)} · delete {len(deletes)} (sha {sha[:7] if sha else '?'})")

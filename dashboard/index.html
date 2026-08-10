@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>VES 관제</title>
+<title>VES 모니터링 사이트</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231a1a19'/%3E%3Cpath d='M14 18 L28 48 L32 48 L46 18 L38 18 L30 38 L22 18 Z' fill='%23ffffff'/%3E%3Ccircle cx='49' cy='16' r='7' fill='%230ca30c'/%3E%3C/svg%3E">
 <!-- ================================================================
   VES 오케스트레이터 운영 대시보드 (ARCHITECTURE §10) — 단일 파일 SPA
   - 읽기: RLS(authenticated read_all) 직접 SELECT
@@ -198,11 +199,23 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .eprow .cnt{flex:none;width:44px;text-align:right;font-variant-numeric:tabular-nums}
   th.sortable{cursor:pointer;user-select:none}
   th.sortable:hover{color:var(--ink)}
+  /* v3.1: 채널 템플릿 편집 */
+  .chgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:12px;align-items:start}
+  .chcard{background:var(--surface-2);border:1px solid var(--ring);border-radius:10px;padding:12px}
+  .chcard .h{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+  .chcard .h b{font-size:15px}
+  .sw{display:inline-block;width:13px;height:13px;border-radius:4px;border:1px solid var(--line);
+      vertical-align:-2px;margin-right:4px}
+  .dsum{font-size:12.5px;color:var(--ink-2);line-height:1.9}
+  .dform{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:10px}
+  .dform label{font-size:11.5px;color:var(--muted);display:flex;flex-direction:column;gap:3px}
+  .dform input,.dform select{width:100%;padding:5px 8px;font-size:12.5px}
+  .dacts{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
 </style>
 </head>
 <body>
 <div id="login">
-  <h1>VES 관제</h1>
+  <h1>VES 모니터링 사이트</h1>
   <div class="sub">Supabase Auth 계정으로 로그인 (fdidiqd)</div>
   <form id="loginForm">
     <input id="email" type="email" placeholder="이메일" autocomplete="username" required>
@@ -214,7 +227,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 
 <div id="app" style="display:none">
   <header class="top">
-    <h1>VES 관제</h1>
+    <h1>VES 모니터링</h1>
     <span class="pill" id="whoami">—</span>
     <span class="sp"></span>
     <span class="sub" id="lastSync">—</span>
@@ -339,6 +352,7 @@ async function refresh(){
     soft(sb.from("clips").select("id,video_external_id,episode,duration_sec,created_at").order("created_at",{ascending:false}).limit(200)),           // 0011
     soft(sb.from("dashboard_daily_snapshots").select("*").order("snapshot_date",{ascending:false}).limit(7)),
   ]);
+  const ovr = await soft(sb.from("channel_design_overrides").select("*"));   // 0014 이전엔 빈 배열
   const err = [nodes,deps,jobs,reviews,events,wos,srcs,chans].find(r => r.error);
   if (err){ toast("조회 실패: " + err.error.message, true); return; }
   const runToClip = {}, judgeByClip = {}, clipById = {};
@@ -356,6 +370,7 @@ async function refresh(){
   (reviews.data||[]).forEach(r => { if (!reviewByWo[r.work_order_id]) reviewByWo[r.work_order_id] = r; });
   state = { nodes:nodes.data, deps:deps.data, jobs:jobs.data, reviews:reviews.data,
             events:events.data, wos:wos.data, srcs:srcs.data, chans:chans.data,
+            designOvr:Object.fromEntries((ovr.data||[]).map(o=>[o.token_slug,o])),
             snaps:snaps.data||[], runToClip, judgeByClip, clipById, artByWo, jobsByWo, reviewByWo,
             wo:Object.fromEntries((wos.data||[]).map(w=>[w.id,w])),
             jobById:Object.fromEntries((jobs.data||[]).map(j=>[j.id,j])),
@@ -399,14 +414,14 @@ function pubDot(wo){
 
 // ───────── 탭 셸 ─────────
 const TABS = [["home","홈"],["review","검수함"],["feed","영상 피드"],["sources","소스 창고"],
-              ["jobs","작업 내역"],["infra","맥·배포"],["perf","성과"]];
+              ["channels","채널 템플릿"],["jobs","작업 내역"],["infra","맥·배포"],["perf","성과"]];
 function render(){
   const waiting = (state.reviews||[]).filter(r => r.status === "waiting").length;
   $("#tabs").innerHTML = TABS.map(([k,l]) =>
     `<button class="${tab===k?"on":""}" onclick="tab='${k}';render()">${l}${
       k==="review"&&waiting?`<span class="badge">${waiting}</span>`:""}</button>`).join("");
   ({home:renderHome, review:renderReview, feed:renderFeed, sources:renderSources,
-    jobs:renderJobsTab, infra:renderInfra, perf:renderPerf}[tab])();
+    channels:renderChannels, jobs:renderJobsTab, infra:renderInfra, perf:renderPerf}[tab])();
 }
 
 // ───────── 홈 ─────────
@@ -676,6 +691,81 @@ function renderSources(){
     <h2>소스 창고 — 작품별 사용 현황 (회차마다 쓸 수 있는 횟수가 정해져 있고, 다 쓰면 다음 회차로 자동 이동)</h2>
     ${blocks || '<div class="empty">등록된 소스 없음 — 유튜브형은 자동, 파일형은 메인 맥에서 deploy/register_source.py 로 등록</div>'}</section>`;
 }
+
+// ───────── 채널 템플릿 (0014: 관제 오버라이드 > 파일 정본, 저장 즉시 다음 생성부터) ─────────
+const DESIGN_FIELDS = [   // [키, 라벨, 종류] — brain channel_registry 허용 키와 1:1
+  ["title_color","제목 1줄 색","color"], ["title_color2","제목 2줄 색","color"],
+  ["title_font","제목 폰트","text"],     ["title_size","제목 크기","num"],
+  ["title_y","제목 위치 Y","num"],
+  ["work_color","작품명 색","color"],    ["work_title_y","작품명 위치 Y","num"],
+  ["work_font_size","작품명 크기","num"],
+  ["subtitle_font","자막 폰트","text"],  ["subtitle_size","자막 크기","num"],
+  ["subtitle_color","자막 색","color"],  ["subtitle_y_margin","자막 Y여백","num"],
+  ["subtitle_style","자막 스타일","text"],
+  ["tts_color","TTS 자막 색","color"],   ["tts_size","TTS 자막 크기","num"],
+  ["tts_y_margin","TTS Y여백","num"],    ["aspect_ratio","화면비","text"],
+];
+let chEdit = null;
+function effDesign(ch){
+  const o = state.designOvr[ch.token_slug];
+  return { design: (o && o.design) || ch.design || null, isOvr: !!o, ovr: o };
+}
+const swatch = v => `<span class="sw" style="background:${esc(String(v))}"></span>`;
+function renderChannels(){
+  const cards = (state.chans||[]).map(ch => {
+    const { design, isOvr, ovr } = effDesign(ch);
+    const st = isOvr ? chip("info","✎","관제 수정본 적용 중")
+             : design ? chip("good","✓","파일 기본 적용")
+             : chip("mut","–","템플릿 없음(전체 기본)");
+    const d = design || {};
+    const sum = design ? DESIGN_FIELDS
+        .filter(([k]) => d[k] !== undefined && d[k] !== "")
+        .map(([k,l,t]) => `${t==="color"?swatch(d[k]):""}${esc(l)} <b>${esc(String(d[k]))}</b>`)
+        .join(" · ") + (d.face_tracking === false ? " · 얼굴크롭 끔" : "")
+      : '<span class="sub">기본 디자인으로 생성됩니다</span>';
+    const editing = chEdit === ch.token_slug;
+    const form = editing ? `<div class="dform">${DESIGN_FIELDS.map(([k,l,t]) => `
+        <label>${esc(l)}<input id="df_${k}" value="${d[k] !== undefined ? esc(String(d[k])) : ""}"
+          placeholder="${t==="color" ? "white 또는 #FFD84D" : t==="num" ? "숫자" : ""}"></label>`).join("")}
+        <label>얼굴 추종 크롭<select id="df_face_tracking">
+          <option value="" ${d.face_tracking===undefined?"selected":""}>기본(켬)</option>
+          <option value="false" ${d.face_tracking===false?"selected":""}>끔(--no-reframe)</option>
+        </select></label></div>
+      <div class="dacts">
+        <button class="pri mini" onclick="chSave('${esc(ch.token_slug)}')">💾 저장 — 다음 생성부터 적용</button>
+        ${isOvr ? `<button class="mini danger" data-l="해제" onclick="armed(this,'해제',()=>chClear('${esc(ch.token_slug)}'))">파일 기본으로 해제</button>` : ""}
+        <button class="mini" onclick="chEdit=null;render()">닫기</button>
+      </div>
+      <div class="sub" style="margin-top:6px">빈 칸 = 미설정(엔진 기본). 저장은 통째 교체 — 화면에 보이는 그대로 적용됩니다.</div>`
+    : `<div class="dacts">${can("operator")
+        ? `<button class="mini" onclick="chEdit='${esc(ch.token_slug)}';render()">✎ 편집</button>`
+        : '<span class="sub">편집은 operator 권한</span>'}</div>`;
+    return `<div class="chcard"><div class="h"><b>${esc(ch.name || ch.token_slug)}</b>${st}
+        ${ovr ? `<span class="sub right">${esc((ovr.updated_by||"").split("@")[0])} · ${ago(ovr.updated_at)}</span>` : ""}</div>
+      <div class="dsum">${sum}</div>
+      <div class="sub" style="margin-top:4px">${esc((ch.works||[]).join(", "))}</div>${form}</div>`;
+  }).join("");
+  $("#page").innerHTML = `<section class="card">
+    <h2>채널 템플릿 — 영상 디자인(제목·자막·작품명 색과 폰트). 저장하면 그 채널의 다음 생성부터 바로 적용</h2>
+    <div class="sub" style="margin-bottom:10px">정본은 channels.json 파일 — 여기서 저장하면 관제 수정본이 우선 적용되고, 해제하면 파일 기본으로 돌아갑니다.</div>
+    <div class="chgrid">${cards || '<div class="empty">채널 없음</div>'}</div></section>`;
+}
+window.chSave = slug => {
+  const design = {};
+  for (const [k,,t] of DESIGN_FIELDS){
+    const v = ($("#df_"+k)?.value ?? "").trim();
+    if (!v) continue;
+    design[k] = (t === "num" && /^-?\d+$/.test(v)) ? parseInt(v,10) : v;
+  }
+  if ($("#df_face_tracking")?.value === "false") design.face_tracking = false;
+  if (!Object.keys(design).length){ toast("설정할 값이 없습니다 — 해제를 쓰세요", true); return; }
+  chEdit = null;
+  rpc("set_channel_design", { p_slug: slug, p_design: design }, "저장됨 — 다음 생성부터 적용");
+};
+window.chClear = slug => {
+  chEdit = null;
+  rpc("set_channel_design", { p_slug: slug, p_design: null }, "해제됨 — 파일 기본으로 복귀");
+};
 
 // ───────── 잡·이벤트 ─────────
 const JOB_FILTERS = [["all","전체"],["pending","대기"],["running","실행"],

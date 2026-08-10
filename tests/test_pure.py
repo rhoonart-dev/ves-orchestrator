@@ -191,6 +191,17 @@ def test_channel_design_flags():
         pass
 
 
+def test_effective_design_precedence():
+    """0014: 관제 오버라이드 > 파일 정본 > 없음(엔진 기본). 통째 교체 의미."""
+    from ves.adapters.aivideo import effective_design
+    f = {"title_color": "white"}
+    o = {"title_color2": "#FF00AA"}
+    assert effective_design(o, f) == o          # 오버라이드가 통째로 이긴다
+    assert effective_design(None, f) == f       # 오버라이드 없으면 파일
+    assert effective_design(None, None) is None
+    assert effective_design({}, f) == {}        # 빈 오버라이드도 명시적 교체
+
+
 def test_acquire_should_pin():
     """첫 전체 회전 실측: 참교육 acquire(mm-06)→generate(다른 노드) '소스 캐시 없음' 즉사.
     파일형만 핀, URL 소스는 쏠림 방지를 위해 핀 없음."""

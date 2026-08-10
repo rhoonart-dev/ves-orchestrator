@@ -79,6 +79,26 @@ def channel_design_flags(design, channel) -> list:
     return flags
 
 
+def effective_design(override, file_design):
+    """관제 오버라이드(0014) > 파일 정본(channels.json design). 순수 — 테스트 대상.
+    오버라이드는 통째 교체(편집기에서 보이는 그대로 실행) — 필드 병합의 미묘함을 피한다."""
+    return override if override is not None else file_design
+
+
+def enrich_params(cfg, conn, job):
+    """실행 직전(관제 저장 즉시 다음 잡부터): channel_design_overrides → params.design_override."""
+    p = dict(job.get("params") or {})
+    if not p.get("channel_slug"):
+        return p
+    with conn.cursor() as c:
+        c.execute("SELECT design FROM public.channel_design_overrides WHERE token_slug=%s",
+                  (p["channel_slug"],))
+        row = c.fetchone()
+    if row and row.get("design") is not None:
+        p["design_override"] = row["design"]
+    return p
+
+
 def _channel_record(cfg, channel_name):
     raw = _brain_json(cfg, "channels.json")
     chans = raw.get("channels") if isinstance(raw, dict) else raw
@@ -202,9 +222,10 @@ def build_argv(cfg, job):
     if src and not pathlib.Path(src).exists():
         raise base.PermanentError(f"소스 캐시 없음: {src} — acquire 선행 확인")
     argv = build_argv_pure(cfgmod.engine_py(cfg, "ai_video"), p, src)
-    # 채널 템플릿(채널 정체성): channels.json "design" → --design-* (registry 와 동일 규약)
+    # 채널 템플릿(채널 정체성): 관제 오버라이드(0014) > channels.json "design" (registry 규약)
     rec = _channel_record(cfg, p.get("channel_name"))
-    argv += channel_design_flags((rec or {}).get("design"), p.get("channel_name"))
+    design = effective_design(p.get("design_override"), (rec or {}).get("design"))
+    argv += channel_design_flags(design, p.get("channel_name"))
     # 로고(가이드 자동화): 작품 카드에 branding.logo 가 있으면 scene_loop 과 같은 플래그
     argv += branding_flags(_brain_json(cfg, "works.json").get(p.get("work_title")),
                            _brain_json(cfg, "loop_policy.json"))
