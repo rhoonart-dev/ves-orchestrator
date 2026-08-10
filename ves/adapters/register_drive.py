@@ -36,12 +36,14 @@ def folder_id_of(url: str):
 
 
 def first_remote(listremotes_out: str):
-    """`rclone listremotes` 출력 → 첫 원격('gdrive:' 형태). 없으면 None."""
-    for line in str(listremotes_out or "").splitlines():
-        line = line.strip()
-        if line.endswith(":"):
-            return line
-    return None
+    """`rclone listremotes` 출력 → 'gdrive:' 우선(검증 컨벤션), 없으면 첫 원격.
+    (실측 2026-08-10: 알파벳순 첫 원격을 집으면 다른 계정/백엔드로 새는 사고)"""
+    remotes = [ln.strip() for ln in str(listremotes_out or "").splitlines()
+               if ln.strip().endswith(":")]
+    for r in remotes:
+        if r.lower() == "gdrive:":
+            return r
+    return remotes[0] if remotes else None
 
 
 def lsjson_files(raw: str) -> list:
@@ -60,9 +62,11 @@ def lsjson_files(raw: str) -> list:
     return out
 
 
-def plan_new(files, mode: str, work_title, known_ids) -> list:
-    """목록 → [(file_id, 작품, 상대경로)]. external 모드는 첫 경로 조각=작품명."""
+def plan_new(files, mode: str, work_title, known_ids, aliases=None) -> list:
+    """목록 → [(file_id, 작품, 상대경로)]. external 모드는 첫 경로 조각=작품명.
+    aliases: 영문 폴더명 → 작품 정본명(ops_config.drive_folder_aliases, 실측 2026-08-10)."""
     out = []
+    amap = aliases or {}
     for fid, rel in files or []:
         if not fid or fid in (known_ids or set()):
             continue
@@ -73,7 +77,7 @@ def plan_new(files, mode: str, work_title, known_ids) -> list:
         if mode == "external":
             if len(parts) < 2:
                 continue                     # 작품 하위폴더 규약 위반 — 루트 파일은 무시
-            work = parts[0]
+            work = amap.get(parts[0], parts[0])
         else:
             work = work_title
         if work:
@@ -119,8 +123,15 @@ class _Rclone:
         self.cache.mkdir(parents=True, exist_ok=True)
 
     def list(self):
+        self.diag = f"remote={self.remote}"
         _rc(self.b, self.c, "copy", self.remote, str(self.cache),
             "--drive-root-folder-id", self.fid, timeout=3600 * 6)
+        if not any(self.cache.rglob("*")):
+            # 공유 형태에 따라 shared-with-me 플래그가 필요한 케이스(실측 진단용 2차 시도)
+            self.diag += " · retry=shared-with-me"
+            _rc(self.b, self.c, "copy", self.remote, str(self.cache),
+                "--drive-root-folder-id", self.fid, "--drive-shared-with-me",
+                timeout=3600 * 6)
         out = []
         for p in sorted(self.cache.rglob("*")):
             if p.is_file():
@@ -174,11 +185,18 @@ def run(cfg, conn, job, deps):
         c.execute("SELECT registered_by FROM public.sources "
                   "WHERE registered_by LIKE 'drive:%'")
         known_ids = {r["registered_by"][6:] for r in c.fetchall()}
+        c.execute("SELECT value FROM public.ops_config WHERE key='drive_folder_aliases'")
+        row = c.fetchone()
+    try:
+        aliases = json.loads((row or {}).get("value") or "{}")
+    except json.JSONDecodeError:
+        aliases = {}
 
     files = client.list()
-    todo = plan_new(files, mode, p.get("work_title"), known_ids)
+    diag = getattr(client, "diag", via)
+    todo = plan_new(files, mode, p.get("work_title"), known_ids, aliases)
     if not todo:
-        return {"via": via, "listed": len(files), "new": 0}
+        return {"via": via, "diag": diag, "listed": len(files), "new": 0}
 
     store = Store(cfg.supabase_url, cfg.supabase_service_key)
     tmp_dir = pathlib.Path(cfg.home) / "cache" / "drive_tmp"
@@ -232,5 +250,5 @@ def run(cfg, conn, job, deps):
 
     if errors and not done:
         raise RuntimeError("; ".join(errors)[:700])   # 전멸이면 transient 재시도
-    return {"via": via, "listed": len(files), "new": len(todo),
+    return {"via": via, "diag": diag, "listed": len(files), "new": len(todo),
             "registered": len(done), "items": done[:20], "errors": errors[:10]}
