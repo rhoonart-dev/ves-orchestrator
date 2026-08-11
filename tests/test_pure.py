@@ -221,11 +221,27 @@ def test_plan_for_channel():
 
 
 def test_zanmang_daily_argv():
-    """잔망루피 편입(8/10): 구 레포 .venv 로 autopilot daily 를 그대로 실행."""
+    """잔망루피 편입(8/10): 그 레포 .venv 로 autopilot 을 그대로 실행 — task 화이트리스트."""
     from ves.adapters.zanmang import daily_argv
-    argv = daily_argv("/Users/steve/dev/video-localization-project")
+    from ves.adapters.base import PermanentError
+    argv = daily_argv("/opt/ves/engines/video-localization-project")
     assert argv[0].endswith("/.venv/bin/python")
     assert argv[1:] == ["-m", "src.autopilot", "daily"]
+    assert daily_argv("/r", "status")[-1] == "status"
+    try:
+        daily_argv("/r", "rm -rf /"); assert False, "임의 task 통과"
+    except PermanentError:
+        pass
+
+
+def test_zanmang_summarize():
+    """8/11 실측: 성공했는데 stdout 이 비어 원인 추적 불가 — stderr 로그를 지표로 요약."""
+    from ves.adapters.zanmang import summarize
+    s = summarize("INFO scan 완료: 수집 42편, 신규 7편\nINFO 스코어링 대상 없음(discovered 0)\n")
+    assert s["scanned"] == 42 and s["new"] == 7 and s["idle"] is False
+    assert "스코어링 대상 없음" in s["log_tail"]
+    empty = summarize("")
+    assert empty["idle"] is True and empty["log_tail"] == ""
 
 
 def test_perf_sync_chunks():

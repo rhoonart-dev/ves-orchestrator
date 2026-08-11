@@ -130,9 +130,10 @@ class Evaluate:
             import json
             c.execute(
                 """INSERT INTO public.review_queue
-                       (kind, work_order_id, job_id, channel_slug, payload)
-                   VALUES ('publish_gate', %s, %s, %s, %s::jsonb)""",
+                       (kind, work_order_id, job_id, channel_slug, clip_id, payload)
+                   VALUES ('publish_gate', %s, %s, %s, %s, %s::jsonb)""",
                 (job["work_order_id"], job["id"], p.get("channel_slug"),
+                 result.get("clip_id"),      # 0018: 발행 RPC 가 쓰는 정본 — NULL 이면 발행 불가
                  json.dumps({"run_id": p.get("run_id"),
                              # 업로더와 같은 키 규약(base.storage_key) — 한글 키 금지(스모크3)
                              "preview_key": base.storage_key(p.get("run_id"), "preview.mp4"),
@@ -164,11 +165,19 @@ class Publish:
             raise base.PermanentError("R9: publish 잡은 private/unlisted/예약만")
         video = p.get("video_path") or _find_video(cfg, p.get("run_id"), p.get("outdir"))
         if not video:
-            raise base.PermanentError(f"영상 파일 못 찾음 (run={p.get('run_id')})")
+            # Storage 폴백(8/11 실측 수정): 로컬에 없으면 업로더가 올린 사본을 내려받는다 —
+            # 발행이 '생성한 그 노드'에 묶이지 않게 하는 장치(종전 TODO Phase 2).
+            video = _fetch_from_storage(cfg, p.get("run_id"))
+        if not video:
+            raise base.PermanentError(
+                f"영상 파일 못 찾음 (run={p.get('run_id')}) — 로컬·Storage 모두 없음")
         argv = [_py(cfg), f"{_scripts(cfg)}/publish_youtube.py",
                 "--clip-id", p["clip_id"], "--video", video,
                 "--channel", p["channel_name"], "--publish",
                 "--privacy", p.get("privacy", "unlisted")]
+        if p.get("episode") is not None:
+            # 설명란 '<작품명> N화' 줄 — 없으면 스크립트가 '회차 미상' 경고(8/11 실측)
+            argv += ["--episode", str(p["episode"])]
         if p.get("publish_at"):
             argv += ["--publish-at", p["publish_at"]]   # TODO(Phase 2): 스크립트에 추가 필요
         return argv
@@ -195,3 +204,22 @@ def _find_video(cfg, run_id, outdir):
     base_dir = f"{cfgmod.engine_dir(cfg, 'ai_video')}/{outdir or 'outputs'}/{run_id}"
     vids = [v for v in glob.glob(f"{base_dir}/shorts*.mp4") if "_480" not in v]
     return vids[0] if vids else None
+
+
+def _fetch_from_storage(cfg, run_id):
+    """업로더가 올린 ves-outputs/<키>/shorts.mp4 를 노드 캐시로 내린다. 실패는 None."""
+    if not run_id:
+        return None
+    import pathlib
+    from ves.storage.supabase_storage import Store
+    dest = pathlib.Path(cfg.home) / "cache" / "publish" / f"{run_id}.mp4"
+    if dest.exists() and dest.stat().st_size > 0:
+        return str(dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        Store(cfg.supabase_url, cfg.supabase_service_key).download(
+            "ves-outputs", base.storage_key(run_id, "shorts.mp4"), str(dest))
+    except Exception as e:  # noqa: BLE001 — 폴백 실패는 상위에서 명확한 메시지로 처리
+        print(f"[publish] Storage 폴백 실패({run_id}): {e}")
+        return None
+    return str(dest) if dest.exists() and dest.stat().st_size > 0 else None

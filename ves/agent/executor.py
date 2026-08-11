@@ -173,6 +173,11 @@ def _run_subprocess(cfg, conn, job, ad) -> dict:
                     raise base.PermanentError("소유권 상실로 중단(orphan)")  # fail 은 펜싱에 막혀 no-op
 
     if proc.returncode == 0:
+        # ★진단 계약(8/11 실측): 파이썬 logging 은 stderr 로 나간다 — 성공 시 stderr 를
+        # 버리면 '성공했는데 아무 내용 없음'이 되어 원인 추적이 불가능하다.
+        # WANT_STDERR 를 선언한 어댑터에는 stderr 도 넘긴다.
+        if getattr(ad, "WANT_STDERR", False):
+            return ad.parse_result(cfg, job, out or "", err or "")
         return ad.parse_result(cfg, job, out or "")
     cls = ad.classify_error(proc.returncode, err or "", out or "") \
         if hasattr(ad, "classify_error") else base.classify_by_patterns(err or "", out or "")
