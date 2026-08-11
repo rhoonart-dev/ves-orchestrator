@@ -12,7 +12,7 @@ import traceback
 
 from ves import db
 from ves.agent import claim as claim_mod
-from ves.agent import executor, updater
+from ves.agent import diskgc, executor, updater
 from ves.config import get_config
 
 
@@ -52,8 +52,16 @@ def main():
     print(f"[worker] {cfg.node_id} 기동 · caps={cfg.capabilities}")
 
     idle_sleep = cfg.poll_sec
+    last_gc = 0.0
     while True:
         try:
+            # 로컬 디스크 청소(6시간마다) — 잡보다 먼저. 디스크가 막히면 잡도 못 돈다.
+            if time.time() - last_gc > diskgc.INTERVAL_SEC:
+                last_gc = time.time()
+                try:
+                    diskgc.run(cfg)
+                except Exception as e:  # noqa: BLE001 — 청소 실패가 루프를 죽이지 않는다
+                    print(f"[worker] diskgc 오류(무시): {e}")
             status = heartbeat(conn, cfg)
             if status == "disabled":          # 사람이 대시보드에서 내린 상태 — 대기만
                 time.sleep(30)

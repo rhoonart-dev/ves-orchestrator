@@ -191,6 +191,22 @@ def test_channel_design_flags():
         pass
 
 
+def test_diskgc_expired_and_emergency():
+    """로컬 디스크 GC(8/11 컷오버 후 신설): 보존일 경과분 + 여유 부족 시 오래된 순 추가 삭제."""
+    from ves.agent.diskgc import expired, emergency_plan, GB
+    now = 1_800_000_000.0
+    ents = [("old", now - 20 * 86400), ("fresh", now - 1 * 86400)]
+    assert expired(ents, now, 14) == ["old"]
+    assert expired(ents, now, 30) == []
+    assert expired([], now, 14) == []
+    # 여유 충분 → 아무것도 안 지운다
+    pool = [("a", now - 30 * 86400, 10 * GB), ("b", now - 2 * 86400, 10 * GB)]
+    assert emergency_plan(pool, 100 * GB) == []
+    # 여유 5GB → 60GB 목표까지 오래된 것부터
+    picked = emergency_plan(pool, 5 * GB)
+    assert picked[0] == "a" and len(picked) == 2
+
+
 def test_disk_ok_guard():
     """8/11 실측: mm-01 디스크 0.1GB 로 잡을 집어 전부 죽임 — 15GB 미만이면 반납."""
     from ves.agent.executor import disk_ok
