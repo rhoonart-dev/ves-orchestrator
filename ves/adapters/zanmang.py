@@ -18,7 +18,7 @@ def daily_argv(repo: str) -> list:
 
 
 def cwd(cfg, job):
-    return (job["params"] or {}).get("repo") or "/Users/steve/dev/video-localization-project"
+    return (job["params"] or {}).get("repo") or "/opt/ves/engines/video-localization-project"
 
 
 def build_argv(cfg, job):

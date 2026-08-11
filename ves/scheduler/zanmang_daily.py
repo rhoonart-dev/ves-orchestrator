@@ -12,7 +12,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 
-DEFAULT_REPO = "/Users/steve/dev/video-localization-project"
+DEFAULT_REPO = "/opt/ves/engines/video-localization-project"   # VES 관리 사본(자동 최신)
 KST = dt.timezone(dt.timedelta(hours=9))
 
 
