@@ -191,6 +191,25 @@ def test_channel_design_flags():
         pass
 
 
+def test_yt_public_pure():
+    """0020/성과 보완: id 묶음·응답 파싱·아이콘 선택 (YouTube 공개 API 계약)."""
+    from ves.scheduler.yt_public import (chunk_ids, parse_video_stats,
+                                         parse_channel_avatars, pick_avatar)
+    assert chunk_ids([]) == []
+    assert chunk_ids(list(range(120)))[0].__len__() == 50
+    assert len(chunk_ids(list(range(120)))) == 3
+    assert chunk_ids(["a", None, "b"]) == [["a", "b"]]
+    st = {"items": [{"id": "v1", "statistics": {"viewCount": "1500", "likeCount": "12"}},
+                    {"id": None, "statistics": {}}]}
+    assert parse_video_stats(st) == [("v1", 1500, 12, 0)]
+    assert parse_video_stats({}) == []
+    assert pick_avatar({"default": {"url": "d"}, "high": {"url": "h"}}) == "h"
+    assert pick_avatar({}) is None
+    av = {"items": [{"id": "c1", "snippet": {"thumbnails": {"high": {"url": "u1"}}}},
+                    {"id": "c2", "snippet": {"thumbnails": {}}}]}
+    assert parse_channel_avatars(av) == [("c1", "u1")]
+
+
 def test_scene_span_and_duplicate():
     """0019 반려 재생성: edit_plan 구간 추출 + 반려 구간 중복 판정(구 시스템 규칙 계승)."""
     from ves.adapters.aivideo import scene_span, spans_overlap, is_duplicate_take

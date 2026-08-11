@@ -99,3 +99,38 @@ def run(conn, cfg):
         c.execute("DELETE FROM public.perf_channel_snapshot WHERE snapshot_date < current_date - %s",
                   (SNAP_DAYS + 5,))
     print(f"[perf_sync] 영상 {len(vmap)} · 영상스냅 {len(vsnap)} · 채널스냅 {len(csnap)} 미러됨")
+    backfill_missing(conn, cfg)
+
+
+def backfill_missing(conn, cfg) -> int:
+    """laeebly 수집 공백 보완(8/11 실측: 커리어데이 숏츠는 원천에 영상 통계가 0행).
+    오늘치 스냅샷이 없는 우리 영상만 YouTube 공개 API 로 직접 받아 채운다 —
+    laeebly 가 채워주면 같은 (content_id, 날짜) 키로 덮여 자연히 일원화된다."""
+    from ves.scheduler import yt_public
+    with conn.cursor() as c:
+        c.execute("""SELECT m.content_id FROM public.perf_video_map m
+                      WHERE m.dead_at IS NULL
+                        AND NOT EXISTS (SELECT 1 FROM public.perf_video_snapshot s
+                                         WHERE s.content_id = m.content_id
+                                           AND s.snapshot_date = current_date)
+                      LIMIT 300""")
+        ids = [r["content_id"] for r in c.fetchall()]
+    if not ids:
+        return 0
+    key = yt_public.api_key(cfg)
+    if not key:
+        print(f"[perf_sync] 오늘 스냅샷 없는 영상 {len(ids)}건 — YouTube API 키 없어 보완 생략")
+        return 0
+    rows = yt_public.video_stats(key, ids)
+    with conn.cursor() as c:
+        for cid, views, likes, comments in rows:
+            c.execute(
+                """INSERT INTO public.perf_video_snapshot
+                       (content_id, snapshot_date, view_count, like_count, comment_count)
+                   VALUES (%s, current_date, %s, %s, %s)
+                   ON CONFLICT (content_id, snapshot_date) DO UPDATE SET
+                       view_count=EXCLUDED.view_count, like_count=EXCLUDED.like_count,
+                       comment_count=EXCLUDED.comment_count""",
+                (cid, views, likes, comments))
+    print(f"[perf_sync] 직접 보완 {len(rows)}/{len(ids)}건(YouTube API)")
+    return len(rows)

@@ -59,6 +59,33 @@ def run(conn, cfg):
         for slug in deletes:
             c.execute("DELETE FROM public.channels_mirror WHERE token_slug=%s", (slug,))
     print(f"[channels_sync] upsert {len(upserts)} · delete {len(deletes)} (sha {sha[:7] if sha else '?'})")
+    sync_avatars(conn, cfg)
+
+
+def sync_avatars(conn, cfg) -> int:
+    """채널 아이콘 갱신(0020) — 관제가 채널을 아이콘으로 알아보게 한다.
+    비어 있거나 7일 지난 것만 조회(쿼터 절약). 실패는 조용히 넘어간다(아이콘은 장식)."""
+    from ves.scheduler import yt_public
+    with conn.cursor() as c:
+        c.execute("""SELECT channel_id FROM public.channels_mirror
+                      WHERE channel_id IS NOT NULL
+                        AND (avatar_url IS NULL OR avatar_synced_at IS NULL
+                             OR avatar_synced_at < now() - interval '7 days')""")
+        ids = [r["channel_id"] for r in c.fetchall()]
+    if not ids:
+        return 0
+    key = yt_public.api_key(cfg)
+    if not key:
+        print(f"[channels_sync] 아이콘 갱신 대상 {len(ids)}건 — YouTube API 키 없어 생략")
+        return 0
+    rows = yt_public.channel_avatars(key, ids)
+    with conn.cursor() as c:
+        for cid, url in rows:
+            c.execute("""UPDATE public.channels_mirror
+                            SET avatar_url=%s, avatar_synced_at=now()
+                          WHERE channel_id=%s""", (url, cid))
+    print(f"[channels_sync] 아이콘 {len(rows)}/{len(ids)}건 갱신")
+    return len(rows)
 
 
 def _brain_sha(path):

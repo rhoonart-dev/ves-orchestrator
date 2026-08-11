@@ -33,20 +33,32 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     --line:#2c2c2a; --ring:rgba(255,255,255,.10);
     --good:#0ca30c; --warn:#fab219; --serious:#ec835a; --crit:#d03b3b;
     --info:#3987e5;
+    --accent:#e2a63d; --accent-ink:#231b0b;   /* 목업: 포인트 컬러 — 웜그레이 팔레트에 맞춘 앰버(구 대시보드 골드 계승) */
   }
   /* v3.2: 화이트 테마 — 같은 변수만 갈아끼운다(컴포넌트 CSS 무변경) */
   :root[data-theme="light"]{
     color-scheme:light;
-    --page:#f4f4f2; --surface:#ffffff; --surface-2:#f0efec;
-    --ink:#191918; --ink-2:#44433f; --muted:#807e78;
-    --line:#dcdbd6; --ring:rgba(0,0,0,.10);
-    --good:#0b8a0b; --warn:#b07500; --serious:#c05a2e; --crit:#c22525;
+    /* 목업: 라이트 쿨톤 시안 — 웜그레이에서 블루그레이로 살짝 이동 (원래 값: #f4f4f2/#f0efec/#44433f/#807e78/#dcdbd6) */
+    --page:#f2f4f6; --surface:#ffffff; --surface-2:#edf0f3;
+    --ink:#17181a; --ink-2:#3f434a; --muted:#79808a;
+    --line:#d6dbe1; --ring:rgba(20,40,70,.10);
+    --good:#0ca30c; --warn:#b07500; --serious:#c05a2e; --crit:#c22525;
     --info:#1f6fd0;
+    --accent:#e2a63d; --accent-ink:#231b0b;   /* 목업: 다크와 동일한 밝은 앰버 */
   }
   :root[data-theme="light"] .st-good{color:#0b8a0b}
   :root[data-theme="light"] .st-crit{color:#c22525}
   :root[data-theme="light"] .st-info{color:#1f6fd0}
   :root[data-theme="light"] nav.tabs button.on{color:var(--ink)}
+  :root[data-theme="light"] nav.tabs .badge{background:#fab219;color:#3d2c04}  /* 검수함 배지: 밝은 노랑 고정 */
+  :root[data-theme="light"] .chdot{background:#c6c5be}       /* 없음: 라이트에선 연회색 */
+  :root[data-theme="light"] .chdot.none{background:#c6c5be}
+  :root[data-theme="light"] .chdot.rej{background:transparent}  /* 도넛 가운데는 투명 */
+  :root[data-theme="light"] .chdot.ok{background:#0ca30c}
+  :root[data-theme="light"] .chdot.wait{background:#fab219}
+  :root[data-theme="light"] .chdot.bad{background:#d03b3b}
+  :root[data-theme="light"] .chdot.run{background:#3987e5}
+  :root[data-theme="light"] .chcal .d.up{background:#0ca30c}
   :root[data-theme="light"] .fp-pub{color:#0b8a0b}
   :root[data-theme="light"] .fp-rej{color:#c22525}
   :root[data-theme="light"] .fp-run{color:#1f6fd0}
@@ -60,16 +72,17 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   h2{font-size:13px;margin:0 0 8px;color:var(--ink-2);font-weight:600;
      text-transform:uppercase;letter-spacing:.6px}
   main{max-width:1220px;margin:0 auto;padding:14px 16px}
-  header.top{position:sticky;top:0;z-index:5;background:var(--page);
+  .topwrap{position:sticky;top:0;z-index:5;background:var(--page)}  /* 목업: 헤더+탭 한 덩어리 고정 — 틈 제거 */
+  header.top{background:var(--page);
     display:flex;align-items:center;gap:10px;padding:10px 16px;
     border-bottom:1px solid var(--line);flex-wrap:wrap}
   header.top .sp{flex:1}
   nav.tabs{display:flex;gap:2px;padding:0 12px;border-bottom:1px solid var(--line);
-    background:var(--page);position:sticky;top:49px;z-index:5;overflow-x:auto}
+    background:var(--page);overflow-x:auto}
   nav.tabs button{background:none;border:none;border-bottom:2px solid transparent;
     border-radius:0;color:var(--ink-2);padding:9px 13px;white-space:nowrap;font-weight:600}
-  nav.tabs button.on{color:var(--ink);border-bottom-color:var(--info)}
-  nav.tabs .badge{background:var(--warn);color:#000;border-radius:999px;
+  nav.tabs button.on{color:var(--ink);border-bottom-color:var(--good)}  /* 목업: 탭 인디케이터 = 로고 초록 */
+  nav.tabs .badge{background:var(--warn);color:#3d2c04;border-radius:999px;
     font-size:11px;padding:0 6px;margin-left:5px;font-weight:700}
   .pill{font-size:12px;color:var(--ink-2);border:1px solid var(--line);
         border-radius:999px;padding:3px 10px;background:var(--surface)}
@@ -77,8 +90,15 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     border:1px solid var(--line);border-radius:8px;padding:6px 12px;cursor:pointer}
   button:hover{border-color:var(--muted)}
   button:disabled{opacity:.4;cursor:not-allowed}
-  button.pri{background:var(--info);border-color:var(--info);color:#fff;font-weight:600}
-  button.danger{border-color:var(--crit);color:#ff9b9b}
+  button.pri{background:var(--good);border-color:var(--good);color:#fff;font-weight:600}
+  button.danger:hover{background:var(--crit);border-color:var(--crit);color:#fff}
+  /* 목업: 결정 버튼 C안(미니멀) — 테두리 + 색은 글자에만, 호버 시 채움 */
+  button.pri.act{background:transparent;border-color:var(--line);color:#2f9e5f;font-weight:700}
+  button.pri.act:hover{background:#2f9e5f;border-color:#2f9e5f;color:#fff}
+  button.danger.act{background:transparent;border-color:var(--line);color:#d05a52}
+  button.danger.act:hover{background:#c73f36;border-color:#c73f36;color:#fff}
+  button.act{padding:7px 16px;border-radius:9px;font-size:13px;font-weight:600}
+  button.danger{border-color:var(--crit);color:var(--crit);background:transparent}
   button.mini{padding:2px 8px;font-size:12px;border-radius:6px}
   input,select,textarea{font:inherit;color:var(--ink);background:var(--surface-2);
     border:1px solid var(--line);border-radius:8px;padding:6px 10px}
@@ -101,17 +121,29 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .st-info .d{background:var(--info)}      .st-info{color:#9cc4f2}
   .st-mut .d{background:var(--muted)}      .st-mut{color:var(--ink-2)}
   /* 신호등 (구 대시보드 §4 규칙 계승 — 오늘 KST 기준, 색은 두 열에서 같은 뜻) */
-  .board{display:grid;grid-template-columns:repeat(auto-fill,minmax(215px,1fr));gap:10px}
-  .bch{background:var(--surface-2);border:1px solid var(--ring);border-radius:10px;
-       padding:9px 11px;cursor:pointer}
+  .board{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
+  .bch{display:flex;justify-content:space-between;align-items:center;gap:8px;cursor:pointer;
+    background:var(--surface-2);border:1px solid var(--ring);border-radius:10px;
+       padding:9px 9px;cursor:pointer}
   .bch .nm{font-weight:700;font-size:13px;margin-bottom:6px;display:flex;gap:6px;
            align-items:center;justify-content:space-between}
   .dots{display:flex;gap:16px;font-size:11.5px;color:var(--muted)}
-  .dcol{display:flex;flex-direction:column;gap:3px;align-items:center}
+  .bch .dots{border-left:1px solid var(--line);padding-left:10px;align-self:stretch;align-items:center;gap:8px}
+  .dcol{display:flex;flex-direction:column;gap:3px;align-items:center;width:52px;flex:none}
+  .dcol.dim{opacity:.4}
+  .bch:hover{border-color:var(--muted)}
+  .bchL{flex:1;min-width:0}
+  .bchName{font-weight:700;font-size:13.5px;display:flex;align-items:center;gap:7px;min-width:0}
+  .bchName>span:last-child{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+    overflow:hidden;word-break:keep-all;line-height:1.3}
+  .bchWork{font-size:11.5px;color:var(--muted);margin-top:4px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .dcap{font-size:10px;color:var(--muted);letter-spacing:.4px}
+  .dlab{font-size:10.5px;color:var(--ink-2);text-align:center;line-height:1.25;word-break:keep-all}
   .chdot{width:14px;height:14px;border-radius:50%;background:#3a3a38}
   .chdot.ok{background:var(--good)} .chdot.wait{background:var(--warn)}
   .chdot.bad{background:var(--crit)} .chdot.none{background:#3a3a38}
-  .chdot.rej{background:var(--surface-2);border:3px solid var(--crit);width:8px;height:8px}
+  .chdot.rej{background:transparent;border:4px solid var(--crit);width:14px;height:14px;box-sizing:border-box}
   .chdot.run{background:var(--info)}
   .bdetail{grid-column:1/-1;background:var(--surface-2);border:1px solid var(--ring);
     border-radius:10px;padding:10px 12px}
@@ -163,7 +195,60 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
   .err{color:var(--serious);font-size:12px;word-break:break-all}
   .filters{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
-  .filters button.on{background:var(--info);border-color:var(--info);font-weight:600}
+  tr.selrow td{background:rgba(128,128,128,.14);font-weight:600}
+  /* 목업: 선택 칩 = 무채색 강조 (비선택 칩에서 살짝 진하게) */
+  .filters button.on{background:rgba(128,128,128,.18);border-color:var(--muted);color:var(--ink);font-weight:700}
+  .dgroup{border-top:1px solid var(--line);margin-top:11px;padding-top:9px}
+  .dgroup:first-of-type{border-top:none;margin-top:6px;padding-top:0}
+  .dghead{font-size:10.5px;color:var(--muted);font-weight:700;letter-spacing:.6px;margin-bottom:6px}
+  .dgroup .dform{margin-top:0}
+  /* 목업 B안: 채널 설정 모달 */
+  .mmask{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:60;display:flex;
+    align-items:flex-start;justify-content:center;padding:4vh 16px;box-sizing:border-box}
+  .mpanel{width:min(720px,96vw);max-height:92vh;overflow:auto;background:var(--surface);
+    border:1px solid var(--line);border-radius:14px;padding:16px 18px;box-sizing:border-box;
+    box-shadow:0 14px 44px rgba(0,0,0,.45)}
+  .mhead{display:flex;align-items:center;gap:9px;font-size:15px}
+  .mhead .right{margin-left:auto}
+  .msec{border-top:1px solid var(--line);margin-top:13px;padding-top:11px}
+  .msec-h{font-size:12px;font-weight:700;margin-bottom:6px}
+  .msec textarea{font:inherit;font-size:12.5px;padding:6px 8px;box-sizing:border-box}
+  .dfdiff{margin-top:10px;padding:7px 10px;border:1px dashed var(--line);border-radius:8px;
+    font-size:11.5px;color:var(--warn)}
+  .crow{display:flex;gap:5px;align-items:center}
+  .dform .crow input:first-child{flex:1;min-width:0;width:auto}
+  .dform input.cpick{width:22px;height:22px;padding:1px;border:1px solid var(--line);
+    border-radius:5px;background:none;cursor:pointer;flex:none}
+  /* 목업: 피드 채널 상세 헤더 + 업로드 달력 */
+  .chhead{display:flex;gap:20px;align-items:center;flex-wrap:wrap;margin:4px 0 16px;
+    padding:16px;border:1px solid var(--line);border-radius:14px}
+  .chav{border-radius:50%;display:inline-flex;align-items:center;justify-content:center;
+    color:#fff;font-weight:700;flex:none;position:relative;overflow:hidden;vertical-align:middle}
+  .chav img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+  .chhead .chav{box-shadow:0 2px 10px var(--ring)}
+  a.avlink{position:relative;display:inline-flex;flex:none;border-radius:50%;cursor:pointer}
+  a.avlink::after{content:"\2197";position:absolute;inset:0;border-radius:50%;z-index:1;
+    display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.5);
+    color:#fff;font-size:22px;font-weight:700;opacity:0;transition:opacity .15s}
+  a.avlink:hover::after{opacity:1}
+  a.avlink:hover{box-shadow:0 0 0 2px var(--accent)}
+  .chhead .info{flex:1;min-width:220px}
+  .chhead .nm{font-size:18px;font-weight:700;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .chhead .nm a.nm-link{color:var(--ink);text-decoration:none}
+  .chhead .nm a.nm-link:hover{color:var(--accent);text-decoration:underline}
+  .chhead .wk{margin-top:11px;font-size:12.5px;color:var(--ink-2);line-height:1.7}
+  .chhead .wk b{color:var(--muted);font-weight:600;margin-right:6px}
+  .chcal{flex:none;width:186px;border:1px solid var(--line);border-radius:10px;padding:7px 9px}
+  .chcal .mh{display:flex;align-items:center;justify-content:space-between;font-size:11.5px;
+    font-weight:600;margin-bottom:4px}
+  .chcal .mh button{padding:0 6px;font-size:11px}
+  .chcal .sum{font-size:10px;color:var(--muted);font-weight:400;margin-left:3px}
+  .chcal .cg{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center}
+  .chcal .dow{font-size:9px;color:var(--muted);padding:1px 0}
+  .chcal .d{font-size:10px;padding:2.5px 0;border-radius:5px;color:var(--ink-2)}
+  .chcal .d.up{background:var(--good);color:#fff;font-weight:700}
+  .chcal .d.today{outline:2px solid var(--good);outline-offset:-2px;font-weight:700}  /* 목업: 오늘 = 신호등 초록 */
+  .chcal .d.future{color:var(--muted);opacity:.4}
   /* 노드 · 매트릭스 */
   .nodes{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
   .node{background:var(--surface-2);border:1px solid var(--ring);border-radius:10px;
@@ -187,6 +272,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     background:var(--surface-2);border:1px solid var(--ring);border-radius:10px;
     padding:10px 16px;max-width:80vw;display:none;z-index:9;font-size:13px}
   #toast.err{border-color:var(--crit)}
+  #toast.ok{border-color:var(--good);border-width:2px;font-weight:700}
   .empty{color:var(--muted);font-size:13px;padding:8px 0}
   .right{margin-left:auto}
   .sub{color:var(--muted);font-size:12px}
@@ -201,8 +287,21 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .now .what .st{color:#9cc4f2;font-weight:600}
   .now .idle{color:var(--muted);font-size:13px}
   /* v3: 검수함 카드 그리드 */
-  .rvgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:12px;align-items:start}
+  .rvgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(470px,1fr));gap:12px;align-items:start}
   .rvgrid .review{margin-bottom:0}
+  /* 목업: 검수 카드 좌우 배치 — 영상 왼쪽 · 채널/judge/사유 오른쪽 */
+  .rv2{display:flex;gap:14px;align-items:stretch;flex-wrap:wrap}
+  .rv2 .rv2-vid{flex:none;width:176px}
+  .rv2 .rv2-vid video{width:100%;max-width:none;margin-top:0;border-radius:8px}
+  .rv2 .rv2-body{flex:1;min-width:240px;display:flex;flex-direction:column}
+  .rv2 .form{margin-top:auto;justify-content:flex-end;padding-top:10px;flex-wrap:nowrap}
+  .rv2 .form select{min-width:0;flex:0 1 auto}
+  .rv2 .form button{white-space:nowrap;flex:none}
+  .rv2 .rv2-chn{font-weight:700;font-size:14px}
+  a.rv2-chn{color:var(--ink);text-decoration:none}
+  a.rv2-chn:hover{color:var(--accent);text-decoration:underline}
+  .rv2 .rv2-work{margin-top:6px;font-size:13px}
+  .rv2 .rv2-work b{color:var(--muted);font-weight:600;margin-right:6px;font-size:12px}
   .review video{max-width:100%}
   .review .rt-big{font-size:15px;font-weight:700}
   /* v3: 소스 게이지 */
@@ -245,6 +344,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 </div>
 
 <div id="app" style="display:none">
+  <div class="topwrap">
   <header class="top">
     <h1>VES 모니터링</h1>
     <span class="pill" id="whoami">—</span>
@@ -256,6 +356,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     <button class="mini" id="btnLogout">로그아웃</button>
   </header>
   <nav class="tabs" id="tabs"></nav>
+  </div>
   <main id="page"></main>
 </div>
 <div id="toast"></div>
@@ -285,9 +386,10 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g,
   c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 function toast(msg, isErr){
-  const t = $("#toast"); t.textContent = msg;
-  t.className = isErr ? "err" : ""; t.style.display = "block";
-  clearTimeout(toast._h); toast._h = setTimeout(() => t.style.display="none", isErr?6000:3000);
+  const t = $("#toast");
+  t.textContent = (isErr ? "⚠ " : "✓ ") + msg;   // 목업: 성공/실패를 아이콘으로도 구분
+  t.className = isErr ? "err" : "ok"; t.style.display = "block";
+  clearTimeout(toast._h); toast._h = setTimeout(() => t.style.display="none", isErr?6000:4000);
 }
 function ago(ts){
   if (!ts) return "—";
@@ -505,10 +607,11 @@ function renderHome(){
         : zj.status === "succeeded" ? ["ok","오늘 실행 완료"]
         : zj.status === "running" ? ["run","실행 중"]
         : ["failed","dead"].includes(zj.status) ? ["bad","실패"] : ["wait","대기"];
-      return `<div class="bch"><div class="nm">${esc(ch.name || ch.token_slug)}
-          <span class="sub">${esc(EXT_PIPE[ch.token_slug])}</span></div>
-        <div class="dots"><div class="dcol"><span class="chdot ${zc}"></span>자동화 · ${esc(zl)}</div>
-          <div class="dcol"><span class="chdot ok" title="승인분은 19:00 JST 예약 공개"></span>공개 · 예약제</div>
+      return `<div class="bch"><div class="bchL">
+          <div class="bchName">${chAvatarHtml(ch.token_slug, 18)}<span>${esc(ch.name || ch.token_slug)}</span></div>
+          <div class="bchWork" title="${esc(EXT_PIPE[ch.token_slug])}">${esc(EXT_PIPE[ch.token_slug])}</div></div>
+        <div class="dots"><div class="dcol"><span class="dcap">자동화</span><span class="chdot ${zc}"></span><span class="dlab">${esc(zl)}</span></div>
+          <div class="dcol"><span class="dcap">공개</span><span class="chdot ok" title="승인분은 19:00 JST 예약 공개"></span><span class="dlab">예약제</span></div>
         </div></div>`;
     }
     const ws = woToday(ch);
@@ -525,12 +628,14 @@ function renderHome(){
       : ((state.srcs||[]).some(s => (ch.works||[]).includes(s.work_title) && s.is_active !== false)
          ? "소스 준비됨 · 다음 회차 합류" : "소스 인입 대기 중");
     return `<div class="bch" onclick="boardOpen=boardOpen==='${esc(ch.token_slug)}'?null:'${esc(ch.token_slug)}';render()">
-      <div class="nm">${esc(ch.name || ch.token_slug)}
-        <span class="sub">${cur ? esc(cur.work_title) : noWo}</span></div>
-      <div class="dots">
-        <div class="dcol"><span class="chdot ${gc}" title="${esc(gl)}"></span>생성 · ${esc(gl)}</div>
-        <div class="dcol"><span class="chdot ${pc}" title="${esc(pl)}"></span>공개 · ${esc(pl)}</div>
+      <div class="bchL">
+        <div class="bchName">${chAvatarHtml(ch.token_slug, 18)}<span title="${esc(ch.name || ch.token_slug)}">${esc(ch.name || ch.token_slug)}</span></div>
+        <div class="bchWork" title="${cur ? esc(cur.work_title) : noWo}">${cur ? esc(cur.work_title) : noWo}</div>
         ${dateBadge}
+      </div>
+      <div class="dots">
+        <div class="dcol${gc === "none" ? " dim" : ""}"><span class="dcap">생성</span><span class="chdot ${gc}" title="${esc(gl)}"></span><span class="dlab">${esc(gl)}</span></div>
+        <div class="dcol${pc === "none" ? " dim" : ""}"><span class="dcap">공개</span><span class="chdot ${pc}" title="${esc(pl)}"></span><span class="dlab">${esc(pl)}</span></div>
       </div></div>` +
       (open && cur ? `<div class="bdetail">${chainHtml(cur)}</div>` : "");
   }).join("");
@@ -589,8 +694,10 @@ function judgeBox(run){
     </div>`;
 }
 function renderReview(){
-  const rs = (state.reviews||[]).filter(r => r.status === "waiting");
-  $("#page").innerHTML = `<section class="card"><h2>검수 대기 ${rs.length}건 — 결정은 100% 사람 · 프리뷰는 카드에서 바로 재생</h2><div class="rvgrid">` +
+  const all = (state.reviews||[]).filter(r => r.status === "waiting");
+  const rs = all.filter(r => rvCh === "all" || r.channel_slug === rvCh);
+  const chChips = channelChips(all, rvCh, "rvCh");
+  $("#page").innerHTML = `<section class="card"><h2>검수 대기 ${rs.length}건 — 결정은 100% 사람 · 프리뷰는 카드에서 바로 재생</h2>${chChips}<div class="rvgrid">` +
     (rs.map(r => {
       const wo = state.wo[r.work_order_id] || {};
       const pay = r.payload || {}, geo = wo.geoblock_required;
@@ -612,16 +719,26 @@ function renderReview(){
             <option value="schedule">예약공개(비공개→시각)</option>
           </select>
           <input id="at_${r.id}" type="datetime-local" style="display:none">
-          <button class="pri mini" onclick="approve('${r.id}')">✅ 합격·발행</button>
-          <button class="mini danger" data-l="반려" onclick="armed(this,'반려',()=>reject('${r.id}'))">❌ 반려</button>
+          <button class="pri act" onclick="approve('${r.id}')">✓ 합격 · 발행</button>
+          <button class="danger act" onclick="armed(this,'✕ 반려',()=>reject('${r.id}'))">✕ 반려</button>
         </div>` : '<div class="sub">reviewer 권한 필요</div>';
-      return `<div class="review"><div class="rh"><span class="rt-big">${esc(wo.work_title || run || r.id.slice(0,8))}</span>
-          <span class="pill">${esc(chName(wo.channel_slug || r.channel_slug))}</span>
-          <span class="right sub">${ago(r.created_at)}</span></div>
-        ${geo ? '<div class="geo">⚠ 지오블락 필수 — 공개 전환은 Studio 수동(R9-a)</div>' : ""}
-        ${pay.preview_key ? `<div id="pv_${r.id}"><video id="pvv_${r.id}" controls playsinline preload="metadata" poster=""></video></div>` : '<div class="sub">프리뷰 파일 없음</div>'}
-        ${jg}${form}</div>`;
-    }).join("") || '<div class="empty">검수 대기 항목 없음 🎉</div>') + `</div></section>
+      const slug = wo.channel_slug || r.channel_slug;
+      return `<div class="review rv2">
+        <div class="rv2-vid">${pay.preview_key
+          ? `<div id="pv_${r.id}"><video id="pvv_${r.id}" controls playsinline preload="metadata" poster=""></video></div>`
+          : '<div class="sub" style="padding:24px 6px;text-align:center">프리뷰 파일 없음</div>'}</div>
+        <div class="rv2-body">
+          <div class="rh">${chAvatarHtml(slug, 28)}${(() => {
+              const cid = ((state.chans||[]).find(c => c.token_slug === slug)||{}).channel_id;
+              return cid
+                ? `<a class="rv2-chn" href="https://youtube.com/channel/${esc(cid)}" target="_blank" rel="noopener" title="YouTube 채널 열기">${esc(chName(slug))} ↗</a>`
+                : `<span class="rv2-chn">${esc(chName(slug))}</span>`; })()}
+            <span class="right sub">${ago(r.created_at)}</span></div>
+          <div class="rv2-work"><b>작품</b>${esc(wo.work_title || run || r.id.slice(0,8))}${
+            wo.episode != null ? ` <span style="color:var(--muted)">· ${wo.episode}회차</span>` : ""}</div>
+          ${geo ? '<div class="geo">⚠ 지오블락 필수 — 공개 전환은 Studio 수동(R9-a)</div>' : ""}
+          ${jg}${form}</div></div>`;
+    }).join("") || `<div class="empty">${rvCh==="all" ? "검수 대기 항목 없음 🎉" : esc(chName(rvCh)) + " — 검수 대기가 없습니다"}</div>`) + `</div></section>
     <section class="card"><h2>최근 결정</h2><div class="tblwrap"><table>
       <tr><th>시각</th><th>작품</th><th>결정</th><th>결정자</th><th>사유</th></tr>${
       (state.reviews||[]).filter(r => r.status !== "waiting").slice(0,20).map(r => {
@@ -672,15 +789,152 @@ window.reject = async rid => {
   if (r && typeof r === "object"){
     toast(r.regenerated
       ? `반려 — ${r.node || "같은 맥"}에서 ${r.mode === "resume_render" ? "렌더만 다시" : "다른 장면으로"} 재생성 시작 (${r.tries}/2)`
-      : `반려 — 재생성 상한(2회) 도달, 사람 판단이 필요합니다`, !r.regenerated);
+      : "반려 — 재생성 상한(2회) 도달, 사람 판단이 필요합니다", !r.regenerated);
   }
 };
+
+// ───────── 채널 필터 칩 (목업: 맥별 → 채널별 나열) ─────────
+// items: channel_slug 를 가진 행들. varName: 전역 필터 변수 이름('feedCh'|'rvCh').
+function channelChips(items, cur, varName){
+  const cnt = {};
+  (items||[]).forEach(r => { const s = r.channel_slug; if (s) cnt[s] = (cnt[s]||0) + 1; });
+  const chans = (state.chans||[]).slice()
+    .sort((a,b) => (a.name||a.token_slug).localeCompare(b.name||b.token_slug, "ko"));
+  // 검수함 칩의 건수는 '검수 대기' 시맨틱 노랑으로 강조 (피드는 중립 유지)
+  const nStyle = varName === "rvCh"
+    ? "color:var(--warn);font-weight:700" : "opacity:.6";
+  const btn = (val, label, n) =>
+    `<button class="mini ${cur===val?"on":""}" onclick="${varName}='${val}';feedCalOff=0;render()">${label}${
+      n ? ` <span style="${nStyle}">${n}</span>` : ""}</button>`;
+  return `<div class="filters">${btn("all", "전체", (items||[]).length)}${
+    chans.map(c => btn(c.token_slug, esc(c.name||c.token_slug), cnt[c.token_slug])).join("")}</div>`;
+}
+
+// ───────── 목업: 피드 채널 상세 헤더 + 업로드 달력 ─────────
+// 채널 아이콘 — 목업용 정적 스냅샷 (2026-08-11 YouTube og:image 수집).
+// 실서비스 제안: channels_mirror 에 avatar_url 컬럼을 두고 channels_sync 가 갱신하거나
+// 구 대시보드 chavatars API 방식 재사용 (아바타 변경 시 스냅샷은 낡는다).
+const CH_AVATARS = {};   // 0020: 아이콘은 channels_mirror.avatar_url(매일 자동 갱신)에서 온다
+let feedCalOff = 0;
+window.feedCalNav = d => { feedCalOff += d; render(); };
+// 업로드 이력 — perf_video_map(laeebly 유튜브 미러) 채널별 캐시.
+// 구·신 대시보드 어느 쪽에서 발행했든 유튜브에 올라간 영상이 전부 잡힌다(3월~).
+// 한계: perf_sync 가 시간당 1회라 방금 발행분은 늦게 반영 → publish 성공 잡과 합집합으로 보충.
+let pvmCache = {};   // token_slug -> "loading" | {days:Set<YYYY-MM-DD>}
+function pvmLoad(slug){
+  if (pvmCache[slug]) return;
+  pvmCache[slug] = "loading";
+  const cid = ((state.chans||[]).find(c => c.token_slug === slug)||{}).channel_id;
+  if (!cid){ pvmCache[slug] = {days:new Set()}; return; }
+  Promise.all([
+    sb.from("perf_video_map").select("published_at").eq("channel_id", cid).limit(2000),
+    // 채널 자체 총 영상 수 — 유튜브 채널 통계 미러(우리가 만든 것 외 전부 포함)
+    sb.from("perf_channel_snapshot").select("video_count,snapshot_date").eq("channel_id", cid)
+      .order("snapshot_date", {ascending:false}).limit(1),
+  ]).then(([vm, cs]) => {
+    const days = new Set();
+    (vm.data||[]).forEach(r => { if (r.published_at) days.add(kstDay(r.published_at)); });
+    const c = (cs.data||[])[0];
+    pvmCache[slug] = {days, vcount: c ? Number(c.video_count) : null, vdate: c ? c.snapshot_date : null};
+    if (tab === "feed" && feedCh === slug) render();
+  });
+}
+// 채널 아바타 — 실제 아이콘, 로드 실패·미수집 시 채널명 해시 색 이니셜 폴백
+function chAvatarHtml(slug, size){
+  const name = chName(slug);
+  let h = 0; for (const c of name) h = (h * 31 + c.charCodeAt(0)) % 360;
+  const ch = (state.chans||[]).find(x => x.token_slug === slug);
+  const url = (ch && ch.avatar_url) || CH_AVATARS[slug];
+  return `<span class="chav" style="width:${size}px;height:${size}px;font-size:${Math.round(size*.42)}px;
+    background:linear-gradient(135deg,hsl(${h},55%,45%),hsl(${(h+45)%360},60%,58%))">${esc(name.slice(0,1))}${
+    url ? `<img src="${url}" alt="" loading="lazy" onerror="this.remove()">` : ""}</span>`;
+}
+// 채널의 현재 생성 신호등 (홈 탭과 동일 규칙: 오늘 작업분 우선, 없으면 최근 작업분)
+function chSignal(slug){
+  const today = kstDay();
+  if (EXT_PIPE[slug]){
+    const zj = (state.jobs||[]).find(x => x.kind === "zanmang_autopilot" && kstDay(x.created_at) === today);
+    const [cls, label] = !zj ? ["none","오늘 실행 전"]
+      : zj.status === "succeeded" ? ["ok","오늘 실행 완료"]
+      : zj.status === "running" ? ["run","실행 중"]
+      : ["failed","dead"].includes(zj.status) ? ["bad","실패"] : ["wait","대기"];
+    return {cls, label};
+  }
+  const alive = (state.wos||[]).filter(w => w.status !== "cancelled" && w.channel_slug === slug);
+  const todays = alive.filter(w => kstDay(w.service_date || w.created_at) === today);
+  const cur = todays.length ? todays[0] : alive[0];
+  const st = cur ? woStatus(cur) : "none";
+  const [cls, label] = GEN_DOT[st] || GEN_DOT.none;
+  return {cls, label};
+}
+// 신호등 색은 테마 무관 동일 (홈 탭 점 색과 일치하도록 라이트에서도 다크 팔레트 고정)
+const SIG_COLOR = { ok:"#0ca30c", wait:"#fab219", bad:"#d03b3b",
+                    rej:"#d03b3b", run:"#3987e5", none:"var(--muted)" };
+
+function chHeader(slug){
+  const ch = (state.chans||[]).find(c => c.token_slug === slug) || {};
+  const name = ch.name || chName(slug);
+  const wOvr = (state.worksOvr||{})[slug];
+  const works = (wOvr && wOvr.works) || ch.works || [];
+  // 업로드 일자 = perf_video_map(유튜브 실발행 이력, 구 대시보드분 포함) ∪ publish 성공 잡(당일 보충)
+  pvmLoad(slug);
+  const pvm = pvmCache[slug];
+  const upDays = new Set(pvm && pvm !== "loading" ? pvm.days : []);
+  (state.wos||[]).filter(w => w.channel_slug === slug).forEach(w => {
+    const pub = (state.jobsByWo[w.id]||[]).find(j => j.kind === "publish" && j.status === "succeeded");
+    if (pub) upDays.add(kstDay(pub.finished_at || pub.updated_at));
+  });
+  const now = new Date(new Date().toLocaleString("en-US", {timeZone:"Asia/Seoul"}));
+  const base = new Date(now.getFullYear(), now.getMonth() + feedCalOff, 1);
+  const y = base.getFullYear(), m = base.getMonth();
+  const days = new Date(y, m + 1, 0).getDate(), first = base.getDay();
+  const todayStr = kstDay(), pad = n => String(n).padStart(2, "0");
+  const sig = chSignal(slug), sigColor = SIG_COLOR[sig.cls] || SIG_COLOR.none;
+  let cnt = 0;
+  const cells = ["일","월","화","수","목","금","토"].map(d => `<span class="dow">${d}</span>`);
+  for (let i = 0; i < first; i++) cells.push("<span></span>");
+  for (let d = 1; d <= days; d++){
+    const ds = `${y}-${pad(m+1)}-${pad(d)}`;
+    const up = upDays.has(ds); if (up) cnt++;
+    const cls = ["d", up && "up", ds === todayStr && "today", ds > todayStr && "future"]
+      .filter(Boolean).join(" ");
+    const tdStyle = ds === todayStr ? ` style="outline-color:${sigColor}"` : "";
+    const tdTip = ds === todayStr ? ` · 오늘 · ${sig.label}` : "";
+    cells.push(`<span class="${cls}"${tdStyle} title="${ds}${up ? " · 업로드 ✓" : ""}${tdTip}">${d}</span>`);
+  }
+  return `<div class="chhead">
+    ${ch.channel_id
+      ? `<a class="avlink" href="https://youtube.com/channel/${esc(ch.channel_id)}" target="_blank" rel="noopener" title="YouTube 채널 열기">${chAvatarHtml(slug, 74)}</a>`
+      : chAvatarHtml(slug, 74)}
+    <div class="info">
+      <div class="nm">${esc(name)}
+        <button class="mini" onclick="tab='channels';render()">템플릿 편집</button></div>
+      <div class="wk"><b>오늘 신호등</b><span class="chdot ${sig.cls}" style="display:inline-block;width:10px;height:10px;vertical-align:-1px;margin-right:5px"></span>${esc(sig.label)}</div>
+      <div class="wk"><b>사용 작품</b>${works.length ? esc(works.join(", ")) : "배정된 작품 없음"}</div>
+      <div class="wk" title="유튜브 채널에 올라와 있는 전체 영상 수 — perf_sync(매시간) 미러값${
+          pvm && pvm.vdate ? " · " + esc(pvm.vdate) + " 집계" : ""}"><b>채널 영상</b>${
+        pvm === "loading" ? '<span style="color:var(--muted)">집계 중…</span>'
+        : (pvm && pvm.vcount != null)
+          ? `<b style="font-size:13px">${fmtN(pvm.vcount)}개</b>${
+              pvm.vdate && pvm.vdate !== kstDay()
+                ? ` <span style="color:var(--muted)">· ${esc(String(pvm.vdate).slice(5))} 집계</span>` : ""}`
+          : '<span style="color:var(--muted)">집계 없음</span>'}</div>
+      <div class="wk" style="font-size:11.5px;color:var(--muted)">달력: 유튜브 발행 이력(구·신 대시보드 무관) + 오늘 발행분${pvm === "loading" ? " · 이력 불러오는 중…" : ""}</div>
+    </div>
+    <div class="chcal">
+      <div class="mh"><button class="mini" onclick="feedCalNav(-1)">◀</button>
+        <span>${y}년 ${m+1}월<span class="sum">업로드 ${cnt}일</span></span>
+        <button class="mini" onclick="feedCalNav(1)">▶</button></div>
+      <div class="cg">${cells.join("")}</div>
+    </div>
+  </div>`;
+}
 
 // ───────── 피드 ─────────
 const FEED_PILL = { published:["fp-pub","공개/발행"], scheduled:["fp-wait","예약"],
   approved:["fp-wait","합격·대기"], review:["fp-wait","검수 대기"], rejected:["fp-rej","반려"],
   failed:["fp-rej","실패"], running:["fp-run","제작 중"], pending:["fp-mut","대기"], none:["fp-mut","—"] };
-let feedQ = "";
+let feedQ = "", feedCh = "all", rvCh = "all";
 window.feedSearch = v => {
   feedQ = v; render();
   const el = $("#feedQ");
@@ -693,13 +947,18 @@ function renderFeed(){
     || chName(w.channel_slug).toLowerCase().replace(/\s+/g,"").includes(nq)
     || (w.channel_slug||"").toLowerCase().includes(nq);
   const base = (state.wos||[]).filter(match);
-  const wos = base.filter(w => showRejected || woStatus(w) !== "rejected");
-  const goneCount = base.length - wos.length;
+  const visible = base.filter(w => showRejected || woStatus(w) !== "rejected");
+  // 반려 수는 항상 따로 센다 — 표시 중일 때 goneCount=0 이 되어 토글이 사라지던 버그 수정
+  const rejCount = base.filter(w => woStatus(w) === "rejected").length;
+  const wos = visible.filter(w => feedCh === "all" || w.channel_slug === feedCh);
+  const chChips = channelChips(visible, feedCh, "feedCh");
   $("#page").innerHTML = `<section class="card"><h2>영상 피드 — 최신순
       <input id="feedQ" value="${esc(feedQ)}" placeholder="🔍 작품·채널 검색" oninput="feedSearch(this.value)"
         style="margin-left:10px;font-size:12.5px;padding:4px 10px;width:200px">
       ${feedQ ? `<span class="sub">${wos.length}건</span> <button class="mini" onclick="feedSearch('')">지우기</button>` : ""}
-      ${goneCount ? `<button class="mini" style="margin-left:8px" onclick="showRejected=!showRejected;render()">반려 ${goneCount}건 ${showRejected?"숨기기":"보기"}</button>` : ""}</h2>
+      ${rejCount ? `<button class="mini ${showRejected?"on":""}" style="margin-left:8px" onclick="showRejected=!showRejected;render()">반려 ${rejCount}건 ${showRejected?"숨기기":"보기"}</button>` : ""}</h2>
+    ${chChips}
+    ${feedCh !== "all" ? chHeader(feedCh) : ""}
     <div class="grid">${wos.map(w => {
       const st = woStatus(w), [pc, pl] = FEED_PILL[st] || FEED_PILL.none;
       const vid = woVideoId(w);
@@ -707,12 +966,13 @@ function renderFeed(){
       const th = arts.thumb, pv = arts.preview_mp4;
       return `<div class="fcard">
         <div class="th" id="th_${w.id}" ${pv?`onclick="playFeed('${w.id}','${esc(pv.object_key)}','${esc(pv.bucket||"ves-outputs")}')"`:""}>${pv?"▶ 재생":"미리보기 없음"}</div>
-        <div class="bd"><div class="t">${esc(w.work_title)}</div>
+        <div class="bd"><div class="t">${esc(w.work_title)}${
+            w.episode != null ? ` <span style="color:var(--muted);font-weight:400">· ${w.episode}회차</span>` : ""}</div>
           <div class="m"><span class="fpill ${pc}">${pl}</span>
             <span>${esc(chName(w.channel_slug))}</span><span>${esc(kstDay(w.created_at))}</span>
             ${vid ? `<a href="https://youtu.be/${esc(vid)}" target="_blank" rel="noopener" style="color:#9cc4f2">YouTube ↗</a>` : ""}
           </div></div></div>`;
-    }).join("") || '<div class="empty">작업 이력 없음</div>'}</div></section>`;
+    }).join("") || `<div class="empty">${feedCh==="all" ? "작업 이력 없음" : esc(chName(feedCh)) + " — 이 채널의 영상이 없습니다"}</div>`}</div></section>`;
   // 썸네일 지연 로드(서명 URL) — 상위 18개
   wos.slice(0,18).forEach(async w => {
     const th = (state.artByWo[w.id]||{}).thumb; if (!th) return;
@@ -778,15 +1038,63 @@ window.srcAll = () => {
 // ───────── 채널 템플릿 (0014: 관제 오버라이드 > 파일 정본, 저장 즉시 다음 생성부터) ─────────
 const DESIGN_FIELDS = [   // [키, 라벨, 종류] — brain channel_registry 허용 키와 1:1
   ["title_color","제목 1줄 색","color"], ["title_color2","제목 2줄 색","color"],
-  ["title_font","제목 폰트","text"],     ["title_size","제목 크기","num"],
+  ["title_font","제목 폰트","font"],     ["title_size","제목 크기","num"],
   ["title_y","제목 위치 Y","num"],
   ["work_color","작품명 색","color"],    ["work_title_y","작품명 위치 Y","num"],
   ["work_font_size","작품명 크기","num"],
-  ["subtitle_font","자막 폰트","text"],  ["subtitle_size","자막 크기","num"],
+  ["subtitle_font","자막 폰트","font"],  ["subtitle_size","자막 크기","num"],
   ["subtitle_color","자막 색","color"],  ["subtitle_y_margin","자막 Y여백","num"],
-  ["subtitle_style","자막 스타일","text"],
+  ["subtitle_style","자막 스타일","style"],
   ["tts_color","TTS 자막 색","color"],   ["tts_size","TTS 자막 크기","num"],
   ["tts_y_margin","TTS Y여백","num"],    ["aspect_ratio","화면비","text"],
+];
+// 목업: 엔진(ai-video)이 실제 지원하는 값만 노출 — config.py FONT_NAME_MAP · subtitle_styles.py
+const FONT_OPTIONS = [
+  ["여기어때 잘난체 2 TTF", "여기어때 잘난체"],
+  ["여기어때 잘난체 고딕 TTF", "여기어때 잘난체 고딕"],
+  ["물마루", "물마루"],
+  ["그리운 경찰공평체", "그리운 경찰공평체"],
+];
+const STYLE_OPTIONS = [
+  ["kvar_yellow", "kvar_yellow — 노란 자막 (예능 기본)"],
+  ["hormozi", "hormozi — 흰 글자·검정 굵은 외곽 (다큐)"],
+  ["drama_cine", "drama_cine — 잔잔한 흰 자막 (드라마·로맨스)"],
+  ["thriller_mono", "thriller_mono — 오프화이트·그림자 (스릴러)"],
+  ["y2k_pink", "y2k_pink — 핫핑크 외곽 (롬콤)"],
+  ["kakao_bubble", "kakao_bubble — 검정 글자·흰 말풍선 박스 (토크)"],
+];
+// 색: 엔진은 아무 hex 나 허용(고정 팔레트 없음) — 자주 쓰는 색 + 현재 채널들이 쓰는 색을 스와치로
+function paletteColors(){
+  const base = ["#FFFFFF","#000000","#FFD84D","#FFFF00","#FF69B4","#F5F5F5","#FF3B30","#3987E5","#0CA30C"];
+  const used = new Set();
+  (state.chans||[]).forEach(c => {
+    const o = state.designOvr[c.token_slug];
+    const d = (o && o.design) || c.design || {};
+    DESIGN_FIELDS.forEach(([k,,t]) => {
+      if (t !== "color") return;
+      const v = String(d[k] || "");
+      if (/^#[0-9a-fA-F]{6}$/.test(v)) used.add(v.toUpperCase());
+    });
+  });
+  return [...new Set([...base, ...used])];
+}
+// 목업: 템플릿 편집 폼 구역 나누기
+// 엔진 기본값 (ai-video config.py DesignConfig 실측) — 빈 칸일 때 placeholder 로 노출
+const DESIGN_DEFAULTS = {
+  title_color: "white", title_color2: "#FFFF00", title_font: "여기어때 잘난체",
+  title_size: "70 (2줄째 90)", title_y: "120",
+  work_color: "#FF69B4", work_title_y: "1400", work_font_size: "40",
+  subtitle_font: "여기어때 잘난체", subtitle_size: "65",
+  subtitle_color: "프리셋 색 자동", subtitle_y_margin: "380",
+  tts_color: "#87CEEB 하늘색", tts_size: "70", tts_y_margin: "580",
+  aspect_ratio: "1:1",
+};
+const DESIGN_GROUPS = [
+  ["제목", ["title_color","title_color2","title_font","title_size","title_y"]],
+  ["작품명", ["work_color","work_title_y","work_font_size"]],
+  ["자막", ["subtitle_font","subtitle_size","subtitle_color","subtitle_y_margin","subtitle_style"]],
+  ["TTS", ["tts_color","tts_size","tts_y_margin"]],
+  ["기타", ["aspect_ratio"]],
 ];
 let chEdit = null, worksEdit = null;
 function effDesign(ch){
@@ -795,6 +1103,7 @@ function effDesign(ch){
 }
 const swatch = v => `<span class="sw" style="background:${esc(String(v))}"></span>`;
 function renderChannels(){
+  // ── 목업 B안: 카드에는 요약만, 편집은 모달에서 (작품 배정·다음 작업·디자인 통합) ──
   const cards = (state.chans||[]).map(ch => {
     const { design, isOvr, ovr } = effDesign(ch);
     const st = isOvr ? chip("info","✎","관제 수정본 적용 중")
@@ -806,75 +1115,154 @@ function renderChannels(){
         .map(([k,l,t]) => `${t==="color"?swatch(d[k]):""}${esc(l)} <b>${esc(String(d[k]))}</b>`)
         .join(" · ") + (d.face_tracking === false ? " · 얼굴크롭 끔" : "")
       : '<span class="sub">기본 디자인으로 생성됩니다</span>';
-    const editing = chEdit === ch.token_slug;
-    const form = editing ? `<div class="dform">${DESIGN_FIELDS.map(([k,l,t]) => `
-        <label>${esc(l)}<input id="df_${k}" value="${d[k] !== undefined ? esc(String(d[k])) : ""}"
-          placeholder="${t==="color" ? "white 또는 #FFD84D" : t==="num" ? "숫자" : ""}"></label>`).join("")}
-        <label>얼굴 추종 크롭<select id="df_face_tracking">
-          <option value="" ${d.face_tracking===undefined?"selected":""}>기본(켬)</option>
-          <option value="false" ${d.face_tracking===false?"selected":""}>끔(--no-reframe)</option>
-        </select></label></div>
-      <div class="dacts">
-        <button class="pri mini" onclick="chSave('${esc(ch.token_slug)}')">💾 저장 — 다음 생성부터 적용</button>
-        ${isOvr ? `<button class="mini danger" data-l="해제" onclick="armed(this,'해제',()=>chClear('${esc(ch.token_slug)}'))">파일 기본으로 해제</button>` : ""}
-        <button class="mini" onclick="chEdit=null;render()">닫기</button>
-      </div>
-      <div class="sub" style="margin-top:6px">빈 칸 = 미설정(엔진 기본). 저장은 통째 교체 — 화면에 보이는 그대로 적용됩니다.</div>`
-    : `<div class="dacts">${can("operator")
-        ? `<button class="mini" onclick="chEdit='${esc(ch.token_slug)}';render()">✎ 편집</button>`
-        : '<span class="sub">편집은 operator 권한</span>'}</div>`;
-    // 0017: 유효 작품 배정(관제 수정본 > 파일 정본) — planner·회차지정 모두 이 값 기준
     const wOvr = state.worksOvr[ch.token_slug];
     const effWorks = (wOvr && wOvr.works) || ch.works || [];
-    const worksEditing = worksEdit === ch.token_slug;
-    const worksLine = `<div class="dsum" style="margin-bottom:6px"><b>작품 배정:</b> ${esc(effWorks.join(", ")) || "—"}
-      ${wOvr ? chip("info","✎","관제 수정본") : ""}
-      ${can("operator") && !worksEditing ? `<button class="mini" onclick="worksEdit='${esc(ch.token_slug)}';render()">작품 편집</button>` : ""}</div>`
-      + (worksEditing ? `<div style="margin-bottom:8px">
-        <textarea id="wk_${ch.token_slug}" rows="3" style="width:100%"
-          placeholder="작품명을 줄 단위로 — laeebly 정본 표기와 똑같이">${esc(effWorks.join("\n"))}</textarea>
-        <div class="dacts">
-          <button class="mini pri" onclick="worksSave('${esc(ch.token_slug)}')">저장 — 다음 계획부터 적용</button>
-          ${wOvr ? `<button class="mini" onclick="worksClear('${esc(ch.token_slug)}')">파일 기본으로</button>` : ""}
-          <button class="mini" onclick="worksEdit=null;render()">닫기</button>
-        </div>
-        <div class="sub">⚠ 작품명은 권리 정본(laeebly)·소스 등록과 글자까지 같아야 합니다 — 한 글자 차이가 조회 전체를 깨뜨립니다</div>
-      </div>` : "");
-    // 전용 파이프라인 채널은 작품·회차 지정이 무의미(플래너 대상 아님) — 숨긴다
     const isExt = !!EXT_PIPE[ch.token_slug];
-    // 0016: 다음 작업(작품·회차) 지정
     const plan = state.planOvr[ch.token_slug];
     const planTxt = plan
       ? `📌 ${esc(plan.work_title)} · ${plan.episode != null ? plan.episode + "회차 고정" : "회차 자동"}`
       : "자동 (작품 순서 · 회차 순환)";
-    const epOpts = w => [`<option value="">회차 자동(순환)</option>`,
-      ...(state.srcs||[]).filter(s => s.work_title === w && s.is_active !== false && s.episode != null)
-        .sort((a,b) => a.episode - b.episode)
-        .map(s => `<option value="${s.episode}" ${plan && plan.episode === s.episode ? "selected" : ""}>${
-          s.episode}회차 (남음 ${s.remaining}/${s.use_limit})</option>`)].join("");
-    const planEdit = can("operator") ? `
-      <div class="form" style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-        <select id="pw_${ch.token_slug}" onchange="planWorkChanged('${esc(ch.token_slug)}')">${
-          effWorks.map(w => `<option value="${esc(w)}" ${plan && plan.work_title === w ? "selected" : ""}>${esc(w)}</option>`).join("")}</select>
-        <select id="pe_${ch.token_slug}">${epOpts(plan ? plan.work_title : effWorks[0])}</select>
-        <button class="mini pri" onclick="planSave('${esc(ch.token_slug)}')">지정</button>
-        ${plan ? `<button class="mini" onclick="planClear('${esc(ch.token_slug)}')">자동으로</button>` : ""}
-      </div>` : "";
     return `<div class="chcard"><div class="h"><b>${esc(ch.name || ch.token_slug)}</b>${st}
         ${ovr ? `<span class="sub right">${esc((ovr.updated_by||"").split("@")[0])} · ${ago(ovr.updated_at)}</span>` : ""}</div>
-      ${worksLine}
+      <div class="dsum" style="margin-bottom:6px"><b>작품 배정:</b> ${esc(effWorks.join(", ")) || "—"}
+        ${wOvr ? chip("info","✎","관제 수정본") : ""}</div>
       ${isExt ? `<div class="dsum" style="margin-bottom:6px"><b>파이프라인:</b> ${esc(EXT_PIPE[ch.token_slug])}</div>`
         : `<div class="dsum" style="margin-bottom:6px"><b>다음 작업:</b> ${planTxt}
-        ${plan ? `<span class="sub"> · ${esc((plan.updated_by||"").split("@")[0])}</span>` : ""}</div>
-      ${planEdit}`}
+          ${plan ? `<span class="sub"> · ${esc((plan.updated_by||"").split("@")[0])}</span>` : ""}</div>`}
       <div style="border-top:1px solid var(--line);margin:8px 0"></div>
-      <div class="dsum">${sum}</div>${form}</div>`;
+      <div class="dsum">${sum}</div>
+      <div class="dacts">${can("operator")
+        ? `<button class="mini" onclick="chEdit='${esc(ch.token_slug)}';render()">✎ 편집</button>`
+        : '<span class="sub">편집은 operator 권한</span>'}</div></div>`;
   }).join("");
+  const mch = (state.chans||[]).find(c => c.token_slug === chEdit);
   $("#page").innerHTML = `<section class="card">
     <h2>채널 템플릿 — 영상 디자인(제목·자막·작품명 색과 폰트). 저장하면 그 채널의 다음 생성부터 바로 적용</h2>
     <div class="sub" style="margin-bottom:10px">정본은 channels.json 파일 — 여기서 저장하면 관제 수정본이 우선 적용되고, 해제하면 파일 기본으로 돌아갑니다.</div>
-    <div class="chgrid">${cards || '<div class="empty">채널 없음</div>'}</div></section>`;
+    <div class="chgrid">${cards || '<div class="empty">채널 없음</div>'}</div></section>`
+    + (mch ? chModalHtml(mch) : "");
+  if (mch) setTimeout(() => dfDiffUpdate(mch.token_slug), 0);
 }
+
+// ── 목업: 채널 설정 모달 (B안) ──
+function chModalHtml(ch){
+  const slug = ch.token_slug;
+  const { design, isOvr } = effDesign(ch);
+  const d = design || {};
+  const pal = paletteColors();
+  const dfByKey = Object.fromEntries(DESIGN_FIELDS.map(f => [f[0], f]));
+  const dfInput = (k, l, t) => {
+    const v = d[k] !== undefined ? String(d[k]) : "";
+    if (t === "font" || t === "style"){
+      const opts = t === "font" ? FONT_OPTIONS : STYLE_OPTIONS;
+      const known = opts.some(([val]) => val === v);
+      return `<select id="df_${k}">
+        <option value="">${t === "font" ? "기본(" + esc(DESIGN_DEFAULTS[k] || "엔진 기본") + ")" : "자동(작품 장르 기준)"}</option>
+        ${!v || known ? "" : `<option value="${esc(v)}" selected>${esc(v)} (직접 입력값)</option>`}
+        ${opts.map(([val, lab]) => `<option value="${esc(val)}" ${v === val ? "selected" : ""}>${esc(lab)}</option>`).join("")}
+      </select>`;
+    }
+    const picker = t === "color"
+      ? `<input type="color" class="cpick" list="dfpal" value="${/^#[0-9a-fA-F]{6}$/.test(v) ? esc(v) : "#ffffff"}"
+           oninput="$('#df_${k}').value=this.value;dfDiffUpdate('${slug}')" title="색 선택 — 팔레트 포함">` : "";
+    const def = DESIGN_DEFAULTS[k];
+    return `<span class="crow"><input id="df_${k}" value="${esc(v)}"
+      placeholder="${def ? "기본: " + esc(def) : t === "num" ? "숫자" : ""}">${picker}</span>`;
+  };
+  const faceSel = `<label>얼굴 추종 크롭<select id="df_face_tracking">
+        <option value="" ${d.face_tracking===undefined?"selected":""}>기본(켬)</option>
+        <option value="false" ${d.face_tracking===false?"selected":""}>끔(--no-reframe)</option>
+      </select></label>`;
+  const wOvr = state.worksOvr[slug];
+  const effWorks = (wOvr && wOvr.works) || ch.works || [];
+  const isExt = !!EXT_PIPE[slug];
+  const plan = state.planOvr[slug];
+  const epOpts = w => [`<option value="">회차 자동(순환)</option>`,
+    ...(state.srcs||[]).filter(s => s.work_title === w && s.is_active !== false && s.episode != null)
+      .sort((a,b) => a.episode - b.episode)
+      .map(s => `<option value="${s.episode}" ${plan && plan.episode === s.episode ? "selected" : ""}>${
+        s.episode}회차 (남음 ${s.remaining}/${s.use_limit})</option>`)].join("");
+  const others = (state.chans||[]).filter(c => c.token_slug !== slug);
+  return `<div class="mmask" onclick="if(event.target===this){chEdit=null;render()}">
+    <div class="mpanel">
+      <div class="mhead">${chAvatarHtml(slug, 26)}<b>${esc(ch.name || slug)}</b>
+        ${isOvr ? chip("info","✎","관제 수정본") : ""}
+        <button class="mini right" onclick="chEdit=null;render()">✕ 닫기</button></div>
+
+      <div class="msec"><div class="msec-h">작품 배정</div>
+        <textarea id="wk_${slug}" rows="3" style="width:100%"
+          placeholder="작품명을 줄 단위로 — laeebly 정본 표기와 똑같이">${esc(effWorks.join("\n"))}</textarea>
+        <div class="dacts">
+          <button class="mini pri act" style="padding:4px 12px;font-size:12px" onclick="worksSave('${esc(slug)}')">저장 — 다음 계획부터</button>
+          ${wOvr ? `<button class="mini" onclick="worksClear('${esc(slug)}')">파일 기본으로</button>` : ""}</div>
+        <div class="sub">⚠ 작품명은 권리 정본(laeebly)·소스 등록과 글자까지 같아야 합니다</div></div>
+
+      ${isExt
+        ? `<div class="msec"><div class="msec-h">파이프라인</div>
+            <div class="sub">${esc(EXT_PIPE[slug])} — 작품·회차 지정 대상 아님</div></div>`
+        : `<div class="msec"><div class="msec-h">다음 작업</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+            <select id="pw_${esc(slug)}" onchange="planWorkChanged('${esc(slug)}')">${
+              effWorks.map(w => `<option value="${esc(w)}" ${plan && plan.work_title === w ? "selected" : ""}>${esc(w)}</option>`).join("")}</select>
+            <select id="pe_${esc(slug)}">${epOpts(plan ? plan.work_title : effWorks[0])}</select>
+            <button class="mini pri act" style="padding:4px 12px;font-size:12px" onclick="planSave('${esc(slug)}')">지정</button>
+            ${plan ? `<button class="mini" onclick="planClear('${esc(slug)}')">자동으로</button>` : ""}
+          </div></div>`}
+
+      <div class="msec"><div class="msec-h">디자인</div>
+        <div class="sub" style="display:flex;gap:6px;align-items:center;margin-bottom:4px">다른 채널에서 복사:
+          <select onchange="dfCopyFrom(this.value,'${esc(slug)}')" style="width:auto">
+            <option value="">선택…</option>
+            ${others.map(c => `<option value="${esc(c.token_slug)}">${esc(c.name || c.token_slug)}</option>`).join("")}
+          </select></div>
+        <datalist id="dfpal">${pal.map(c => `<option value="${c}">`).join("")}</datalist>
+        <div oninput="dfDiffUpdate('${esc(slug)}')">
+          ${DESIGN_GROUPS.map(([g, keys]) => `
+            <div class="dgroup"><div class="dghead">${g}</div><div class="dform">
+              ${keys.map(k => { const [, l, t] = dfByKey[k];
+                return `<label>${esc(l)}${dfInput(k, l, t)}</label>`; }).join("")}
+              ${g === "기타" ? faceSel : ""}
+            </div></div>`).join("")}
+        </div>
+        <div id="dfdiff" class="dfdiff"></div>
+        <div class="dacts">
+          <button class="pri mini" onclick="chSave('${esc(slug)}')">✓ 저장 — 다음 생성부터 적용</button>
+          ${isOvr ? `<button class="mini danger" data-l="해제" onclick="armed(this,'해제',()=>chClear('${esc(slug)}'))">파일 기본으로 해제</button>` : ""}
+        </div>
+        <div class="sub">빈 칸 = 미설정(엔진 기본). 저장은 통째 교체 — 화면에 보이는 그대로 적용됩니다.</div></div>
+    </div></div>`;
+}
+// 디자인 diff 미리보기 — 폼 값 vs 현재 적용값
+window.dfDiffUpdate = slug => {
+  const ch = (state.chans||[]).find(c => c.token_slug === slug); if (!ch) return;
+  const d = effDesign(ch).design || {};
+  const diffs = [];
+  for (const [k, l] of DESIGN_FIELDS){
+    const el = $("#df_" + k); if (!el) return;
+    const nv = el.value.trim();
+    const ov = d[k] !== undefined ? String(d[k]) : "";
+    if (nv !== ov) diffs.push(`${l}: ${ov || "기본"} → ${nv || "기본"}`);
+  }
+  const ftEl = $("#df_face_tracking");
+  const ft = ftEl ? ftEl.value : "", oft = d.face_tracking === false ? "false" : "";
+  if (ft !== oft) diffs.push(`얼굴크롭: ${oft ? "끔" : "기본(켬)"} → ${ft ? "끔" : "기본(켬)"}`);
+  const box = $("#dfdiff"); if (!box) return;
+  box.innerHTML = diffs.length
+    ? "저장 시 바뀌는 것: " + diffs.map(x => esc(x)).join(" · ")
+    : '<span class="sub">변경 없음 — 저장해도 지금과 동일</span>';
+};
+// 다른 채널 디자인 불러오기 (저장 전까지 미반영)
+window.dfCopyFrom = (src, slug) => {
+  if (!src) return;
+  const ch = (state.chans||[]).find(c => c.token_slug === src); if (!ch) return;
+  const d = effDesign(ch).design || {};
+  for (const [k] of DESIGN_FIELDS){
+    const el = $("#df_" + k); if (el) el.value = d[k] !== undefined ? String(d[k]) : "";
+  }
+  const f = $("#df_face_tracking"); if (f) f.value = d.face_tracking === false ? "false" : "";
+  toast(`${ch.name || src} 디자인을 불러왔습니다 — 저장 전까지 반영되지 않습니다`);
+  dfDiffUpdate(slug);
+};
 window.chSave = slug => {
   const design = {};
   for (const [k,,t] of DESIGN_FIELDS){
@@ -1030,6 +1418,8 @@ window.pinAsk = eng => {
 
 // ───────── 성과 (v3.2: laeebly youtube_*_snapshot 미러 직결 — perf_sync 가 매시간 복사) ─────────
 let perf = null, perfLoading = false, perfSort = { col: "views", dir: -1 };
+// 목업: 영상별 성과 채널 멀티 필터 — null=전체, Set=선택된 채널들(빈 Set=전부 해제)
+let perfChSet = null, perfFilterOpen = false;
 const fmtN = v => v == null ? "—" : Number(v).toLocaleString("ko-KR");
 const fmtD = v => v == null ? "—" : (v > 0 ? "+" : "") + Number(v).toLocaleString("ko-KR");
 const chNameById = id => { const c = (state.chans||[]).find(x => x.channel_id === id);
@@ -1099,21 +1489,37 @@ function renderPerf(){
   const COLS = [["title","영상 제목"],["work","작품"],["ch","채널"],["views","조회수"],
     ["d1","+1일"],["d28","+28일"],["likes","좋아요"],["pub","게시일"]];
   const c = perfSort.col, dir = perfSort.dir;
-  rows.sort((a,b) => { const x = a[c], y = b[c];
+  const allChs = Object.keys(byCh).sort((a,b) => a.localeCompare(b, "ko"));
+  const chipChs = [...new Set([...allChs, ...chSum.map(r => r.ch)])].sort((a,b) => a.localeCompare(b, "ko"));
+  const vrows = perfChSet ? rows.filter(r => perfChSet.has(r.ch)) : rows;
+  vrows.sort((a,b) => { const x = a[c], y = b[c];
     const cmp = (typeof x === "number" || typeof y === "number")
       ? (Number(x)||0) - (Number(y)||0) : String(x??"").localeCompare(String(y??""), "ko");
     return dir * cmp; });
-  const top = rows.slice(0, 200);
+  const top = vrows.slice(0, 200);
   $("#page").innerHTML = `
     <section class="card"><h2>채널 요약 — 기준일 ${esc(perf.maxDate)} (laeebly 수집분 미러, 매시간 갱신)
       <button class="mini right" onclick="perf=null;render()">새로고침</button></h2>
     <div class="tblwrap"><table><tr><th>채널</th><th>구독자</th><th>구독 +28일</th>
       <th>추적 영상</th><th>조회 +28일</th></tr>${
-    chSum.map(r => `<tr><td>${esc(r.ch)}</td><td class="num">${fmtN(r.subs)}</td>
+    chSum.map(r => `<tr class="${perfChSet && perfChSet.has(r.ch) ? "selrow" : ""}" style="cursor:pointer"
+        title="클릭 — 아래 영상 목록을 이 채널만 (다시 클릭하면 전체로)"
+        onclick="perfChOnly('${esc(r.ch)}')"><td>${esc(r.ch)}</td><td class="num">${fmtN(r.subs)}</td>
       <td class="num">${fmtD(r.dsubs)}</td><td class="num">${fmtN(r.vids)}</td>
       <td class="num">${fmtD(r.d28)}</td></tr>`).join("")
     || '<tr><td colspan="5" class="empty">채널 스냅샷 없음</td></tr>'}</table></div></section>
-    <section class="card"><h2>영상별 성과 — 열 제목 클릭으로 정렬${rows.length > 200 ? ` (상위 200/${rows.length}개 표시)` : ""}</h2>
+    <section class="card"><h2>영상별 성과 — 열 제목 클릭으로 정렬${vrows.length > 200 ? ` (상위 200/${vrows.length}개 표시)` : ""}${
+        perfChSet ? ` · <b>${perfChSet.size}개 채널 선택</b> · 영상 ${vrows.length}개` : ""}
+      <button class="mini right ${perfChSet ? "on" : ""}"
+        onclick="perfFilterOpen=!perfFilterOpen;render()">⏷ 채널 필터${perfChSet ? " 적용 중" : ""}</button></h2>
+    ${perfFilterOpen ? `<div class="filters">
+      <button class="mini" onclick="perfChSet=null;render()">✓ 전체 선택</button>
+      <button class="mini" onclick="perfChSet=new Set();render()">✕ 전체 해제</button>
+      <span style="border-left:1px solid var(--line);margin:0 2px"></span>
+      ${chipChs.map(ch => { const n = byCh[ch] ? byCh[ch].vids : 0;
+        return `<button class="mini ${!perfChSet || perfChSet.has(ch) ? "on" : ""}" ${n ? "" : 'style="opacity:.45" title="영상 스냅샷 없음 — 수집 확인 필요"'}
+        onclick="perfChToggle('${esc(ch)}')">${esc(ch)} <span style="opacity:.6">${n}</span></button>`; }).join("")}
+    </div>` : ""}
     <div class="tblwrap"><table><tr>${COLS.map(([k,l]) =>
       `<th class="sortable" onclick="perfSortBy('${k}')">${l}${perfSort.col===k?(dir>0?" ▲":" ▼"):""}</th>`).join("")}</tr>${
     top.map(r => `<tr><td>${r.dead?'<span class="sub" title="내려간 영상">†</span> ':""}<a href="https://youtu.be/${esc(r.cid)}" target="_blank" rel="noopener" style="color:inherit">${esc(r.title)}</a></td>
@@ -1121,7 +1527,26 @@ function renderPerf(){
       <td class="num">${fmtN(r.views)}</td><td class="num">${fmtD(r.d1)}</td>
       <td class="num">${fmtD(r.d28)}</td><td class="num">${fmtN(r.likes)}</td>
       <td class="num">${esc(r.pub)}</td></tr>`).join("")
-    || '<tr><td colspan="8" class="empty">영상 스냅샷 없음</td></tr>'}</table></div></section>`;
+    || `<tr><td colspan="8" class="empty">${perfChSet && perfChSet.size === 0
+        ? "선택된 채널이 없습니다 — 필터에서 채널을 켜거나 전체 선택을 누르세요" : "영상 스냅샷 없음"}</td></tr>`}</table></div></section>`;
+}
+// 칩 토글 — 전체(null)에서 하나 끄면 "그 채널만 제외" 상태가 된다
+window.perfChToggle = ch => {
+  const all = perfAllChs();
+  if (!perfChSet) perfChSet = new Set(all);
+  perfChSet.has(ch) ? perfChSet.delete(ch) : perfChSet.add(ch);
+  if (perfChSet.size === all.length) perfChSet = null;   // 전부 켜지면 전체 상태로 정규화
+  render();
+};
+// 요약 행 클릭 — 이 채널만 보기 (재클릭 시 전체)
+window.perfChOnly = ch => {
+  perfChSet = (perfChSet && perfChSet.size === 1 && perfChSet.has(ch)) ? null : new Set([ch]);
+  render();
+};
+function perfAllChs(){
+  const set = new Set();
+  perfRows().forEach(r => set.add(r.ch));
+  return [...set];
 }
 window.perfSortBy = c => {
   perfSort = perfSort.col === c ? { col:c, dir:-perfSort.dir } : { col:c, dir:-1 };
