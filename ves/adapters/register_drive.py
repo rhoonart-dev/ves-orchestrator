@@ -216,6 +216,10 @@ def run(cfg, conn, job, deps):
 
     files = client.list()
     diag = getattr(client, "diag", via)
+    if not files and mode == "single":
+        # mm-02 실측(8/10): 무권한 계정 conf 는 오류 대신 '빈 목록'을 돌려준다 —
+        # 권리사 폴더가 진짜 비어 있을 일은 없으므로 조용한 성공 대신 크게 실패(재시도→dead 가시화)
+        raise RuntimeError(f"폴더 목록 0건 — 인증 계정의 접근 권한 의심 ({diag})")
     todo = plan_new(files, mode, p.get("work_title"), known_ids, aliases)
     if not todo:
         return {"via": via, "diag": diag, "listed": len(files), "new": 0}
@@ -272,5 +276,12 @@ def run(cfg, conn, job, deps):
 
     if errors and not done:
         raise RuntimeError("; ".join(errors)[:700])   # 전멸이면 transient 재시도
+    if via == "rclone" and done and not errors:
+        # 전량 성공 → 로컬 벌크 캐시 반환(8/11 실측: 11개 폴더 캐시 누적으로 mm-01 디스크 0).
+        # 다음 daily 는 재다운로드 비용이 들지만, 등록은 known_ids 가 걸러 중복되지 않는다.
+        try:
+            shutil.rmtree(client.cache, ignore_errors=True)
+        except Exception:  # noqa: BLE001
+            pass
     return {"via": via, "diag": diag, "listed": len(files), "new": len(todo),
             "registered": len(done), "items": done[:20], "errors": errors[:10]}

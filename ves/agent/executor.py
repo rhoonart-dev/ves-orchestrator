@@ -8,6 +8,7 @@ LeaseRenewer.lost 가 서면(소유권 상실·사람 취소) 서브프로세스
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 
 from ves import config as cfgmod
@@ -18,6 +19,16 @@ from ves.agent.claim import return_pending
 
 CAFFEINATE = "/usr/bin/caffeinate"
 RESOURCE_RETRY_SEC = 120
+
+# 디스크 사전 점검(8/11 실측: mm-01 0.1GB 로 잡을 집어 전부 죽임 — 오염 워커 방지)
+HEAVY_KINDS = {"acquire", "generate", "sync_drive_folder", "localize", "zanmang_autopilot"}
+MIN_FREE_GB = 15
+DISK_RETRY_SEC = 900
+
+
+def disk_ok(free_bytes: int, min_gb: int = MIN_FREE_GB) -> bool:
+    """무거운 잡을 받아도 되는가. 순수 — 테스트 대상."""
+    return free_bytes >= min_gb * (1000 ** 3)
 
 
 def merge_dep_outputs(params, deps) -> dict:
@@ -58,6 +69,17 @@ def run_job(cfg, conn, job) -> None:
     if ad is None:
         lease.fail(conn, job, f"어댑터 없음: {job['kind']}", "permanent")
         return
+
+    # 디스크 사전 점검 — 부족하면 잡을 반납해 건강한 노드가 가져가게 한다(8/11 mm-01 실측)
+    if job["kind"] in HEAVY_KINDS:
+        try:
+            free = shutil.disk_usage(cfg.home).free
+        except OSError:
+            free = 0
+        if not disk_ok(free):
+            return_pending(conn, job, DISK_RETRY_SEC,
+                           f"디스크 부족({free / 1e9:.1f}GB < {MIN_FREE_GB}GB) — 반납")
+            return
 
     # ★체인 계약: 선행 잡 결과(run_id·run_dir)를 params 에 병합 — ingest/evaluate/publish
     # (subprocess형)가 generate 산출 위치를 알게 한다. (스모크2에서 발견한 전파 누락 수정)

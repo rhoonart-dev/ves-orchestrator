@@ -191,6 +191,24 @@ def test_channel_design_flags():
         pass
 
 
+def test_disk_ok_guard():
+    """8/11 실측: mm-01 디스크 0.1GB 로 잡을 집어 전부 죽임 — 15GB 미만이면 반납."""
+    from ves.agent.executor import disk_ok
+    assert disk_ok(200 * 1000 ** 3)
+    assert disk_ok(15 * 1000 ** 3)
+    assert not disk_ok(14 * 1000 ** 3)
+    assert not disk_ok(0)
+
+
+def test_drive_sync_nodes_roundrobin():
+    """드라이브 인입 다중 노드(8/10): nodes 목록 우선, 없으면 단수 키, 공백 관용."""
+    from ves.scheduler.drive_watch import sync_nodes
+    assert sync_nodes("mm-01,mm-02", "mm-01") == ["mm-01", "mm-02"]
+    assert sync_nodes(" mm-01 , mm-02 ", None) == ["mm-01", "mm-02"]
+    assert sync_nodes(None, "mm-01") == ["mm-01"]
+    assert sync_nodes("", "") == []
+
+
 def test_plan_for_channel():
     """0016: 채널별 작품·회차 지정 — 정본(works) 안에서만 적용, 밖이면 자동 유지."""
     from ves.scheduler.planner import plan_for_channel

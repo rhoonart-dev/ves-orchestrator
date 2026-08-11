@@ -23,6 +23,13 @@ def folder_url_of(download_link: str):
     return f"https://drive.google.com/drive/folders/{m.group(1)}" if m else None
 
 
+def sync_nodes(nodes_value, node_value) -> list:
+    """인입 담당 노드 목록: drive_sync_nodes('mm-01,mm-02') 우선, 없으면 drive_sync_node.
+    순수 — 테스트 대상. 잡마다 라운드로빈으로 핀을 나눠 병렬 인입(8/10 사용자 요청)."""
+    raw = (nodes_value or "").strip() or (node_value or "").strip()
+    return [n.strip() for n in raw.split(",") if n.strip()]
+
+
 def run(conn, cfg):
     today = dt.datetime.now(dt.timezone(dt.timedelta(hours=9))).date().isoformat()
     targets = []   # (label, url, work_title|None, mode)
@@ -51,14 +58,17 @@ def run(conn, cfg):
         except Exception as e:  # noqa: BLE001 — laeebly 장애가 외부폴더 감시를 막지 않는다
             print(f"[drive_watch] laeebly 조회 실패(건너뜀): {e}")
 
-    # rclone.conf 가 있는 노드로 고정(권리사 폴더 인증 접근 — 실측 2026-08-10)
+    # rclone.conf 가 있는 노드로 고정(권리사 폴더 인증 접근 — 실측 2026-08-10).
+    # 여러 대(drive_sync_nodes, 콤마 구분)면 라운드로빈으로 나눠 병렬 인입.
     with conn.cursor() as c:
-        c.execute("SELECT value FROM public.ops_config WHERE key='drive_sync_node'")
-        row = c.fetchone()
-    caps = ["network"] + ([f"node:{row['value']}"] if row and row.get("value") else [])
+        c.execute("SELECT key, value FROM public.ops_config "
+                  "WHERE key IN ('drive_sync_node','drive_sync_nodes')")
+        kv = {r["key"]: r["value"] for r in c.fetchall()}
+    nodes = sync_nodes(kv.get("drive_sync_nodes"), kv.get("drive_sync_node"))
 
     made = 0
-    for label, url, work, mode in targets:
+    for i, (label, url, work, mode) in enumerate(targets):
+        caps = ["network"] + ([f"node:{nodes[i % len(nodes)]}"] if nodes else [])
         params = {"folder_url": url, "mode": mode, "use_limit": 3}
         if work:
             params["work_title"] = work
@@ -72,4 +82,4 @@ def run(conn, cfg):
                    ON CONFLICT (idempotency_key) DO NOTHING""",
                 (json.dumps(params, ensure_ascii=False), f"drive-sync|{url}|{today}", caps))
             made += c.rowcount
-    print(f"[drive_watch] 대상 {len(targets)}곳 · 신규 잡 {made}건 · caps={caps} ({today})")
+    print(f"[drive_watch] 대상 {len(targets)}곳 · 신규 잡 {made}건 · 노드 {nodes} ({today})")

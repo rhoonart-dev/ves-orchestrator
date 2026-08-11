@@ -30,7 +30,8 @@ def run(conn, cfg):
     node = _cfg_kv(conn, "zanmang_node", "mm-06")
     today = dt.datetime.now(KST).date().isoformat()
     params = {"repo": repo, "task": "daily", "date": today,
-              "channel_name": "잔망루피 일본", "work_title": "잔망루피 숏폼 현지화"}
+              "channel_name": "まいにちじゃんまんるぴー",   # 채널명 정본(8/10 사용자 확정)
+              "work_title": "잔망루피 숏폼 현지화"}
     with conn.cursor() as c:
         c.execute(
             """INSERT INTO public.job_queue
