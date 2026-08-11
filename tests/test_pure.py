@@ -191,6 +191,21 @@ def test_channel_design_flags():
         pass
 
 
+def test_drive_batch_slicing():
+    """배치 인입(8/11): 한 회차 N건만 등록하고 나머지는 이어받기 — plan_new 결과를 자른다."""
+    from ves.adapters.register_drive import plan_new
+    files = [(f"id{i}", f"작품A/ep{i}.mp4") for i in range(500)]
+    todo_all = plan_new(files, "external", None, set(), None)
+    assert len(todo_all) == 500
+    limit = 200
+    todo, remaining = todo_all[:limit], max(0, len(todo_all) - limit)
+    assert len(todo) == 200 and remaining == 300
+    # 이미 등록된 것은 known_ids 로 빠진다 → 다음 회차가 자연히 그 다음부터
+    known = {f"id{i}" for i in range(200)}
+    nxt = plan_new(files, "external", None, known, None)
+    assert len(nxt) == 300 and nxt[0][0] == "id200"
+
+
 def test_yt_public_pure():
     """0020/성과 보완: id 묶음·응답 파싱·아이콘 선택 (YouTube 공개 API 계약)."""
     from ves.scheduler.yt_public import (chunk_ids, parse_video_stats,

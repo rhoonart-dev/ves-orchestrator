@@ -123,10 +123,14 @@ def _rclone_conf(cfg):
     return str(p) if p.exists() else None
 
 
-def _rc(bin_, conf, *args, timeout=300):
+# rclone 종료코드: 8·9 = --max-transfer 한도 도달(정상적인 '여기까지'). 실패가 아니다.
+PARTIAL_RC = (8, 9)
+
+
+def _rc(bin_, conf, *args, timeout=300, ok_rc=()):
     r = subprocess.run([bin_, "--config", conf, *args],
                        capture_output=True, text=True, timeout=timeout)
-    if r.returncode != 0:
+    if r.returncode != 0 and r.returncode not in ok_rc:
         raise RuntimeError((r.stderr or r.stdout or "rclone 실패")[-300:])
     return r.stdout
 
@@ -136,24 +140,33 @@ class _Rclone:
     (find_work_source.py 실측 — lsjson 은 공유폴더에서 빈 목록을 주는 케이스가 있어 폐기).
     캐시 디렉토리가 남아 있으므로 copy 는 자체 증분 — 새 파일만 내려온다."""
 
-    def __init__(self, bin_, conf, folder_id, cache_root):
+    def __init__(self, bin_, conf, folder_id, cache_root, max_transfer=None):
         self.b, self.c, self.fid = bin_, conf, folder_id
+        self.max_transfer = max_transfer
         self.remote = first_remote(_rc(bin_, conf, "listremotes", "--long", timeout=30))
         if not self.remote:
             raise RuntimeError("rclone.conf 에 원격이 없음")
         self.cache = pathlib.Path(cache_root) / folder_id
         self.cache.mkdir(parents=True, exist_ok=True)
 
+    def _copy(self, *extra):
+        """캐시로 복사. --max-transfer 로 이번 회차 분량을 끊는다(soft: 받던 파일은 마무리).
+        한도에 걸리면 rc 8·9 로 끝나는데 그건 '여기까지 받았다'는 뜻이라 실패가 아니다."""
+        args = ["copy", self.remote, str(self.cache),
+                "--drive-root-folder-id", self.fid, *extra]
+        if self.max_transfer:
+            args += ["--max-transfer", self.max_transfer, "--cutoff-mode", "soft"]
+        return _rc(self.b, self.c, *args, timeout=3600 * 6, ok_rc=PARTIAL_RC)
+
     def list(self):
         self.diag = f"remote={self.remote}"
-        _rc(self.b, self.c, "copy", self.remote, str(self.cache),
-            "--drive-root-folder-id", self.fid, timeout=3600 * 6)
+        if self.max_transfer:
+            self.diag += f" · max_transfer={self.max_transfer}"
+        self._copy()
         if not any(self.cache.rglob("*")):
             # 공유 형태에 따라 shared-with-me 플래그가 필요한 케이스(실측 진단용 2차 시도)
             self.diag += " · retry=shared-with-me"
-            _rc(self.b, self.c, "copy", self.remote, str(self.cache),
-                "--drive-root-folder-id", self.fid, "--drive-shared-with-me",
-                timeout=3600 * 6)
+            self._copy("--drive-shared-with-me")
         out = []
         for p in sorted(self.cache.rglob("*")):
             if p.is_file():
@@ -196,19 +209,26 @@ def run(cfg, conn, job, deps):
         raise base.PermanentError("params.folder_url 필요")
     fid_folder = folder_id_of(url)
 
-    bin_, conf = _rclone_bin(), _rclone_conf(cfg)
-    if bin_ and conf and fid_folder:
-        cache_root = pathlib.Path(cfg.home) / "cache" / "drive_sync"
-        client, via = _Rclone(bin_, conf, fid_folder, cache_root), "rclone"
-    else:
-        client, via = _Gdown(url), "gdown"
-
+    # 배치 인입(8/11 사용자 요청): 큰 폴더는 한 번에 다 받지 않고 회차로 나눈다 —
+    # 한 번에 다 받는 구조에선 중간에 깨지면 아무것도 못 건진다(B급 스튜디오 실측).
     with conn.cursor() as c:
+        c.execute("SELECT key, value FROM public.ops_config "
+                  "WHERE key IN ('drive_batch_limit','drive_max_transfer','drive_folder_aliases')")
+        kv = {r["key"]: r["value"] for r in c.fetchall()}
         c.execute("SELECT registered_by FROM public.sources "
                   "WHERE registered_by LIKE 'drive:%'")
         known_ids = {r["registered_by"][6:] for r in c.fetchall()}
-        c.execute("SELECT value FROM public.ops_config WHERE key='drive_folder_aliases'")
-        row = c.fetchone()
+    batch_limit = int(p.get("batch_limit") or kv.get("drive_batch_limit") or 200)
+    max_transfer = p.get("max_transfer") or kv.get("drive_max_transfer") or "40G"
+    row = {"value": kv.get("drive_folder_aliases")}
+
+    bin_, conf = _rclone_bin(), _rclone_conf(cfg)
+    if bin_ and conf and fid_folder:
+        cache_root = pathlib.Path(cfg.home) / "cache" / "drive_sync"
+        client, via = _Rclone(bin_, conf, fid_folder, cache_root,
+                              max_transfer=max_transfer), "rclone"
+    else:
+        client, via = _Gdown(url), "gdown"
     try:
         aliases = json.loads((row or {}).get("value") or "{}")
     except json.JSONDecodeError:
@@ -220,9 +240,10 @@ def run(cfg, conn, job, deps):
         # mm-02 실측(8/10): 무권한 계정 conf 는 오류 대신 '빈 목록'을 돌려준다 —
         # 권리사 폴더가 진짜 비어 있을 일은 없으므로 조용한 성공 대신 크게 실패(재시도→dead 가시화)
         raise RuntimeError(f"폴더 목록 0건 — 인증 계정의 접근 권한 의심 ({diag})")
-    todo = plan_new(files, mode, p.get("work_title"), known_ids, aliases)
+    todo_all = plan_new(files, mode, p.get("work_title"), known_ids, aliases)
+    todo, remaining = todo_all[:batch_limit], max(0, len(todo_all) - batch_limit)
     if not todo:
-        return {"via": via, "diag": diag, "listed": len(files), "new": 0}
+        return {"via": via, "diag": diag, "listed": len(files), "new": 0, "remaining": 0}
 
     store = Store(cfg.supabase_url, cfg.supabase_service_key)
     tmp_dir = pathlib.Path(cfg.home) / "cache" / "drive_tmp"
@@ -276,7 +297,9 @@ def run(cfg, conn, job, deps):
 
     if errors and not done:
         raise RuntimeError("; ".join(errors)[:700])   # 전멸이면 transient 재시도
-    if via == "rclone" and done and not errors:
+    if remaining and done:
+        _queue_continuation(conn, job, remaining)
+    if via == "rclone" and done and not errors and not remaining:
         # 전량 성공 → 로컬 벌크 캐시 반환(8/11 실측: 11개 폴더 캐시 누적으로 mm-01 디스크 0).
         # 다음 daily 는 재다운로드 비용이 들지만, 등록은 known_ids 가 걸러 중복되지 않는다.
         try:
@@ -284,4 +307,22 @@ def run(cfg, conn, job, deps):
         except Exception:  # noqa: BLE001
             pass
     return {"via": via, "diag": diag, "listed": len(files), "new": len(todo),
-            "registered": len(done), "items": done[:20], "errors": errors[:10]}
+            "registered": len(done), "remaining": remaining,
+            "items": done[:20], "errors": errors[:10]}
+
+
+def _queue_continuation(conn, job, remaining: int) -> None:
+    """남은 파일이 있으면 '이어받기' 잡을 건다 — 같은 폴더·같은 노드, 10분 뒤.
+    멱등키에 회차 번호를 넣어 매번 새 잡이 되지만, 진전이 있을 때만(done>0) 건다."""
+    p = dict(job["params"] or {})
+    seq = int(p.get("batch_seq") or 1) + 1
+    p["batch_seq"] = seq
+    key = f"{job['idempotency_key']}#b{seq}"
+    with conn.cursor() as c:
+        c.execute(
+            """INSERT INTO public.job_queue
+                   (kind, params, idempotency_key, required_caps, lease_ttl_sec, run_after)
+               VALUES ('sync_drive_folder', %s::jsonb, %s, %s, 600, now() + interval '10 minutes')
+               ON CONFLICT (idempotency_key) DO NOTHING""",
+            (json.dumps(p, ensure_ascii=False), key, job.get("required_caps") or ["network"]))
+    print(f"[register_drive] 남은 {remaining}건 — 이어받기 예약(batch {seq})")
