@@ -191,6 +191,23 @@ def test_channel_design_flags():
         pass
 
 
+def test_scene_span_and_duplicate():
+    """0019 반려 재생성: edit_plan 구간 추출 + 반려 구간 중복 판정(구 시스템 규칙 계승)."""
+    from ves.adapters.aivideo import scene_span, spans_overlap, is_duplicate_take
+    plan = {"timeline": [{"clip_start": 120.0, "clip_end": 140.0},
+                         {"clip_start": 150.5, "clip_end": 165.0}]}
+    assert scene_span(plan) == [120.0, 165.0]
+    assert scene_span({"timeline": []}) is None
+    assert scene_span(None) is None
+    assert spans_overlap([100, 160], [110, 170])          # 크게 겹침
+    assert spans_overlap([100, 160], [128, 132])          # 중심 근접
+    assert not spans_overlap([100, 160], [900, 960])      # 완전히 다른 구간
+    assert not spans_overlap(None, [100, 160])
+    assert is_duplicate_take([100, 160], [[900, 960], [110, 170]])
+    assert not is_duplicate_take([100, 160], [[900, 960]])
+    assert not is_duplicate_take([100, 160], [])
+
+
 def test_diskgc_expired_and_emergency():
     """로컬 디스크 GC(8/11 컷오버 후 신설): 보존일 경과분 + 여유 부족 시 오래된 순 추가 삭제."""
     from ves.agent.diskgc import expired, emergency_plan, GB

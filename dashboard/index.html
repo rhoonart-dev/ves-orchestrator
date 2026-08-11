@@ -602,8 +602,9 @@ function renderReview(){
         <input class="reason" id="note_${r.id}" placeholder="사유·메모 (선택) — 합격·반려 모두 기록됩니다">
         ${low ? '<p class="notehint">💬 judge 가 낮게 봤습니다 — 그래도 합격시키신다면 이유를 남겨 주세요. judge 를 고칠 근거가 됩니다.</p>' : ""}
         <div class="rtype">반려 유형:
-          <label><input type="radio" name="rt_${r.id}" value="장면" checked> 장면 (대체 장면 생성)</label>
-          <label><input type="radio" name="rt_${r.id}" value="제작"> 제작 (같은 구간 재시도: TTS·자막·오디오)</label></div>
+          <label><input type="radio" name="rt_${r.id}" value="장면" checked> 장면 — 다른 장면으로 새로 제작(40~70분)</label>
+          <label><input type="radio" name="rt_${r.id}" value="제작"> 제작 — 같은 장면 렌더만 다시(수 분)</label>
+          <span class="sub">반려하면 같은 맥에서 자동 재생성됩니다 · 2회까지</span></div>
         <div class="form">
           <select id="prv_${r.id}" onchange="$('#at_${r.id}').style.display=this.value==='schedule'?'':'none'">
             <option value="private">비공개</option><option value="unlisted">일부공개</option>
@@ -663,10 +664,16 @@ window.approve = rid => {
       { p_review_id: rid, p_privacy: privacy, p_publish_at: publish_at, p_note: note },
       "합격 — publish 잡 생성됨");
 };
-window.reject = rid => {
+window.reject = async rid => {
   const note = ($(`#note_${CSS.escape(rid)}`).value || "").trim();
   const rt = (document.querySelector(`input[name="rt_${rid}"]:checked`)||{}).value || "장면";
-  rpc("reject_review", { p_review_id: rid, p_note: `[${rt}] ${note}`.trim() }, "반려 기록됨");
+  const r = await rpc("reject_review",
+    { p_review_id: rid, p_note: `[${rt}] ${note}`.trim(), p_kind: rt }, "반려 기록됨");
+  if (r && typeof r === "object"){
+    toast(r.regenerated
+      ? `반려 — ${r.node || "같은 맥"}에서 ${r.mode === "resume_render" ? "렌더만 다시" : "다른 장면으로"} 재생성 시작 (${r.tries}/2)`
+      : `반려 — 재생성 상한(2회) 도달, 사람 판단이 필요합니다`, !r.regenerated);
+  }
 };
 
 // ───────── 피드 ─────────

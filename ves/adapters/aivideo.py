@@ -189,6 +189,35 @@ def extract_partial_run_id(stdout: str) -> str | None:
     return m.group(1) if m else None
 
 
+def scene_span(edit_plan: dict):
+    """edit_plan.json → 이 장면이 커버하는 소스 구간 (min clip_start, max clip_end).
+    구 시스템 scene_loop.scene_span 과 같은 계약. 순수 — 테스트 대상."""
+    tl = (edit_plan or {}).get("timeline") or []
+    starts = [c.get("clip_start") for c in tl if isinstance(c, dict) and c.get("clip_start") is not None]
+    ends = [c.get("clip_end") for c in tl if isinstance(c, dict) and c.get("clip_end") is not None]
+    if not starts or not ends:
+        return None
+    return [float(min(starts)), float(max(ends))]
+
+
+def spans_overlap(a, b, iou_th: float = 0.30, center_sec: float = 15.0) -> bool:
+    """두 구간이 '같은 장면'인가 — IoU 임계 또는 중심 근접(구 시스템 규칙). 순수."""
+    if not a or not b:
+        return False
+    a0, a1 = float(a[0]), float(a[1])
+    b0, b1 = float(b[0]), float(b[1])
+    inter = max(0.0, min(a1, b1) - max(a0, b0))
+    union = max(a1, b1) - min(a0, b0)
+    if union > 0 and inter / union >= iou_th:
+        return True
+    return abs((a0 + a1) / 2 - (b0 + b1) / 2) <= center_sec
+
+
+def is_duplicate_take(span, avoid_spans) -> bool:
+    """새 장면이 반려·기존 구간과 겹치는가. 순수 — 테스트 대상."""
+    return any(spans_overlap(span, s) for s in (avoid_spans or []))
+
+
 def provenance_ok(run_log: dict) -> bool:
     """R8 판정 — ai-video run_log 실제 스키마는 {input, steps, job_id, provenance}
     (스모크3 실측: 최상위 'provenance_complete' 키는 존재한 적이 없다. 그 키를 읽던
@@ -217,6 +246,14 @@ def resource(cfg, job):
 
 
 def build_argv(cfg, job):
+    # 반려 재생성(0019): '제작' 반려는 같은 run 을 렌더 단계부터 이어달린다(수 분).
+    rid = (job["params"] or {}).get("resume_run_id")
+    if rid:
+        return resume_argv(cfg, job, rid, default_step=(job["params"].get("from_step") or "render"))
+    return _build_argv_fresh(cfg, job)
+
+
+def _build_argv_fresh(cfg, job):
     p = job["params"]
     src = cfgmod.source_cache_path(cfg, p["source_sha256"]) if p.get("source_sha256") else None
     if src and not pathlib.Path(src).exists():
@@ -232,12 +269,12 @@ def build_argv(cfg, job):
     return argv
 
 
-def resume_argv(cfg, job, partial_run_id):
+def resume_argv(cfg, job, partial_run_id, default_step=None):
     """★⑦ 재시도는 이어달리기 — 같은 run_id 로 마지막 체크포인트부터."""
-    argv = build_argv(cfg, job)
+    argv = _build_argv_fresh(cfg, job)
     outdir = (job["params"].get("outdir") or "outputs")
     run_dir = pathlib.Path(cfgmod.engine_dir(cfg, "ai_video")) / outdir / partial_run_id
-    step = pick_resume_step(glob.glob(str(run_dir / "checkpoint_*.json")))
+    step = pick_resume_step(glob.glob(str(run_dir / "checkpoint_*.json"))) or default_step
     argv += ["--job-id", partial_run_id]
     if step:
         argv += ["--from-step", step]
@@ -260,7 +297,21 @@ def parse_result(cfg, job, stdout):
     if not provenance_ok(run_log):   # R8: provenance 없이 succeeded 불가
         raise base.PermanentError(
             f"provenance 불완전(provenance.git_sha/config 스냅샷 없음) — R8 (run={rid})")
-    return {"run_id": rid, "run_dir": str(run_dir), "provenance_complete": True}
+
+    # 장면 구간 기록(0019) — 반려 회피·중복 판정의 근거. 구 시스템 edit_plan 계약 계승.
+    span = None
+    ep = run_dir / "edit_plan.json"
+    if ep.exists():
+        try:
+            span = scene_span(json.loads(ep.read_text(encoding="utf-8")))
+        except (OSError, json.JSONDecodeError):
+            span = None
+    avoid = (job["params"] or {}).get("avoid_spans") or []
+    if span and is_duplicate_take(span, avoid):
+        # 반려한 장면을 또 만든 것 — 일시 실패로 돌려 재시도가 다른 구간을 뽑게 한다
+        raise RuntimeError(f"반려 구간과 중복된 장면(span={span}, 회피={avoid}) — 다른 장면으로 재시도")
+    return {"run_id": rid, "run_dir": str(run_dir), "provenance_complete": True,
+            "scene_span": span}
 
 
 def classify_error(rc, stderr, stdout):
