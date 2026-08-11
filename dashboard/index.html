@@ -315,6 +315,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .eprow{display:flex;align-items:center;gap:10px;font-size:12.5px;padding:3px 0;color:var(--ink-2)}
   .eprow .ep{flex:none;width:52px;font-variant-numeric:tabular-nums}
   .eprow .cnt{flex:none;width:44px;text-align:right;font-variant-numeric:tabular-nums}
+  .rjask{display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap}
   th.sortable{cursor:pointer;user-select:none}
   th.sortable:hover{color:var(--ink)}
   /* v3.1: 채널 템플릿 편집 */
@@ -711,7 +712,7 @@ function renderReview(){
         <div class="rtype">반려 유형:
           <label><input type="radio" name="rt_${r.id}" value="장면" checked> 장면 — 다른 장면으로 새로 제작(40~70분)</label>
           <label><input type="radio" name="rt_${r.id}" value="제작"> 제작 — 같은 장면 렌더만 다시(수 분)</label>
-          <span class="sub">반려하면 같은 맥에서 자동 재생성됩니다 · 2회까지</span></div>
+          <span class="sub">반려를 누르면 재생성 여부를 묻습니다 · 재생성은 같은 맥에서 2회까지</span></div>
         <div class="form">
           <select id="prv_${r.id}" onchange="$('#at_${r.id}').style.display=this.value==='schedule'?'':'none'">
             <option value="private">비공개</option><option value="unlisted">일부공개</option>
@@ -720,7 +721,8 @@ function renderReview(){
           </select>
           <input id="at_${r.id}" type="datetime-local" style="display:none">
           <button class="pri act" onclick="approve('${r.id}')">✓ 합격 · 발행</button>
-          <button class="danger act" onclick="armed(this,'✕ 반려',()=>reject('${r.id}'))">✕ 반려</button>
+          <button class="danger act" id="rjb_${r.id}" onclick="rejectAsk('${r.id}')">✕ 반려</button>
+          <span id="rja_${r.id}" class="rjask" style="display:none"></span>
         </div>` : '<div class="sub">reviewer 권한 필요</div>';
       const slug = wo.channel_slug || r.channel_slug;
       return `<div class="review rv2">
@@ -781,15 +783,34 @@ window.approve = rid => {
       { p_review_id: rid, p_privacy: privacy, p_publish_at: publish_at, p_note: note },
       "합격 — publish 잡 생성됨");
 };
-window.reject = async rid => {
+window.rejectAsk = rid => {
+  const rt = (document.querySelector(`input[name="rt_${rid}"]:checked`)||{}).value || "장면";
+  const yes = rt === "제작" ? "재생성(렌더만 다시)" : "재생성(다른 장면)";
+  $(`#rjb_${CSS.escape(rid)}`).style.display = "none";
+  const box = $(`#rja_${CSS.escape(rid)}`);
+  box.style.display = "";
+  box.innerHTML = `<span class="sub">재생성할까요?</span>
+    <button class="danger act" onclick="reject('${rid}',true)">✕ 반려 + ${yes}</button>
+    <button class="act" onclick="reject('${rid}',false)">✕ 반려만</button>
+    <button class="act" onclick="rejectCancel('${rid}')">취소</button>`;
+};
+window.rejectCancel = rid => {
+  const b = $(`#rjb_${CSS.escape(rid)}`), a = $(`#rja_${CSS.escape(rid)}`);
+  if (a){ a.style.display = "none"; a.innerHTML = ""; }
+  if (b) b.style.display = "";
+};
+window.reject = async (rid, regen) => {
   const note = ($(`#note_${CSS.escape(rid)}`).value || "").trim();
   const rt = (document.querySelector(`input[name="rt_${rid}"]:checked`)||{}).value || "장면";
   const r = await rpc("reject_review",
-    { p_review_id: rid, p_note: `[${rt}] ${note}`.trim(), p_kind: rt }, "반려 기록됨");
+    { p_review_id: rid, p_note: `[${rt}] ${note}`.trim(), p_kind: rt,
+      p_regenerate: regen !== false }, "반려 기록됨");
   if (r && typeof r === "object"){
     toast(r.regenerated
       ? `반려 — ${r.node || "같은 맥"}에서 ${r.mode === "resume_render" ? "렌더만 다시" : "다른 장면으로"} 재생성 시작 (${r.tries}/2)`
-      : "반려 — 재생성 상한(2회) 도달, 사람 판단이 필요합니다", !r.regenerated);
+      : r.reason === "retry_limit"
+        ? "반려 — 재생성 상한(2회) 도달, 사람 판단이 필요합니다"
+        : "반려만 기록했습니다 — 재생성하지 않음", r.reason === "retry_limit");
   }
 };
 

@@ -5,6 +5,7 @@
 --   ③ 중복이면 최대 2회 재생성, 그래도 겹치면 사람에게
 -- VES 의 reject_review 는 '기록만' 했다 — 컷오버 이후엔 반려 = 그날 그 채널 공백.
 -- 사용자 결정(8/11): 2회까지 · 즉시 · 원본을 만든 같은 맥에서.
+-- 추가(8/11): 반려 시 재생성 여부를 사람에게 묻는다 — p_regenerate=false 면 기록만 한다.
 
 -- 반려 이력(회피 구간의 원장). work_order 단위로 쌓인다.
 CREATE TABLE IF NOT EXISTS public.rejected_takes (
@@ -23,7 +24,8 @@ DROP POLICY IF EXISTS rt_read ON public.rejected_takes;
 CREATE POLICY rt_read ON public.rejected_takes FOR SELECT TO authenticated USING (true);
 
 CREATE OR REPLACE FUNCTION public.reject_review(
-    p_review_id uuid, p_note text DEFAULT NULL, p_kind text DEFAULT NULL)
+    p_review_id uuid, p_note text DEFAULT NULL, p_kind text DEFAULT NULL,
+    p_regenerate boolean DEFAULT true)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
 AS $function$
 DECLARE
@@ -63,7 +65,15 @@ BEGIN
     VALUES (v_rq.work_order_id, v_run, v_kind, v_span, p_note, auth.uid()::text);
 
     PERFORM public._audit('reject','review_queue',p_review_id::text,
-            jsonb_build_object('note',p_note,'kind',v_kind,'run_id',v_run));
+            jsonb_build_object('note',p_note,'kind',v_kind,'run_id',v_run,
+                               'regenerate',p_regenerate));
+
+    -- 사람이 '재생성 안 함'을 고르면 여기서 끝(8/11 사용자 요청: 반려 시 재실행 여부를 묻는다).
+    -- 구간은 회피 목록에 남는다 — 나중에 그 회차를 다시 돌려도 같은 장면을 피한다.
+    IF NOT coalesce(p_regenerate, true) THEN
+        RETURN jsonb_build_object('regenerated', false, 'reason', 'user_declined',
+                                  'kind', v_kind);
+    END IF;
 
     SELECT count(*) INTO v_tries FROM public.rejected_takes
      WHERE work_order_id = v_rq.work_order_id;
@@ -106,5 +116,5 @@ BEGIN
                               'node', v_node, 'avoid', v_avoid,
                               'mode', CASE WHEN v_kind='제작' THEN 'resume_render' ELSE 'fresh_scene' END);
 END $function$;
-REVOKE ALL ON FUNCTION public.reject_review(uuid, text, text) FROM public;
-GRANT EXECUTE ON FUNCTION public.reject_review(uuid, text, text) TO authenticated;
+REVOKE ALL ON FUNCTION public.reject_review(uuid, text, text, boolean) FROM public;
+GRANT EXECUTE ON FUNCTION public.reject_review(uuid, text, text, boolean) TO authenticated;
