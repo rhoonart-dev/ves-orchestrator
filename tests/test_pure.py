@@ -361,6 +361,23 @@ def test_pin_dependent_kinds_cover_local_readers():
     assert set(aivideo.PIN_DEPENDENT_KINDS) == {"upload_artifacts", "ingest", "evaluate"}
 
 
+def test_drive_balance_moves_backlog_to_idle_node():
+    """실측(8/12): mm-01 에 4건이 몰려 줄 서는 동안 mm-02 는 빈손이었다."""
+    from ves.scheduler.drive_balance import plan_rebalance
+    nodes = ["mm-01", "mm-02"]
+    pending = [("j1", "mm-01"), ("j2", "mm-01"), ("j3", "mm-01")]
+    moves = dict(plan_rebalance(pending, {"mm-01": 1}, nodes))
+    # mm-01 은 이미 1건을 돌리는 중 → 빈 mm-02 부터 채우고, 비긴 뒤엔 번갈아 간다
+    assert moves == {"j1": "mm-02", "j3": "mm-02"}   # j2 는 제자리(옮길 이유 없음)
+    # 이미 고른 상태면 아무것도 옮기지 않는다(무의미한 UPDATE 금지)
+    assert plan_rebalance([("a", "mm-01"), ("b", "mm-02")], {}, nodes) == []
+    # 인입 노드가 한 대뿐이거나 목록이 비면 재배치 없음
+    assert plan_rebalance([("a", "mm-01")], {}, ["mm-01"]) == []
+    assert plan_rebalance([("a", "mm-01")], {}, []) == []
+    # 핀이 아예 없던 잡도 배정된다
+    assert plan_rebalance([("a", None)], {}, nodes) == [("a", "mm-01")]
+
+
 def test_repin_caps_replaces_not_appends():
     """반려 재실행이 노드를 옮기면 핀도 옮겨가야 한다 — 쌓이면 claim 이 영구 불가."""
     from ves.agent.executor import repin_caps
