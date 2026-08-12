@@ -630,3 +630,21 @@ def test_storage_4xx_permanent_except_429():
     assert not _is_permanent_storage_error("storage upload 429: rate limited")
     assert not _is_permanent_storage_error("storage upload 544: DatabaseTimeout")
     assert not _is_permanent_storage_error("Connection reset by peer")
+
+
+def test_preview_stale_regenerates_after_rerender(tmp_path):
+    """🛑 회귀 방지 — 재렌더로 shorts 가 갱신되면 preview 도 재생성 대상이어야 한다.
+
+    존재 여부만 보던 구현은 템플릿 변경 재렌더 후 옛 preview 를 그대로 재업로드해
+    검수함이 재렌더 전 영상을 계속 재생했다(2026-08-12 B급_스튜디오_4bf13c55 실측)."""
+    import os, time
+    from ves.adapters.upload_artifacts import _preview_stale
+    shorts = tmp_path / "shorts.mp4"; preview = tmp_path / "preview.mp4"
+    shorts.write_bytes(b"v1")
+    assert _preview_stale(preview, shorts) is True          # 없음 → 생성
+    preview.write_bytes(b"p1")
+    os.utime(preview, (time.time(), time.time()))
+    os.utime(shorts, (time.time() - 100, time.time() - 100))
+    assert _preview_stale(preview, shorts) is False         # preview 가 더 최신 → 유지
+    os.utime(shorts, (time.time() + 100, time.time() + 100))  # 재렌더로 shorts 갱신
+    assert _preview_stale(preview, shorts) is True          # 낡은 preview → 재생성
