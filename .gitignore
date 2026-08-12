@@ -6,3 +6,6 @@ secrets/
 logs/
 cache/
 .DS_Store
+
+*.patch
+_to_delete/
