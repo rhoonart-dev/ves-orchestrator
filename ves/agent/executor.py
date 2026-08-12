@@ -195,24 +195,47 @@ def _run_subprocess(cfg, conn, job, ad) -> dict:
     raise e
 
 
+def repin_caps(caps, node: str) -> list:
+    """어피니티 캡을 '이 노드 하나'로 정규화한다 — 기존 node:* 는 걷어내고 새 것만 남긴다.
+
+    왜 걷어내야 하나(2026-08-12 실측, 숏테토칩 WO 08-06):
+      acquire 가 mm-01 에서 돌아 후속 잡에 node:mm-01 이 박혔고, 8/11 반려 재생성이
+      mm-06 에서 성공하면서 node:mm-06 이 '추가'됐다. 결과 required_caps 가
+      ['analyze','node:mm-01','node:mm-06'] — 한 노드가 두 노드일 수는 없으니
+      claim 의 required_caps <@ effective_caps 를 어떤 워커도 만족 못 한다.
+      잡 3건이 6일째 pending 인 채 영구 교착. 반려 재실행이 노드를 옮길 때마다 재발한다."""
+    keep = [c for c in (caps or []) if not str(c).startswith("node:")]
+    return keep + [f"node:{node}"]
+
+
 def _pin_dependents(conn, job, ad) -> None:
     """산출물을 로컬 디스크에 남기는 잡(generate)이 끝나면, 그 파일을 읽는 후속 kind 들을
-    이 노드로 고정한다 — required_caps 에 'node:<노드>' 를 추가(claim 의 <@ 가 걸러줌).
+    이 노드로 고정한다 — required_caps 의 node:* 를 '이 노드'로 갈아끼운다(claim 의 <@ 가 걸러줌).
     스모크3 실측: upload_artifacts 재시도가 다른 노드에 떨어져 'shorts 없음' 즉사.
     수동 해제(노드 사망 시): UPDATE job_queue SET required_caps=array_remove(required_caps,
     'node:mm-0X') WHERE work_order_id='…' AND status='pending';"""
     kinds = getattr(ad, "PIN_DEPENDENT_KINDS", ())
     if not kinds:
         return
-    cap = [f"node:{job['node_id']}"]
+    tag = f"node:{job['node_id']}"
     try:
         with conn.cursor() as c:
             c.execute(
                 """UPDATE public.job_queue
-                      SET required_caps = required_caps || %s::text[], updated_at=now()
+                      SET required_caps = (
+                            SELECT coalesce(array_agg(t.c ORDER BY t.c), '{}'::text[])
+                              FROM unnest(required_caps) AS t(c)
+                             WHERE t.c NOT LIKE 'node:%%'
+                          ) || ARRAY[%s]::text[],
+                          updated_at = now()
                     WHERE work_order_id=%s AND kind = ANY(%s) AND status='pending'
-                      AND NOT required_caps @> %s::text[]""",
-                (cap, job["work_order_id"], list(kinds), cap))
+                      AND (
+                            EXISTS (SELECT 1
+                                      FROM unnest(coalesce(required_caps,'{}'::text[])) AS u(c)
+                                     WHERE u.c LIKE 'node:%%' AND u.c <> %s)
+                         OR NOT coalesce(required_caps,'{}'::text[]) @> ARRAY[%s]::text[]
+                      )""",
+                (tag, job["work_order_id"], list(kinds), tag, tag))
     except Exception as e:  # noqa: BLE001 — 고정 실패는 종전(비고정) 동작으로 강등될 뿐
         print(f"[executor] 어피니티 고정 실패(무시): {e}")
 

@@ -361,6 +361,20 @@ def test_pin_dependent_kinds_cover_local_readers():
     assert set(aivideo.PIN_DEPENDENT_KINDS) == {"upload_artifacts", "ingest", "evaluate"}
 
 
+def test_repin_caps_replaces_not_appends():
+    """반려 재실행이 노드를 옮기면 핀도 옮겨가야 한다 — 쌓이면 claim 이 영구 불가."""
+    from ves.agent.executor import repin_caps
+    # 숏테토칩 WO(08-06) 실측: acquire=mm-01 → 반려 재생성=mm-06 → 두 핀이 공존해 6일 교착
+    assert repin_caps(["analyze", "node:mm-01"], "mm-06") == ["analyze", "node:mm-06"]
+    assert repin_caps(["analyze", "node:mm-01", "node:mm-06"], "mm-06") == ["analyze", "node:mm-06"]
+    # node:* 는 정확히 하나만 남는다(어떤 입력이 와도)
+    for caps in ([], None, ["node:mm-03"], ["a", "node:mm-01", "b", "node:mm-02"]):
+        out = repin_caps(caps, "mm-04")
+        assert [c for c in out if c.startswith("node:")] == ["node:mm-04"]
+    # 비-node 캡은 순서대로 보존한다
+    assert repin_caps(["network", "analyze"], "mm-01")[:2] == ["network", "analyze"]
+
+
 # ── Storage 키 ASCII 규약 (스모크3 실측: 한글 키 → 400 InvalidKey) ──
 def test_storage_key_ascii_and_shared_convention():
     from ves.adapters.base import storage_key
