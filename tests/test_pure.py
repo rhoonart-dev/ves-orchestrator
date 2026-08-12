@@ -378,6 +378,15 @@ def test_drive_balance_moves_backlog_to_idle_node():
     assert plan_rebalance([("a", None)], {}, nodes) == [("a", "mm-01")]
 
 
+def test_refill_priority_actually_jumps_the_queue():
+    """claim 은 ORDER BY priority DESC — 앞세우려면 기본값(100)보다 커야 한다(8/12 실측)."""
+    from ves.scheduler.source_watch import REFILL_PRIORITY
+    import pathlib
+    sql = pathlib.Path("ves/agent/claim.py").read_text(encoding="utf-8")
+    assert "ORDER BY j.priority DESC" in sql      # 규약이 바뀌면 이 테스트가 먼저 깨진다
+    assert REFILL_PRIORITY > 100
+
+
 def test_source_watch_finds_dry_works_first():
     """소모는 채널이 하고 보충은 폴더가 한다 — 며칠치 남았는지로 급한 순서를 정한다(8/12)."""
     from ves.scheduler.source_watch import runway_days, needs_refill, target_for

@@ -23,6 +23,9 @@ from ves.scheduler.drive_watch import collect_targets, sync_nodes
 KST = dt.timezone(dt.timedelta(hours=9))
 LOW_DAYS = 3.0        # 이 일수 이하로 남으면 보충
 KIND = "sync_drive_folder"
+# claim 은 ORDER BY priority DESC — '큰 숫자가 먼저'다(기본 100).
+# 8/12 실측: 급한 보충 인입에 50 을 줬다가 오히려 뒤로 밀렸다. 앞세우려면 100 보다 커야 한다.
+REFILL_PRIORITY = 150
 
 REMAIN_SQL = """
 WITH used AS (
@@ -161,9 +164,9 @@ def run(conn, cfg) -> int:
             c.execute(
                 """INSERT INTO public.job_queue
                        (kind, params, idempotency_key, required_caps, lease_ttl_sec, priority)
-                   VALUES (%s, %s::jsonb, %s, %s, 600, 50)
+                   VALUES (%s, %s::jsonb, %s, %s, 600, %s)
                    ON CONFLICT (idempotency_key) DO NOTHING""",
-                (KIND, json.dumps(params, ensure_ascii=False), key, caps))
+                (KIND, json.dumps(params, ensure_ascii=False), key, caps, REFILL_PRIORITY))
             made += c.rowcount
         open_now.add((url, subdir))
     if made:
