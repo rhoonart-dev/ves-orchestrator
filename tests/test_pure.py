@@ -378,6 +378,71 @@ def test_drive_balance_moves_backlog_to_idle_node():
     assert plan_rebalance([("a", None)], {}, nodes) == [("a", "mm-01")]
 
 
+def test_source_watch_finds_dry_works_first():
+    """소모는 채널이 하고 보충은 폴더가 한다 — 며칠치 남았는지로 급한 순서를 정한다(8/12)."""
+    from ves.scheduler.source_watch import runway_days, needs_refill, target_for
+    assert runway_days(9, 3) == 3.0 and runway_days(0, 1) == 0.0
+    assert runway_days(5, 0) == float("inf")      # 배정 채널이 없으면 소모되지 않는다
+    assert runway_days(None, 1) == 0.0
+    rows = [
+        {"work_title": "언더커버셰프", "remaining": 180, "channels": 1},   # 180일치 — 여유
+        {"work_title": "언니네 산지직송", "remaining": 0,  "channels": 1},  # 0일치 — 오늘 공백
+        {"work_title": "김부장",        "remaining": 3,  "channels": 1},   # 3일치 — 임계
+        {"work_title": "배정없음",      "remaining": 0,  "channels": 0},   # 채널 없음 — 대상 아님
+        {"remaining": 0, "channels": 1},                                   # 작품명 없음 — 무시
+    ]
+    assert needs_refill(rows) == ["언니네 산지직송", "김부장"]   # 급한 순
+    assert needs_refill(rows, low_days=0) == ["언니네 산지직송"]
+    assert needs_refill([], 3) == [] and needs_refill(None, 3) == []
+    # 대상 결정: laeebly 폴더가 있으면 그것, 없으면 외부 감시폴더의 그 작품 하위폴더만
+    targets = [("외부폴더", "URL_EXT", None, "external"),
+               ("김부장", "URL_KIM", "김부장", "single")]
+    assert target_for("김부장", targets) == ("URL_KIM", "single", None)
+    assert target_for("참교육", targets, {"chamgyoyuk": "참교육"}) \
+        == ("URL_EXT", "external", "chamgyoyuk")      # 영문 폴더명은 별칭을 뒤집어 찾는다
+    assert target_for("이름없는작품", targets) == ("URL_EXT", "external", "이름없는작품")
+    assert target_for("무엇이든", []) is None
+
+
+def test_short_sources_are_not_used():
+    """3분 이하는 예고편·클립 — 등록은 하되 쓰지 않는다(사용자 결정 8/12)."""
+    from ves.adapters.register_drive import is_usable, MIN_USABLE_SEC
+    assert MIN_USABLE_SEC == 180
+    assert not is_usable(180) and not is_usable(179) and not is_usable(1)
+    assert is_usable(181) and is_usable(3600)
+    # 길이를 못 잰 경우는 종전대로 사용 — 프로브 실패로 멀쩡한 소스를 죽이지 않는다
+    assert is_usable(None) and is_usable("") and is_usable(0) and is_usable(-1)
+
+
+def test_planner_excludes_short_sources_in_sql():
+    """SQL 쪽 2차 방어 — 사람이 실수로 활성화해도 3분 이하는 안 집힌다."""
+    import inspect
+    from ves.scheduler import planner
+    sql = inspect.getsource(planner._pick_source)
+    assert "duration_sec IS NULL OR s.duration_sec > 180" in sql
+
+
+def test_use_limit_by_source_length():
+    """소스 길이 → 만들 편수 (사용자 결정 8/12): 10분 미만 1 · 10~30분 2 · 30분 이상 3."""
+    from ves.adapters.register_drive import use_limit_for
+    assert use_limit_for(9 * 60) == 1 and use_limit_for(599) == 1
+    assert use_limit_for(600) == 2 and use_limit_for(29 * 60) == 2
+    assert use_limit_for(1800) == 3 and use_limit_for(3 * 3600) == 3
+    # 길이를 모르면(프로브 실패·구 데이터) 종전값 3 을 유지 — 갑자기 편수를 줄이지 않는다
+    assert use_limit_for(None) == 3 and use_limit_for("") == 3 and use_limit_for(0) == 3
+
+
+def test_drive_excludes_let_batches_make_progress():
+    """이미 받은 것을 빼줘야 다음 8G 가 그다음 파일로 간다(B급이 11개에서 멈춘 원인)."""
+    from ves.adapters.register_drive import excludes_for, rclone_escape
+    known = {"path|FID|01. 시즌1/1화/a.mp4", "path|FID|01. 시즌1/2화/b.mp4",
+             "path|OTHER|남의폴더/c.mp4", "drive:legacy-id", "path|FID|"}
+    assert excludes_for("FID", known) == ["01. 시즌1/1화/a.mp4", "01. 시즌1/2화/b.mp4"]
+    assert excludes_for("FID", set()) == [] and excludes_for("FID", None) == []
+    # 글롭 문자가 든 폴더명은 문자 그대로 빠져야 한다 — 아니면 엉뚱한 파일이 제외된다
+    assert rclone_escape("[예능] 시즌{1}/a*.mp4") == "\\[예능\\] 시즌\\{1\\}/a\\*.mp4"
+
+
 def test_overlap_ratio_50_percent_rule():
     """사용자 결정(8/12): '같은 부분을 50% 이상 썼을 때'만 같은 장면으로 본다."""
     from ves.adapters.aivideo import overlap_ratio, spans_overlap, is_duplicate_take

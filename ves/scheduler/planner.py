@@ -156,6 +156,9 @@ def _pick_source(conn, work, pipeline="shorts_kr", episode=None):
                  AND w.episode IS NOT DISTINCT FROM s.episode
                  AND w.status NOT IN ('cancelled','failed')
                 WHERE s.work_title = %s AND s.is_active
+                  -- 3분 이하 소스는 쓰지 않는다(8/12 사용자 결정). 등록 때 비활성으로 걸러지지만,
+                  -- 사람이 실수로 활성화해도 여기서 한 번 더 막는다. 길이 미상은 종전대로 사용.
+                  AND (s.duration_sec IS NULL OR s.duration_sec > 180)
                   AND (%s::int IS NULL OR s.episode = %s::int)
                 GROUP BY s.id
                HAVING COUNT(w.id) < s.use_limit

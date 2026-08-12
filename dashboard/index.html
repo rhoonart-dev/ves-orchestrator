@@ -531,6 +531,22 @@ async function refresh(){
 }
 
 // ───────── 파생 (신호등 — 구 대시보드 §4 규칙: 판정은 언제나 오늘 KST) ─────────
+// 이미 해결된 실패인가 — 같은 일을 뒤이어 성공한 잡이 있으면 그렇다(8/12 사용자 요청).
+// 실측: 어제 07시 잡이 새벽에 죽고, 오늘 07시 잡이 같은 작품을 성공했는데도 '오늘 실패'에
+// 계속 떠 있었다. 같은 대상(작업지시 또는 인입 폴더)의 나중 성공을 해결로 본다.
+function jobTarget(x){
+  if (x.work_order_id) return "wo:" + x.work_order_id;
+  const p = x.params || {};
+  return p.folder_url ? "folder:" + p.folder_url
+       : p.work_title ? "work:" + x.kind + ":" + p.work_title : null;
+}
+function isResolved(x, jobs){
+  const t = jobTarget(x);
+  if (!t) return false;
+  const at = x.finished_at || x.updated_at;
+  return (jobs || []).some(y => y.status === "succeeded" && y.kind === x.kind
+    && jobTarget(y) === t && (y.finished_at || y.updated_at) > at);
+}
 function woRun(wo){ const r = state.reviewByWo[wo.id]; return r && r.payload && r.payload.run_id; }
 function woNode(wo){
   // 이 영상을 실제로 만든 맥. generate 가 정답 — 반려 재생성도 그 맥으로 핀되기 때문(8/12).
@@ -594,7 +610,8 @@ let boardOpen = null;
 function renderHome(){
   const j = state.jobs||[], today = kstDay();
   const isToday = ts => ts && kstDay(ts) === today;
-  const failsToday = j.filter(x => ["failed","dead"].includes(x.status) && isToday(x.updated_at));
+  const failsToday = j.filter(x => ["failed","dead"].includes(x.status) && isToday(x.updated_at))
+                      .filter(x => !isResolved(x, j));
   const pubToday = j.filter(x => x.kind==="publish" && x.status==="succeeded" && isToday(x.finished_at||x.updated_at));
   const waiting = (state.reviews||[]).filter(r => r.status==="waiting");
   const n = state.nodes||[];
@@ -1053,28 +1070,42 @@ window.srcToggle = w => { srcOpen.has(w) ? srcOpen.delete(w) : srcOpen.add(w); r
 function renderSources(){
   const by = {};
   (state.srcs||[]).forEach(r => (by[r.work_title] = by[r.work_title] || []).push(r));
-  const works = Object.keys(by).sort((a,b) => a.localeCompare(b, "ko"));
+  // 며칠치 남았는가 = 남은 편수 ÷ 배정 채널 수(채널당 하루 1편). 마른 작품이 위로 온다.
+  const runway = w => {
+    const act = (by[w]||[]).filter(r => r.is_active !== false);
+    const rem = act.reduce((s,r) => s + Math.max(0, Number(r.remaining)||0), 0);
+    const ch = (state.chans||[]).filter(c => (c.works||[]).includes(w)).length;
+    return ch > 0 ? rem / ch : Infinity;
+  };
+  const works = Object.keys(by).sort((a,b) => (runway(a) - runway(b)) || a.localeCompare(b, "ko"));
   const blocks = works.map(w => {
     const rows = by[w].slice().sort((a,b) => (a.episode??1e9) - (b.episode??1e9));
     const act = rows.filter(r => r.is_active !== false);
     const remainTot = act.reduce((s,r) => s + Math.max(0, Number(r.remaining)||0), 0);
     const next = act.find(r => Number(r.remaining) > 0);
     const chans = (state.chans||[]).filter(c => (c.works||[]).includes(w)).map(c => c.name);
+    const days = runway(w);   // 며칠치 남았나 — 3일치 이하면 자동 보충 인입이 걸린다
     const head = remainTot === 0
-      ? chip("crit","✕","전 회차 소진 — 새 소스 보충 필요")
-      : chip("good","✓",`앞으로 ${remainTot}편 더 만들 수 있음`);
+      ? chip("crit","✕","전 회차 소진 — 보충 인입 대기 중")
+      : days <= 3
+        ? chip("warn","!",`${remainTot}편 남음 · ${days === Infinity ? "" : Math.floor(days) + "일치 "}— 보충 인입 예약`)
+        : chip("good","✓",`앞으로 ${remainTot}편${days === Infinity ? "" : ` · ${Math.floor(days)}일치`}`);
     const nextChip = next ? `<span class="pill">다음 사용: ${next.episode != null ? next.episode + "회차" : "단편"}</span>` : "";
     const open = srcOpen.has(w);
     const eps = !open ? "" : rows.map(r => {
       const used = Number(r.times_used)||0, lim = Number(r.use_limit)||1;
       const pct = Math.min(100, Math.round(used / lim * 100));
       const full = r.is_active === false || Number(r.remaining) === 0;
-      const tag = r.is_active === false ? '<span class="sub">비활성</span>'
+      const d = Number(r.duration_sec) || 0;            // 0022 이전엔 없음 — 그때는 표시 생략
+      const mins = d > 0 ? `<span class="sub">${Math.floor(d/60)}분</span>` : "";
+      const tag = r.is_active === false
+                ? (d > 0 && d <= 180
+                    ? '<span class="sub">3분 이하 — 미사용</span>' : '<span class="sub">비활성</span>')
                 : Number(r.remaining) === 0 ? '<span style="color:var(--crit)">소진</span>'
                 : (next && r.episode === next.episode ? '<span style="color:var(--good)">← 다음</span>' : "");
       return `<div class="eprow"><span class="ep">${r.episode != null ? r.episode + "회차" : "단편"}</span>
         <span class="gauge"><i class="${full ? "full" : ""}" style="width:${pct}%"></i></span>
-        <span class="cnt">${used}/${lim}</span>${tag}</div>`;
+        <span class="cnt">${used}/${lim}</span>${mins}${tag}</div>`;
     }).join("");
     return `<div class="srcwork"><div class="swh" style="cursor:pointer" onclick="srcToggle('${esc(w).replace(/'/g,"\\'")}')">
         <span class="sub">${open ? "▾" : "▸"}</span><b>${esc(w)}</b>

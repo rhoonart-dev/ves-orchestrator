@@ -17,7 +17,8 @@ from ves import config as cfgmod
 from ves import db
 from ves.config import get_config
 from ves.scheduler import (channels_sync, drive_balance, drive_watch, perf_sync, planner,
-                           reaper, reconcile, storage_gc, version_watch, zanmang_daily)
+                           reaper, reconcile, source_watch, storage_gc, version_watch,
+                           zanmang_daily)
 
 KST = dt.timezone(dt.timedelta(hours=9))
 TICK_SEC = 30
@@ -104,6 +105,7 @@ def main():
                     ("reconcile",     lambda: reconcile.run(conn, cfg),     _due_interval(last.get("reconcile"), now, 60)),
                     ("drive_watch",   lambda: drive_watch.run(conn, cfg),   _due_daily(last.get("drive_watch"), now, 7)),
                     ("drive_balance", lambda: drive_balance.run(conn, cfg), _due_interval(last.get("drive_balance"), now, 5)),
+                    ("source_watch",  lambda: source_watch.run(conn, cfg),  _due_interval(last.get("source_watch"), now, 60)),
                     ("planner",       lambda: planner.run(conn, cfg),       _due_daily(last.get("planner"), now, 9)),
                     ("channels_sync", lambda: channels_sync.run(conn, cfg), _due_daily(last.get("channels_sync"), now, 8)),
                     ("perf_sync",     lambda: perf_sync.run(conn, cfg),     _due_interval(last.get("perf_sync"), now, 60)),

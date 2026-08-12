@@ -84,6 +84,76 @@ def episode_from_path(rel: str):
     return None
 
 
+_GLOB_META = "*?[]{}\\"
+
+
+def rclone_escape(rel: str) -> str:
+    """rclone 필터 패턴에서 글롭 문자를 문자 그대로 만든다. 순수 — 테스트 대상.
+    (작품 폴더명에 '[', '{' 가 흔하다 — escape 없이 넣으면 엉뚱한 파일이 제외된다)"""
+    return "".join("\\" + ch if ch in _GLOB_META else ch for ch in str(rel or ""))
+
+
+def excludes_for(folder_id: str, known_ids) -> list:
+    """이 폴더에서 이미 등록을 마친 상대경로들 → rclone --exclude-from 목록. 순수.
+
+    왜 필요한가(8/12 실측): --max-transfer 로 8G 씩 끊어 받는데, 등록이 끝나면 캐시를 비웠다.
+    rclone copy 는 '목적지에 없으면 받는다' 라서 다음 회차가 **같은 앞부분 8G 를 또** 받았고,
+    그건 이미 등록된 파일이라 신규 0건 — B급 스튜디오가 199개 중 11개에서 영영 멈춘 원인이다.
+    받은 것을 목록으로 빼주면 rclone 이 그다음부터 받는다."""
+    pre = f"path|{folder_id}|"
+    return sorted({k[len(pre):] for k in (known_ids or set())
+                   if isinstance(k, str) and k.startswith(pre) and len(k) > len(pre)})
+
+
+MIN_USABLE_SEC = 180   # 3분 이하 소스는 쓰지 않는다 (사용자 결정 2026-08-12)
+
+
+def is_usable(duration_sec) -> bool:
+    """이 소스로 쇼츠를 만들 수 있는가. 순수 — 테스트 대상.
+
+    3분 이하는 예고편·티저·클립이라 장면을 골라낼 여지가 없다 — 등록은 하되(다시 받지 않도록)
+    비활성으로 둬서 planner 가 집지 않게 한다. 길이를 모르면(프로브 실패) 종전대로 사용."""
+    if duration_sec is None:
+        return True
+    try:
+        d = float(duration_sec)
+    except (TypeError, ValueError):
+        return True
+    if d <= 0:
+        return True                      # 0/음수 = 못 잰 것 — 길이 미상과 같게 취급
+    return d > MIN_USABLE_SEC
+
+
+def use_limit_for(duration_sec) -> int:
+    """소스 길이 → 이 소스로 만들 수 있는 편수 (사용자 결정 2026-08-12). 순수.
+    10분 미만 1편 · 10~30분 2편 · 30분 이상 3편. 길이를 모르면 종전값 3."""
+    if duration_sec is None:
+        return 3
+    try:
+        d = float(duration_sec)
+    except (TypeError, ValueError):
+        return 3
+    if d <= 0:
+        return 3
+    if d < 10 * 60:
+        return 1
+    if d < 30 * 60:
+        return 2
+    return 3
+
+
+def probe_duration(path) -> float | None:
+    """ffprobe 로 재생시간(초). 실패하면 None — 등록 자체를 막지 않는다."""
+    exe = shutil.which("ffprobe") or "/opt/homebrew/bin/ffprobe"
+    try:
+        r = subprocess.run([exe, "-v", "error", "-show_entries", "format=duration",
+                            "-of", "default=nw=1:nk=1", str(path)],
+                           capture_output=True, text=True, timeout=120)
+        return float((r.stdout or "").strip()) if r.returncode == 0 else None
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+
+
 def plan_new(files, mode: str, work_title, known_ids, aliases=None) -> list:
     """목록 → [(file_id, 작품, 상대경로)]. external 모드는 첫 경로 조각=작품명.
     aliases: 영문 폴더명 → 작품 정본명(ops_config.drive_folder_aliases, 실측 2026-08-10)."""
@@ -127,12 +197,12 @@ def _rclone_conf(cfg):
 PARTIAL_RC = (8, 9)
 
 
-def _rc(bin_, conf, *args, timeout=300, ok_rc=()):
+def _rc(bin_, conf, *args, timeout=300, ok_rc=(), want_rc=False):
     r = subprocess.run([bin_, "--config", conf, *args],
                        capture_output=True, text=True, timeout=timeout)
     if r.returncode != 0 and r.returncode not in ok_rc:
         raise RuntimeError((r.stderr or r.stdout or "rclone 실패")[-300:])
-    return r.stdout
+    return (r.stdout, r.returncode) if want_rc else r.stdout
 
 
 class _Rclone:
@@ -140,14 +210,22 @@ class _Rclone:
     (find_work_source.py 실측 — lsjson 은 공유폴더에서 빈 목록을 주는 케이스가 있어 폐기).
     캐시 디렉토리가 남아 있으므로 copy 는 자체 증분 — 새 파일만 내려온다."""
 
-    def __init__(self, bin_, conf, folder_id, cache_root, max_transfer=None):
+    def __init__(self, bin_, conf, folder_id, cache_root, max_transfer=None, excludes=(),
+                 subdir=None):
         self.b, self.c, self.fid = bin_, conf, folder_id
         self.max_transfer = max_transfer
+        self.subdir = (subdir or "").strip("/") or None   # 이 하위폴더만 받는다(보충 인입)
+        self.capped = False          # --max-transfer 한도로 끊겼는가(=원격에 더 남았다)
         self.remote = first_remote(_rc(bin_, conf, "listremotes", "--long", timeout=30))
         if not self.remote:
             raise RuntimeError("rclone.conf 에 원격이 없음")
         self.cache = pathlib.Path(cache_root) / folder_id
         self.cache.mkdir(parents=True, exist_ok=True)
+        self.exclude_file = None
+        if excludes:
+            ex = pathlib.Path(cache_root) / f"{folder_id}.exclude"
+            ex.write_text("".join(f"/{rclone_escape(r)}\n" for r in excludes), encoding="utf-8")
+            self.exclude_file = str(ex)
 
     def _copy(self, *extra):
         """캐시로 복사. --max-transfer 로 이번 회차 분량을 끊는다(soft: 받던 파일은 마무리).
@@ -158,10 +236,19 @@ class _Rclone:
         까지 통째로 버렸다**(B급 199건·혜미리 12건이 이 경우). 성패는 캐시 내용으로 판단한다."""
         args = ["copy", self.remote, str(self.cache),
                 "--drive-root-folder-id", self.fid, *extra]
+        # 필터는 적힌 순서대로 '먼저 맞는 규칙이 이긴다' — 제외를 앞에 둬야 재다운로드를 막는다.
+        if self.exclude_file:      # 이미 등록한 파일은 다시 받지 않는다(진도가 나가게)
+            args += ["--exclude-from", self.exclude_file]
+        if self.subdir:            # 소스가 마른 작품만 겨냥(다른 작품이 전송 한도를 안 먹게)
+            args += ["--include", f"/{rclone_escape(self.subdir)}/**"]
         if self.max_transfer:
             args += ["--max-transfer", self.max_transfer, "--cutoff-mode", "soft"]
         try:
-            return _rc(self.b, self.c, *args, timeout=3600 * 6, ok_rc=PARTIAL_RC)
+            out, rc = _rc(self.b, self.c, *args, timeout=3600 * 6,
+                          ok_rc=PARTIAL_RC, want_rc=True)
+            if rc in PARTIAL_RC:
+                self.capped = True
+            return out
         except RuntimeError as e:
             self.warn = str(e)[-200:]
             return ""
@@ -190,6 +277,15 @@ class _Rclone:
         if not src.is_file():
             raise RuntimeError(f"캐시에 없음: {rel}")
         shutil.copyfile(src, dest)
+
+    def drop(self, rel) -> None:
+        """등록을 마친 파일은 캐시에서 버린다 — 원본은 ves-sources 에 있다.
+        이걸 안 하면 8G 씩 이어받는 동안 캐시가 폴더 전체 크기까지 불어난다(mm-01 디스크 0 실측).
+        다시 안 받는 건 --exclude-from 이 막아준다."""
+        try:
+            (self.cache / rel).unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 class _Gdown:
@@ -237,7 +333,8 @@ def run(cfg, conn, job, deps):
     if bin_ and conf and fid_folder:
         cache_root = pathlib.Path(cfg.home) / "cache" / "drive_sync"
         client, via = _Rclone(bin_, conf, fid_folder, cache_root,
-                              max_transfer=max_transfer), "rclone"
+                              max_transfer=max_transfer, subdir=p.get("subdir"),
+                              excludes=excludes_for(fid_folder, known_ids)), "rclone"
     else:
         client, via = _Gdown(url), "gdown"
     try:
@@ -262,7 +359,7 @@ def run(cfg, conn, job, deps):
     srt_by_stem = {rel.rsplit("/", 1)[-1].rsplit(".", 1)[0]: (fid, rel)
                    for fid, rel in files if rel.lower().endswith(".srt")}
 
-    done, errors = [], []
+    done, errors, skipped = [], [], []
     for fid, work, rel in todo:
         name = rel.rsplit("/", 1)[-1]
         tmp = tmp_dir / f"{fid[:24]}_{name}"
@@ -291,16 +388,27 @@ def run(cfg, conn, job, deps):
                     stmp.unlink(missing_ok=True)
 
             ep = episode_from_path(rel)
+            # 길이로 편수를 정한다(8/12 사용자 결정): 10분 미만 1편·10~30분 2편·30분↑ 3편
+            dur = probe_duration(tmp)
+            ulim = int(p["use_limit"]) if p.get("use_limit") else use_limit_for(dur)
+            usable = is_usable(dur)      # 3분 이하는 비활성으로 등록 — 다시 받지도, 쓰지도 않는다
             with conn.cursor() as c:
                 c.execute(
                     """INSERT INTO public.sources
-                           (work_title, episode, sha256, object_key, bytes, has_subtitle,
-                            subtitle_key, origin, registered_by, use_limit)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,'drive',%s,%s)
+                           (work_title, episode, sha256, object_key, bytes, duration_sec,
+                            has_subtitle, subtitle_key, origin, registered_by, use_limit,
+                            is_active)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'drive',%s,%s,%s)
                        ON CONFLICT (sha256) DO NOTHING""",
-                    (work, ep, sha, okey, size, bool(sub_key), sub_key,
-                     f"drive:{fid}", int(p.get("use_limit") or 3)))
-            done.append(f"{work}/{name}→{ep or '?'}화")
+                    (work, ep, sha, okey, size, dur, bool(sub_key), sub_key,
+                     f"drive:{fid}", ulim, usable))
+            done.append(f"{work}/{name}→{ep or '?'}화·"
+                        + (f"{ulim}편" if usable else f"미사용({round((dur or 0)/60,1)}분)"))
+            if not usable:
+                skipped.append(f"{name}({round((dur or 0) / 60, 1)}분)")
+            drop = getattr(client, "drop", None)
+            if drop:
+                drop(rel)          # 등록 끝난 파일은 캐시에서 비운다(디스크 상한 유지)
         except Exception as e:  # noqa: BLE001 — 파일 하나 실패가 배치를 죽이지 않는다
             errors.append(f"{name}: {str(e)[:120]}")
         finally:
@@ -308,18 +416,22 @@ def run(cfg, conn, job, deps):
 
     if errors and not done:
         raise RuntimeError("; ".join(errors)[:700])   # 전멸이면 transient 재시도
-    if remaining and done:
-        _queue_continuation(conn, job, remaining)
-    if via == "rclone" and done and not errors and not remaining:
-        # 전량 성공 → 로컬 벌크 캐시 반환(8/11 실측: 11개 폴더 캐시 누적으로 mm-01 디스크 0).
-        # 다음 daily 는 재다운로드 비용이 들지만, 등록은 known_ids 가 걸러 중복되지 않는다.
+    # 아직 더 있는가: 이번 목록에서 못 다룬 것(remaining) 또는 전송 한도로 끊긴 것(capped).
+    # capped 는 '원격에 더 남았다'는 뜻이라 캐시 목록만 보고는 알 수 없다 — rclone 종료코드가 근거.
+    capped = bool(getattr(client, "capped", False))
+    more = bool(remaining) or capped
+    if more and done:
+        _queue_continuation(conn, job, remaining)     # 진전이 있을 때만 — 헛도는 이어받기 방지
+    if via == "rclone" and done and not errors and not more:
+        # 다 받았다 → 남은 캐시 반환(8/11 실측: 11개 폴더 캐시 누적으로 mm-01 디스크 0)
         try:
             shutil.rmtree(client.cache, ignore_errors=True)
         except Exception:  # noqa: BLE001
             pass
     return {"via": via, "diag": diag, "listed": len(files), "new": len(todo),
-            "registered": len(done), "remaining": remaining,
-            "items": done[:20], "errors": errors[:10]}
+            "registered": len(done), "remaining": remaining, "capped": capped,
+            "more": more, "items": done[:20], "errors": errors[:10],
+            "too_short": len(skipped), "too_short_items": skipped[:10]}
 
 
 def _queue_continuation(conn, job, remaining: int) -> None:
