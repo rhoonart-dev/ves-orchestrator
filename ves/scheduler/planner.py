@@ -52,7 +52,15 @@ def job_chain(wo: dict) -> list:
         ("evaluate",         dict(p_common),                                   ["analyze"], 120),
     ]
     if wo.get("pipeline") == "shorts_jp_localized":
-        chain.append(("localize", dict(p_common), ["localize"], LOCALIZE_LEASE))
+        # 현지화 등급(사용자 결정 8/12) — 채널마다 다르다. video-localization config levels:
+        #   A  = 자막 트랙만(인페인트·더빙 없음)
+        #   B  = 번인 텍스트 제거 후 일본어 재합성(LaMa 가중치 필요·느림)
+        #   BJ = 번인 유지 + 일본어 병기(겹치지 않게) — 인페인트·더빙 없음  ← ショトコン
+        #   C  = B + 더빙                                                  ← 잔망루피
+        # 종전엔 전 JP 채널이 B 로 고정이었다. ops_config.localize_levels 로 채널별로 정한다.
+        chain.append(("localize",
+                      {**p_common, "level": wo.get("localize_level") or "B"},
+                      ["localize"], LOCALIZE_LEASE))
     return chain
 
 
@@ -95,6 +103,28 @@ def _load_works_overrides(conn) -> dict:
         return {}
 
 
+def localize_level_for(slug: str, levels, default: str = "B") -> str:
+    """채널 → 현지화 등급. 순수 — 테스트 대상. 알 수 없는 값은 기본값(안전측).
+
+    A=자막 트랙만 · B=번인 제거+일본어 재합성 · C=B+더빙 · BC=번인제거+더빙(먹방류)
+    · BJ=번인 유지 + 일본어 병기(겹치지 않게) — 인페인트·더빙 없음, ショトコン 용(8/12).
+    설정이 비었거나 이상하면 종전 동작(B)을 유지한다 — 조용히 더빙으로 올라가지 않게."""
+    v = str(((levels or {}).get(slug) or default)).upper()
+    return v if v in ("A", "B", "BJ", "C", "BC") else default
+
+
+def _load_localize_levels(conn) -> dict:
+    """ops_config.localize_levels — {"SHOTCONE":"B","LOOPY":"C"} 꼴. 없으면 빈 dict."""
+    try:
+        with conn.cursor() as c:
+            c.execute("SELECT value FROM public.ops_config WHERE key='localize_levels'")
+            row = c.fetchone()
+        return json.loads((row or {}).get("value") or "{}")
+    except Exception as e:  # noqa: BLE001 — 설정 오류가 계획을 막지 않는다(기본 B)
+        print(f"[planner] localize_levels 조회 실패(기본 B 진행): {e}")
+        return {}
+
+
 def _jp_enabled(conn) -> bool:
     """JP 가동 스위치(ops_config.jp_pipeline='on') — 기존 현지화 autopilot 과의
     이중 생산을 막는 컷오버 장치(2026-08-10). 켜기 전에 구 autopilot 을 내릴 것."""
@@ -110,6 +140,7 @@ def run(conn, cfg):
     jp_on = _jp_enabled(conn)
     plan_ovr = _load_plan_overrides(conn)    # 0016: 채널별 작품·회차 지정
     works_ovr = _load_works_overrides(conn)  # 0017: 채널 작품 배정 수정본
+    loc_lv = _load_localize_levels(conn)     # 채널별 현지화 등급(8/12)
     made = 0
     for ch in channels:
         if ch.get("pipeline") == "zanmang_autopilot":
@@ -132,7 +163,8 @@ def run(conn, cfg):
                 else:
                     _note_missing_source(conn, work, ch)   # 지표14의 재료
                 continue
-            if _create_work_order(conn, cfg, today, ch, work, src):
+            if _create_work_order(conn, cfg, today, ch, work, src,
+                                  localize_level_for(slug, loc_lv)):
                 made += 1
             break   # 채널당 1편/일
     print(f"[planner] work_order {made}건 생성 ({today})")
@@ -206,7 +238,7 @@ def _geoblock_required(cfg, work) -> bool:
         return True
 
 
-def _create_work_order(conn, cfg, today, ch, work, src) -> bool:
+def _create_work_order(conn, cfg, today, ch, work, src, loc_level="B") -> bool:
     # R7(하루 채널당 1건) 은 그대로다. 다만 0024 부터 유일 제약이 origin='planner' 행에만 걸린다 —
     # 관제 '작업 실행'(origin='manual')이 같은 날 한 편 더 넣을 수 있어야 하기 때문이다.
     # 부분 유니크 인덱스는 ON CONFLICT (4컬럼) 으로 추론되지 않으므로 존재 검사로 바꾼다.
@@ -240,7 +272,8 @@ def _create_work_order(conn, cfg, today, ch, work, src) -> bool:
           "channel_name": ch["name"], "source_sha256": src.get("sha256"),
           "source_url": src.get("source_url"),
           "has_subtitle": bool(src.get("has_subtitle")), "gcp_project": ch.get("gcp_project"),
-          "pipeline": pipeline_for(ch), "knob_config": {}}
+          "pipeline": pipeline_for(ch), "knob_config": {},
+          "localize_level": loc_level}
     prev_id = None
     for kind, params, caps, ttl in job_chain(wo):
         with conn.cursor() as c:

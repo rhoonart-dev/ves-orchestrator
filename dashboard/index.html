@@ -840,6 +840,42 @@ function judgeBox(run){
       ${rs.rationale ? `<details><summary>judge 사유 보기</summary>${esc(rs.rationale)}</details>` : ""}
     </div>`;
 }
+// 잔망루피 검수 카드 (0026) — 작업지시 없는 전용 파이프라인. 승인하면 원장에 확정하고
+// 업로더가 비공개 업로드 + 19:00 JST 예약 공개까지 한다(R9 준수).
+const LOOPY_ROUTE = { A:"무변환 — 원본 그대로", B:"자막", C:"더빙", BC:"더빙+자막" };
+function loopyCard(r, pay){
+  const vid = pay.zanmang_video_id;
+  const acts = can("reviewer") ? `
+    <input class="reason" id="note_${r.id}" placeholder="사유·메모 (선택)">
+    <div class="form">
+      <span class="sub" title="업로더가 비공개로 올리고 19:00 JST 다음 빈 슬롯으로 예약 공개합니다">
+        승인 시 비공개 업로드 · 19:00 JST 예약</span>
+      <button class="pri act" onclick="decideLoopy('${r.id}', true)">✓ 승인 · 업로드</button>
+      <button class="danger act"
+        onclick="armed(this,'✕ 반려',()=>decideLoopy('${r.id}', false))">✕ 반려</button>
+    </div>` : '<div class="sub">reviewer 권한 필요</div>';
+  return `<div class="review rv2">
+    <div class="rv2-vid">${pay.preview_key
+      ? `<div id="pv_${r.id}"><video id="pvv_${r.id}" controls playsinline preload="metadata"></video></div>`
+      : `<div class="sub" style="padding:18px 6px;text-align:center">현지화 산출물 없음${
+          pay.url ? `<br><a href="${esc(pay.url)}" target="_blank" rel="noopener">원본 보기 ↗</a>` : ""}</div>`}</div>
+    <div class="rv2-body">
+      <div class="rh">${chAvatarHtml("LOOPY", 28)}<span class="rv2-chn">${esc(chName("LOOPY"))}</span>
+        <span class="right sub">${ago(r.created_at)}</span></div>
+      <div class="rv2-work"><b>영상</b>${esc(pay.title || vid)}
+        <span class="rv2-mac">${esc(LOOPY_ROUTE[pay.route] || pay.route || "?")}</span>
+        ${pay.score != null ? `<span class="sub"> · 적합도 ${Number(pay.score).toFixed(2)}</span>` : ""}</div>
+      ${pay.notes ? `<div class="sub" style="margin-top:4px">${esc(String(pay.notes).slice(0,160))}</div>` : ""}
+      ${pay.url ? `<div class="sub"><a href="${esc(pay.url)}" target="_blank" rel="noopener">원본 ↗</a>
+        <span style="margin-left:6px">${esc(vid)}</span></div>` : ""}
+      ${acts}</div></div>`;
+}
+window.decideLoopy = (rid, ok) => {
+  const note = (($(`#note_${CSS.escape(rid)}`)||{}).value || "").trim() || null;
+  rpc("decide_loopy", { p_review_id: rid, p_approve: ok, p_note: note },
+      ok ? "승인 — 업로드·예약 잡을 넣었습니다" : "반려 — 원장에 skipped 로 기록합니다");
+};
+
 function renderReview(){
   const all = (state.reviews||[]).filter(r => r.status === "waiting");
   const rs = all.filter(r => rvCh === "all" || r.channel_slug === rvCh);
@@ -849,6 +885,9 @@ function renderReview(){
       const wo = state.wo[r.work_order_id] || {};
       const pay = r.payload || {};
       const run = pay.run_id || "";
+      // 잔망루피(0026): 작업지시가 없는 전용 파이프라인 건. 공개 방식이 업로더에 고정돼 있어
+      // (비공개 + 19:00 JST 다음 빈 슬롯) 관제에서 고를 게 없다 — 승인/반려 둘뿐.
+      if (pay.zanmang_video_id) return loopyCard(r, pay);
       const jg = judgeBox(run);
       const low = (() => { const cid = state.runToClip[run], j = cid && state.judgeByClip[cid];
         return j && Number(j.quality_score) < 0.5; })();

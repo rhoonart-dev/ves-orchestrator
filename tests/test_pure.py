@@ -831,3 +831,90 @@ def test_migration_0025_switch_requeues_waiters():
     assert "run_after = now()" in fn and "error_class = 'quota'" in fn
     # 키 값 자체는 DB 에 절대 넣지 않는다(ARCHITECTURE §5) — 슬롯 이름만 오간다
     assert "GEMINI_API_KEY=" not in sql
+
+
+# ── 0026: 잔망루피 검수함 승인 → 업로드 (사용자 요청 8/12) ──
+def test_loopy_decision_plan_is_idempotent():
+    """같은 결정을 두 번 눌러도, 잡이 중간에 죽어 재시도돼도 안전해야 한다.
+    특히 uploaded 재업로드는 절대 금지 — 같은 영상이 두 번 올라간다."""
+    from ves.adapters.zanmang_decision import plan
+    assert plan("pending_approval", "publish") == ["approve", "upload"]
+    assert plan("approved", "publish") == ["upload"]      # 패키지는 있다 — 업로드만
+    assert plan("uploaded", "publish") == []              # 재업로드 금지
+    assert plan("pending_approval", "skip") == ["mark"]
+    assert plan("skipped", "skip") == [] and plan("uploaded", "skip") == []
+    assert plan("processing", "publish") == []            # 손대지 않는다
+    import pytest
+    with pytest.raises(Exception):
+        plan("pending_approval", "이상한결정")
+
+
+def test_loopy_action_argv_is_whitelisted():
+    """사람 결정을 원장에 쓰는 명령이라 허용 목록을 좁게 둔다."""
+    from ves.adapters import zanmang
+    import pytest
+    assert zanmang.action_argv("/r", "approve", "v1")[1:] == ["-m", "src.autopilot", "approve", "v1"]
+    assert zanmang.action_argv("/r", "mark", "v1", state="skipped")[-2:] == ["--state", "skipped"]
+    for bad in ("daily", "rm", "upload; rm -rf /"):
+        with pytest.raises(Exception):
+            zanmang.action_argv("/r", bad, "v1")
+    with pytest.raises(Exception):
+        zanmang.action_argv("/r", "mark", "v1", state="uploaded")   # 허용 state 밖
+    with pytest.raises(Exception):
+        zanmang.action_argv("/r", "approve", "")                    # video_id 필수
+
+
+def test_loopy_final_video_matches_upstream_routes():
+    """src/autopilot.py final_video_for 와 같은 규약 — 어긋나면 검수 프리뷰가 빈다."""
+    import pathlib, tempfile
+    from ves.adapters.zanmang import final_video, FINAL_BY_ROUTE
+    assert FINAL_BY_ROUTE["B"] == ["final_draft.mp4"]
+    assert FINAL_BY_ROUTE["C"][0] == "final_dubbed_subbed.mp4"
+    with tempfile.TemporaryDirectory() as d:
+        assert final_video("B", d) is None                  # 아직 산출 전
+        (pathlib.Path(d) / "final_draft.mp4").write_text("x")
+        assert final_video("B", d).endswith("final_draft.mp4")
+        assert final_video("A", d) is None                  # 무변환 — 원본을 쓴다
+        assert final_video(None, d) is None
+
+
+def test_loopy_parse_youtube_url():
+    from ves.adapters.zanmang_decision import parse_youtube_url
+    assert parse_youtube_url("업로드 완료: https://youtu.be/aB3_x-9Q (예약 공개 …)") \
+        == "https://youtu.be/aB3_x-9Q"
+    assert parse_youtube_url("아무것도 없음") is None and parse_youtube_url(None) is None
+
+
+def test_migration_0026_decide_loopy():
+    sql = _mig("0026_loopy_review.sql")
+    fn = sql.split("FUNCTION public.decide_loopy", 1)[1].split("$$;", 1)[0]
+    assert "has_role(auth.uid(),'reviewer')" in fn
+    assert "kind = 'localization_qa'" in fn and "status = 'waiting'" in fn
+    assert "zanmang_video_id" in fn
+    # 반려도 잡을 만들어야 한다 — skipped 로 안 찍으면 다음 daily 가 같은 건을 또 올린다
+    assert "'skip'" in fn and "zanmang_decision" in fn
+    assert "'node:' || v_node" in fn          # mm-06 전용(원장·토큰·가중치가 거기 있다)
+    assert "ON CONFLICT (idempotency_key) DO UPDATE" in fn   # 두 번 눌러도 안전
+
+
+def test_localize_level_per_channel():
+    """오디오 현지화 여부가 채널마다 다르다(사용자 결정 8/12):
+    ショトコン은 오디오 현지화 불필요(B — 번인 제거+자막), 잔망루피는 전부 현지화(C — 더빙).
+    종전엔 전 JP 채널이 B 하드코딩이라 루피만 따로 줄 방법이 없었다."""
+    from ves.scheduler.planner import job_chain, localize_level_for
+    lv = {"SHOTCONE": "BJ", "LOOPY": "C"}
+    assert localize_level_for("SHOTCONE", lv) == "BJ"   # 번인 유지 + 일본어 병기
+    assert localize_level_for("LOOPY", lv) == "C"
+    assert localize_level_for("SHOTCONE", {"SHOTCONE": "c"}) == "C"       # 대소문자 무관
+    assert localize_level_for("모르는채널", lv) == "B"                     # 기본 B
+    assert localize_level_for("X", {"X": "더빙"}) == "B"                   # 이상값 → 안전측
+    assert localize_level_for("X", None) == "B" and localize_level_for("X", {}) == "B"
+    # 체인 params 로 실제로 실린다
+    wo = {"work_title": "혜미리예채파", "episode": 5, "channel_slug": "SHOTCONE",
+          "channel_name": "ショトコン", "pipeline": "shorts_jp_localized",
+          "localize_level": "B"}
+    loc = dict((k, p) for k, p, *_ in job_chain(wo))["localize"]
+    assert loc["level"] == "B"
+    assert dict((k, p) for k, p, *_ in job_chain({**wo, "localize_level": "C"}))["localize"]["level"] == "C"
+    # 설정 없으면 종전 동작(B) — 조용히 더빙으로 올라가지 않는다
+    assert dict((k, p) for k, p, *_ in job_chain({**wo, "localize_level": None}))["localize"]["level"] == "B"
