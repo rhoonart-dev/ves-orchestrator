@@ -174,7 +174,6 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .review video{width:100%;max-width:320px;border-radius:8px;margin-top:8px;
                 background:#000;aspect-ratio:9/16}
   .review .form{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}
-  .geo{color:var(--warn);font-size:12px}
   .judgebox{font-size:12px;color:var(--ink-2);background:var(--surface);
     border:1px dashed var(--line);border-radius:8px;padding:8px 10px;margin-top:8px;
     line-height:1.7}
@@ -302,6 +301,8 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   a.rv2-chn:hover{color:var(--accent);text-decoration:underline}
   .rv2 .rv2-work{margin-top:6px;font-size:13px}
   .rv2 .rv2-work b{color:var(--muted);font-weight:600;margin-right:6px;font-size:12px}
+  .rv2 .rv2-mac{margin-left:8px;padding:1px 7px;border-radius:10px;font-size:11px;
+    color:var(--muted);background:var(--chip,rgba(127,127,127,.12));white-space:nowrap}
   .review video{max-width:100%}
   .review .rt-big{font-size:15px;font-weight:700}
   /* v3: 소스 게이지 */
@@ -519,6 +520,18 @@ async function refresh(){
 
 // ───────── 파생 (신호등 — 구 대시보드 §4 규칙: 판정은 언제나 오늘 KST) ─────────
 function woRun(wo){ const r = state.reviewByWo[wo.id]; return r && r.payload && r.payload.run_id; }
+function woNode(wo){
+  // 이 영상을 실제로 만든 맥. generate 가 정답 — 반려 재생성도 그 맥으로 핀되기 때문(8/12).
+  // 아직 안 돌았거나 잡 150건 창을 벗어났으면 노드 핀(required_caps)에서 읽는다.
+  const js = state.jobsByWo[(wo || {}).id] || [];
+  const done = js.find(j => j.kind === "generate" && j.node_id);
+  if (done) return done.node_id;
+  for (const j of js) {
+    const pin = (j.required_caps || []).find(c => String(c).startsWith("node:"));
+    if (pin) return pin.slice(5);
+  }
+  return (js.find(j => j.node_id) || {}).node_id || "";
+}
 function woVideoId(wo){
   const run = woRun(wo); const cid = run && state.runToClip[run];
   const c = cid && state.clipById[cid]; return c && c.video_external_id || null;
@@ -701,7 +714,7 @@ function renderReview(){
   $("#page").innerHTML = `<section class="card"><h2>검수 대기 ${rs.length}건 — 결정은 100% 사람 · 프리뷰는 카드에서 바로 재생</h2>${chChips}<div class="rvgrid">` +
     (rs.map(r => {
       const wo = state.wo[r.work_order_id] || {};
-      const pay = r.payload || {}, geo = wo.geoblock_required;
+      const pay = r.payload || {};
       const run = pay.run_id || "";
       const jg = judgeBox(run);
       const low = (() => { const cid = state.runToClip[run], j = cid && state.judgeByClip[cid];
@@ -737,8 +750,9 @@ function renderReview(){
                 : `<span class="rv2-chn">${esc(chName(slug))}</span>`; })()}
             <span class="right sub">${ago(r.created_at)}</span></div>
           <div class="rv2-work"><b>작품</b>${esc(wo.work_title || run || r.id.slice(0,8))}${
-            wo.episode != null ? ` <span style="color:var(--muted)">· ${wo.episode}회차</span>` : ""}</div>
-          ${geo ? '<div class="geo">⚠ 지오블락 필수 — 공개 전환은 Studio 수동(R9-a)</div>' : ""}
+            wo.episode != null ? ` <span style="color:var(--muted)">· ${wo.episode}회차</span>` : ""}${
+            (() => { const n = woNode(wo); return n
+              ? ` <span class="rv2-mac" title="이 영상을 제작한 맥 — 반려 후 재생성도 같은 맥에서 돕니다">🖥 ${esc(n)}</span>` : ""; })()}</div>
           ${jg}${form}</div></div>`;
     }).join("") || `<div class="empty">${rvCh==="all" ? "검수 대기 항목 없음 🎉" : esc(chName(rvCh)) + " — 검수 대기가 없습니다"}</div>`) + `</div></section>
     <section class="card"><h2>최근 결정</h2><div class="tblwrap"><table>
