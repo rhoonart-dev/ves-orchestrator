@@ -337,6 +337,10 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .ednum{font-size:11.5px;color:var(--muted);display:inline-flex;align-items:center;gap:5px}
   .ednum input,.eprow input[type=number]{width:58px;padding:3px 6px;font-size:12px;
     text-align:right;font-variant-numeric:tabular-nums}
+  /* v3.3: 경보 배너 (0025 Gemini 키 슬롯) */
+  .warnbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+    border-color:var(--serious);background:var(--surface-2)}
+  .warnbar b{font-size:13.5px;color:var(--serious);white-space:nowrap}
   /* v3.3: 홈 채널 카드 — 작업 실행 (0024 run_channel_now) */
   .runbar{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:9px;
     padding-top:9px;border-top:1px solid var(--line)}
@@ -499,7 +503,7 @@ const soft = p => p.then(r => r.error ? { data: [] } : r).catch(() => ({ data: [
 async function refresh(){
   if (!(await sb.auth.getSession()).data.session) return;
   const [nodes, deps, jobs, reviews, events, wos, srcs, chans,
-         arts, metas, judges, clips, snaps, srcCh] = await Promise.all([
+         arts, metas, judges, clips, snaps, srcCh, ops] = await Promise.all([
     sb.from("node_registry").select("*").order("node_id"),
     sb.from("deployments").select("*").order("engine"),
     sb.from("job_queue").select("id,work_order_id,kind,status,attempt,max_attempts,node_id,error,error_class,required_caps,params,run_after,created_at,updated_at,finished_at").order("updated_at",{ascending:false}).limit(150),
@@ -516,6 +520,7 @@ async function refresh(){
     // 0023: 채널별 소진. 소스 단위(source_usage)는 그대로 두고 옆에 붙인다 —
     // 어느 채널에도 배정되지 않은 작품은 이 뷰에 안 나오므로 둘 다 필요하다.
     soft(sb.from("source_usage_by_channel").select("*")),
+    soft(sb.from("ops_config").select("key,value,note,updated_at")),   // 0025: Gemini 키 슬롯 등
   ]);
   const ovr = await soft(sb.from("channel_design_overrides").select("*"));   // 0014 이전엔 빈 배열
   const plans = await soft(sb.from("channel_plan_overrides").select("*"));   // 0016 이전엔 빈 배열
@@ -542,6 +547,7 @@ async function refresh(){
             worksOvr:Object.fromEntries((wovr.data||[]).map(o=>[o.token_slug,o])),
             snaps:snaps.data||[], runToClip, judgeByClip, clipById, artByWo, jobsByWo, reviewByWo,
             srcCh:srcCh.data||[], eps:buildEpMap(srcs.data||[], srcCh.data||[]),
+            ops:Object.fromEntries((ops.data||[]).map(o=>[o.key,o])),
             wo:Object.fromEntries((wos.data||[]).map(w=>[w.id,w])),
             jobById:Object.fromEntries((jobs.data||[]).map(j=>[j.id,j])),
             legacyOk: !!(metas.data||[]).length || !!(clips.data||[]).length };
@@ -709,6 +715,7 @@ function renderHome(){
       <td class="sub">${esc(((s.payload||{}).generated_at||"").slice(0,16))}</td></tr>`;
   }).join("");
   $("#page").innerHTML = `
+    ${geminiBanner()}
     <div class="tiles">${tiles.map(([k,v,w]) => `<div class="tile"><div class="v">${v}</div>
       <div class="k">${k}${w?` · <span style="color:var(--serious)">${w}</span>`:""}</div></div>`).join("")}</div>
     <section class="card"><h2>지금 각 맥이 하는 일</h2>
@@ -740,6 +747,35 @@ function chainHtml(wo){
     js.map(x => { const [c,i,l] = JOB_ST[x.status]||["mut","?",x.status];
       return `<span class="chip st-${c}" title="${esc((x.error||"").slice(0,200))}">
         <span class="d"></span>${esc(kindKo(x.kind))} ${i} ${esc(l)}</span>`; }).join("") || '<span class="sub">잡 없음</span>'}</div>`;
+}
+
+// ───────── Gemini 키 슬롯 (0025) ─────────
+// 429 의 정체는 분당 rate limit 이 아니라 '결제 계정 월 지출 상한'이었다(8/12 실측).
+// 상한은 키가 아니라 계정에 걸리므로 예비 키는 다른 결제 계정 것이어야 한다.
+const geminiSlot = () => ((state.ops||{}).gemini_key||{}).value === "fallback"
+                       ? "fallback" : "primary";
+function geminiBanner(){
+  const slot = geminiSlot();
+  const stuck = (state.jobs||[]).filter(j => j.status === "pending" && j.error_class === "quota");
+  if (slot === "primary" && !stuck.length) return "";
+  const o = (state.ops||{}).gemini_key || {};
+  const back = can("operator")
+    ? `<button class="mini" onclick="rpc('set_gemini_key',{p_slot:'primary'},'주 키로 되돌렸습니다')"
+         >주 키로 되돌리기</button>` : "";
+  const go = can("operator")
+    ? `<button class="mini" onclick="armed(this,'예비 키로 전환',()=>rpc('set_gemini_key',{p_slot:'fallback'},'예비 키로 전환했습니다'))"
+         >예비 키로 전환</button>` : "";
+  const stuckTxt = stuck.length
+    ? ` · 쿼터로 대기 중인 잡 <b>${stuck.length}건</b>(${
+        [...new Set(stuck.map(j => kindKo(j.kind)))].join(", ")})` : "";
+  return slot === "fallback"
+    ? `<section class="card warnbar"><b>⚠ Gemini 예비 키로 돌고 있습니다</b>
+        <span class="sub">${esc(o.note||"")} · ${ago(o.updated_at)}${stuckTxt}</span>
+        <span class="right"></span>${back}</section>`
+    : `<section class="card warnbar"><b>⚠ Gemini 쿼터로 막힌 잡이 있습니다</b>
+        <span class="sub">주 키로 도는 중${stuckTxt}. 지출 상한이면 워커가 자동으로 예비 키로 넘깁니다
+        — 급하면 지금 넘기세요(예비 키가 ves.env 에 있어야 합니다).</span>
+        <span class="right"></span>${go}</section>`;
 }
 
 // ───────── 홈: 채널 즉시 실행 (0024 run_channel_now) ─────────
@@ -1623,8 +1659,13 @@ function renderInfra(){
       ${n.status==="active"  ? `<button class="mini" onclick="setNode('${esc(n.node_id)}','draining')">드레인</button>`:""}
       ${n.status!=="disabled"? `<button class="mini danger" data-l="차단" onclick="armed(this,'차단',()=>setNode('${esc(n.node_id)}','disabled'))">차단</button>`:""}
       </div>` : "";
+    // 0025: 이 맥에 예비 Gemini 키가 배포됐나. 미보고(구 워커)는 표시하지 않는다.
+    const slots = ((n.meta||{}).gemini_slots)||null;
+    const keyChip = !slots ? ""
+      : slots.includes("fallback") ? chip("good","🔑","예비 키 있음")
+      : chip("warn","🔑","예비 키 없음");
     return `<div class="node"><div class="hd"><b>${esc(n.node_id)}</b>${chip(cls,ic,lb)}
-        ${hbOld ? chip("serious","⚠","무응답") : ""}</div>
+        ${hbOld ? chip("serious","⚠","무응답") : ""}${keyChip}</div>
       <div class="kv"><span class="k">심박</span><span class="v">${ago(n.last_seen_at)}</span></div>
       <div class="kv"><span class="k">디스크</span><span class="v">${n.disk_free_gb!=null?Number(n.disk_free_gb).toFixed(0)+" GB":"—"}</span></div>
       ${evs || '<div class="sub">엔진 버전 미보고</div>'}${acts}</div>`;

@@ -14,7 +14,7 @@ import subprocess
 from ves import config as cfgmod
 from ves import db
 from ves.adapters import base
-from ves.agent import lease, resources
+from ves.agent import gemini_key, lease, resources
 from ves.agent.claim import return_pending
 
 CAFFEINATE = "/usr/bin/caffeinate"
@@ -132,6 +132,12 @@ def run_job(cfg, conn, job) -> None:
         else:
             _record_orphan(conn, job, result)        # 소유권 상실분 기록(지표16)
     except base.QuotaError as e:
+        # 지출 상한(결제 계정 소진)이면 예비 키로 넘기고, 밀어둔 잡들을 즉시 재시도로 돌린다.
+        # 분당 rate limit 은 기다리면 풀리므로 넘기지 않는다(gemini_key.is_account_exhausted).
+        try:
+            gemini_key.failover(conn, cfg, str(e))
+        except Exception as fe:  # noqa: BLE001 — 폴백 실패가 실패 보고를 막지 않는다
+            print(f"[executor] Gemini 폴백 처리 오류(무시): {type(fe).__name__} {fe}")
         lease.fail(conn, job, str(e), "quota", until=e.until,
                    result_patch=getattr(e, "patch", None))
     except base.HumanRequired as e:
@@ -157,6 +163,9 @@ def _run_subprocess(cfg, conn, job, ad) -> dict:
         argv = ad.build_argv(cfg, job)
     cwd = getattr(ad, "cwd", lambda c, j: None)(cfg, job)
     env = getattr(ad, "env", lambda c, j: None)(cfg, job)
+    # Gemini 키 슬롯(0025) — 주 키가 결제 상한에 걸리면 6대가 함께 예비 키로 돈다.
+    # primary 일 때는 env 를 그대로 통과시킨다(평상시 동작 무변경).
+    env = gemini_key.apply(env, gemini_key.active(conn))
 
     cmd = ([CAFFEINATE, "-i"] if _has_caffeinate() else []) + argv
     proc = subprocess.Popen(cmd, cwd=cwd, env=env, text=True,

@@ -766,3 +766,68 @@ def test_migration_0024_restores_view_security():
         assert f"ALTER VIEW public.{v}" in sql and "security_invoker = true" in sql
         assert f"REVOKE ALL ON public.{v}" in sql
     assert "GRANT SELECT ON public.source_usage_by_channel TO authenticated" in sql
+
+
+# ── 0025: Gemini 예비 키 슬롯 (429 는 rate limit 이 아니라 결제 상한이었다, 8/12) ──
+def test_account_exhausted_vs_rate_limit():
+    """예비 키는 '기다려도 안 풀리는' 계정 소진일 때만 태운다. 분당 초과는 기다리면 풀린다."""
+    from ves.agent.gemini_key import is_account_exhausted as ex
+    spend = ("google.genai.errors.ClientError: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, "
+             "'message': 'Your billing account has exceeded its monthly spending cap. "
+             "Please go to AI Studio at https://ai.studio/billing to manage your billing.'}}")
+    assert ex(spend)                                            # 8/12 실측 원문
+    assert ex("429 You exceeded your current quota, please check your plan and billing details")
+    # 분당 rate limit — 넘기지 않는다(백업 계정을 공짜로 태우지 않는다)
+    assert not ex("429 RESOURCE_EXHAUSTED: Quota exceeded for quota metric "
+                  "'Generate requests per minute'. Retry in 31s")
+    assert not ex("500 internal error") and not ex("") and not ex(None)
+
+
+def test_gemini_apply_is_noop_on_primary():
+    """평상시(주 키)에는 env 를 한 글자도 건드리지 않는다 — None 도 None 그대로."""
+    from ves.agent import gemini_key as g
+    base = {"GEMINI_API_KEY": "K1", "GEMINI_API_KEY_FALLBACK": "K2"}
+    env = {"GEMINI_API_KEY": "K1", "X": "1"}
+    assert g.apply(env, g.PRIMARY, base=base) is env
+    assert g.apply(None, g.PRIMARY, base=base) is None
+    assert g.apply(env, "이상한값", base=base) is env
+
+
+def test_gemini_apply_swaps_only_when_fallback_exists():
+    from ves.agent import gemini_key as g
+    base = {"GEMINI_API_KEY": "K1", "GEMINI_API_KEY_FALLBACK": "K2"}
+    out = g.apply({"GEMINI_API_KEY": "K1", "X": "1"}, g.FALLBACK, base=base)
+    assert out["GEMINI_API_KEY"] == "K2" and out["X"] == "1"
+    assert "GOOGLE_API_KEY" not in out          # 없던 이름을 새로 만들지 않는다
+    # GOOGLE_API_KEY 가 이미 있으면 같이 갈아끼운다(google-genai 는 둘 다 본다)
+    out2 = g.apply({"GEMINI_API_KEY": "K1", "GOOGLE_API_KEY": "K1"}, g.FALLBACK, base=base)
+    assert out2["GOOGLE_API_KEY"] == "K2"
+    # 예비 키가 없는 맥 — 종전대로 주 키로 돈다(조용히 무키가 되지 않는다)
+    nofb = {"GEMINI_API_KEY": "K1"}
+    env = {"GEMINI_API_KEY": "K1"}
+    assert g.apply(env, g.FALLBACK, base=nofb) is env
+    assert g.available_slots(nofb) == ["primary"]
+    assert g.available_slots(base) == ["primary", "fallback"]
+    assert g.available_slots({"GEMINI_API_KEY_FALLBACK": "  "}) == []   # 공백은 없는 것
+
+
+def test_executor_applies_slot_and_fails_over():
+    """두 배선이 executor 한 곳에 있어야 ai-video·brain 이 함께 덮인다."""
+    import inspect
+    from ves.agent import executor
+    run = inspect.getsource(executor._run_subprocess)
+    assert "gemini_key.apply(env, gemini_key.active(conn))" in run
+    src = inspect.getsource(executor.run_job)
+    assert "gemini_key.failover(conn, cfg, str(e))" in src
+    assert src.index("gemini_key.failover") < src.index('lease.fail(conn, job, str(e), "quota"')
+
+
+def test_migration_0025_switch_requeues_waiters():
+    """키를 갈아끼우고 run_after 를 안 당기면 전환 효과가 최대 한 시간 뒤에 나온다."""
+    sql = _mig("0025_gemini_key_slot.sql")
+    fn = sql.split("FUNCTION public.set_gemini_key", 1)[1].split("$$;", 1)[0]
+    assert "p_slot NOT IN ('primary','fallback')" in fn
+    assert "has_role(auth.uid(),'operator')" in fn
+    assert "run_after = now()" in fn and "error_class = 'quota'" in fn
+    # 키 값 자체는 DB 에 절대 넣지 않는다(ARCHITECTURE §5) — 슬롯 이름만 오간다
+    assert "GEMINI_API_KEY=" not in sql

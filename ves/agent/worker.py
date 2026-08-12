@@ -12,7 +12,7 @@ import traceback
 
 from ves import db
 from ves.agent import claim as claim_mod
-from ves.agent import diskgc, executor, updater
+from ves.agent import diskgc, executor, gemini_key, updater
 from ves.config import get_config
 
 
@@ -33,11 +33,17 @@ def register_node(conn, cfg):
 
 
 def heartbeat(conn, cfg):
+    import json
     import shutil
     free_gb = shutil.disk_usage(cfg.home).free / 2**30 if _exists(cfg.home) else None
+    # 이 맥이 가진 Gemini 키 슬롯(0025) — 예비 키 배포가 6대 중 어디까지 됐는지 관제가 본다.
+    # 키 값이 아니라 '있다/없다'만 올린다.
+    meta = json.dumps({"gemini_slots": gemini_key.available_slots()}, ensure_ascii=False)
     with conn.cursor() as c:
-        c.execute("UPDATE public.node_registry SET last_seen_at=now(), disk_free_gb=%s "
-                  "WHERE node_id=%s", (free_gb, cfg.node_id))
+        c.execute("UPDATE public.node_registry "
+                  "   SET last_seen_at=now(), disk_free_gb=%s, "
+                  "       meta = coalesce(meta,'{}'::jsonb) || %s::jsonb "
+                  " WHERE node_id=%s", (free_gb, meta, cfg.node_id))
         c.execute("SELECT status FROM public.node_registry WHERE node_id=%s", (cfg.node_id,))
         row = c.fetchone()
     return (row or {}).get("status", "active")
