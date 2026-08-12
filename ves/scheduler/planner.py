@@ -15,7 +15,11 @@ import pathlib
 from ves import config as cfgmod
 from ves.adapters.base import idem_key
 
-LONG_LEASE = 300   # generate/localize (§6-2)
+LONG_LEASE = 300     # generate — 갱신 스레드가 TTL/4(75초)마다 연장한다(§6-2)
+# localize 는 프레임마다 LaMa 인페인팅을 돌려 수십 분이 걸린다. 300초로는 갱신이 한두 번만
+# 미끄러져도 reaper 가 산 잡을 회수해 '처음부터 다시'가 무한 반복된다 —
+# 8/12 실측: ショトコン 5화가 [lease expired] 로 두 시간 동안 같은 자리를 맴돌았다.
+LOCALIZE_LEASE = 3600
 
 
 # ───────── 순수 (테스트 대상) ─────────
@@ -48,7 +52,7 @@ def job_chain(wo: dict) -> list:
         ("evaluate",         dict(p_common),                                   ["analyze"], 120),
     ]
     if wo.get("pipeline") == "shorts_jp_localized":
-        chain.append(("localize", dict(p_common), ["localize"], LONG_LEASE))
+        chain.append(("localize", dict(p_common), ["localize"], LOCALIZE_LEASE))
     return chain
 
 

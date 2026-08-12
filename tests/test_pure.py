@@ -394,14 +394,19 @@ def test_source_watch_finds_dry_works_first():
     assert needs_refill(rows) == ["언니네 산지직송", "김부장"]   # 급한 순
     assert needs_refill(rows, low_days=0) == ["언니네 산지직송"]
     assert needs_refill([], 3) == [] and needs_refill(None, 3) == []
-    # 대상 결정: laeebly 폴더가 있으면 그것, 없으면 외부 감시폴더의 그 작품 하위폴더만
+    # 대상 결정: laeebly 폴더가 있으면 그것, 없으면 외부 감시폴더의 '실제로 있는' 하위폴더만
     targets = [("외부폴더", "URL_EXT", None, "external"),
                ("김부장", "URL_KIM", "김부장", "single")]
-    assert target_for("김부장", targets) == ("URL_KIM", "single", None)
-    assert target_for("참교육", targets, {"chamgyoyuk": "참교육"}) \
-        == ("URL_EXT", "external", "chamgyoyuk")      # 영문 폴더명은 별칭을 뒤집어 찾는다
-    assert target_for("이름없는작품", targets) == ("URL_EXT", "external", "이름없는작품")
-    assert target_for("무엇이든", []) is None
+    seen = ["참교육", "김부장", "chamgyoyuk_old"]
+    assert target_for("김부장", targets, None, seen) == ("URL_KIM", "single", None)
+    assert target_for("참교육", targets, {}, seen) == ("URL_EXT", "external", "참교육")
+    # 폴더가 영문이고 별칭이 있으면 그 폴더명을 쓴다(별칭은 '폴더명 → 작품명' 방향)
+    assert target_for("옛참교육", targets, {"chamgyoyuk_old": "옛참교육"}, seen) \
+        == ("URL_EXT", "external", "chamgyoyuk_old")
+    # ★없는 폴더를 추측해서 넣지 않는다 — 8/12 실측: 'kimbujang' 을 넣어 조용히 0건이 됐다
+    assert target_for("놀라운 토요일", targets, {}, seen) is None
+    assert target_for("참교육", targets, {}, []) is None      # 폴더 목록을 모르면 겨냥하지 않는다
+    assert target_for("무엇이든", [], {}, seen) is None
 
 
 def test_short_sources_are_not_used():
@@ -430,6 +435,27 @@ def test_use_limit_by_source_length():
     assert use_limit_for(1800) == 3 and use_limit_for(3 * 3600) == 3
     # 길이를 모르면(프로브 실패·구 데이터) 종전값 3 을 유지 — 갑자기 편수를 줄이지 않는다
     assert use_limit_for(None) == 3 and use_limit_for("") == 3 and use_limit_for(0) == 3
+
+
+def test_localize_lease_long_enough():
+    """수십 분짜리 인페인팅을 5분 lease 로 돌리면 reaper 가 산 잡을 회수한다(8/12 실측)."""
+    from ves.scheduler import planner
+    assert planner.LOCALIZE_LEASE >= 3600 > planner.LONG_LEASE
+    chain = planner.job_chain({"pipeline": "shorts_jp_localized", "work_title": "작품",
+                               "channel_slug": "SHOTCONE", "channel_name": "ショトコン"})
+    loc = [c for c in chain if c[0] == "localize"]
+    assert loc and loc[0][3] == planner.LOCALIZE_LEASE
+    gen = [c for c in chain if c[0] == "generate"]
+    assert gen and gen[0][3] == planner.LONG_LEASE      # generate 는 종전 그대로
+
+
+def test_top_folders_from_listing():
+    """감시폴더의 실제 하위폴더명 — '그 작품 폴더가 있긴 한가'의 근거."""
+    from ves.adapters.register_drive import top_folders
+    files = [("a", "참교육/E01.mkv"), ("b", "참교육/E02.mkv"),
+             ("c", "김부장/E01.mp4"), ("d", "루트파일.mp4"), ("e", " /x.mp4")]
+    assert top_folders(files) == ["김부장", "참교육"]     # 루트 파일·공백뿐인 조각은 제외
+    assert top_folders([]) == [] and top_folders(None) == []
 
 
 def test_drive_excludes_let_batches_make_progress():

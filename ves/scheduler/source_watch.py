@@ -63,19 +63,48 @@ def needs_refill(rows, low_days: float = LOW_DAYS) -> list:
     return [w for _d, w in sorted(scored, key=lambda t: (t[0], t[1]))]
 
 
-def target_for(work: str, targets, aliases=None):
-    """작품 → 인입 대상 (url, mode, subdir|None). 순수 — 테스트 대상.
+def pick_subdir(work: str, folders, aliases=None):
+    """작품 → 외부 감시폴더 안의 실제 하위폴더명. 없으면 None. 순수 — 테스트 대상.
 
-    laeebly 드라이브형(single)이 있으면 그 폴더가 정본. 없으면 외부 감시폴더 안의
-    '작품명 하위폴더'를 겨냥한다 — 폴더명이 영문이면 aliases 를 뒤집어 찾는다."""
+    ★추측하지 않는다(8/12 실측): 별칭 맵을 뒤집어 'kimbujang' 을 넣었더니 실제 폴더는
+    '김부장' 이라 --include 가 아무것도 못 잡고 조용히 0건으로 끝났다. 그래서 실제로 본
+    폴더 목록(직전 인입 잡의 top_folders)에 있는 이름만 쓴다."""
+    have = set(folders or [])
+    if work in have:
+        return work
+    for folder, canon in (aliases or {}).items():      # 별칭은 '폴더명 → 작품 정본명'
+        if canon == work and folder in have:
+            return folder
+    return None
+
+
+def target_for(work: str, targets, aliases=None, folders=None):
+    """작품 → 인입 대상 (url, mode, subdir|None). 없으면 None. 순수 — 테스트 대상.
+
+    laeebly 드라이브형(single)이 있으면 그 폴더가 정본(하위폴더 겨냥 불필요).
+    없으면 외부 감시폴더에 그 작품 폴더가 '실제로 있을 때만' 겨냥한다."""
     for _label, url, w, mode in targets or []:
         if mode == "single" and w == work:
             return (url, "single", None)
-    rev = {v: k for k, v in (aliases or {}).items()}
+    sub = pick_subdir(work, folders, aliases)
+    if not sub:
+        return None                       # 받을 곳이 없다 — 사람이 올려야 한다
     for _label, url, _w, mode in targets or []:
         if mode == "external":
-            return (url, "external", rev.get(work, work))
+            return (url, "external", sub)
     return None
+
+
+def known_folders(conn) -> list:
+    """직전에 외부 감시폴더를 통째로 훑은 잡이 본 최상위 폴더 목록."""
+    with conn.cursor() as c:
+        c.execute("""SELECT result->'top_folders' AS f FROM public.job_queue
+                      WHERE kind=%s AND status='succeeded'
+                        AND params->>'subdir' IS NULL
+                        AND result ? 'top_folders'
+                      ORDER BY finished_at DESC NULLS LAST LIMIT 1""", (KIND,))
+        row = c.fetchone()
+    return list((row or {}).get("f") or [])
 
 
 def _open_targets(conn) -> set:
@@ -107,13 +136,16 @@ def run(conn, cfg) -> int:
         return 0
 
     targets = collect_targets(conn, cfg)
+    folders = known_folders(conn)
     nodes = sync_nodes(kv.get("drive_sync_nodes"), kv.get("drive_sync_node"))
     open_now = _open_targets(conn)
     made = 0
     for i, work in enumerate(low):
-        tgt = target_for(work, targets, aliases)
+        tgt = target_for(work, targets, aliases, folders)
         if not tgt:
-            print(f"[source_watch] {work}: 소스 부족인데 인입 폴더를 모른다 — 사람이 등록 필요")
+            print(f"[ALERT] {work}: 소스가 곧 바닥인데 받아올 폴더가 없다 — "
+                  f"권리사 드라이브에 폴더가 없거나 이름이 다르다. 사람이 올려야 함 "
+                  f"(감시폴더의 하위폴더: {', '.join(folders) or '목록 없음'})")
             continue
         url, mode, subdir = tgt
         if (url, subdir) in open_now:

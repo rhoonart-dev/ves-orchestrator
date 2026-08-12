@@ -124,6 +124,17 @@ def is_usable(duration_sec) -> bool:
     return d > MIN_USABLE_SEC
 
 
+def top_folders(files) -> list:
+    """목록 → 최상위 폴더명들(파일이 루트에 바로 있으면 제외). 순수 — 테스트 대상.
+    외부 감시폴더에 '그 작품 폴더가 실제로 있는지'를 판단하는 근거가 된다."""
+    out = set()
+    for _fid, rel in files or []:
+        parts = str(rel).replace("\\", "/").split("/")
+        if len(parts) >= 2 and parts[0].strip():
+            out.add(parts[0])
+    return sorted(out)
+
+
 def use_limit_for(duration_sec) -> int:
     """소스 길이 → 이 소스로 만들 수 있는 편수 (사용자 결정 2026-08-12). 순수.
     10분 미만 1편 · 10~30분 2편 · 30분 이상 3편. 길이를 모르면 종전값 3."""
@@ -359,7 +370,7 @@ def run(cfg, conn, job, deps):
     srt_by_stem = {rel.rsplit("/", 1)[-1].rsplit(".", 1)[0]: (fid, rel)
                    for fid, rel in files if rel.lower().endswith(".srt")}
 
-    done, errors, skipped = [], [], []
+    done, errors, skipped, refreshed = [], [], [], []
     for fid, work, rel in todo:
         name = rel.rsplit("/", 1)[-1]
         tmp = tmp_dir / f"{fid[:24]}_{name}"
@@ -393,17 +404,35 @@ def run(cfg, conn, job, deps):
             ulim = int(p["use_limit"]) if p.get("use_limit") else use_limit_for(dur)
             usable = is_usable(dur)      # 3분 이하는 비활성으로 등록 — 다시 받지도, 쓰지도 않는다
             with conn.cursor() as c:
+                # ★같은 파일이 이미 있으면(sha 중복) '건너뛰기'가 아니라 '갱신'이다(8/12 실측).
+                #   ① registered_by 를 지금의 경로 키로 바꿔야 다음 회차 제외 목록에 잡힌다 —
+                #      8/10 gdown 시절 키(drive:<파일ID>)로 남은 것들은 매번 다시 받히고 있었다.
+                #   ② 길이를 못 재고 등록된 옛 소스에 duration_sec 을 채운다(자연스러운 백필).
+                #   ③ 길이를 새로 알게 된 경우에만 편수·사용여부를 다시 계산한다.
                 c.execute(
                     """INSERT INTO public.sources
                            (work_title, episode, sha256, object_key, bytes, duration_sec,
                             has_subtitle, subtitle_key, origin, registered_by, use_limit,
                             is_active)
                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'drive',%s,%s,%s)
-                       ON CONFLICT (sha256) DO NOTHING""",
+                       ON CONFLICT (sha256) DO UPDATE SET
+                           registered_by = EXCLUDED.registered_by,
+                           duration_sec  = COALESCE(sources.duration_sec, EXCLUDED.duration_sec),
+                           use_limit = CASE WHEN sources.duration_sec IS NULL
+                                             AND EXCLUDED.duration_sec IS NOT NULL
+                                            THEN EXCLUDED.use_limit ELSE sources.use_limit END,
+                           is_active = CASE WHEN sources.duration_sec IS NULL
+                                             AND EXCLUDED.duration_sec IS NOT NULL
+                                            THEN EXCLUDED.is_active ELSE sources.is_active END
+                       RETURNING (xmax = 0) AS inserted""",
                     (work, ep, sha, okey, size, dur, bool(sub_key), sub_key,
                      f"drive:{fid}", ulim, usable))
-            done.append(f"{work}/{name}→{ep or '?'}화·"
-                        + (f"{ulim}편" if usable else f"미사용({round((dur or 0)/60,1)}분)"))
+                fresh = bool((c.fetchone() or {}).get("inserted"))
+            mark = f"{ulim}편" if usable else f"미사용({round((dur or 0)/60,1)}분)"
+            if fresh:
+                done.append(f"{work}/{name}→{ep or '?'}화·{mark}")
+            else:
+                refreshed.append(f"{work}/{name}")   # 이미 있던 것 — 새 소스가 아니다
             if not usable:
                 skipped.append(f"{name}({round((dur or 0) / 60, 1)}분)")
             drop = getattr(client, "drop", None)
@@ -414,13 +443,13 @@ def run(cfg, conn, job, deps):
         finally:
             tmp.unlink(missing_ok=True)
 
-    if errors and not done:
+    if errors and not done and not refreshed:
         raise RuntimeError("; ".join(errors)[:700])   # 전멸이면 transient 재시도
     # 아직 더 있는가: 이번 목록에서 못 다룬 것(remaining) 또는 전송 한도로 끊긴 것(capped).
     # capped 는 '원격에 더 남았다'는 뜻이라 캐시 목록만 보고는 알 수 없다 — rclone 종료코드가 근거.
     capped = bool(getattr(client, "capped", False))
     more = bool(remaining) or capped
-    if more and done:
+    if more and (done or refreshed):
         _queue_continuation(conn, job, remaining)     # 진전이 있을 때만 — 헛도는 이어받기 방지
     if via == "rclone" and done and not errors and not more:
         # 다 받았다 → 남은 캐시 반환(8/11 실측: 11개 폴더 캐시 누적으로 mm-01 디스크 0)
@@ -429,9 +458,12 @@ def run(cfg, conn, job, deps):
         except Exception:  # noqa: BLE001
             pass
     return {"via": via, "diag": diag, "listed": len(files), "new": len(todo),
-            "registered": len(done), "remaining": remaining, "capped": capped,
-            "more": more, "items": done[:20], "errors": errors[:10],
-            "too_short": len(skipped), "too_short_items": skipped[:10]}
+            "registered": len(done), "refreshed": len(refreshed),
+            "remaining": remaining, "capped": capped, "more": more,
+            "items": done[:20], "errors": errors[:10],
+            "too_short": len(skipped), "too_short_items": skipped[:10],
+            # 이 폴더의 실제 최상위 폴더명 — source_watch 가 '그 작품 폴더가 있긴 한가'를 이걸로 판단한다
+            "top_folders": top_folders(files)[:40]}
 
 
 def _queue_continuation(conn, job, remaining: int) -> None:
