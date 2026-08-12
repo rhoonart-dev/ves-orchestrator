@@ -124,7 +124,7 @@ def run(conn, cfg):
             print(f"[planner] ⚠ {ch['name']}: 지정 작품 '{ovr['work_title']}' 이 "
                   f"채널 정본(works)에 없음 — 자동으로 진행(R14)")
         for work in works_try:
-            src = _pick_source(conn, work, episode=pin_ep)
+            src = _pick_source(conn, work, episode=pin_ep, channel_slug=slug)
             if src is None:
                 if pin_ep is not None:
                     print(f"[ALERT] 지정 회차 사용 불가: {ch['name']} / {work} {pin_ep}회차 — "
@@ -147,27 +147,41 @@ def _load_channels(cfg):
     return data if isinstance(data, list) else data.get("channels") or []
 
 
-def _pick_source(conn, work, pipeline="shorts_kr", episode=None):
-    """회차 순환(사용자 결정 2026-08-07): 활성 소스 중 사용횟수(취소·실패 제외)가
-    use_limit(기본 3) 미만인 최저 회차. 한도 도달 시 자동으로 다음 회차,
-    전 회차 소진이면 None(→ 알림+대기, 관제 소스 섹션에 표시).
+def _pick_source(conn, work, pipeline="shorts_kr", episode=None, channel_slug=None):
+    """회차 순환: 활성 소스 중 그 **채널이** 아직 use_limit 만큼 안 쓴 최저(=가장 오래된) 회차.
+
+    ★소진은 채널별로 센다(사용자 결정 2026-08-12). SNL 시즌8을 몰입도둑과 킥킥극장이
+      함께 쓰는데 종전엔 슬롯 3개를 나눠 썼다 — 한 채널이 다 쓰면 다른 채널이 굶었다.
+      이제 채널마다 자기 3개를 갖는다.
+    ★레거시 루프가 이미 쓴 몫(source_usage_legacy)도 더해서 센다 — 구 시스템에서 공개까지
+      마친 회차를 오케스트레이터가 처음부터 다시 돌지 않게 한다.
+    ★회차 번호는 '오래된 것 = 낮은 번호' 규약이다(register_playlist 가 그렇게 매긴다).
+      그래서 최저 회차부터 = 오래된 것부터.
     episode 지정(0016) 시 그 회차만 — 소진이면 None(사람 결정을 조용히 바꾸지 않는다)."""
     with conn.cursor() as c:
         c.execute(
-            """SELECT s.* FROM public.sources s
-                LEFT JOIN public.work_orders w
-                  ON w.work_title = s.work_title
-                 AND w.episode IS NOT DISTINCT FROM s.episode
-                 AND w.status NOT IN ('cancelled','failed')
-                WHERE s.work_title = %s AND s.is_active
+            """SELECT s.*,
+                      (SELECT count(*) FROM public.work_orders w
+                        WHERE w.work_title = s.work_title
+                          AND w.episode IS NOT DISTINCT FROM s.episode
+                          AND w.status NOT IN ('cancelled','failed')
+                          AND (%(ch)s::text IS NULL OR w.channel_slug = %(ch)s::text)) AS used_wo,
+                      coalesce((SELECT l.used FROM public.source_usage_legacy l
+                                 WHERE l.work_title = s.work_title
+                                   AND l.episode IS NOT DISTINCT FROM s.episode
+                                   AND l.channel_slug = %(ch)s::text), 0) AS used_legacy
+                 FROM public.sources s
+                WHERE s.work_title = %(work)s AND s.is_active
                   -- 3분 이하 소스는 쓰지 않는다(8/12 사용자 결정). 등록 때 비활성으로 걸러지지만,
                   -- 사람이 실수로 활성화해도 여기서 한 번 더 막는다. 길이 미상은 종전대로 사용.
                   AND (s.duration_sec IS NULL OR s.duration_sec > 180)
-                  AND (%s::int IS NULL OR s.episode = %s::int)
-                GROUP BY s.id
-               HAVING COUNT(w.id) < s.use_limit
-                ORDER BY s.episode NULLS LAST LIMIT 1""", (work, episode, episode))
-        return c.fetchone()
+                  AND (%(ep)s::int IS NULL OR s.episode = %(ep)s::int)
+                ORDER BY s.episode NULLS LAST, s.created_at, s.id""",
+            {"work": work, "ep": episode, "ch": channel_slug})
+        for row in c.fetchall():
+            if int(row["used_wo"]) + int(row["used_legacy"]) < int(row["use_limit"]):
+                return row
+    return None
 
 
 def _geoblock_required(cfg, work) -> bool:

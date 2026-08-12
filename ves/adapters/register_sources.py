@@ -14,13 +14,49 @@ from ves import config as cfgmod
 from ves.adapters import base
 
 
-def plan_rows(work_title: str, entries, title_filter: str = "", use_limit: int = 3):
+_UPLOADS_HINTS = ("/videos", "/@", "/channel/", "/user/", "/c/", "uploads")
+
+
+def is_newest_first(url: str) -> bool:
+    """이 원천이 '최신순'으로 오는가. 순수 — 테스트 대상.
+
+    유튜브 채널 업로드 피드(/@handle, /channel/…, /videos)는 최신이 맨 앞이다.
+    사람이 만든 재생목록(/playlist?list=…)은 대개 오래된 것이 앞이라 뒤집지 않는다."""
+    u = str(url or "").lower()
+    if "list=" in u or "/playlist" in u:
+        return False
+    return any(h in u for h in _UPLOADS_HINTS)
+
+
+def chronological(entries, source_url: str = "") -> list:
+    """항목을 '오래된 것 → 최신' 순으로 세운다. 순수 — 테스트 대상.
+
+    ★사용자 결정(2026-08-12): 소스는 오래된 것부터 쓴다. 회차 번호를 그 순서로 매겨야
+      planner 의 '최저 회차부터'가 곧 '오래된 것부터'가 된다.
+      종전엔 채널 업로드 피드(최신순)를 그대로 1번부터 매겨 **최신 영상이 1화**였다.
+    판단 근거 우선순위: ① 항목의 업로드 시각(timestamp/release_timestamp)
+                      ② 없으면 원천 URL 모양(채널 피드면 뒤집는다)"""
+    items = list(entries or [])
+    def ts(e):
+        for k in ("timestamp", "release_timestamp", "epoch"):
+            v = (e or {}).get(k)
+            if isinstance(v, (int, float)) and v > 0:
+                return float(v)
+        return None
+    stamps = [ts(e) for e in items]
+    if items and all(s is not None for s in stamps):
+        return [e for _s, e in sorted(zip(stamps, items), key=lambda t: t[0])]
+    return list(reversed(items)) if is_newest_first(source_url) else items
+
+
+def plan_rows(work_title: str, entries, title_filter: str = "", use_limit: int = 3,
+              source_url: str = ""):
     """flat-playlist entries → [(episode, url, title)]. 순수 — 테스트 대상.
-    회차 번호는 원천 목록의 순번(1-base) — 항목이 빠져도 남은 회차 번호가 안 흔들린다."""
+    회차 번호는 '오래된 것 = 1번' 순번(1-base) — 항목이 빠져도 남은 번호가 안 흔들린다."""
     out = []
     norm = lambda s: "".join(str(s or "").split())   # noqa: E731 — 띄어쓰기 무시 대조
     filt = norm(title_filter)
-    for idx, e in enumerate(entries or [], start=1):
+    for idx, e in enumerate(chronological(entries, source_url), start=1):
         vid = (e or {}).get("id")
         title = str((e or {}).get("title") or "")
         if not vid:
@@ -40,10 +76,14 @@ def run(cfg, conn, job, deps):
     work, url = p.get("work_title"), p.get("playlist_url")
     if not (work and url):
         raise base.PermanentError("params.work_title/playlist_url 필요")
-    limit = int(p.get("max_items") or 60)
+    # 0 = 전량(사용자 결정 2026-08-12: 작품에 맞는 영상 소스를 '모두' 받아 등록한다).
+    # 종전 기본 60은 채널 뒤쪽(=오래된) 영상을 통째로 잘라 먹었다.
+    limit = int(p.get("max_items") or 0)
 
-    argv = [cfgmod.engine_py(cfg, "ai_video"), "-m", "yt_dlp",
-            "--flat-playlist", "-J", "--playlist-end", str(limit), url]
+    argv = [cfgmod.engine_py(cfg, "ai_video"), "-m", "yt_dlp", "--flat-playlist", "-J"]
+    if limit > 0:
+        argv += ["--playlist-end", str(limit)]
+    argv.append(url)
     r = subprocess.run(argv, capture_output=True, text=True, timeout=600)
     if r.returncode != 0:
         cls = base.classify_by_patterns(r.stderr or "", r.stdout or "")
@@ -57,7 +97,8 @@ def run(cfg, conn, job, deps):
     except json.JSONDecodeError:
         raise base.PermanentError("yt-dlp 출력 파싱 실패 — --flat-playlist -J 계약 확인")
     entries = data.get("entries") or ([data] if data.get("id") else [])
-    rows = plan_rows(work, entries, p.get("title_filter") or "", int(p.get("use_limit") or 3))
+    rows = plan_rows(work, entries, p.get("title_filter") or "",
+                     int(p.get("use_limit") or 3), source_url=url)
 
     inserted = 0
     with conn.cursor() as c:

@@ -437,6 +437,34 @@ def test_use_limit_by_source_length():
     assert use_limit_for(None) == 3 and use_limit_for("") == 3 and use_limit_for(0) == 3
 
 
+def test_youtube_sources_numbered_oldest_first():
+    """사용자 결정(8/12): 오래된 것부터 쓴다 → 오래된 영상이 1화여야 한다."""
+    from ves.adapters.register_sources import chronological, is_newest_first, plan_rows
+    # 채널 업로드 피드는 최신이 앞 — 뒤집어야 오래된 것이 1번이 된다
+    assert is_newest_first("https://www.youtube.com/@tvn/videos")
+    assert is_newest_first("https://www.youtube.com/channel/UCabc/videos")
+    # 사람이 만든 재생목록은 대개 순서대로 — 건드리지 않는다
+    assert not is_newest_first("https://www.youtube.com/playlist?list=PLxyz")
+    feed = [{"id": "new"}, {"id": "mid"}, {"id": "old"}]
+    assert [e["id"] for e in chronological(feed, "https://youtube.com/@ch/videos")] \
+        == ["old", "mid", "new"]
+    assert [e["id"] for e in chronological(feed, "https://youtube.com/playlist?list=P")] \
+        == ["new", "mid", "old"]
+    # 업로드 시각이 있으면 URL 모양보다 그게 우선이다
+    stamped = [{"id": "b", "timestamp": 200}, {"id": "a", "timestamp": 100},
+               {"id": "c", "timestamp": 300}]
+    assert [e["id"] for e in chronological(stamped, "https://youtube.com/playlist?list=P")] \
+        == ["a", "b", "c"]
+    # 일부만 시각이 있으면 신뢰하지 않고 URL 규칙으로 간다
+    partial = [{"id": "x", "timestamp": 5}, {"id": "y"}]
+    assert [e["id"] for e in chronological(partial, "https://youtube.com/@c/videos")] == ["y", "x"]
+    # 회차 번호는 오래된 것부터 1,2,3 — 사멸 항목은 빠지되 번호는 이어진다
+    rows = plan_rows("작품", [{"id": "n", "title": "최신"}, {"id": "m", "title": "[Private video]"},
+                             {"id": "o", "title": "최초"}],
+                     source_url="https://youtube.com/@c/videos")
+    assert [(ep, t) for ep, _u, t in rows] == [(1, "최초"), (3, "최신")]
+
+
 def test_localize_lease_long_enough():
     """수십 분짜리 인페인팅을 5분 lease 로 돌리면 reaper 가 산 잡을 회수한다(8/12 실측)."""
     from ves.scheduler import planner
