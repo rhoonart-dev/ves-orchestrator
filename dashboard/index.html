@@ -716,10 +716,10 @@ function renderReview(){
         <div class="form">
           <select id="prv_${r.id}" onchange="$('#at_${r.id}').style.display=this.value==='schedule'?'':'none'">
             <option value="private">비공개</option><option value="unlisted">일부공개</option>
-            ${geo ? "" : '<option value="public">공개</option>'}
             <option value="schedule">예약공개(비공개→시각)</option>
           </select>
           <input id="at_${r.id}" type="datetime-local" style="display:none">
+          <span class="sub" title="R9: 자동 발행은 비공개·일부공개·예약까지. 공개 전환은 사람이 Studio 에서">공개 전환은 발행 후 Studio</span>
           <button class="pri act" onclick="approve('${r.id}')">✓ 합격 · 발행</button>
           <button class="danger act" id="rjb_${r.id}" onclick="rejectAsk('${r.id}')">✕ 반려</button>
           <span id="rja_${r.id}" class="rjask" style="display:none"></span>

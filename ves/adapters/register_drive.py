@@ -151,15 +151,24 @@ class _Rclone:
 
     def _copy(self, *extra):
         """캐시로 복사. --max-transfer 로 이번 회차 분량을 끊는다(soft: 받던 파일은 마무리).
-        한도에 걸리면 rc 8·9 로 끝나는데 그건 '여기까지 받았다'는 뜻이라 실패가 아니다."""
+
+        ★비정상 종료를 치명으로 보지 않는다(8/11 실측): rclone 은 마지막에 디렉토리 modtime 을
+        맞추는데, 파일이 하나도 안 내려온 하위폴더는 로컬에 없어 chtimes 가 실패하고 그게
+        '오류'로 집계돼 non-zero 로 끝난다. 종전 코드는 이때 예외를 던져 **이미 받아둔 수십 GB
+        까지 통째로 버렸다**(B급 199건·혜미리 12건이 이 경우). 성패는 캐시 내용으로 판단한다."""
         args = ["copy", self.remote, str(self.cache),
                 "--drive-root-folder-id", self.fid, *extra]
         if self.max_transfer:
             args += ["--max-transfer", self.max_transfer, "--cutoff-mode", "soft"]
-        return _rc(self.b, self.c, *args, timeout=3600 * 6, ok_rc=PARTIAL_RC)
+        try:
+            return _rc(self.b, self.c, *args, timeout=3600 * 6, ok_rc=PARTIAL_RC)
+        except RuntimeError as e:
+            self.warn = str(e)[-200:]
+            return ""
 
     def list(self):
         self.diag = f"remote={self.remote}"
+        self.warn = None
         if self.max_transfer:
             self.diag += f" · max_transfer={self.max_transfer}"
         self._copy()
@@ -167,6 +176,8 @@ class _Rclone:
             # 공유 형태에 따라 shared-with-me 플래그가 필요한 케이스(실측 진단용 2차 시도)
             self.diag += " · retry=shared-with-me"
             self._copy("--drive-shared-with-me")
+        if self.warn:
+            self.diag += f" · rclone경고={self.warn[:80]}"
         out = []
         for p in sorted(self.cache.rglob("*")):
             if p.is_file():
