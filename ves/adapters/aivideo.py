@@ -151,6 +151,8 @@ def build_argv_pure(py: str, params: dict, source_path: str | None) -> list:
         cmd += ["--youtube-url", p["source_url"]]
     if p.get("topic"):
         cmd += ["--topic", p["topic"]]
+    if p.get("reject_note"):     # 검수함 반려 사유 → 분석·스토리 프롬프트의 '재작업 지시'
+        cmd += ["--reject-note", str(p["reject_note"])]
     if p.get("episode") is not None:
         cmd += ["--episode", str(p["episode"])]
     if p.get("no_research", True):
@@ -200,22 +202,62 @@ def scene_span(edit_plan: dict):
     return [float(min(starts)), float(max(ends))]
 
 
-def spans_overlap(a, b, iou_th: float = 0.30, center_sec: float = 15.0) -> bool:
-    """두 구간이 '같은 장면'인가 — IoU 임계 또는 중심 근접(구 시스템 규칙). 순수."""
+DUP_OVERLAP_RATIO = 0.50   # 사용자 결정(8/12): '같은 부분을 50% 이상 썼을 때'만 같은 장면
+
+
+def overlap_ratio(a, b) -> float:
+    """두 구간이 얼마나 같은 부분을 쓰는가 — 겹친 초 / 짧은 쪽 길이. 0~1. 순수.
+
+    짧은 쪽으로 나누는 이유: 60초 장면 안에 20초 장면이 통째로 들어가면 그건 같은 부분을
+    100% 다시 쓴 것이다. 합집합(IoU)으로 재면 0.33 이라 '다른 장면'으로 통과해 버린다."""
     if not a or not b:
-        return False
+        return 0.0
     a0, a1 = float(a[0]), float(a[1])
     b0, b1 = float(b[0]), float(b[1])
     inter = max(0.0, min(a1, b1) - max(a0, b0))
-    union = max(a1, b1) - min(a0, b0)
-    if union > 0 and inter / union >= iou_th:
-        return True
-    return abs((a0 + a1) / 2 - (b0 + b1) / 2) <= center_sec
+    shorter = min(a1 - a0, b1 - b0)
+    return inter / shorter if shorter > 0 else 0.0
+
+
+def spans_overlap(a, b, ratio_th: float = DUP_OVERLAP_RATIO) -> bool:
+    """두 구간이 '같은 장면'인가 — 겹침이 짧은 쪽의 ratio_th 이상이면 같다고 본다. 순수.
+
+    종전(IoU 0.30 또는 중심 15초 이내)은 스치기만 해도 중복으로 몰아 재생성을 헛돌게 했다.
+    8/12 사용자 결정으로 '50% 이상' 단일 기준으로 바꾼다 — 중심 근접 규칙은 폐기."""
+    return overlap_ratio(a, b) >= ratio_th
 
 
 def is_duplicate_take(span, avoid_spans) -> bool:
     """새 장면이 반려·기존 구간과 겹치는가. 순수 — 테스트 대상."""
     return any(spans_overlap(span, s) for s in (avoid_spans or []))
+
+
+# ───────── 반려 단계 (사용자 결정 2026-08-12) ─────────
+# 검수함에서 고른 반려 단계 → ai-video 를 어디서부터 다시 돌릴지.
+# 엔진 13단계: init research probe proxy chunk character_index chunk_transcribe
+#              gemini graph story silence_cut resources render validate
+REJECT_STAGES = {
+    "영상 분석":   {"mode": "fresh",  "from_step": None,     "eta": "40~70분"},
+    "스토리 구성": {"mode": "resume", "from_step": "story",  "eta": "15~25분"},
+    "제작":       {"mode": "resume", "from_step": "render", "eta": "수 분"},
+    "장면":       {"mode": "fresh",  "from_step": None,     "eta": "40~70분"},   # 0019 호환
+}
+
+
+def reject_plan(stage):
+    """반려 단계 → 재실행 계획. 모르는 값은 가장 안전한 쪽(처음부터)으로. 순수 — 테스트 대상."""
+    return REJECT_STAGES.get(stage) or REJECT_STAGES["영상 분석"]
+
+
+def resolve_resume_step(explicit, checkpoint_filenames, default=None):
+    """--from-step 결정. 순수 — 테스트 대상.
+
+    사람이 단계를 골라 반려했으면(explicit) 그 단계가 절대 우선이다. 체크포인트 자동 선택은
+    '죽은 잡 이어달리기'용이라, 완주한 run 에 쓰면 마지막 단계(validate)를 집어 아무것도
+    다시 만들지 않는다 — 8/12 실측 전 잠재 결함."""
+    if explicit:
+        return explicit
+    return pick_resume_step(checkpoint_filenames) or default
 
 
 def provenance_ok(run_log: dict) -> bool:
@@ -274,7 +316,8 @@ def resume_argv(cfg, job, partial_run_id, default_step=None):
     argv = _build_argv_fresh(cfg, job)
     outdir = (job["params"].get("outdir") or "outputs")
     run_dir = pathlib.Path(cfgmod.engine_dir(cfg, "ai_video")) / outdir / partial_run_id
-    step = pick_resume_step(glob.glob(str(run_dir / "checkpoint_*.json"))) or default_step
+    step = resolve_resume_step((job["params"] or {}).get("from_step"),
+                               glob.glob(str(run_dir / "checkpoint_*.json")), default_step)
     argv += ["--job-id", partial_run_id]
     if step:
         argv += ["--from-step", step]

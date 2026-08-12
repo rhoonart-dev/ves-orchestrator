@@ -182,8 +182,20 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .hallu{color:var(--crit);font-size:12px;font-weight:600;margin-top:6px}
   .notehint{color:var(--warn);font-size:12px;margin:6px 0 0}
   .reason{width:100%;margin-top:8px}
-  .rtype{display:flex;gap:12px;font-size:12px;color:var(--ink-2);margin-top:6px;
-    align-items:center;flex-wrap:wrap}
+  /* 반려 패널 — 평소엔 안 보이고, 반려를 누를 때만 카드 안에서 펼쳐진다 */
+  .rjpanel{margin-top:8px;padding:10px;border:1px solid var(--line);border-radius:10px;
+    background:var(--chip,rgba(127,127,127,.06))}
+  .rjpanel .rjhd{display:flex;align-items:center;justify-content:space-between;
+    font-size:12.5px;font-weight:600;margin-bottom:8px}
+  .rjopt{display:flex;width:100%;align-items:baseline;gap:8px;text-align:left;
+    padding:7px 10px;margin-top:5px;border:1px solid var(--line);border-radius:8px;
+    background:var(--bg);color:var(--ink);font-size:13px;cursor:pointer}
+  .rjopt:hover{border-color:var(--crit);color:var(--crit)}
+  .rjopt b{flex:none;min-width:76px;font-weight:600}
+  .rjopt .why{color:var(--muted);font-size:12px;flex:1}
+  .rjopt .eta{flex:none;color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums}
+  .rjfoot{margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;
+    font-size:11.5px;color:var(--muted)}
   /* 테이블 공통 */
   table{width:100%;border-collapse:collapse;font-size:13px}
   th{color:var(--muted);font-weight:600;text-align:left;font-size:12px;
@@ -720,13 +732,9 @@ function renderReview(){
       const low = (() => { const cid = state.runToClip[run], j = cid && state.judgeByClip[cid];
         return j && Number(j.quality_score) < 0.5; })();
       const form = can("reviewer") ? `
-        <input class="reason" id="note_${r.id}" placeholder="사유·메모 (선택) — 합격·반려 모두 기록됩니다">
+        <input class="reason" id="note_${r.id}" placeholder="사유·메모 — 반려 시 다시 만들 때 그대로 반영됩니다">
         ${low ? '<p class="notehint">💬 judge 가 낮게 봤습니다 — 그래도 합격시키신다면 이유를 남겨 주세요. judge 를 고칠 근거가 됩니다.</p>' : ""}
-        <div class="rtype">반려 유형:
-          <label><input type="radio" name="rt_${r.id}" value="장면" checked> 장면 — 다른 장면으로 새로 제작(40~70분)</label>
-          <label><input type="radio" name="rt_${r.id}" value="제작"> 제작 — 같은 장면 렌더만 다시(수 분)</label>
-          <span class="sub">반려를 누르면 재생성 여부를 묻습니다 · 재생성은 같은 맥에서 2회까지</span></div>
-        <div class="form">
+        <div class="form" id="rjb_${r.id}">
           <select id="prv_${r.id}" onchange="$('#at_${r.id}').style.display=this.value==='schedule'?'':'none'">
             <option value="private">비공개</option><option value="unlisted">일부공개</option>
             <option value="schedule">예약공개(비공개→시각)</option>
@@ -734,9 +742,9 @@ function renderReview(){
           <input id="at_${r.id}" type="datetime-local" style="display:none">
           <span class="sub" title="R9: 자동 발행은 비공개·일부공개·예약까지. 공개 전환은 사람이 Studio 에서">공개 전환은 발행 후 Studio</span>
           <button class="pri act" onclick="approve('${r.id}')">✓ 합격 · 발행</button>
-          <button class="danger act" id="rjb_${r.id}" onclick="rejectAsk('${r.id}')">✕ 반려</button>
-          <span id="rja_${r.id}" class="rjask" style="display:none"></span>
-        </div>` : '<div class="sub">reviewer 권한 필요</div>';
+          <button class="danger act" onclick="rejectAsk('${r.id}')">✕ 반려</button>
+        </div>
+        <div id="rja_${r.id}" style="display:none"></div>` : '<div class="sub">reviewer 권한 필요</div>';
       const slug = wo.channel_slug || r.channel_slug;
       return `<div class="review rv2">
         <div class="rv2-vid">${pay.preview_key
@@ -797,34 +805,49 @@ window.approve = rid => {
       { p_review_id: rid, p_privacy: privacy, p_publish_at: publish_at, p_note: note },
       "합격 — publish 잡 생성됨");
 };
+// 반려 단계 — ai-video 13단계 중 어디서부터 다시 돌릴지(0021). 서버가 정본, 여기는 표시만.
+const REJECT_STAGES = [
+  { key:"영상 분석",   why:"영상을 다시 보고 장면부터 새로 고른다", eta:"40~70분" },
+  { key:"스토리 구성", why:"장면은 그대로, 고르고 잇는 것만 다시",   eta:"15~25분" },
+  { key:"제작",        why:"구성은 그대로, 화면만 다시 만든다",       eta:"수 분" },
+];
 window.rejectAsk = rid => {
-  const rt = (document.querySelector(`input[name="rt_${rid}"]:checked`)||{}).value || "장면";
-  const yes = rt === "제작" ? "재생성(렌더만 다시)" : "재생성(다른 장면)";
-  $(`#rjb_${CSS.escape(rid)}`).style.display = "none";
-  const box = $(`#rja_${CSS.escape(rid)}`);
+  const e = CSS.escape(rid);
+  $(`#rjb_${e}`).style.display = "none";
+  const box = $(`#rja_${e}`);
   box.style.display = "";
-  box.innerHTML = `<span class="sub">재생성할까요?</span>
-    <button class="danger act" onclick="reject('${rid}',true)">✕ 반려 + ${yes}</button>
-    <button class="act" onclick="reject('${rid}',false)">✕ 반려만</button>
-    <button class="act" onclick="rejectCancel('${rid}')">취소</button>`;
+  box.innerHTML = `<div class="rjpanel">
+    <div class="rjhd"><span>어디서부터 다시 만들까요?</span>
+      <button class="mini" onclick="rejectCancel('${rid}')">취소</button></div>
+    ${REJECT_STAGES.map(s => `<button class="rjopt" onclick="reject('${rid}','${s.key}',true)">
+      <b>${s.key}</b><span class="why">${s.why}</span><span class="eta">${s.eta}</span></button>`).join("")}
+    <div class="rjfoot">
+      <button class="mini" onclick="reject('${rid}','영상 분석',false)">기록만 하고 다시 안 만들기</button>
+      <span>적어둔 사유는 영상 분석·스토리 구성 재실행에 그대로 반영됩니다 · 같은 맥에서 2회까지</span>
+    </div></div>`;
 };
 window.rejectCancel = rid => {
   const b = $(`#rjb_${CSS.escape(rid)}`), a = $(`#rja_${CSS.escape(rid)}`);
   if (a){ a.style.display = "none"; a.innerHTML = ""; }
   if (b) b.style.display = "";
 };
-window.reject = async (rid, regen) => {
+window.reject = async (rid, stage, regen) => {
   const note = ($(`#note_${CSS.escape(rid)}`).value || "").trim();
-  const rt = (document.querySelector(`input[name="rt_${rid}"]:checked`)||{}).value || "장면";
   const r = await rpc("reject_review",
-    { p_review_id: rid, p_note: `[${rt}] ${note}`.trim(), p_kind: rt,
+    { p_review_id: rid, p_note: note || null, p_stage: stage,
       p_regenerate: regen !== false }, "반려 기록됨");
   if (r && typeof r === "object"){
+    const where = r.node ? `${r.node} 에서` : "같은 맥에서";
+    const what = r.from_step ? `${r.stage} 단계부터` : "처음부터";
     toast(r.regenerated
-      ? `반려 — ${r.node || "같은 맥"}에서 ${r.mode === "resume_render" ? "렌더만 다시" : "다른 장면으로"} 재생성 시작 (${r.tries}/2)`
+      ? `반려 — ${where} ${what} 다시 만듭니다 (${r.tries}/2)`
+        + (r.note_applied && note ? " · 사유 반영됨" : "")
       : r.reason === "retry_limit"
-        ? "반려 — 재생성 상한(2회) 도달, 사람 판단이 필요합니다"
-        : "반려만 기록했습니다 — 재생성하지 않음", r.reason === "retry_limit");
+        ? "반려 — 다시 만들기 상한(2회) 도달, 사람 판단이 필요합니다"
+        : r.reason === "no_run_to_resume"
+          ? "반려 — 이어달릴 이전 결과가 없습니다. '영상 분석'으로 다시 시도해 주세요"
+          : "반려만 기록했습니다 — 다시 만들지 않음",
+      r.reason === "retry_limit" || r.reason === "no_run_to_resume");
   }
 };
 

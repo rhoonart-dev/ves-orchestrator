@@ -378,6 +378,51 @@ def test_drive_balance_moves_backlog_to_idle_node():
     assert plan_rebalance([("a", None)], {}, nodes) == [("a", "mm-01")]
 
 
+def test_overlap_ratio_50_percent_rule():
+    """사용자 결정(8/12): '같은 부분을 50% 이상 썼을 때'만 같은 장면으로 본다."""
+    from ves.adapters.aivideo import overlap_ratio, spans_overlap, is_duplicate_take
+    assert overlap_ratio([0, 60], [0, 60]) == 1.0
+    assert overlap_ratio([0, 60], [30, 90]) == 0.5          # 30초 겹침 / 60초
+    assert overlap_ratio([0, 60], [31, 91]) < 0.5
+    assert overlap_ratio([0, 60], [20, 40]) == 1.0          # 짧은 쪽이 통째로 안에 들어감
+    assert overlap_ratio([0, 60], [60, 120]) == 0.0         # 맞닿기만 함
+    assert overlap_ratio(None, [0, 10]) == 0.0 and overlap_ratio([0, 10], []) == 0.0
+    assert overlap_ratio([10, 10], [10, 10]) == 0.0         # 길이 0 — 0 나눗셈 금지
+    # 경계: 정확히 50% 는 '같은 장면'
+    assert spans_overlap([0, 60], [30, 90]) and not spans_overlap([0, 60], [31, 91])
+    # 짧은 쪽이 통째로 안에 들면 중심 근접 규칙 없이도 중복으로 잡힌다
+    assert spans_overlap([0, 100], [45, 55])
+    # 반대로 끝만 살짝 스치는 건 이제 '다른 장면' — 종전 중심 규칙이 헛되이 잡던 경우
+    assert not spans_overlap([0, 100], [95, 145])
+    assert is_duplicate_take([0, 60], [[200, 260], [30, 90]])
+    assert not is_duplicate_take([0, 60], [[200, 260]])
+    assert not is_duplicate_take([0, 60], [])
+
+
+def test_reject_stage_plan_and_resume_step():
+    """반려 단계 → 어디서부터 다시 돌릴지(0021). 사람이 고른 단계가 자동 선택을 이긴다."""
+    from ves.adapters.aivideo import reject_plan, resolve_resume_step
+    assert reject_plan("영상 분석")["mode"] == "fresh"
+    assert reject_plan("스토리 구성") == {"mode": "resume", "from_step": "story", "eta": "15~25분"}
+    assert reject_plan("제작")["from_step"] == "render"
+    assert reject_plan("장면")["mode"] == "fresh"            # 0019 유형 호환
+    assert reject_plan(None)["mode"] == "fresh"              # 모르면 가장 안전한 쪽
+    # 완주한 run 의 체크포인트는 마지막 단계를 가리킨다 — 그걸 따르면 아무것도 다시 안 만든다
+    cps = ["checkpoint_story.json", "checkpoint_render.json", "checkpoint_validate.json"]
+    assert resolve_resume_step("story", cps) == "story"      # 사람 선택 우선
+    assert resolve_resume_step(None, cps) != "story"         # 죽은 잡 이어달리기는 자동 선택
+    assert resolve_resume_step(None, [], "render") == "render"
+
+
+def test_reject_note_reaches_engine_argv():
+    """반려 사유가 ai-video 의 --reject-note 로 넘어가야 프롬프트에 주입된다."""
+    from ves.adapters.aivideo import build_argv_pure
+    base_p = {"work_title": "작품", "source_url": "u"}
+    assert "--reject-note" not in build_argv_pure("py", base_p, None)
+    argv = build_argv_pure("py", {**base_p, "reject_note": "인물이 잘못 잡혔다"}, None)
+    assert argv[argv.index("--reject-note") + 1] == "인물이 잘못 잡혔다"
+
+
 def test_repin_caps_replaces_not_appends():
     """반려 재실행이 노드를 옮기면 핀도 옮겨가야 한다 — 쌓이면 claim 이 영구 불가."""
     from ves.agent.executor import repin_caps
