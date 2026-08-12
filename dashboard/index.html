@@ -328,6 +328,21 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .eprow{display:flex;align-items:center;gap:10px;font-size:12.5px;padding:3px 0;color:var(--ink-2)}
   .eprow .ep{flex:none;width:52px;font-variant-numeric:tabular-nums}
   .eprow .cnt{flex:none;width:44px;text-align:right;font-variant-numeric:tabular-nums}
+  /* v3.3: 회차 그룹 + 채널별 잔량 + 소진 수정 (0024) */
+  .epgrp{border-top:1px solid var(--line);padding:7px 0 4px}
+  .epgrp:first-of-type{border-top:0}
+  .ephd{display:flex;align-items:center;gap:8px;font-size:13px;flex-wrap:wrap}
+  .eprow.chrow{padding-left:12px}
+  .eprow .ep2{flex:none;width:108px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ednum{font-size:11.5px;color:var(--muted);display:inline-flex;align-items:center;gap:5px}
+  .ednum input,.eprow input[type=number]{width:58px;padding:3px 6px;font-size:12px;
+    text-align:right;font-variant-numeric:tabular-nums}
+  /* v3.3: 홈 채널 카드 — 작업 실행 (0024 run_channel_now) */
+  .runbar{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:9px;
+    padding-top:9px;border-top:1px solid var(--line)}
+  .runform{display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap;margin-top:8px}
+  .runform label{font-size:11.5px;color:var(--muted);display:flex;flex-direction:column;gap:3px}
+  .runform select{padding:5px 8px;font-size:12.5px;max-width:220px}
   .rjask{display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap}
   th.sortable{cursor:pointer;user-select:none}
   th.sortable:hover{color:var(--ink)}
@@ -484,7 +499,7 @@ const soft = p => p.then(r => r.error ? { data: [] } : r).catch(() => ({ data: [
 async function refresh(){
   if (!(await sb.auth.getSession()).data.session) return;
   const [nodes, deps, jobs, reviews, events, wos, srcs, chans,
-         arts, metas, judges, clips, snaps] = await Promise.all([
+         arts, metas, judges, clips, snaps, srcCh] = await Promise.all([
     sb.from("node_registry").select("*").order("node_id"),
     sb.from("deployments").select("*").order("engine"),
     sb.from("job_queue").select("id,work_order_id,kind,status,attempt,max_attempts,node_id,error,error_class,required_caps,params,run_after,created_at,updated_at,finished_at").order("updated_at",{ascending:false}).limit(150),
@@ -498,6 +513,9 @@ async function refresh(){
     soft(sb.from("judge_runs").select("clip_id,quality_score,confidence,rubric_scores,created_at").order("created_at",{ascending:false}).limit(200)),  // 0011
     soft(sb.from("clips").select("id,video_external_id,episode,duration_sec,created_at").order("created_at",{ascending:false}).limit(200)),           // 0011
     soft(sb.from("dashboard_daily_snapshots").select("*").order("snapshot_date",{ascending:false}).limit(7)),
+    // 0023: 채널별 소진. 소스 단위(source_usage)는 그대로 두고 옆에 붙인다 —
+    // 어느 채널에도 배정되지 않은 작품은 이 뷰에 안 나오므로 둘 다 필요하다.
+    soft(sb.from("source_usage_by_channel").select("*")),
   ]);
   const ovr = await soft(sb.from("channel_design_overrides").select("*"));   // 0014 이전엔 빈 배열
   const plans = await soft(sb.from("channel_plan_overrides").select("*"));   // 0016 이전엔 빈 배열
@@ -523,6 +541,7 @@ async function refresh(){
             planOvr:Object.fromEntries((plans.data||[]).map(o=>[o.token_slug,o])),
             worksOvr:Object.fromEntries((wovr.data||[]).map(o=>[o.token_slug,o])),
             snaps:snaps.data||[], runToClip, judgeByClip, clipById, artByWo, jobsByWo, reviewByWo,
+            srcCh:srcCh.data||[], eps:buildEpMap(srcs.data||[], srcCh.data||[]),
             wo:Object.fromEntries((wos.data||[]).map(w=>[w.id,w])),
             jobById:Object.fromEntries((jobs.data||[]).map(j=>[j.id,j])),
             legacyOk: !!(metas.data||[]).length || !!(clips.data||[]).length };
@@ -680,7 +699,8 @@ function renderHome(){
         <div class="dcol${gc === "none" ? " dim" : ""}"><span class="dcap">생성</span><span class="chdot ${gc}" title="${esc(gl)}"></span><span class="dlab">${esc(gl)}</span></div>
         <div class="dcol${pc === "none" ? " dim" : ""}"><span class="dcap">공개</span><span class="chdot ${pc}" title="${esc(pl)}"></span><span class="dlab">${esc(pl)}</span></div>
       </div></div>` +
-      (open && cur ? `<div class="bdetail">${chainHtml(cur)}</div>` : "");
+      (open ? `<div class="bdetail">${cur ? chainHtml(cur)
+              : '<span class="sub">최근 작업지시 없음</span>'}${runBox(ch.token_slug)}</div>` : "");
   }).join("");
   const snaps = (state.snaps||[]).map(s => {
     const k = (s.payload||{}).kpis || {};
@@ -721,6 +741,54 @@ function chainHtml(wo){
       return `<span class="chip st-${c}" title="${esc((x.error||"").slice(0,200))}">
         <span class="d"></span>${esc(kindKo(x.kind))} ${i} ${esc(l)}</span>`; }).join("") || '<span class="sub">잡 없음</span>'}</div>`;
 }
+
+// ───────── 홈: 채널 즉시 실행 (0024 run_channel_now) ─────────
+// 오늘 planner 가 만든 것과 '별개로 한 편 더'다(사용자 결정 8/12). 되돌리기가 아니라
+// 추가 생산이므로 기존 작업지시·검수 카드는 건드리지 않는다.
+let runOpen = null;   // 작품·회차 지정 폼이 열린 채널
+let runWork = "";     // 그 폼에서 고른 작품
+function runBox(slug){
+  if (EXT_PIPE[slug]) return "";                     // 전용 파이프라인(잔망루피)은 대상 아님
+  if (!can("operator"))
+    return '<div class="sub" style="margin-top:9px">작업 실행은 operator 권한이 필요합니다</div>';
+  const works = effWorks(slug);
+  const w     = works.includes(runWork) ? runWork : (works[0] || "");
+  const avail = e => epUsable(e) && epRemain(e, slug) > 0;
+  const auto  = w ? epsOf(w).find(avail) : null;
+  const eps   = w ? epsOf(w).filter(e => avail(e) && e.ep != null) : [];
+  const epLab = e => e.ep != null ? e.ep + "회차" : "단편";
+  const form  = runOpen !== slug ? "" : `
+    <div class="runform">
+      <label>작품<select onchange="runWork=this.value;render()">${
+        works.map(x => `<option value="${esc(x)}"${x === w ? " selected" : ""}>${esc(x)}</option>`)
+             .join("") || '<option value="">배정된 작품 없음</option>'}</select></label>
+      <label>회차<select id="runEp">
+        <option value="">자동 — ${auto ? esc(epLab(auto)) : "쓸 수 있는 회차 없음"}</option>
+        ${eps.map(e => `<option value="${e.ep}">${e.ep}회차 · 남음 ${epRemain(e, slug)}</option>`).join("")}
+      </select></label>
+      <button class="mini pri" data-slug="${esc(slug)}"
+        onclick="runNow(this.dataset.slug, runWork, document.getElementById('runEp').value)"
+        >이 설정으로 실행</button>
+    </div>`;
+  return `<div class="runbar">
+      <button class="mini pri" data-slug="${esc(slug)}"
+        onclick="armed(this,'작업 실행',()=>runNow(this.dataset.slug))">작업 실행</button>
+      <button class="mini" data-slug="${esc(slug)}"
+        onclick="runOpen = runOpen === this.dataset.slug ? null : this.dataset.slug; render()"
+        >작품·회차 지정</button>
+      <span class="sub">오늘 것과 별개로 한 편 더 만듭니다${
+        auto ? ` · 자동 선택: ${esc(w)} ${esc(epLab(auto))}` : " · 지금 쓸 수 있는 소스가 없습니다"}</span>
+    </div>${form}`;
+}
+window.runNow = async (slug, work, ep) => {
+  const { data, error } = await sb.rpc("run_channel_now", {
+    p_slug: slug, p_work: work || null,
+    p_episode: (ep === "" || ep == null) ? null : Number(ep), p_note: null });
+  if (error){ toast("작업 실행 거부: " + error.message, true); return; }
+  toast(`${data.channel} · ${data.work} ${data.episode != null ? data.episode + "회차" : "단편"}`
+        + ` — 잡 ${data.jobs}건 투입`);
+  runOpen = null; refresh();
+};
 
 // ───────── 검수함 (구 대시보드 검수 UX 계승: judge 참고표시·환각경고·반려유형) ─────────
 function judgeBox(run){
@@ -1064,64 +1132,153 @@ window.playFeed = async (woId, key, bucket) => {
   } catch(e){ toast("재생 실패: " + e.message, true); }
 };
 
-// ───────── 소스 (v3.2: 작품별 토글 그룹 + 사용량 게이지) ─────────
+// ───────── 소스 (v3.3: 회차 그룹 + 채널별 잔량 + 소진 직접 수정 — 0023·0024) ─────────
 let srcOpen = new Set();
 window.srcToggle = w => { srcOpen.has(w) ? srcOpen.delete(w) : srcOpen.add(w); render(); };
+
+// 이 채널이 실제로 맡은 작품 — 관제 수정본(0017) > channels.json 미러
+function effWorks(slug){
+  const o = (state.worksOvr||{})[slug];
+  return (o && o.works)
+      || ((state.chans||[]).find(c => c.token_slug === slug) || {}).works || [];
+}
+
+/* source_usage(파일 1행) + source_usage_by_channel(0023) → 회차 단위 지도.
+   한 회차에 파일 행이 여럿인 경우가 실제로 있다(혜미리예채파 5화 3행 · 샤먼:미신전 회차NULL 6행).
+   소진은 (작품, 회차)로 세므로 화면도 회차로 묶어야 숫자가 맞는다 — 종전엔 파일 행마다
+   한 줄씩 그려서 같은 회차가 여러 번 보이고 '남은 편수'도 그만큼 부풀었다. */
+function buildEpMap(srcs, byCh){
+  const map = {}, key = ep => ep == null ? "-" : String(ep);
+  (srcs||[]).forEach(r => {
+    const m = map[r.work_title] = map[r.work_title] || {};
+    const e = m[key(r.episode)] = m[key(r.episode)] ||
+      { work:r.work_title, ep:r.episode, limit:0, active:false, dur:null,
+        files:0, usedAny:0, ids:[], ch:{} };
+    e.limit   = Math.max(e.limit,   Number(r.use_limit)  || 0);
+    e.usedAny = Math.max(e.usedAny, Number(r.times_used) || 0);  // 전 채널 합(작품·회차 기준)
+    if (r.is_active !== false) e.active = true;
+    const d = Number(r.duration_sec); if (!e.dur && d > 0) e.dur = d;
+    e.files += 1; e.ids.push(r.source_id);
+  });
+  (byCh||[]).forEach(r => {
+    const e = (map[r.work_title] || {})[key(r.episode)]; if (!e) return;
+    e.ch[r.channel_slug] = { wo:Number(r.used_wo)||0, lg:Number(r.used_legacy)||0,
+                             used:Number(r.used_total)||0 };
+  });
+  return map;
+}
+const epsOf    = w => Object.values((state.eps||{})[w] || {})
+                        .sort((a,b) => (a.ep ?? 1e9) - (b.ep ?? 1e9));
+const epUsable = e => e.active && (e.dur == null || e.dur > 180);   // 3분 이하 미사용(8/12)
+const epUsed   = (e, slug) => (e.ch[slug] || {}).used || 0;
+const epRemain = (e, slug) => Math.max(0, e.limit - epUsed(e, slug));   // 0023: 소진은 채널별
+
+function epBlock(e, chs, editable){
+  const sid  = e.ids[0];
+  const lab  = e.ep != null ? e.ep + "회차" : "단편";
+  const mins = e.dur ? `<span class="sub">${Math.floor(e.dur/60)}분</span>` : "";
+  const nf   = e.files > 1 ? `<span class="sub">파일 ${e.files}개</span>` : "";
+  const dead = !e.active ? '<span class="sub">비활성</span>'
+             : (e.dur && e.dur <= 180 ? '<span class="sub">3분 이하 — 미사용</span>' : "");
+  const lim  = editable
+    ? `<label class="ednum" title="이 회차로 만들 편수 상한. 같은 회차의 파일 행 전부에 걸립니다">
+         한도<input type="number" min="0" max="20" value="${e.limit}"
+                   data-sid="${sid}" onchange="srcLimit(this)"></label>`
+    : `<span class="sub">한도 ${e.limit}</span>`;
+  const rows = chs.length ? chs.map(c => {
+    const s = c.token_slug, u = e.ch[s] || { wo:0, lg:0 };
+    const used = epUsed(e, s), remain = epRemain(e, s);
+    const pct  = e.limit ? Math.min(100, Math.round(used / e.limit * 100)) : 100;
+    const full = !epUsable(e) || remain === 0;
+    const box  = editable
+      ? `<input type="number" min="0" max="99" value="${used}" data-sid="${sid}"
+                data-ch="${esc(s)}" onchange="srcUsed(this)"
+                title="이 채널이 이 회차를 실제로 몇 번 썼는지. 발주 기록보다 낮게는 못 내립니다">`
+      : "";
+    return `<div class="eprow chrow"><span class="ep2" title="${esc(c.name)}">${esc(c.name)}</span>
+      <span class="gauge"><i class="${full ? "full" : ""}" style="width:${pct}%"></i></span>
+      <span class="cnt">${used}/${e.limit}</span>${box}
+      <span class="sub">발주 ${u.wo}${u.lg ? ` · 보정 ${u.lg}` : ""}${
+        full ? "" : ` · 남음 ${remain}`}</span></div>`;
+  }).join("")
+    : '<div class="eprow"><span class="sub">배정된 채널이 없어 소진되지 않습니다 — 채널 템플릿에서 작품을 배정하세요</span></div>';
+  return `<div class="epgrp"><div class="ephd"><b>${lab}</b>${mins}${nf}${dead}
+      <span class="right"></span>${lim}</div>${rows}</div>`;
+}
+
 function renderSources(){
-  const by = {};
-  (state.srcs||[]).forEach(r => (by[r.work_title] = by[r.work_title] || []).push(r));
-  // 며칠치 남았는가 = 남은 편수 ÷ 배정 채널 수(채널당 하루 1편). 마른 작품이 위로 온다.
-  const runway = w => {
-    const act = (by[w]||[]).filter(r => r.is_active !== false);
-    const rem = act.reduce((s,r) => s + Math.max(0, Number(r.remaining)||0), 0);
-    const ch = (state.chans||[]).filter(c => (c.works||[]).includes(w)).length;
-    return ch > 0 ? rem / ch : Infinity;
-  };
-  const works = Object.keys(by).sort((a,b) => (runway(a) - runway(b)) || a.localeCompare(b, "ko"));
+  const chOf = w => (state.chans||[]).filter(c => effWorks(c.token_slug).includes(w));
+  /* 며칠치 = 남은 편수 ÷ 배정 채널 수. source_watch(LOW_DAYS=3)가 보충 인입을 거는 기준과
+     같은 셈을 쓴다 — 거기는 채널 구분 없이 (use_limit − 전체 사용)으로 세므로 여기도 그렇게
+     센다. 그래야 '보충 인입 예약' 표시가 실제 동작과 어긋나지 않는다.
+     (채널별 실제 잔량은 아래 회차 상세에 채널마다 따로 나온다.)
+     작품이 30개·회차가 200개 넘으므로 정렬 비교자 안에서 다시 세지 않는다 — 한 번만 재고 쓴다. */
+  const info = {};
+  Object.keys(state.eps || {}).forEach(w => {
+    const eps = epsOf(w), chs = chOf(w);
+    const rem = eps.filter(epUsable).reduce((s,e) => s + Math.max(0, e.limit - e.usedAny), 0);
+    info[w] = { eps, chs, rem, days: chs.length ? rem / chs.length : Infinity };
+  });
+  const works = Object.keys(info)
+                  .sort((a,b) => (info[a].days - info[b].days) || a.localeCompare(b, "ko"));
+  const editable = can("operator");
+
   const blocks = works.map(w => {
-    const rows = by[w].slice().sort((a,b) => (a.episode??1e9) - (b.episode??1e9));
-    const act = rows.filter(r => r.is_active !== false);
-    const remainTot = act.reduce((s,r) => s + Math.max(0, Number(r.remaining)||0), 0);
-    const next = act.find(r => Number(r.remaining) > 0);
-    const chans = (state.chans||[]).filter(c => (c.works||[]).includes(w)).map(c => c.name);
-    const days = runway(w);   // 며칠치 남았나 — 3일치 이하면 자동 보충 인입이 걸린다
-    const head = remainTot === 0
+    const { eps, chs, rem, days } = info[w];
+    const head = rem === 0
       ? chip("crit","✕","전 회차 소진 — 보충 인입 대기 중")
       : days <= 3
-        ? chip("warn","!",`${remainTot}편 남음 · ${days === Infinity ? "" : Math.floor(days) + "일치 "}— 보충 인입 예약`)
-        : chip("good","✓",`앞으로 ${remainTot}편${days === Infinity ? "" : ` · ${Math.floor(days)}일치`}`);
-    const nextChip = next ? `<span class="pill">다음 사용: ${next.episode != null ? next.episode + "회차" : "단편"}</span>` : "";
+        ? chip("warn","!",`${rem}편 남음${days === Infinity ? "" : ` · ${Math.floor(days)}일치`} — 보충 인입 예약`)
+        : chip("good","✓",`앞으로 ${rem}편${days === Infinity ? "" : ` · ${Math.floor(days)}일치`}`);
+    const nexts = chs.map(c => {
+      const e = eps.find(x => epUsable(x) && epRemain(x, c.token_slug) > 0);
+      return `${c.name}: ${e ? (e.ep != null ? e.ep + "회차" : "단편") : "없음"}`;
+    }).join(" · ");
     const open = srcOpen.has(w);
-    const eps = !open ? "" : rows.map(r => {
-      const used = Number(r.times_used)||0, lim = Number(r.use_limit)||1;
-      const pct = Math.min(100, Math.round(used / lim * 100));
-      const full = r.is_active === false || Number(r.remaining) === 0;
-      const d = Number(r.duration_sec) || 0;            // 0022 이전엔 없음 — 그때는 표시 생략
-      const mins = d > 0 ? `<span class="sub">${Math.floor(d/60)}분</span>` : "";
-      const tag = r.is_active === false
-                ? (d > 0 && d <= 180
-                    ? '<span class="sub">3분 이하 — 미사용</span>' : '<span class="sub">비활성</span>')
-                : Number(r.remaining) === 0 ? '<span style="color:var(--crit)">소진</span>'
-                : (next && r.episode === next.episode ? '<span style="color:var(--good)">← 다음</span>' : "");
-      return `<div class="eprow"><span class="ep">${r.episode != null ? r.episode + "회차" : "단편"}</span>
-        <span class="gauge"><i class="${full ? "full" : ""}" style="width:${pct}%"></i></span>
-        <span class="cnt">${used}/${lim}</span>${mins}${tag}</div>`;
-    }).join("");
-    return `<div class="srcwork"><div class="swh" style="cursor:pointer" onclick="srcToggle('${esc(w).replace(/'/g,"\\'")}')">
+    return `<div class="srcwork">
+      <div class="swh" style="cursor:pointer" data-w="${esc(w)}" onclick="srcToggle(this.dataset.w)">
         <span class="sub">${open ? "▾" : "▸"}</span><b>${esc(w)}</b>
-        <span class="sub">${rows.length}개 회차</span>
-        ${chans.length ? `<span class="sub">→ ${esc(chans.join(", "))}</span>` : ""}
-        <span class="right"></span>${nextChip}${head}</div>${eps}</div>`;
+        <span class="sub">${eps.length}개 회차</span>
+        ${chs.length ? `<span class="sub">→ ${esc(chs.map(c => c.name).join(", "))}</span>`
+                     : '<span class="sub">배정 채널 없음</span>'}
+        <span class="right"></span>
+        ${nexts ? `<span class="pill" title="채널별 다음 사용 회차">다음 ${esc(nexts)}</span>` : ""}
+        ${head}</div>
+      ${open ? eps.map(e => epBlock(e, chs, editable)).join("") : ""}</div>`;
   }).join("");
+
   $("#page").innerHTML = `<section class="card">
-    <h2>소스 창고 — 작품명을 누르면 회차별 상세가 열립니다
+    <h2>소스 창고 — 작품명을 누르면 회차별·채널별 잔량이 열립니다
       <button class="mini right" onclick="srcAll()">모두 ${srcOpen.size ? "접기" : "펼치기"}</button></h2>
-    ${blocks || '<div class="empty">등록된 소스 없음 — 유튜브형은 자동, 파일형은 메인 맥에서 deploy/register_source.py 로 등록</div>'}</section>`;
+    <div class="sub" style="margin-bottom:8px">소진은 채널별로 셉니다(0023) — 같은 회차를 두 채널이
+      각자 한도만큼 씁니다. <b>한도</b>는 그 회차로 만들 편수 상한(등록 시 길이로 자동 결정: 10분 미만 1
+      · 10~30분 2 · 30분↑ 3), <b>쓴 수</b>는 그 채널이 실제로 쓴 합계(발주 기록 + 레거시 보정)입니다.
+      ${editable ? "숫자를 고치면 바로 저장됩니다." : "수정은 operator 권한이 필요합니다."}</div>
+    ${(state.srcs||[]).length && !(state.srcCh||[]).length
+      ? `<div class="sub" style="color:var(--serious);margin-bottom:8px">⚠ 채널별 소진
+         (source_usage_by_channel)을 못 읽었습니다 — 아래 채널 숫자는 0으로 보입니다. 0023·0024
+         적용 여부와 읽기 권한을 확인하세요.</div>` : ""}
+    ${blocks || '<div class="empty">등록된 소스 없음 — 유튜브형은 자동, 파일형은 메인 맥에서 deploy/register_source.py 로 등록</div>'}
+    </section>`;
 }
 window.srcAll = () => {
-  const ws = [...new Set((state.srcs||[]).map(r => r.work_title))];
-  srcOpen = srcOpen.size ? new Set() : new Set(ws);
+  srcOpen = srcOpen.size ? new Set() : new Set(Object.keys(state.eps || {}));
   render();
+};
+window.srcLimit = el => {
+  const v = parseInt(el.value, 10);
+  if (!Number.isInteger(v) || v < 0 || v > 20){
+    toast("한도는 0~20 사이 정수여야 합니다", true); refresh(); return; }
+  rpc("set_source_limit", { p_source: el.dataset.sid, p_limit: v }, `한도 ${v}편으로 저장`)
+    .then(r => { if (r === null) refresh(); });   // 거부되면 입력칸을 실제 값으로 되돌린다
+};
+window.srcUsed = el => {
+  const v = parseInt(el.value, 10);
+  if (!Number.isInteger(v) || v < 0){
+    toast("쓴 수는 0 이상 정수여야 합니다", true); refresh(); return; }
+  rpc("set_source_used",
+      { p_source: el.dataset.sid, p_channel: el.dataset.ch, p_used: v }, `쓴 수 ${v}로 저장`)
+    .then(r => { if (r === null) refresh(); });
 };
 
 // ───────── 채널 템플릿 (0014: 관제 오버라이드 > 파일 정본, 저장 즉시 다음 생성부터) ─────────

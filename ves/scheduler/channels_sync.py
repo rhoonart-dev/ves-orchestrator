@@ -41,20 +41,25 @@ def run(conn, cfg):
 
     with conn.cursor() as c:
         for r in upserts:
+            # country·pipeline 도 미러한다(0024) — 관제 '작업 실행' RPC 가 파이프라인을
+            # SQL 에서 판정해야 한다. 종전엔 channels.json 만 알아서, RPC 는 JP 인지
+            # 전용 파이프라인(잔망루피)인지 알 수 없었다.
             c.execute(
                 """INSERT INTO public.channels_mirror
                        (token_slug, name, channel_id, gcp_project, geoblock_capable, works,
-                        design, synced_sha, synced_at)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s,now())
+                        design, country, pipeline, synced_sha, synced_at)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s,now())
                    ON CONFLICT (token_slug) DO UPDATE SET
                        name=EXCLUDED.name, channel_id=EXCLUDED.channel_id,
                        gcp_project=EXCLUDED.gcp_project,
                        geoblock_capable=EXCLUDED.geoblock_capable,
                        works=EXCLUDED.works, design=EXCLUDED.design,
+                       country=EXCLUDED.country, pipeline=EXCLUDED.pipeline,
                        synced_sha=EXCLUDED.synced_sha, synced_at=now()""",
                 (r["token_slug"], r.get("name"), r.get("channel_id"), r.get("gcp_project"),
                  bool(r.get("geoblock_capable")), r.get("works") or [],
                  json.dumps(r["design"], ensure_ascii=False) if r.get("design") is not None else None,
+                 r.get("country"), r.get("pipeline"),
                  sha))
         for slug in deletes:
             c.execute("DELETE FROM public.channels_mirror WHERE token_slug=%s", (slug,))

@@ -693,3 +693,76 @@ def test_storage_4xx_permanent_except_429():
     assert not _is_permanent_storage_error("storage upload 429: rate limited")
     assert not _is_permanent_storage_error("storage upload 544: DatabaseTimeout")
     assert not _is_permanent_storage_error("Connection reset by peer")
+
+
+# ── 0024: 관제 '작업 실행' + 소스 소진 수정 (사용자 요청 8/12) ──
+def _mig(name):
+    import pathlib
+    return pathlib.Path("ves/control/migrations", name).read_text(encoding="utf-8")
+
+
+def test_planner_keeps_daily_idempotence_without_on_conflict():
+    """0024 부터 유일 제약이 origin='planner' 부분 인덱스다 — ON CONFLICT (4컬럼) 은
+    그 인덱스를 추론하지 못한다. 존재 검사로 바뀌었는지, origin 을 박는지 본다."""
+    import inspect
+    from ves.scheduler import planner
+    src = inspect.getsource(planner._create_work_order)
+    wo_insert = src.split("job_queue", 1)[0]      # 잡 큐 쪽 ON CONFLICT(멱등키)는 그대로 쓴다
+    assert "ON CONFLICT (service_date" not in src, "부분 유니크 인덱스는 ON CONFLICT 추론 불가"
+    assert "NOT EXISTS" in wo_insert
+    assert "'planner'" in wo_insert and "w.origin" in wo_insert
+
+
+def test_channels_sync_mirrors_country_and_pipeline():
+    """run_channel_now 가 SQL 안에서 파이프라인을 판정하려면 미러에 두 컬럼이 있어야 한다."""
+    import inspect
+    from ves.scheduler import channels_sync
+    sql = inspect.getsource(channels_sync.run)
+    assert "country" in sql and "pipeline" in sql
+    assert 'r.get("country")' in sql and 'r.get("pipeline")' in sql
+
+
+def test_manual_run_chain_matches_planner():
+    """관제 '작업 실행'의 잡 체인이 planner.job_chain 과 어긋나면 같은 일을 두 곳에서
+    다르게 만들게 된다 — 캡이 틀리면 산출물 없는 맥에서 즉사하고, lease 가 짧으면
+    reaper 가 산 잡을 회수한다(8/12 현지화 무한반복 사고)."""
+    import re
+    from ves.scheduler import planner
+    sql = _mig("0024_manual_run_and_source_edit.sql")
+    chain = planner.job_chain({"work_title": "W", "episode": 1, "channel_slug": "S",
+                               "channel_name": "N", "pipeline": "shorts_jp_localized"})
+    assert [k for k, *_ in chain] == ["acquire", "generate", "upload_artifacts",
+                                      "ingest", "evaluate", "localize"]
+    body = re.sub(r"\s+", " ", sql.split("FOR v_step IN", 1)[1].split(") AS t(kind", 1)[0])
+    for i, (kind, _p, caps, ttl) in enumerate(chain, start=1):
+        pat = ("'" + re.escape(kind) + r"'(?:::text)?.*?ARRAY\["
+               + ", ".join("'" + c + "'" for c in caps)
+               + r"\](?:::text\[\])?, *" + str(ttl) + r"(?:::int)?, *" + str(i) + r"(?:::int)?\)")
+        assert re.search(pat, body), f"{kind} 체인이 0024 SQL 과 다르다"
+    # KR 채널은 localize 가 빠져야 한다
+    assert "t.kind <> 'localize' OR v_pipe = 'shorts_jp_localized'" in sql
+    # 사람이 눌러 기다리는 일 — claim 은 priority DESC 라 100 보다 커야 앞선다
+    assert re.search(r"v_step\.ttl,\s*\n?\s*150\)", sql)
+
+
+def test_source_edit_rpcs_are_episode_scoped():
+    """한 회차에 파일 행이 여럿이다(혜미리예채파 5화 3행 실측). 한 행만 고치면 소진 셈
+    (작품·회차 기준)과 어긋나 사람이 기대한 대로 안 움직인다."""
+    sql = _mig("0024_manual_run_and_source_edit.sql")
+    lim = sql.split("FUNCTION public.set_source_limit", 1)[1].split("$$;", 1)[0]
+    assert "UPDATE public.sources s SET use_limit" in lim
+    assert "s.episode IS NOT DISTINCT FROM v_s.episode" in lim
+    assert "WHERE id = p_source" not in lim.split("UPDATE", 1)[1]   # 단일 행 갱신이면 실패
+    used = sql.split("FUNCTION public.set_source_used", 1)[1].split("$$;", 1)[0]
+    assert "p_used < v_wo" in used            # 발주 기록 아래로는 못 내린다(이중장부 방지)
+    assert "DELETE FROM public.source_usage_legacy" in used   # 0 이면 보정 행을 지운다
+
+
+def test_migration_0024_restores_view_security():
+    """0022 의 CREATE OR REPLACE VIEW 가 security_invoker 를 날려 anon 이 소스 창고를
+    통째로 읽고 있었다(실측 248행). anon key 는 대시보드에 박힌 공개값이다."""
+    sql = _mig("0024_manual_run_and_source_edit.sql")
+    for v in ("source_usage", "source_usage_by_channel"):
+        assert f"ALTER VIEW public.{v}" in sql and "security_invoker = true" in sql
+        assert f"REVOKE ALL ON public.{v}" in sql
+    assert "GRANT SELECT ON public.source_usage_by_channel TO authenticated" in sql

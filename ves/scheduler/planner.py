@@ -207,18 +207,30 @@ def _geoblock_required(cfg, work) -> bool:
 
 
 def _create_work_order(conn, cfg, today, ch, work, src) -> bool:
+    # R7(하루 채널당 1건) 은 그대로다. 다만 0024 부터 유일 제약이 origin='planner' 행에만 걸린다 —
+    # 관제 '작업 실행'(origin='manual')이 같은 날 한 편 더 넣을 수 있어야 하기 때문이다.
+    # 부분 유니크 인덱스는 ON CONFLICT (4컬럼) 으로 추론되지 않으므로 존재 검사로 바꾼다.
+    # 경합은 여전히 인덱스가 막는다(스케줄러는 advisory lock 으로 한 대만 도니 실사용상 단독).
     with conn.cursor() as c:
         c.execute(
             """INSERT INTO public.work_orders
                    (service_date, channel_slug, work_title, episode, source_sha256,
-                    source_url, pipeline, geoblock_required, has_subtitle)
-               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
-               ON CONFLICT (service_date, channel_slug, work_title, pipeline) DO NOTHING
+                    source_url, pipeline, geoblock_required, has_subtitle, origin)
+               SELECT %(day)s,%(slug)s,%(work)s,%(ep)s,%(sha)s,%(url)s,%(pipe)s,%(geo)s,%(sub)s,
+                      'planner'
+                WHERE NOT EXISTS (SELECT 1 FROM public.work_orders w
+                                   WHERE w.service_date  = %(day)s
+                                     AND w.channel_slug  = %(slug)s
+                                     AND w.work_title    = %(work)s
+                                     AND w.pipeline      = %(pipe)s
+                                     AND w.origin        = 'planner')
                RETURNING id""",
-            (today, ch["token_slug"], work, src.get("episode"), src.get("sha256"),
-             src.get("source_url"),   # 0012: URL 소스(laeebly 유튜브형 이관)
-             pipeline_for(ch),
-             _geoblock_required(cfg, work), bool(src.get("has_subtitle"))))
+            {"day": today, "slug": ch["token_slug"], "work": work,
+             "ep": src.get("episode"), "sha": src.get("sha256"),
+             "url": src.get("source_url"),   # 0012: URL 소스(laeebly 유튜브형 이관)
+             "pipe": pipeline_for(ch),
+             "geo": _geoblock_required(cfg, work),
+             "sub": bool(src.get("has_subtitle"))})
         row = c.fetchone()
     if row is None:
         return False   # R7 — 오늘 이미 있음(planner 재실행 멱등)
