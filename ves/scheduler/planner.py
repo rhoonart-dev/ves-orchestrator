@@ -37,15 +37,11 @@ def job_chain(wo: dict) -> list:
     """work_order → 잡 목록(kind, params, caps, lease, 의존은 순번). 순수 — 테스트 대상."""
     p_common = {"work_title": wo["work_title"], "episode": wo.get("episode"),
                 "channel_slug": wo["channel_slug"], "channel_name": wo["channel_name"]}
-    jp_convert = str(wo.get("localize_level") or "").upper() == "J"
+    # scene_rerender 컷오버(8/13): JP 채널도 generate 는 기본(완전) 렌더 — 재렌더가
+    # 체크포인트에서 일본어판을 새로 그리므로 '내용만 생성' 플래그가 필요 없다.
     gen = {**p_common, "source_sha256": wo.get("source_sha256"),
            "source_url": wo.get("source_url"), "max_shorts": 1,
-           # 등급 J(8/13 사용자 결정): ai-video 는 텍스트(자막·TTS자막)를 얹기 직전까지만.
-           # 한국어 자막을 만들었다 지우는 게 아니라 처음부터 안 그린다 — 번역·렌더는 vlp.
-           # 제목(top_title)만은 스킵 플래그가 없어 vlp 가 밴드 재블러로 교체한다.
-           "no_subtitles": True if jp_convert else not wo.get("has_subtitle", False),
-           **({"no_tts_subtitles": True, "no_title_overlay": True,
-               "no_tts_audio": True} if jp_convert else {}),
+           "no_subtitles": not wo.get("has_subtitle", False),
            "flags": wo.get("knob_config") or {},
            "resource": f"gemini:{wo.get('gcp_project') or 'DEFAULT'}",
            "outdir": "outputs"}
@@ -58,21 +54,15 @@ def job_chain(wo: dict) -> list:
         ("evaluate",         dict(p_common),                                   ["analyze"], 120),
     ]
     if wo.get("pipeline") == "shorts_jp_localized":
-        # 현지화 등급(사용자 결정 8/12) — 채널마다 다르다. video-localization config levels:
-        #   A  = 자막 트랙만(인페인트·더빙 없음)
-        #   B  = 번인 텍스트 제거 후 일본어 재합성(LaMa 가중치 필요·느림)
-        #   BJ = 번인 유지 + 일본어 병기(겹치지 않게) — 인페인트·더빙 없음  ← ショトコン
-        #   C  = B + 더빙                                                  ← 잔망루피
-        # 종전엔 전 JP 채널이 B 로 고정이었다. ops_config.localize_levels 로 채널별로 정한다.
-        loc = {**p_common, "level": wo.get("localize_level") or "B"}
-        # 인페인트 백엔드(8/13): 비우면 config mode_by_content.default=lama 를 집는데
-        # mm-06 에 LaMa 가중치가 없어 make_inpainter 가 즉사한다. opencv 는 무가중치다.
-        if wo.get("localize_backend"):
-            loc["backend"] = wo["localize_backend"]
-        # 더빙 목소리 — 채널별. 안 실으면 dub 이 전역 config(잔망루피 클론 보이스)로 떨어진다.
-        if wo.get("localize_voice"):
-            loc["voice_id"] = wo["localize_voice"]
-        chain.append(("localize", loc, ["localize"], LOCALIZE_LEASE))
+        # scene_rerender 컷오버(2026-08-13 사용자 결정): ai-video 생성분은 mm-06 GPU
+        # 후처리(level B)도, mm-06 convert_short(등급 J)도 아니라 **생성 노드에서**
+        # job 디렉토리를 재렌더한다 — 체크포인트의 텍스트를 일본어로 갈아끼우고 클린 렌더.
+        # 캡 "generate"(+generate 완료 시 node:* 핀) — job 디렉토리·원본 소스가 그 노드에만 있다.
+        # "localize" 캡(mm-06)은 zanmang_daily 등 완성-mp4 파이프라인 전용으로 남는다.
+        # (등급 J convert_short 경로는 어댑터에 남아 있다 — run_channel_now 수동 체인이
+        #  0030 으로 갱신될 때까지의 과도기 + 롤백 대비.)
+        chain.append(("localize", {**p_common, "mode": "scene_rerender"},
+                      ["generate"], LONG_LEASE))
     return chain
 
 

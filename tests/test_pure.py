@@ -357,8 +357,9 @@ def test_effective_caps_adds_self_tag_once():
 
 def test_pin_dependent_kinds_cover_local_readers():
     from ves.adapters import aivideo
-    # upload=글롭 · ingest/evaluate=--run-dir — 로컬 읽기 3종 전부 고정 대상이어야 한다
-    assert set(aivideo.PIN_DEPENDENT_KINDS) == {"upload_artifacts", "ingest", "evaluate"}
+    # upload=글롭 · ingest/evaluate=--run-dir · localize(scene_rerender)=--job-dir
+    # — run_dir 를 로컬에서 읽는 kind 전부 고정 대상이어야 한다
+    assert set(aivideo.PIN_DEPENDENT_KINDS) == {"upload_artifacts", "ingest", "evaluate", "localize"}
 
 
 def test_drive_balance_moves_backlog_to_idle_node():
@@ -476,13 +477,16 @@ def test_youtube_sources_numbered_oldest_first():
 
 
 def test_localize_lease_long_enough():
-    """수십 분짜리 인페인팅을 5분 lease 로 돌리면 reaper 가 산 잡을 회수한다(8/12 실측)."""
+    """scene_rerender 컷오버(8/13): localize 는 생성 노드 재렌더 — generate 와 같은
+    LONG_LEASE(갱신 스레드가 연장). LOCALIZE_LEASE(3600)는 mm-06 완성-mp4 경로의
+    역사적 근거로 남는다(8/12 lease 실측)."""
     from ves.scheduler import planner
     assert planner.LOCALIZE_LEASE >= 3600 > planner.LONG_LEASE
     chain = planner.job_chain({"pipeline": "shorts_jp_localized", "work_title": "작품",
                                "channel_slug": "SHOTCONE", "channel_name": "ショトコン"})
     loc = [c for c in chain if c[0] == "localize"]
-    assert loc and loc[0][3] == planner.LOCALIZE_LEASE
+    assert loc and loc[0][3] == planner.LONG_LEASE
+    assert loc[0][2] == ["generate"]                    # 캡 — mm-06 아니라 생성 노드
     gen = [c for c in chain if c[0] == "generate"]
     assert gen and gen[0][3] == planner.LONG_LEASE      # generate 는 종전 그대로
 
@@ -840,12 +844,11 @@ def test_manual_run_chain_matches_planner():
     assert "'manual:' ||" in sql
     # 대시보드 작업 실행 성공 토스트가 읽는 키 — 빠지면 "undefined" 가 뜬다
     assert "'channel', v_ch.name" in sql
-    # 현지화 등급·백엔드·목소리 — 안 실으면 B 로 떨어져 mm-06 에서 즉사한다(0026 실측)
-    assert "'level', v_lv" in sql
-    assert "'backend', v_bk" in sql and "'voice_id', v_vo" in sql
-    # 등급 J 는 generate 에서 텍스트를 처음부터 안 그린다 — planner.job_chain 과 1:1
+    # scene_rerender 컷오버(0031) — localize 는 mode 하나로 라우팅된다
+    assert "'mode', 'scene_rerender'" in sql
+    # 등급 J 플래그가 되살아나면 generate 가 내용만 만들고 재렌더 원료가 빈다
     for flag in ("no_tts_subtitles", "no_title_overlay", "no_tts_audio"):
-        assert flag in sql, f"등급 J 플래그 {flag} 가 빠졌다"
+        assert flag not in sql, f"등급 J 플래그 {flag} 가 남아 있다(0031 이후 금지)"
 
 
 def test_legacy_waterfall_matches_between_python_and_sql():
@@ -1033,31 +1036,29 @@ def test_localize_level_per_channel():
     assert localize_level_for("모르는채널", lv) == "B"                     # 기본 B
     assert localize_level_for("X", {"X": "더빙"}) == "B"                   # 이상값 → 안전측
     assert localize_level_for("X", None) == "B" and localize_level_for("X", {}) == "B"
-    # 체인 params 로 실제로 실린다
+    # scene_rerender 컷오버(8/13): planner 체인의 localize 는 등급이 아니라 mode 다.
+    # 등급은 zanmang_daily 등 완성-mp4 경로(어댑터 레거시)에만 남는다.
     wo = {"work_title": "혜미리예채파", "episode": 5, "channel_slug": "SHOTCONE",
           "channel_name": "ショトコン", "pipeline": "shorts_jp_localized",
           "localize_level": "B"}
     loc = dict((k, p) for k, p, *_ in job_chain(wo))["localize"]
-    assert loc["level"] == "B"
-    assert dict((k, p) for k, p, *_ in job_chain({**wo, "localize_level": "C"}))["localize"]["level"] == "C"
-    # 설정 없으면 종전 동작(B) — 조용히 더빙으로 올라가지 않는다
-    assert dict((k, p) for k, p, *_ in job_chain({**wo, "localize_level": None}))["localize"]["level"] == "B"
+    assert loc["mode"] == "scene_rerender" and "level" not in loc
+    # 등급 설정이 없어도 체인은 동일 — mode 하나로 정해진다
+    assert dict((k, p) for k, p, *_ in job_chain({**wo, "localize_level": None}))["localize"]["mode"] == "scene_rerender"
 
 
 # ── 8/13: 채널별 인페인트 백엔드·더빙 목소리 + VES 경로 더빙 배선 ──
 def test_localize_params_carry_backend_and_voice():
-    """실측 8/12: backend 를 안 실으면 config mode_by_content.default=lama 를 집는데
-    mm-06 에 가중치가 없어 make_inpainter 가 즉사한다. opencv 는 무가중치."""
+    """scene_rerender 컷오버(8/13): planner 체인은 backend/voice_id 를 싣지 않는다 —
+    재렌더 엔진이 자기 config 로 정한다. 등급 설정이 있어도 mode 가 이긴다
+    (level 이 섞여 들어가면 어댑터가 완성-mp4 경로로 오라우팅될 수 있다)."""
     from ves.scheduler.planner import job_chain
     wo = {"work_title": "혜미리예채파", "episode": 2, "channel_slug": "SHOTCONE",
           "channel_name": "ショトコン", "pipeline": "shorts_jp_localized",
           "localize_level": "C", "localize_backend": "opencv", "localize_voice": "V123"}
     loc = dict((k, p) for k, p, *_ in job_chain(wo))["localize"]
-    assert loc["level"] == "C" and loc["backend"] == "opencv" and loc["voice_id"] == "V123"
-    # 설정이 없으면 키 자체를 안 싣는다 — 어댑터·엔진의 기본값을 덮지 않는다
-    bare = dict((k, p) for k, p, *_ in job_chain({**wo, "localize_backend": None,
-                                                  "localize_voice": None}))["localize"]
-    assert "backend" not in bare and "voice_id" not in bare
+    assert loc["mode"] == "scene_rerender"
+    assert "level" not in loc and "backend" not in loc and "voice_id" not in loc
 
 
 def test_localize_runs_dub_only_for_dubbing_levels():
@@ -1113,19 +1114,24 @@ def test_upload_artifacts_ships_edit_plan():
 
 
 def test_level_j_generates_without_text_overlays():
-    """8/13 사용자 결정: ai-video 는 텍스트(자막·TTS자막)를 얹기 직전까지만 —
-    한국어 자막을 만들었다 지우는 게 아니라 처음부터 안 그린다. KR 채널은 무변경."""
+    """scene_rerender 컷오버(8/13): planner 는 더 이상 등급 J 의 '내용만 생성' 플래그를
+    발행하지 않는다 — 재렌더가 체크포인트에서 일본어판을 새로 그리므로 generate 는
+    완전 렌더다. 어댑터의 플래그 매핑 능력은 남는다(과도기 수동 체인·롤백 대비)."""
     from ves.adapters.aivideo import build_argv_pure
     from ves.scheduler.planner import job_chain
     wo = {"work_title": "혜미리예채파", "episode": 3, "channel_slug": "SHOTCONE",
           "channel_name": "ショトコン", "pipeline": "shorts_jp_localized",
           "localize_level": "J", "has_subtitle": True}
     gen = dict((k, p) for k, p, *_ in job_chain(wo))["generate"]
-    assert gen["no_subtitles"] is True and gen["no_tts_subtitles"] is True
-    assert gen["no_title_overlay"] is True and gen["no_tts_audio"] is True   # J v2(8/13)
-    argv = build_argv_pure("/py", gen, "/cache/x")
-    assert "--no-subtitles" in argv and "--no-tts-subtitles" in argv
-    assert "--no-title-overlay" in argv and "--no-tts-audio" in argv
+    assert gen["no_subtitles"] is False                 # has_subtitle=True → 자막 켬(완전 렌더)
+    for k in ("no_tts_subtitles", "no_title_overlay", "no_tts_audio"):
+        assert k not in gen, f"planner 가 {k} 를 다시 발행한다(컷오버 위반)"
+    # 어댑터는 params 에 실려오면 여전히 CLI 로 넘긴다 — 수동 J 체인 호환
+    argv = build_argv_pure("/py", {**gen, "no_tts_subtitles": True,
+                                   "no_title_overlay": True, "no_tts_audio": True},
+                           "/cache/x")
+    assert "--no-tts-subtitles" in argv and "--no-title-overlay" in argv \
+        and "--no-tts-audio" in argv
     kr = dict((k, p) for k, p, *_ in job_chain(
         {**wo, "pipeline": "shorts_kr", "localize_level": None}))["generate"]
     assert "no_tts_subtitles" not in kr and kr["no_subtitles"] is False

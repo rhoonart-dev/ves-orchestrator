@@ -238,6 +238,12 @@ def _pin_dependents(conn, job, ad) -> None:
                           ) || ARRAY[%s]::text[],
                           updated_at = now()
                     WHERE work_order_id=%s AND kind = ANY(%s) AND status='pending'
+                      -- localize 는 scene_rerender 모드만 고정한다(8/13). 등급 J·B 잡은
+                      -- required_caps 가 ['localize'](mm-06 전용)라, 생성 노드 핀이 붙으면
+                      -- ['localize','node:mm-0X'] 를 만족하는 워커가 없어 영구 교착 —
+                      -- 위 docstring 의 8/12 숏테토칩 실측과 같은 모양이 된다.
+                      AND (kind <> 'localize'
+                           OR params->>'mode' = 'scene_rerender')
                       AND (
                             EXISTS (SELECT 1
                                       FROM unnest(coalesce(required_caps,'{}'::text[])) AS u(c)
