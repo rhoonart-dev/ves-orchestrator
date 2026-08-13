@@ -1481,7 +1481,7 @@ def test_min_duration_has_one_rule_everywhere():
     하나라도 180 을 직접 들고 있으면 작품별 하한이 그 경로에서만 무시된다."""
     import inspect
     from ves.scheduler import planner
-    mig = _mig("0031_work_card_min_duration.sql")
+    mig = _mig("0032_work_card_min_duration.sql")
     assert "CREATE OR REPLACE FUNCTION public.source_min_duration" in mig
     assert "min_source_duration_sec" in mig
     # planner 는 SQL 정본 함수를 쓴다
@@ -1494,16 +1494,42 @@ def test_min_duration_has_one_rule_everywhere():
     pick = body.split("IF NOT v_found", 1)[0]
     assert "public.source_min_duration(s2.work_title)" in pick
     assert "> 180" not in pick, "run_channel_now 에 하한이 하드코딩돼 있다"
-    # 0029 가 복구한 것들을 0031 이 또 흘리지 않았는지
-    for must in ("'manual:' ||", "'channel', v_ch.name", "'level', v_lv", "free_before"):
-        assert must in body, f"0031 재정의에서 유실: {must}"
+    # 앞선 판이 넣은 것을 뒤 판이 또 흘리지 않았는지 — run_channel_now 는 지금까지
+    # 0024→0027→0029→0031(scene_rerender)→0032 로 다섯 번 통째로 다시 쓰였고,
+    # 그때마다 앞 판의 수정이 하나씩 사라졌다. 라이브 정의에 전부 살아 있어야 한다.
+    for must in ("'manual:' ||", "'channel', v_ch.name", "free_before",      # 0029 복구분
+                 "'mode', 'scene_rerender'"):                                 # 0031 컷오버
+        assert must in body, f"run_channel_now 재정의에서 유실: {must}"
     assert re_search_priority(body), "priority 150 이 유실됐다"
+    # 0031 이 등급 J 플래그를 걷어냈다 — 0029 판을 기반으로 다시 쓰면 되살아난다
+    assert "no_tts_subtitles" not in body, "0031 이 제거한 등급 J 플래그가 되살아났다"
     # 뷰 2개가 usable 을 내려준다 — 대시보드가 숫자를 알 필요가 없다
     assert mig.count("AS usable") == 2
     assert mig.count("security_invoker = true") == 2
     # 등록 경로는 base 정본
     import ves.adapters.register_sources as rs
     assert "base.is_usable(dur, min_duration)" in inspect.getsource(rs.plan_rows)
+
+
+def test_no_two_migrations_redefine_the_same_object():
+    """🛑 같은 객체를 두 파일이 재정의하면 나중 것이 앞엣것을 통째로 되돌린다.
+
+    번호가 같으면 특히 위험하다 — 적용 순서도 _live_mig 의 선택도 알파벳순이라
+    사람이 의도한 순서와 무관해진다. 실제로 0031 이 두 개가 될 뻔했다:
+    scene_rerender 컷오버(run_channel_now 를 새 체인으로)와 길이 하한이 같은 번호를
+    썼고, 뒤엣것이 앞엣것의 체인 변경을 통째로 되돌리는 상태였다.
+    (번호가 다른 재정의는 정상이다 — 0024→0027→0029→0031→0032 처럼 쌓인다)"""
+    import collections
+    import pathlib
+    import re
+    seen = collections.defaultdict(set)
+    for p in sorted(pathlib.Path("ves/control/migrations").glob("*.sql")):
+        for m in re.finditer(r"CREATE OR REPLACE (?:FUNCTION|VIEW)\s+(public\.\w+)",
+                             p.read_text(encoding="utf-8")):
+            seen[(p.name[:4], m.group(1))].add(p.name)
+    clash = {f"{num} {obj}": sorted(files) for (num, obj), files in seen.items()
+             if len(files) > 1}
+    assert not clash, f"같은 번호의 두 파일이 같은 객체를 재정의한다: {clash}"
 
 
 def re_search_priority(s):

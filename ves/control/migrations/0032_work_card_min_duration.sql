@@ -1,5 +1,10 @@
 -- =====================================================================
--- 0031_work_card_min_duration.sql — 작품별 소스 길이 하한 (2026-08-13)
+-- 0032_work_card_min_duration.sql — 작품별 소스 길이 하한 (2026-08-13)
+--
+-- ⚠ 번호 주의: 0031 은 scene_rerender 컷오버가 먼저 썼다. 이 파일은 그 위에 얹는다 —
+--   run_channel_now 는 **0031 판을 기반으로** 하한만 바꿨다(scene_rerender 체인·
+--   localize 캡 generate·ttl 300 을 그대로 보존). 0029 판을 기반으로 하면 그 컷오버가
+--   통째로 되돌아간다.
 --
 -- 왜: 레거시 works.json 은 작품마다 다른 하한을 요구했다 — 놀토·도깨비·언더커버셰프
 -- 600s, 산지직송·스레파 500s, 커리어데이·B급 300s. 0027 은 3분(180s) 일괄이라
@@ -98,9 +103,10 @@ SELECT s.id                AS source_id,
 GRANT SELECT ON public.source_usage_by_channel TO authenticated;
 
 -- =====================================================================
--- run_channel_now — 0029 판 그대로에 하한만 정본 함수로 바꾼다.
--- (0029 가 복구한 priority 150 · 멱등키 'manual:' · 반환 'channel' · 현지화 level ·
---  free_before 차감은 손대지 않았다 — 생성 시 자동 대조했다)
+-- run_channel_now — **0031(scene_rerender 컷오버) 판** 그대로에 하한만 정본 함수로.
+-- (0031 의 scene_rerender 체인·localize 캡 generate·ttl 300, 0029 가 복구한
+--  priority 150 · 멱등키 'manual:' · 반환 'channel' · free_before 차감 모두
+--  손대지 않았다 — 생성 시 자동 대조했다)
 -- =====================================================================
 CREATE OR REPLACE FUNCTION public.run_channel_now(
     p_slug text, p_work text DEFAULT NULL, p_episode integer DEFAULT NULL,
@@ -249,28 +255,19 @@ BEGIN
     -- generate params — planner.job_chain 의 gen 과 1:1.
     -- 등급 J(8/13): ai-video 는 텍스트를 얹기 직전까지만. 한국어 자막을 만들었다 지우는 게
     -- 아니라 처음부터 안 그린다 — 번역·렌더는 vlp 가 한다.
+    -- generate params — planner.job_chain 과 1:1. scene_rerender 컷오버(0031):
+    -- JP 채널도 기본(완전) 렌더 — 재렌더가 체크포인트에서 일본어판을 새로 그린다.
     v_gen := v_common || jsonb_build_object(
                  'source_sha256', v_src.sha256, 'source_url', v_src.source_url,
                  'max_shorts', 1,
-                 'no_subtitles', CASE WHEN v_jp THEN true
-                                      ELSE NOT coalesce(v_src.has_subtitle, false) END,
+                 'no_subtitles', NOT coalesce(v_src.has_subtitle, false),
                  'flags', '{}'::jsonb,
                  'resource', 'gemini:' || coalesce(v_ch.gcp_project, 'DEFAULT'),
-                 'outdir', 'outputs')
-             || CASE WHEN v_jp THEN jsonb_build_object('no_tts_subtitles', true,
-                                                       'no_title_overlay', true,
-                                                       'no_tts_audio', true)
-                     ELSE '{}'::jsonb END;
+                 'outdir', 'outputs');
 
-    -- localize params — 등급·백엔드·목소리를 실어야 한다. 안 실으면 B 로 떨어지고
-    -- mm-06 에 LaMa 가중치가 없어 즉사한다(0026 실측).
-    v_loc := v_common || jsonb_build_object('level', v_lv);
-    IF v_bk IS NOT NULL AND v_bk <> '' THEN
-        v_loc := v_loc || jsonb_build_object('backend', v_bk);
-    END IF;
-    IF v_vo IS NOT NULL AND v_vo <> '' THEN
-        v_loc := v_loc || jsonb_build_object('voice_id', v_vo);
-    END IF;
+    -- localize params — scene_rerender 컷오버(0031): 생성 노드 재렌더.
+    -- 등급·백엔드·목소리는 더 이상 싣지 않는다(그 경로는 zanmang_daily 전용으로 남는다).
+    v_loc := v_common || jsonb_build_object('mode', 'scene_rerender');
 
     -- planner.job_chain 과 1:1. 순서·caps·lease 가 어긋나면 잡이 엉뚱한 맥에서 죽는다.
     FOR v_step IN
@@ -283,7 +280,7 @@ BEGIN
             ('upload_artifacts', v_common,  ARRAY['analyze'],   120, 3),
             ('ingest',           v_common,  ARRAY['analyze'],   120, 4),
             ('evaluate',         v_common,  ARRAY['analyze'],   120, 5),
-            ('localize',         v_loc,     ARRAY['localize'], 3600, 6)
+            ('localize',         v_loc,     ARRAY['generate'],  300, 6)
         ) AS t(kind, params, caps, ttl, ord)
         WHERE t.kind <> 'localize' OR v_pipe = 'shorts_jp_localized'
         ORDER BY t.ord
@@ -394,5 +391,5 @@ REVOKE ALL     ON FUNCTION public.set_work_card(text,text,text,text,text,boolean
 GRANT  EXECUTE ON FUNCTION public.set_work_card(text,text,text,text,text,boolean,int) TO authenticated;
 
 INSERT INTO public.applied_migrations(engine, version, applied_by)
-VALUES ('orchestrator','0031','claude (작품별 소스 길이 하한 — source_min_duration 정본 + 뷰 usable 컬럼)')
+VALUES ('orchestrator','0032','claude (작품별 소스 길이 하한 — source_min_duration 정본 + 뷰 usable 컬럼)')
 ON CONFLICT DO NOTHING;
