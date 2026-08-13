@@ -18,6 +18,20 @@ PREVIEW_ARGS = ["-vf", "scale=-2:720", "-c:v", "libx264", "-crf", "28",
                 "-preset", "veryfast", "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart"]
 
 
+def _preview_stale(preview, shorts) -> bool:
+    """preview 를 (재)생성해야 하는가 — 없거나 **shorts 보다 오래됐으면** True.
+
+    🛑 존재 여부만 보면 안 된다: 템플릿 변경 재렌더(from_step=render)는 shorts.mp4 만
+    다시 쓰고 옛 preview.mp4 가 남아 있어, 검수함이 **재렌더 전 영상**을 계속 재생한다
+    (2026-08-12 B급_스튜디오_4bf13c55 실측 — preview 12:50 vs shorts 14:28)."""
+    if not preview.exists():
+        return True
+    try:
+        return preview.stat().st_mtime < shorts.stat().st_mtime
+    except OSError:
+        return True
+
+
 def run(cfg, conn, job, deps):
     gen = deps.get("generate") or {}
     run_id = gen.get("run_id") or job["params"].get("run_id")
@@ -31,7 +45,7 @@ def run(cfg, conn, job, deps):
     shorts = pathlib.Path(vids[0])
 
     preview = shorts.with_name("preview.mp4")
-    if not preview.exists():
+    if _preview_stale(preview, shorts):
         r = subprocess.run(["ffmpeg", "-y", "-i", str(shorts), *PREVIEW_ARGS, str(preview)],
                            capture_output=True, text=True, timeout=600)
         if r.returncode != 0:
