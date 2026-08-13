@@ -25,6 +25,8 @@ CHANNEL = "LOOPY"                        # 관제 채널 슬러그(channels_mirr
 # 라우트별 최종 산출물 — src/autopilot.py final_video_for 와 같은 규약.
 # A(무변환)는 파일이 없다: 원본 유튜브 영상을 그대로 쓰므로 검수는 원본 URL 로 본다.
 FINAL_BY_ROUTE = {"B":  ["final_draft.mp4"],
+                  "BJ": ["final_draft.mp4"],   # 병기 자막도 같은 파일(8/14 실측 — 빠지면
+                  #   검수 카드가 산출물을 못 찾는다. vlp final_video_for 와 같은 지도)
                   "C":  ["final_dubbed_subbed.mp4", "final_dubbed.mp4"],
                   "BC": ["final_dubbed_subbed.mp4", "final_dubbed.mp4"]}
 

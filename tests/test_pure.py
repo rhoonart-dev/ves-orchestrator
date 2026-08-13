@@ -1006,6 +1006,8 @@ def test_loopy_final_video_matches_upstream_routes():
         assert final_video("B", d).endswith("final_draft.mp4")
         assert final_video("A", d) is None                  # 무변환 — 원본을 쓴다
         assert final_video(None, d) is None
+        # BJ(병기) = final_draft.mp4 — 지도에 없으면 검수 카드 프리뷰가 빈다(8/14 실측)
+        assert final_video("BJ", d).endswith("final_draft.mp4")
 
 
 def test_loopy_parse_youtube_url():
