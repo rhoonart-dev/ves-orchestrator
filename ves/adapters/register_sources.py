@@ -97,6 +97,25 @@ def plan_rows(work_title: str, entries, title_filter: str = "", use_limit=None,
     return out
 
 
+def summarize_episodes(rows):
+    """등록 행들 → (parsed 수, ordinal 수, 사람용 요약문). 순수 — 테스트 대상.
+    대시보드 작업내역에서 정규식 문제를 바로 알아채게 한국어로 말한다."""
+    parsed = sum(1 for r in rows or [] if r.get("episode_source") == "parsed")
+    ordinal = len(rows or []) - parsed
+    note = f"회차 인식: 제목에서 읽음 {parsed}개 · 순번 폴백 {ordinal}개"
+    if ordinal:
+        note += " — 순번 폴백분은 방송 회차가 아니라서 설명란에 회차를 적지 않습니다"
+    return parsed, ordinal, note
+
+
+def _work_card(conn, work):
+    """작품 카드(0028) — 회차 정규식·제목 필터의 정본. 잡 파라미터는 일회성 오버라이드."""
+    with conn.cursor() as c:
+        c.execute("""SELECT title_episode_regex, title_filter
+                       FROM public.work_cards WHERE work_title = %s""", (work,))
+        return c.fetchone() or {}
+
+
 def run(cfg, conn, job, deps):
     import json
     import subprocess
@@ -125,9 +144,11 @@ def run(cfg, conn, job, deps):
     except json.JSONDecodeError:
         raise base.PermanentError("yt-dlp 출력 파싱 실패 — --flat-playlist -J 계약 확인")
     entries = data.get("entries") or ([data] if data.get("id") else [])
-    rows = plan_rows(work, entries, p.get("title_filter") or "",
-                     p.get("use_limit"), source_url=url,
-                     title_episode_regex=p.get("title_episode_regex") or "")
+    card = _work_card(conn, work)
+    regex = p.get("title_episode_regex") or card.get("title_episode_regex") or ""
+    rows = plan_rows(work, entries,
+                     p.get("title_filter") or card.get("title_filter") or "",
+                     p.get("use_limit"), source_url=url, title_episode_regex=regex)
 
     inserted = 0
     with conn.cursor() as c:
@@ -146,5 +167,11 @@ def run(cfg, conn, job, deps):
                  r["duration"], r["published_ts"]))
             inserted += c.rowcount
     skipped = len(entries) - len(rows)
+    parsed, ordinal, note = summarize_episodes(rows)
+    if regex and ordinal:
+        # 작품 카드에 정규식이 있는데도 못 읽은 영상 — 정규식이 낡았거나 표기가 바뀐 신호
+        print(f"[ALERT] {work}: 지정 정규식으로 회차를 못 읽은 영상 {ordinal}개 — "
+              f"작품 카드 title_episode_regex 확인 필요")
     return {"listed": len(entries), "registered_new": inserted,
-            "matched": len(rows), "skipped_or_filtered": skipped}
+            "matched": len(rows), "skipped_or_filtered": skipped,
+            "episode_parsed": parsed, "episode_ordinal": ordinal, "note": note}

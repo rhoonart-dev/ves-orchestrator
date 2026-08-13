@@ -707,6 +707,19 @@ def test_plan_rows_per_video_quota_and_shorts_skip():
     assert {r["use_limit"] for r in plan_rows("작품", entries, use_limit=2)} == {2}
 
 
+def test_summarize_episodes_speaks_korean():
+    """등록 결과 요약(0028) — 대시보드 작업내역에서 정규식 문제를 바로 알아채게."""
+    from ves.adapters.register_sources import summarize_episodes
+    rows = [{"episode_source": "parsed"}, {"episode_source": "parsed"},
+            {"episode_source": "ordinal"}]
+    parsed, ordinal, note = summarize_episodes(rows)
+    assert (parsed, ordinal) == (2, 1)
+    assert "제목에서 읽음 2개" in note and "순번 폴백 1개" in note
+    assert "설명란에 회차를 적지 않습니다" in note      # 폴백의 의미를 그 자리에서 설명
+    p, o, note = summarize_episodes([])
+    assert (p, o) == (0, 0) and "설명란" not in note   # 폴백 0개면 경고문 없음
+
+
 def test_guess_episode_title():
     """제목 → 원본 방송 회차. 확장자 절단 없음('EP.410' 보호) · 작품별 정규식 우선."""
     from ves.adapters.base import guess_episode_title
