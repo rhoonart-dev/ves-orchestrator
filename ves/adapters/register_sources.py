@@ -7,6 +7,15 @@ sources 에 회차 순번대로 URL 등록한다. 파일 다운로드 없음 —
   · 비공개/삭제 항목은 건너뜀(소스 사멸 대응 — 도깨비 1번 영상 실측)
   · title_filter: 공식채널(tvN Joy 등)처럼 여러 프로그램이 섞인 원천에서 제목 필터
 yt-dlp 는 ai-video venv 모듈로 실행(런치디 PATH 에 brew 가 없어도 확정 동작).
+
+재실행은 **정정(訂正)이기도 하다**(2026-08-13). 0027 이전 등록분은 길이·업로드시각이
+비어 있어 ① use_limit 이 전량 기본값 3 이고 ② planner 의 길이 하한 방어가 길이 미상을
+통과시킨다 — 도깨비 10주년 여행에서 1분 8초짜리 예고편이 소스로 뽑혔다.
+그래서 충돌 시 DO NOTHING 이 아니라 **비어 있는 칸만 채우고**(사람이 정한 값은 보존),
+목록에서 사멸·쇼츠성으로 확인된 기등록 행은 비활성으로 내린다.
+회차(episode)만은 손대지 않는다 — 바꾸면 source_usage_legacy 의 (작품·채널·회차)
+매칭이 끊겨 레거시 사용분이 사라진다. 그 이행은 deploy/reparse_youtube_episodes.py 가
+장부를 확인하며 따로 한다.
 """
 from __future__ import annotations
 
@@ -49,6 +58,49 @@ def chronological(entries, source_url: str = "") -> list:
     return list(reversed(items)) if is_newest_first(source_url) else items
 
 
+def is_dead_entry(e) -> bool:
+    """비공개·삭제된 항목인가. 순수 — 테스트 대상.
+
+    yt-dlp 는 비공개 항목의 title 을 **None** 으로 돌려준다(8/13 실측: 도깨비 10주년 여행
+    SGeB_VFBIy0). 종전의 '[Private video]' 문자열 대조는 title 을 빈 문자열로 바꿔 받고
+    있어 이걸 못 걸렀다 — 사멸 영상이 그대로 등록되고 generate 가 Private video 로 죽는다."""
+    if not e:
+        return True
+    title = e.get("title")
+    if title is None:
+        return True
+    return str(title) in ("[Private video]", "[Deleted video]")
+
+
+def entry_duration(e):
+    """flat-playlist 항목 → 길이(초) | None(미상). 순수 — 길이 판단은 한 곳에서만 한다."""
+    try:
+        v = (e or {}).get("duration")
+        return float(v) if v is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def unusable_urls(entries, min_duration=None) -> list:
+    """목록상 **이미 등록돼 있다면 내려야 할** 영상 URL. 순수 — 테스트 대상.
+
+    plan_rows 가 거르는 항목(사멸·길이 하한 이하)은 '등록만 안 될' 뿐이라, 0027 이전에
+    등록된 같은 영상은 활성으로 남는다. 그 행들은 duration_sec 이 비어 있어 planner 의
+    하한 방어도 통과한다 — 등록 잡이 목록을 다시 볼 때 함께 내려야 사람 손이 안 든다.
+    ★거르는 규칙은 plan_rows 와 같은 base.is_usable 하나를 쓴다 — 등록에서 뺀 것과
+      비활성으로 내리는 것이 어긋나면 매 실행마다 등록·해제가 오간다.
+    ★title_filter 로 걸러진 항목은 넣지 않는다. '이 작품이 아니다'는 판단이라, 같은 원천을
+      공유하는 다른 작품의 행을 내릴 수 있다(공식채널 원천)."""
+    out = []
+    for e in entries or []:
+        vid = (e or {}).get("id")
+        if not vid:
+            continue
+        if is_dead_entry(e) or not base.is_usable(entry_duration(e), min_duration):
+            out.append(f"https://www.youtube.com/watch?v={vid}")
+    return out
+
+
 def _upload_ts(e):
     """flat-playlist 항목 → 업로드 시각(epoch) | None. 순수."""
     for k in ("timestamp", "release_timestamp", "epoch"):
@@ -83,14 +135,11 @@ def plan_rows(work_title: str, entries, title_filter: str = "", use_limit=None,
         title = str((e or {}).get("title") or "")
         if not vid:
             continue
-        if title in ("[Private video]", "[Deleted video]"):
+        if is_dead_entry(e):
             continue                      # 사멸 항목 — 등록해봤자 acquire 에서 죽는다
         if filt and filt not in norm(title):
             continue                      # '놀라운토요일'≈'놀라운 토요일' (플릿 실측)
-        try:
-            dur = float(e["duration"]) if (e or {}).get("duration") is not None else None
-        except (TypeError, ValueError):
-            dur = None
+        dur = entry_duration(e)
         if not base.is_usable(dur, min_duration):
             continue                      # 예고·쇼츠성(8/12 결정) — 번호도 안 준다
         ep = base.guess_episode_title(title, rx)
@@ -132,7 +181,11 @@ def run(cfg, conn, job, deps):
     # 종전 기본 60은 채널 뒤쪽(=오래된) 영상을 통째로 잘라 먹었다.
     limit = int(p.get("max_items") or 0)
 
-    argv = [cfgmod.engine_py(cfg, "ai_video"), "-m", "yt_dlp", "--flat-playlist", "-J"]
+    # 유튜브는 요청 로케일에 맞춰 제목을 **자동 번역**해 돌려준다. 기본값이면 영어 제목이 와
+    # 'EP.4' 같은 표기가 사라지고 회차 파싱이 서수 폴백으로 떨어진다 — 도깨비 10주년 여행
+    # 실측(8/13): 제목에서 회차 읽음 14/30 → lang=ko 로 28/30. 소스는 전부 국내 방송이다.
+    argv = [cfgmod.engine_py(cfg, "ai_video"), "-m", "yt_dlp", "--flat-playlist", "-J",
+            "--extractor-args", f"youtube:lang={p.get('metadata_lang') or 'ko'}"]
     if limit > 0:
         argv += ["--playlist-end", str(limit)]
     argv.append(url)
@@ -151,29 +204,56 @@ def run(cfg, conn, job, deps):
     entries = data.get("entries") or ([data] if data.get("id") else [])
     card = _work_card(conn, work)
     regex = p.get("title_episode_regex") or card.get("title_episode_regex") or ""
+    # 길이 하한(0031) — 잡 파라미터가 일회성 오버라이드, 없으면 작품 카드.
+    # 등록에서 빼는 기준과 기등록 행을 내리는 기준이 같아야 한다(unusable_urls).
+    min_duration = p.get("min_duration") or card.get("min_source_duration_sec")
     rows = plan_rows(work, entries,
                      p.get("title_filter") or card.get("title_filter") or "",
                      p.get("use_limit"), source_url=url, title_episode_regex=regex,
-                     # 길이 하한(0031) — 잡 파라미터가 일회성 오버라이드, 없으면 작품 카드
-                     min_duration=p.get("min_duration")
-                                  or card.get("min_source_duration_sec"))
+                     min_duration=min_duration)
 
-    inserted = 0
+    inserted = backfilled = deactivated = 0
     with conn.cursor() as c:
         for r in rows:
             # 멱등키 = (작품, 영상 URL) — 0027. 같은 회차에 영상 여러 개 허용,
             # 재실행 시 같은 영상만 걸러진다(종전 회차 키는 다른 영상을 중복으로 오인).
+            # ★충돌 시 빈 칸만 채운다: 길이를 몰라 기본값 3 으로 등록된 0027 이전 행을
+            #   길이 비례 편수로 되돌린다. 길이를 이미 알던 행의 use_limit 은 사람이 정한
+            #   값일 수 있어 건드리지 않는다(register_drive 와 같은 규칙).
+            # ★episode 는 갱신하지 않는다 — source_usage_legacy 매칭이 끊긴다(머리말).
             c.execute(
                 """INSERT INTO public.sources
                        (work_title, episode, episode_source, source_url, origin,
                         registered_by, use_limit, duration_sec, published_ts)
                    VALUES (%s,%s,%s,%s,'youtube',%s,%s,%s,to_timestamp(%s))
                    ON CONFLICT (work_title, source_url)
-                     WHERE source_url IS NOT NULL DO NOTHING""",
+                     WHERE source_url IS NOT NULL DO UPDATE SET
+                       duration_sec = COALESCE(sources.duration_sec, EXCLUDED.duration_sec),
+                       published_ts = COALESCE(sources.published_ts, EXCLUDED.published_ts),
+                       use_limit = CASE WHEN sources.duration_sec IS NULL
+                                         AND EXCLUDED.duration_sec IS NOT NULL
+                                        THEN EXCLUDED.use_limit ELSE sources.use_limit END
+                     WHERE sources.duration_sec IS NULL OR sources.published_ts IS NULL
+                   RETURNING (xmax = 0) AS inserted""",
                 (work, r["episode"], r["episode_source"], r["url"],
                  f"register_playlist:{job['id']}", r["use_limit"],
                  r["duration"], r["published_ts"]))
-            inserted += c.rowcount
+            # 채울 칸이 없으면 위 WHERE 가 갱신을 막아 돌아오는 행이 없다 — 이미 온전한 행을
+            # 매 실행마다 다시 쓰지 않는다(정정 건수도 그만큼 정직해진다).
+            res = c.fetchone()
+            if res and res.get("inserted"):
+                inserted += 1
+            elif res:
+                backfilled += 1
+
+        # 사멸·쇼츠성으로 확인된 기등록 행 정리. rows 가 비면 목록을 제대로 못 읽었다는
+        # 뜻이라 아무것도 내리지 않는다 — 한 번의 이상한 응답으로 소스를 쓸어내지 않게.
+        dead = unusable_urls(entries, min_duration)
+        if rows and dead:
+            c.execute("""UPDATE public.sources SET is_active = false
+                          WHERE work_title = %s AND origin = 'youtube' AND is_active
+                            AND source_url = ANY(%s)""", (work, dead))
+            deactivated = c.rowcount
     skipped = len(entries) - len(rows)
     parsed, ordinal, note = summarize_episodes(rows)
     if regex and ordinal:
@@ -181,5 +261,6 @@ def run(cfg, conn, job, deps):
         print(f"[ALERT] {work}: 지정 정규식으로 회차를 못 읽은 영상 {ordinal}개 — "
               f"작품 카드 title_episode_regex 확인 필요")
     return {"listed": len(entries), "registered_new": inserted,
+            "backfilled": backfilled, "deactivated": deactivated,
             "matched": len(rows), "skipped_or_filtered": skipped,
             "episode_parsed": parsed, "episode_ordinal": ordinal, "note": note}

@@ -719,6 +719,40 @@ def test_plan_rows_per_video_quota_and_shorts_skip():
     assert {r["use_limit"] for r in plan_rows("작품", entries, use_limit=2)} == {2}
 
 
+def test_dead_entry_detects_none_title():
+    """비공개 항목의 title 은 None 으로 온다(8/13 실측) — 문자열 대조만으로는 못 걸렀다."""
+    from ves.adapters.register_sources import is_dead_entry, plan_rows
+    assert is_dead_entry({"id": "x", "title": None})              # ← 종전에 통과하던 구멍
+    assert is_dead_entry({"id": "x", "title": "[Private video]"})
+    assert is_dead_entry({"id": "x", "title": "[Deleted video]"})
+    assert is_dead_entry(None)
+    assert not is_dead_entry({"id": "x", "title": "1화 하이라이트"})
+    # 사멸 항목은 등록 행이 되지 않는다 — 길이도 None 이라 3분 규칙으로는 안 걸린다
+    rows = plan_rows("작품", [{"id": "p", "title": None},
+                             {"id": "a", "title": "1화", "duration": 600}])
+    assert [r["url"][-1] for r in rows] == ["a"]
+
+
+def test_unusable_urls_for_deactivation():
+    """0027 이전 등록분 정리용 — 사멸·하한 이하만 고른다(필터 제외분은 남의 작품일 수 있다)."""
+    from ves.adapters.register_sources import unusable_urls
+    entries = [
+        {"id": "dead", "title": None},                            # 비공개
+        {"id": "short", "title": "예고", "duration": 68},          # 기본 하한(180) 이하
+        {"id": "ok", "title": "1화", "duration": 600},             # 정상 — 건드리지 않는다
+        {"id": "unknown", "title": "길이 미상"},                    # 미상은 판단 보류
+        {"title": "id 없음", "duration": 10},                      # id 없으면 URL 을 못 만든다
+    ]
+    assert unusable_urls(entries) == ["https://www.youtube.com/watch?v=dead",
+                                      "https://www.youtube.com/watch?v=short"]
+    assert unusable_urls(None) == []
+    # 작품별 하한(0031)을 올리면 그 아래가 함께 내려간다 — plan_rows 가 등록에서 빼는
+    # 기준(base.is_usable)과 같은 규칙이라야 매 실행마다 등록·해제가 오가지 않는다
+    assert unusable_urls(entries, 900) == ["https://www.youtube.com/watch?v=dead",
+                                           "https://www.youtube.com/watch?v=short",
+                                           "https://www.youtube.com/watch?v=ok"]
+
+
 def test_summarize_episodes_speaks_korean():
     """등록 결과 요약(0028) — 대시보드 작업내역에서 정규식 문제를 바로 알아채게."""
     from ves.adapters.register_sources import summarize_episodes
