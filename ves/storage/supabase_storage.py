@@ -33,8 +33,10 @@ def tus_metadata(bucket: str, key: str, content_type: str = "application/octet-s
     """TUS Upload-Metadata 헤더값(키 공백 b64 쌍, 콤마 구분). 순수 — 테스트 대상."""
     def b64(v: str) -> str:
         return base64.b64encode(v.encode("utf-8")).decode("ascii")
-    return ", ".join([f"bucketName {b64(bucket)}", f"objectName {b64(key)}",
-                      f"contentType {b64(content_type)}", f"cacheControl {b64('3600')}"])
+    # ⚠ 구분자는 공백 없는 콤마다. ", " 로 이었더니 Supabase 가 400 Invalid upload-metadata
+    #   로 전부 거부했다(8/13 실측: 피의 게임 X EP06~08 — 5GB 벽을 넘기도 전에 create 에서).
+    return ",".join([f"bucketName {b64(bucket)}", f"objectName {b64(key)}",
+                     f"contentType {b64(content_type)}", f"cacheControl {b64('3600')}"])
 
 
 class Store:

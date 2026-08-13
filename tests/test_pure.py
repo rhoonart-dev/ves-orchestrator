@@ -1027,7 +1027,8 @@ def test_tus_metadata_encoding():
     import base64
     from ves.storage.supabase_storage import tus_metadata
     md = tus_metadata("ves-sources", "masters/abc123")
-    parts = dict(kv.split(" ", 1) for kv in md.split(", "))
+    # 구분자는 반드시 ","(공백 없음) — ", " 는 Supabase 400 Invalid upload-metadata (8/13 실측)
+    parts = dict(kv.split(" ", 1) for kv in md.split(","))
     assert base64.b64decode(parts["bucketName"]).decode() == "ves-sources"
     assert base64.b64decode(parts["objectName"]).decode() == "masters/abc123"
     assert base64.b64decode(parts["contentType"]).decode() == "application/octet-stream"
