@@ -47,6 +47,13 @@ def run(cfg, conn, job, deps):
         plan.append((pathlib.Path(thumb),
                      base.storage_key(run_id, f"thumb{pathlib.Path(thumb).suffix}"),
                      "thumb", "90 days"))
+    # edit_plan(8/13): JP 변환(vlp convert_short)의 원료 — 제목·자막 텍스트, 클립 타이밍,
+    # 나레이션 구간, 믹스 게인이 전부 들어 있다. 이게 있어야 OCR 없이 일본어판을 만든다.
+    # localize 는 다른 맥(mm-06)에서 돌므로 스토리지를 경유해야 한다(§8-1 분산 원칙).
+    for name, kind in (("edit_plan.json", "edit_plan"), ("run_log.json", "run_log")):
+        f = pathlib.Path(run_dir) / name
+        if f.exists():
+            plan.append((f, base.storage_key(run_id, name), kind, "90 days"))
 
     for path, key, kind, keep in plan:
         try:

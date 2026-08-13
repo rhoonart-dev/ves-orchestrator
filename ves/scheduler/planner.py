@@ -37,9 +37,14 @@ def job_chain(wo: dict) -> list:
     """work_order → 잡 목록(kind, params, caps, lease, 의존은 순번). 순수 — 테스트 대상."""
     p_common = {"work_title": wo["work_title"], "episode": wo.get("episode"),
                 "channel_slug": wo["channel_slug"], "channel_name": wo["channel_name"]}
+    jp_convert = str(wo.get("localize_level") or "").upper() == "J"
     gen = {**p_common, "source_sha256": wo.get("source_sha256"),
            "source_url": wo.get("source_url"), "max_shorts": 1,
-           "no_subtitles": not wo.get("has_subtitle", False),
+           # 등급 J(8/13 사용자 결정): ai-video 는 텍스트(자막·TTS자막)를 얹기 직전까지만.
+           # 한국어 자막을 만들었다 지우는 게 아니라 처음부터 안 그린다 — 번역·렌더는 vlp.
+           # 제목(top_title)만은 스킵 플래그가 없어 vlp 가 밴드 재블러로 교체한다.
+           "no_subtitles": True if jp_convert else not wo.get("has_subtitle", False),
+           **({"no_tts_subtitles": True} if jp_convert else {}),
            "flags": wo.get("knob_config") or {},
            "resource": f"gemini:{wo.get('gcp_project') or 'DEFAULT'}",
            "outdir": "outputs"}
@@ -58,9 +63,15 @@ def job_chain(wo: dict) -> list:
         #   BJ = 번인 유지 + 일본어 병기(겹치지 않게) — 인페인트·더빙 없음  ← ショトコン
         #   C  = B + 더빙                                                  ← 잔망루피
         # 종전엔 전 JP 채널이 B 로 고정이었다. ops_config.localize_levels 로 채널별로 정한다.
-        chain.append(("localize",
-                      {**p_common, "level": wo.get("localize_level") or "B"},
-                      ["localize"], LOCALIZE_LEASE))
+        loc = {**p_common, "level": wo.get("localize_level") or "B"}
+        # 인페인트 백엔드(8/13): 비우면 config mode_by_content.default=lama 를 집는데
+        # mm-06 에 LaMa 가중치가 없어 make_inpainter 가 즉사한다. opencv 는 무가중치다.
+        if wo.get("localize_backend"):
+            loc["backend"] = wo["localize_backend"]
+        # 더빙 목소리 — 채널별. 안 실으면 dub 이 전역 config(잔망루피 클론 보이스)로 떨어진다.
+        if wo.get("localize_voice"):
+            loc["voice_id"] = wo["localize_voice"]
+        chain.append(("localize", loc, ["localize"], LOCALIZE_LEASE))
     return chain
 
 
@@ -110,18 +121,21 @@ def localize_level_for(slug: str, levels, default: str = "B") -> str:
     · BJ=번인 유지 + 일본어 병기(겹치지 않게) — 인페인트·더빙 없음, ショトコン 용(8/12).
     설정이 비었거나 이상하면 종전 동작(B)을 유지한다 — 조용히 더빙으로 올라가지 않게."""
     v = str(((levels or {}).get(slug) or default)).upper()
-    return v if v in ("A", "B", "BJ", "C", "BC") else default
+    return v if v in ("A", "B", "BJ", "C", "BC", "J") else default
 
 
-def _load_localize_levels(conn) -> dict:
-    """ops_config.localize_levels — {"SHOTCONE":"B","LOOPY":"C"} 꼴. 없으면 빈 dict."""
+def _load_localize_cfg(conn, key: str) -> dict:
+    """ops_config 의 채널별 현지화 설정({슬러그: 값} JSON). 없거나 깨졌으면 빈 dict.
+      localize_levels   — 등급 A|B|BJ|C|BC
+      localize_backends — 인페인트 백엔드(opencv|lama|sttn|propainter)
+      localize_voices   — 더빙 ElevenLabs voice_id"""
     try:
         with conn.cursor() as c:
-            c.execute("SELECT value FROM public.ops_config WHERE key='localize_levels'")
+            c.execute("SELECT value FROM public.ops_config WHERE key=%s", (key,))
             row = c.fetchone()
         return json.loads((row or {}).get("value") or "{}")
-    except Exception as e:  # noqa: BLE001 — 설정 오류가 계획을 막지 않는다(기본 B)
-        print(f"[planner] localize_levels 조회 실패(기본 B 진행): {e}")
+    except Exception as e:  # noqa: BLE001 — 설정 오류가 계획을 막지 않는다
+        print(f"[planner] {key} 조회 실패(기본값 진행): {e}")
         return {}
 
 
@@ -140,7 +154,9 @@ def run(conn, cfg):
     jp_on = _jp_enabled(conn)
     plan_ovr = _load_plan_overrides(conn)    # 0016: 채널별 작품·회차 지정
     works_ovr = _load_works_overrides(conn)  # 0017: 채널 작품 배정 수정본
-    loc_lv = _load_localize_levels(conn)     # 채널별 현지화 등급(8/12)
+    loc_lv = _load_localize_cfg(conn, "localize_levels")     # 채널별 현지화 등급(8/12)
+    loc_bk = _load_localize_cfg(conn, "localize_backends")   # 인페인트 백엔드(8/13)
+    loc_vo = _load_localize_cfg(conn, "localize_voices")     # 더빙 목소리(8/13)
     made = 0
     for ch in channels:
         if ch.get("pipeline") == "zanmang_autopilot":
@@ -164,7 +180,8 @@ def run(conn, cfg):
                     _note_missing_source(conn, work, ch)   # 지표14의 재료
                 continue
             if _create_work_order(conn, cfg, today, ch, work, src,
-                                  localize_level_for(slug, loc_lv)):
+                                  localize_level_for(slug, loc_lv),
+                                  loc_bk.get(slug), loc_vo.get(slug)):
                 made += 1
             break   # 채널당 1편/일
     print(f"[planner] work_order {made}건 생성 ({today})")
@@ -238,7 +255,8 @@ def _geoblock_required(cfg, work) -> bool:
         return True
 
 
-def _create_work_order(conn, cfg, today, ch, work, src, loc_level="B") -> bool:
+def _create_work_order(conn, cfg, today, ch, work, src, loc_level="B",
+                       loc_backend=None, loc_voice=None) -> bool:
     # R7(하루 채널당 1건) 은 그대로다. 다만 0024 부터 유일 제약이 origin='planner' 행에만 걸린다 —
     # 관제 '작업 실행'(origin='manual')이 같은 날 한 편 더 넣을 수 있어야 하기 때문이다.
     # 부분 유니크 인덱스는 ON CONFLICT (4컬럼) 으로 추론되지 않으므로 존재 검사로 바꾼다.
@@ -273,7 +291,8 @@ def _create_work_order(conn, cfg, today, ch, work, src, loc_level="B") -> bool:
           "source_url": src.get("source_url"),
           "has_subtitle": bool(src.get("has_subtitle")), "gcp_project": ch.get("gcp_project"),
           "pipeline": pipeline_for(ch), "knob_config": {},
-          "localize_level": loc_level}
+          "localize_level": loc_level, "localize_backend": loc_backend,
+          "localize_voice": loc_voice}
     prev_id = None
     for kind, params, caps, ttl in job_chain(wo):
         with conn.cursor() as c:

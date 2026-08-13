@@ -918,3 +918,88 @@ def test_localize_level_per_channel():
     assert dict((k, p) for k, p, *_ in job_chain({**wo, "localize_level": "C"}))["localize"]["level"] == "C"
     # 설정 없으면 종전 동작(B) — 조용히 더빙으로 올라가지 않는다
     assert dict((k, p) for k, p, *_ in job_chain({**wo, "localize_level": None}))["localize"]["level"] == "B"
+
+
+# ── 8/13: 채널별 인페인트 백엔드·더빙 목소리 + VES 경로 더빙 배선 ──
+def test_localize_params_carry_backend_and_voice():
+    """실측 8/12: backend 를 안 실으면 config mode_by_content.default=lama 를 집는데
+    mm-06 에 가중치가 없어 make_inpainter 가 즉사한다. opencv 는 무가중치."""
+    from ves.scheduler.planner import job_chain
+    wo = {"work_title": "혜미리예채파", "episode": 2, "channel_slug": "SHOTCONE",
+          "channel_name": "ショトコン", "pipeline": "shorts_jp_localized",
+          "localize_level": "C", "localize_backend": "opencv", "localize_voice": "V123"}
+    loc = dict((k, p) for k, p, *_ in job_chain(wo))["localize"]
+    assert loc["level"] == "C" and loc["backend"] == "opencv" and loc["voice_id"] == "V123"
+    # 설정이 없으면 키 자체를 안 싣는다 — 어댑터·엔진의 기본값을 덮지 않는다
+    bare = dict((k, p) for k, p, *_ in job_chain({**wo, "localize_backend": None,
+                                                  "localize_voice": None}))["localize"]
+    assert "backend" not in bare and "voice_id" not in bare
+
+
+def test_localize_runs_dub_only_for_dubbing_levels():
+    """process_video 는 더빙을 안 한다(그 스크립트 머리말 명시). VES 경로엔 그 배선이
+    없어서 등급 C 를 줘도 오디오가 한국어 그대로였다(8/12 사용자 지적)."""
+    from ves.adapters.localize import needs_dub
+    assert needs_dub("C") and needs_dub("BC") and needs_dub("c")
+    assert not needs_dub("B") and not needs_dub("BJ") and not needs_dub("A")
+    assert not needs_dub(None) and not needs_dub("")
+
+
+def test_dub_argv_requires_voice():
+    """목소리를 안 실으면 dub 이 전역 config 로 떨어지는데 그 값은 잔망루피 클론 보이스다.
+    다른 채널이 루피 목소리로 더빙돼 나가는 사고를 막는다."""
+    import pytest
+    from ves.adapters.localize import dub_argv
+    argv = dub_argv("/py", "/v.mp4", "run1", "VOICE9")
+    assert argv[1:] == ["-m", "src.dub", "--video-id=run1", "--video=/v.mp4",
+                        "--level=C", "--voice=VOICE9"]
+    assert dub_argv("/py", "/v.mp4", "r", "V", config_path="/c.yaml")[-1] == "--config=/c.yaml"
+    for bad in (None, "", "   "):
+        with pytest.raises(Exception):
+            dub_argv("/py", "/v.mp4", "r", bad)
+
+
+# ── 8/13 심야: 등급 J — JP 변환은 vlp(convert_short)가 담당, ai-video 무변경 ──
+def test_level_j_uses_convert_not_process_video():
+    """J 는 process_video(화면 지우기)를 타면 안 된다 — 사용자 결정: 한글을 지우는 게
+    아니라 edit_plan 원문을 일본어로 재렌더한다. 더빙도 convert_short 안에서 나레이션
+    구간만 한다(전체 더빙 아님)."""
+    import inspect
+    from ves.adapters import localize
+    from ves.scheduler.planner import localize_level_for
+    assert localize.is_jp_convert("J") and not localize.is_jp_convert("B")
+    assert localize_level_for("SHOTCONE", {"SHOTCONE": "J"}) == "J"
+    argv = localize.convert_argv("/py", "/v.mp4", "/plan.json", "/out.mp4", "V9")
+    assert argv[1:4] == ["-m", "src.convert_short", "--video=/v.mp4"]
+    import pytest
+    with pytest.raises(Exception):
+        localize.convert_argv("/py", "/v", "/p", "/o", None)   # 목소리 없으면 거부
+    src = inspect.getsource(localize.run)
+    assert "is_jp_convert" in src and "edit_plan.json" in src
+    # J 는 needs_dub(별도 dub 단계) 대상이 아니다 — convert 안에서 끝낸다
+    assert not localize.needs_dub("J")
+
+
+def test_upload_artifacts_ships_edit_plan():
+    """edit_plan 이 스토리지에 없으면 mm-06 의 vlp 가 JP 변환 원료를 못 받는다."""
+    import inspect
+    from ves.adapters import upload_artifacts
+    src = inspect.getsource(upload_artifacts.run)
+    assert '"edit_plan.json"' in src and '"run_log.json"' in src
+
+
+def test_level_j_generates_without_text_overlays():
+    """8/13 사용자 결정: ai-video 는 텍스트(자막·TTS자막)를 얹기 직전까지만 —
+    한국어 자막을 만들었다 지우는 게 아니라 처음부터 안 그린다. KR 채널은 무변경."""
+    from ves.adapters.aivideo import build_argv_pure
+    from ves.scheduler.planner import job_chain
+    wo = {"work_title": "혜미리예채파", "episode": 3, "channel_slug": "SHOTCONE",
+          "channel_name": "ショトコン", "pipeline": "shorts_jp_localized",
+          "localize_level": "J", "has_subtitle": True}
+    gen = dict((k, p) for k, p, *_ in job_chain(wo))["generate"]
+    assert gen["no_subtitles"] is True and gen["no_tts_subtitles"] is True
+    argv = build_argv_pure("/py", gen, "/cache/x")
+    assert "--no-subtitles" in argv and "--no-tts-subtitles" in argv
+    kr = dict((k, p) for k, p, *_ in job_chain(
+        {**wo, "pipeline": "shorts_kr", "localize_level": None}))["generate"]
+    assert "no_tts_subtitles" not in kr and kr["no_subtitles"] is False
