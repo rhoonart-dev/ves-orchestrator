@@ -21,6 +21,12 @@ from ves.adapters import base
 from ves.storage.supabase_storage import Store
 
 
+def scene_rerender_argv(ai_py: str, engine: str, job_dir: str) -> list:
+    """scene_rerender 호출 argv — localize_run 은 **ai-video venv** 로 돈다(런타임 의존
+    google-genai·edge-tts 가 그 venv 에 있고, 재렌더도 같은 엔진을 부른다). 순수 — 테스트 대상."""
+    return [ai_py, f"{engine}/scripts/localize_run.py", "--job-dir", job_dir]
+
+
 def localize_argv(py: str, video: str, video_id: str, params: dict) -> list:
     """process_video 호출 argv. 순수 — 테스트 대상."""
     p = params or {}
@@ -41,6 +47,8 @@ def pick_output(paths, video_id: str):
 
 
 def run(cfg, conn, job, deps):
+    if (job.get("params") or {}).get("mode") == "scene_rerender":
+        return _run_scene_rerender(cfg, conn, job, deps)
     p = job["params"]
     run_id = p.get("run_id")
     if not run_id:
@@ -92,4 +100,66 @@ def run(cfg, conn, job, deps):
                              "bucket": "ves-localized",
                              "note": (r.stdout or "")[-300:]}, ensure_ascii=False)))
     return {"run_id": run_id, "localized_key": out_key,
+            "stdout_tail": (r.stdout or "")[-300:]}
+
+
+def _enqueue_qa(conn, job, payload: dict):
+    """localization_qa 검수함 등록(대기중 중복 방지) — 두 모드 공용."""
+    with conn.cursor() as c:
+        c.execute("""SELECT 1 FROM public.review_queue
+                      WHERE kind='localization_qa' AND work_order_id=%s AND status='waiting'""",
+                  (job["work_order_id"],))
+        if not c.fetchone():
+            c.execute(
+                """INSERT INTO public.review_queue
+                       (kind, work_order_id, job_id, channel_slug, payload)
+                   VALUES ('localization_qa', %s, %s, %s, %s::jsonb)""",
+                (job["work_order_id"], job["id"], job["params"].get("channel_slug"),
+                 json.dumps(payload, ensure_ascii=False)))
+
+
+def _run_scene_rerender(cfg, conn, job, deps):
+    """scene_rerender 모드(2026-08-13) — ai-video 생성 job 디렉토리를 **생성 노드에서**
+    재렌더 현지화한다(planner 가 캡 generate + aivideo PIN 으로 이 노드에 고정).
+    level B(완성 mp4 후처리)와 달리 파일 왕복이 없다: job 디렉토리·원본 소스가 로컬이다.
+    엔진 계약: video-localization-project scripts/localize_run.py --job-dir …
+    (성공 마커 = <job_dir>/localize_ja/metadata.json, 산출 = <job_dir>/shorts.mp4 교체본)."""
+    p = job["params"]
+    gen = (deps or {}).get("generate") or {}
+    run_id = gen.get("run_id") or p.get("run_id")
+    run_dir = gen.get("run_dir") or p.get("run_dir")
+    if not (run_id and run_dir):
+        raise base.PermanentError("generate 결과(run_id/run_dir) 없음 — 의존 확인")
+    if not os.path.isdir(run_dir):
+        # 핀이 풀렸거나(노드 사망 후 수동 해제) 디스크 GC 로 사라진 경우 — 재시도 무의미
+        raise base.PermanentError(f"job 디렉토리 없음(노드 어긋남?): {run_dir}")
+
+    eng = cfgmod.engine_dir(cfg, "localization")
+    ai_py = cfgmod.engine_py(cfg, "ai_video")
+    argv = scene_rerender_argv(ai_py, eng, str(run_dir))
+    r = subprocess.run(argv, cwd=eng, env=dict(os.environ),
+                       capture_output=True, text=True, timeout=3600 * 2)
+    meta_path = pathlib.Path(run_dir) / "localize_ja" / "metadata.json"
+    if r.returncode != 0 or not meta_path.exists():
+        msg = (r.stderr or r.stdout or "")[-600:]
+        cls = base.classify_by_patterns(r.stderr or "", r.stdout or "")
+        if cls == "permanent":
+            raise base.PermanentError(msg)
+        raise RuntimeError(msg)
+
+    out = pathlib.Path(run_dir) / "shorts.mp4"
+    if not out.exists():
+        raise base.PermanentError(f"현지화 산출 shorts.mp4 없음: {run_dir}")
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    store = Store(cfg.supabase_url, cfg.supabase_service_key)
+    out_key = base.storage_key(run_id, "localized.mp4")
+    store.upload("ves-localized", out_key, str(out))
+
+    _enqueue_qa(conn, job, {"run_id": run_id, "preview_key": out_key,
+                            "bucket": "ves-localized", "mode": "scene_rerender",
+                            "youtube_title": meta.get("youtube_title"),
+                            "description": meta.get("description"),
+                            "note": "\n".join(meta.get("notes") or [])[:300]})
+    return {"run_id": run_id, "localized_key": out_key, "mode": "scene_rerender",
+            "youtube_title": meta.get("youtube_title"),
             "stdout_tail": (r.stdout or "")[-300:]}

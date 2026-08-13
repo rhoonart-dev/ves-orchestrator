@@ -357,8 +357,9 @@ def test_effective_caps_adds_self_tag_once():
 
 def test_pin_dependent_kinds_cover_local_readers():
     from ves.adapters import aivideo
-    # upload=글롭 · ingest/evaluate=--run-dir — 로컬 읽기 3종 전부 고정 대상이어야 한다
-    assert set(aivideo.PIN_DEPENDENT_KINDS) == {"upload_artifacts", "ingest", "evaluate"}
+    # upload=글롭 · ingest/evaluate=--run-dir · localize(scene_rerender)=--job-dir
+    # — run_dir 를 로컬에서 읽는 kind 전부 고정 대상이어야 한다
+    assert set(aivideo.PIN_DEPENDENT_KINDS) == {"upload_artifacts", "ingest", "evaluate", "localize"}
 
 
 def test_drive_balance_moves_backlog_to_idle_node():

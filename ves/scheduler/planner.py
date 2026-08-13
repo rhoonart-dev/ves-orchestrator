@@ -48,7 +48,13 @@ def job_chain(wo: dict) -> list:
         ("evaluate",         dict(p_common),                                   ["analyze"], 120),
     ]
     if wo.get("pipeline") == "shorts_jp_localized":
-        chain.append(("localize", dict(p_common), ["localize"], LONG_LEASE))
+        # scene_rerender(2026-08-13): ai-video 생성분은 mm-06 GPU 후처리(level B)가 아니라
+        # 생성 노드에서 job 디렉토리를 재렌더한다 — 완성 mp4 후처리는 원어 텍스트가 화면에
+        # 남아 품질이 나온 적이 없다(video-localization-project docs/scene-rerender 참조).
+        # 캡 "generate"(+generate 완료 시 node:* 핀) — job 디렉토리·원본 소스가 그 노드에만 있다.
+        # "localize" 캡(mm-06)은 zanmang_daily 등 완성-mp4 파이프라인 전용으로 남는다.
+        chain.append(("localize", {**p_common, "mode": "scene_rerender"},
+                      ["generate"], LONG_LEASE))
     return chain
 
 
