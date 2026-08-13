@@ -1003,8 +1003,10 @@ def test_level_j_generates_without_text_overlays():
           "localize_level": "J", "has_subtitle": True}
     gen = dict((k, p) for k, p, *_ in job_chain(wo))["generate"]
     assert gen["no_subtitles"] is True and gen["no_tts_subtitles"] is True
+    assert gen["no_title_overlay"] is True and gen["no_tts_audio"] is True   # J v2(8/13)
     argv = build_argv_pure("/py", gen, "/cache/x")
     assert "--no-subtitles" in argv and "--no-tts-subtitles" in argv
+    assert "--no-title-overlay" in argv and "--no-tts-audio" in argv
     kr = dict((k, p) for k, p, *_ in job_chain(
         {**wo, "pipeline": "shorts_kr", "localize_level": None}))["generate"]
     assert "no_tts_subtitles" not in kr and kr["no_subtitles"] is False
@@ -1070,3 +1072,13 @@ def test_preview_stale_regenerates_after_rerender(tmp_path):
     assert _preview_stale(preview, shorts) is False         # preview 가 더 최신 → 유지
     os.utime(shorts, (time.time() + 100, time.time() + 100))  # 재렌더로 shorts 갱신
     assert _preview_stale(preview, shorts) is True          # 낡은 preview → 재생성
+
+
+def test_convert_argv_carries_sub_sources():
+    """8/13 v2: 자막·나레이션 원료 ASS 를 vlp 로 넘긴다 — 없으면 그 요소만 생략."""
+    from ves.adapters.localize import convert_argv
+    a = convert_argv("/py", "/v.mp4", "/p.json", "/o.mp4", "V1",
+                     subs="/s.ass", tts_subs="/t.ass")
+    assert a[-2:] == ["--subs=/s.ass", "--tts-subs=/t.ass"]
+    b = convert_argv("/py", "/v.mp4", "/p.json", "/o.mp4", "V1")
+    assert not any(x.startswith("--subs") or x.startswith("--tts-subs") for x in b)

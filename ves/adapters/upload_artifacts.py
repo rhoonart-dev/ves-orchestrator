@@ -64,7 +64,11 @@ def run(cfg, conn, job, deps):
     # edit_plan(8/13): JP 변환(vlp convert_short)의 원료 — 제목·자막 텍스트, 클립 타이밍,
     # 나레이션 구간, 믹스 게인이 전부 들어 있다. 이게 있어야 OCR 없이 일본어판을 만든다.
     # localize 는 다른 맥(mm-06)에서 돌므로 스토리지를 경유해야 한다(§8-1 분산 원칙).
-    for name, kind in (("edit_plan.json", "edit_plan"), ("run_log.json", "run_log")):
+    # subtitles/tts_subtitles(8/13 v2): 대사·나레이션의 텍스트+타이밍 — JP 변환이 이걸로
+    # 일본어 자막을 cue 단위로 그리고, 나레이션 TTS 를 정확한 구간에 얹는다.
+    for name, kind in (("edit_plan.json", "edit_plan"), ("run_log.json", "run_log"),
+                       ("subtitles.ass", "subtitles_ass"),
+                       ("tts_subtitles.ass", "tts_subtitles_ass")):
         f = pathlib.Path(run_dir) / name
         if f.exists():
             plan.append((f, base.storage_key(run_id, name), kind, "90 days"))

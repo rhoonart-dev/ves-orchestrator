@@ -161,6 +161,10 @@ def build_argv_pure(py: str, params: dict, source_path: str | None) -> list:
         cmd += ["--no-subtitles"]
     if p.get("no_tts_subtitles"):    # 등급 J(8/13): 텍스트는 vlp 가 일본어로 그린다
         cmd += ["--no-tts-subtitles"]
+    if p.get("no_title_overlay"):    # J v2(8/13): 제목·작품명 오버레이도 생성 단계에서 생략
+        cmd += ["--no-title-overlay"]
+    if p.get("no_tts_audio"):        # J v2: KR TTS 오디오 미믹스 — 일본어 TTS 는 vlp 가
+        cmd += ["--no-tts-audio"]
     f = p.get("flags") or {}
     if f.get("silence"):
         cmd += ["--silence-profile", f["silence"]]

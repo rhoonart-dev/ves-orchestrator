@@ -44,7 +44,8 @@ def job_chain(wo: dict) -> list:
            # 한국어 자막을 만들었다 지우는 게 아니라 처음부터 안 그린다 — 번역·렌더는 vlp.
            # 제목(top_title)만은 스킵 플래그가 없어 vlp 가 밴드 재블러로 교체한다.
            "no_subtitles": True if jp_convert else not wo.get("has_subtitle", False),
-           **({"no_tts_subtitles": True} if jp_convert else {}),
+           **({"no_tts_subtitles": True, "no_title_overlay": True,
+               "no_tts_audio": True} if jp_convert else {}),
            "flags": wo.get("knob_config") or {},
            "resource": f"gemini:{wo.get('gcp_project') or 'DEFAULT'}",
            "outdir": "outputs"}

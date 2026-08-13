@@ -74,15 +74,22 @@ def is_jp_convert(level) -> bool:
     return str(level or "").upper() == JP_CONVERT_LEVEL
 
 
-def convert_argv(py: str, video: str, plan: str, out: str, voice_id) -> list:
+def convert_argv(py: str, video: str, plan: str, out: str, voice_id,
+                 subs: str | None = None, tts_subs: str | None = None) -> list:
     """vlp src.convert_short 호출 argv. voice_id 필수 — 없으면 dub 전역 config(잔망루피
-    클론 보이스) 로 떨어지는 대신 여기서 거부한다. 순수 — 테스트 대상."""
+    클론 보이스) 로 떨어지는 대신 여기서 거부한다. 순수 — 테스트 대상.
+    subs/tts_subs(8/13 v2): 자막·나레이션 원료 ASS — 있으면 전달, 없으면 그 요소 생략."""
     if not str(voice_id or "").strip():
         raise base.PermanentError(
             "나레이션 목소리(params.voice_id) 없음 — ops_config.localize_voices 에 "
             "이 채널의 ElevenLabs voice_id 를 넣으세요")
-    return [py, "-m", "src.convert_short", f"--video={video}", f"--edit-plan={plan}",
+    argv = [py, "-m", "src.convert_short", f"--video={video}", f"--edit-plan={plan}",
             f"--out={out}", f"--voice={voice_id}"]
+    if subs:
+        argv.append(f"--subs={subs}")
+    if tts_subs:
+        argv.append(f"--tts-subs={tts_subs}")
+    return argv
 
 
 def pick_output(paths, video_id: str):
@@ -119,13 +126,28 @@ def run(cfg, conn, job, deps):
             raise base.PermanentError(
                 f"edit_plan 없음({run_id}) — upload_artifacts 신버전 배포 후 새 run 부터 "
                 f"가능합니다: {e}")
+        # 자막 원료(8/13 v2) — 없으면 그 요소만 생략(자막 없는 회차 허용, 잡은 계속)
+        prefix = base.storage_key(run_id, "x").rsplit("/", 1)[0]
+        subs_local = tts_subs_local = None
+        for fname, var in (("subtitles.ass", "subs"), ("tts_subtitles.ass", "tts")):
+            dest = work_dir / f"{prefix}_{fname}"
+            try:
+                store.download("ves-outputs", base.storage_key(run_id, fname), str(dest))
+                if var == "subs":
+                    subs_local = dest
+                else:
+                    tts_subs_local = dest
+            except RuntimeError:
+                print(f"[localize] {fname} 없음 — 해당 요소 생략(구 run 또는 자막 없는 회차)")
         out_local = pathlib.Path(eng) / "outputs" / run_id / "localized_ja.mp4"
         out_local.parent.mkdir(parents=True, exist_ok=True)
         dub_py = str(pathlib.Path(eng) / (p.get("dub_python") or ".venv-gsv/bin/python"))
         if not pathlib.Path(dub_py).exists():
             raise base.PermanentError(f"변환 인터프리터 없음: {dub_py}")
         cr = subprocess.run(
-            convert_argv(dub_py, str(src), str(plan_local), str(out_local), p.get("voice_id")),
+            convert_argv(dub_py, str(src), str(plan_local), str(out_local), p.get("voice_id"),
+                         subs=str(subs_local) if subs_local else None,
+                         tts_subs=str(tts_subs_local) if tts_subs_local else None),
             cwd=eng, env={**os.environ, "is_half": "False", "TERM": "xterm"},
             capture_output=True, text=True, timeout=3600)
         if cr.returncode != 0:
