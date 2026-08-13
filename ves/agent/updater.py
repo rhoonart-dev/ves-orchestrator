@@ -127,8 +127,10 @@ def _pip_sync(cfg, eng, path) -> bool:
     if not req.exists():
         return True
     py = cfgmod.engine_py(cfg, eng) if eng != "orchestrator" else f"{path}/.venv/bin/python"
+    # 1800초(8/14): demucs 가 vlp requirements 로 들어오며 torch 첫 설치가 600초를
+    # 넘길 수 있다 — 타임아웃이 터지면 갱신 실패→노드 disabled 로 번진다.
     r = subprocess.run([py, "-m", "pip", "install", "-q", "-r", str(req)],
-                       capture_output=True, text=True, timeout=600)
+                       capture_output=True, text=True, timeout=1800)
     if r.returncode != 0:
         print(f"[updater] pip sync 실패: {r.stderr[-400:]}")
     return r.returncode == 0

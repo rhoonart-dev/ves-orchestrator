@@ -162,6 +162,16 @@ def _mirror_ledger(conn, repo: pathlib.Path) -> int:
     return len(rows)
 
 
+LOOPY_TEXT_FILES = ("metadata_draft.json", "translations.json", "ko_ja_pairs.json",
+                    "ja.srt", "ja_dub.srt")
+
+
+def loopy_store_key(vid: str, name: str) -> str:
+    """루피 산출물 스토리지 키 — 아무 맥에서나 approve/upload 를 잇는 복원 원료(2단계 ③).
+    video_id 는 유튜브 id(ASCII)라 한글 키 문제(스모크3)가 없다. 순수 — 테스트 대상."""
+    return f"loopy/{vid}/{name}"
+
+
 def review_meta(out_dir) -> dict:
     """검수 카드용 한글 대역(8/14) — outputs/<vid> 의 산출 파일에서 모은다.
     제목·설명: metadata_draft.json(_ko 대역 포함), 자막 쌍: ko_ja_pairs.json(C 더빙)
@@ -253,6 +263,18 @@ def post_success(cfg, conn, job, result):
                    "route": route, "score": r.get("score"), "notes": r.get("notes"),
                    "repo": str(repo)}
         payload.update(review_meta(repo / "outputs" / vid))
+        # 산출물 텍스트 지속화(2단계 ③): approve/upload 가 다른 맥으로 가도 패키지를
+        # 재구성할 수 있게 — 실패는 비치명(카드 등록이 우선).
+        for name in LOOPY_TEXT_FILES:
+            f = repo / "outputs" / vid / name
+            if f.exists():
+                try:
+                    if store is None:
+                        from ves.storage.supabase_storage import Store
+                        store = Store(cfg.supabase_url, cfg.supabase_service_key)
+                    store.upload("ves-runs", loopy_store_key(vid, name), str(f))
+                except Exception as e:  # noqa: BLE001
+                    print(f"[zanmang] 산출물 지속화 실패(비치명) {vid}/{name}: {e}")
         if key:
             payload.update({"preview_key": key, "bucket": "ves-localized"})
         with conn.cursor() as c:

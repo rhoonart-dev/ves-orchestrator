@@ -1657,3 +1657,12 @@ def test_loopy_review_meta_reads_ko_glosses(tmp_path):
     m2 = review_meta(d)
     assert m2["ko_ja_pairs"]["subs"][0]["ko"] == "안녕"
     assert review_meta(tmp_path / "없음") == {} or "youtube_title" not in review_meta(tmp_path / "없음")
+
+
+def test_loopy_store_key_and_text_files():
+    """2단계 ③: 산출물 지속화 키 규약 — 복원(zanmang_decision)과 같은 함수를 쓴다."""
+    from ves.adapters.zanmang import LOOPY_TEXT_FILES, loopy_store_key
+    assert loopy_store_key("o3HEuV8iNPE", "metadata_draft.json") \
+        == "loopy/o3HEuV8iNPE/metadata_draft.json"
+    assert "metadata_draft.json" in LOOPY_TEXT_FILES
+    assert "ja_dub.srt" in LOOPY_TEXT_FILES        # C 루트 자막도 패키지 원료다

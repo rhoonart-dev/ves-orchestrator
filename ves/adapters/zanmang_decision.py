@@ -83,6 +83,10 @@ def run(cfg, conn, job, deps):
 
     state = _ledger_state(repo, vid)
     tasks = plan(state, action)
+    if "approve" in tasks:
+        # 산출물 복원(2단계 ③): approve 는 outputs/<vid> 로 패키지를 만든다 — 처리한
+        # 맥이 아니면(또는 정리됐으면) ves-runs/ves-localized 에서 재구성한다.
+        _restore_outputs(cfg, repo, vid)
     if not tasks:
         return {"video_id": vid, "action": action, "state": state, "skipped": True,
                 "note": f"원장 상태 '{state}' — 할 일 없음(이미 반영됨)"}
@@ -111,3 +115,35 @@ def run(cfg, conn, job, deps):
                 out["youtube_url"] = url
         out[f"{task}_tail"] = tail[-200:]
     return out
+
+
+def _restore_outputs(cfg, repo, vid: str) -> None:
+    """outputs/<vid> 가 없거나 최종 산출 영상이 없으면 스토리지에서 복원.
+
+    원료: ves-runs loopy/<vid>/*(텍스트 — post_success 가 올림) +
+          ves-localized <key>/loopy_ja.mp4(최종 영상 — 프리뷰와 같은 파일).
+    최종 영상 파일명은 라우트 규약(FINAL_BY_ROUTE)을 따라야 approve 가 찾는다.
+    이미 로컬에 있으면 아무것도 안 한다(처리 맥에서의 승인 = 종전과 동일)."""
+    import pathlib as _pl
+    out = _pl.Path(repo) / "outputs" / str(vid)
+    rows = zanmang.pending_rows(_pl.Path(repo) / zanmang.LEDGER_REL)
+    row = next((r for r in rows if r["video_id"] == vid), None)
+    route = str((row or {}).get("level_guess") or "B").upper()
+    finals = zanmang.FINAL_BY_ROUTE.get(route, ["final_draft.mp4"])
+    if any((out / n).exists() for n in finals):
+        return
+    from ves.storage.supabase_storage import Store
+    store = Store(cfg.supabase_url, cfg.supabase_service_key)
+    out.mkdir(parents=True, exist_ok=True)
+    for name in zanmang.LOOPY_TEXT_FILES:
+        try:
+            store.download("ves-runs", zanmang.loopy_store_key(vid, name), str(out / name))
+        except RuntimeError:
+            (out / name).unlink(missing_ok=True)      # 없던 파일 — 흔적 제거
+    try:
+        store.download("ves-localized", base.storage_key(vid, "loopy_ja.mp4"),
+                       str(out / finals[0]))
+    except RuntimeError as e:
+        raise base.PermanentError(
+            f"산출물 복원 실패({vid}) — ves-localized 에 최종 영상 없음: {e}")
+    print(f"[zanmang_decision] outputs/{vid} 복원(route={route}) — 다른 맥 승인 경로")
