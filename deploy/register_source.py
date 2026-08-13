@@ -156,36 +156,53 @@ def register_one(path, work, episode, subtitle, use_limit):
         st in (200, 201) or die(f"자막 업로드 실패 {st}: {body[:200]}")
 
     print("[3/3] 카탈로그(sources) 등록…")
-    epq = f"episode=eq.{episode}" if episode is not None else "episode=is.null"
-    qwork = urllib.parse.quote(work)
-    st, body = req(f"{base}/rest/v1/sources?work_title=eq.{qwork}&{epq}&select=id", headers=H)
+    # 🛑 기존 행을 찾는 키는 **sha256** 이다. 종전엔 (작품, 회차)로 찾아 PATCH 했는데,
+    #    0027 부터 한 회차에 영상(파일)이 여럿일 수 있어 그러면 **같은 회차의 다른 파일을
+    #    덮어쓴다** — sha256·object_key 가 바뀌면 그 행에 물려 있던 work_orders 매칭
+    #    (wo_matches_source)이 통째로 끊겨 소진 카운트가 조용히 0 으로 리셋된다.
+    #    같은 sha 면 같은 파일이니 갱신, 다른 sha 면 새 행이다(register_drive 와 같은 규칙).
+    st, body = req(f"{base}/rest/v1/sources?sha256=eq.{sha}&select=id,work_title,episode",
+                   headers=H)
     st == 200 or die(f"조회 실패 {st}: {body[:200]}")
-    row = {"work_title": work, "episode": episode, "sha256": sha, "object_key": okey,
+    row = {"work_title": work, "episode": episode,
+           # 파일명에서 뽑은 회차는 방송 회차다(서수 폴백이 아니다) — 설명란 표기의 근거
+           "episode_source": "parsed" if episode is not None else None,
+           "sha256": sha, "object_key": okey,
            "bytes": size, "has_subtitle": bool(sub_key), "subtitle_key": sub_key,
            "origin": "drive", "use_limit": use_limit, "is_active": True}
     js = json.dumps(row, ensure_ascii=False).encode("utf-8")
     JH = {**H, "Content-Type": "application/json", "Prefer": "return=minimal"}
-    if json.loads(body):
-        rid = json.loads(body)[0]["id"]
+    hit = json.loads(body)
+    if hit:
+        rid = hit[0]["id"]
         st, body = req(f"{base}/rest/v1/sources?id=eq.{rid}", method="PATCH", headers=JH, data=js)
         (st in (200, 204)) or die(f"카탈로그 실패 {st}: {body[:300]}")
-        print(f"      기존 회차 갱신 (id={rid})")
+        print(f"      같은 파일 재등록 — 기존 행 갱신 (id={rid})")
     else:
         st, body = req(f"{base}/rest/v1/sources", method="POST", headers=JH, data=js)
         st == 201 or die(f"카탈로그 실패 {st}: {body[:300]}")
-        print("      신규 회차 등록")
+        print("      신규 소스 등록")
 
 
 def summary(work):
     base = env("SUPABASE_URL").rstrip("/")
     key = env("SUPABASE_SERVICE_KEY")
     H = {"Authorization": f"Bearer {key}", "apikey": key}
-    print("\n회차 현황:")
+    print("\n소스 현황:")
+    # 0027: 한 회차에 파일이 여럿일 수 있다 — 한도·소진은 **행마다** 따로다.
+    # 회차만 찍으면 같은 숫자가 여러 줄 나와 어느 파일 이야기인지 알 수 없다.
     st, body = req(f"{base}/rest/v1/source_usage?work_title=eq.{urllib.parse.quote(work)}"
-                   f"&select=episode,times_used,use_limit,remaining&order=episode", headers=H)
-    for r in (json.loads(body) if st == 200 else []):
+                   f"&select=source_id,episode,times_used,use_limit,remaining"
+                   f"&order=episode,source_id", headers=H)
+    rows = json.loads(body) if st == 200 else []
+    dup = {r["episode"] for r in rows
+           if sum(1 for x in rows if x["episode"] == r["episode"]) > 1}
+    for r in rows:
         mark = "⚠ 소진" if r["remaining"] == 0 else f"남음 {r['remaining']}"
-        print(f"  {r['episode']}화: {r['times_used']}/{r['use_limit']} 사용 · {mark}")
+        lab = f"{r['episode']}화" if r["episode"] is not None else "회차미상"
+        if r["episode"] in dup:
+            lab += f"({str(r['source_id'])[:8]})"     # 같은 회차의 다른 파일 구분
+        print(f"  {lab}: {r['times_used']}/{r['use_limit']} 사용 · {mark}")
     print("완료. planner 가 다음 주기부터 이 소스를 회차 순서대로 사용합니다.")
 
 

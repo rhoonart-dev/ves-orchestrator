@@ -1349,3 +1349,54 @@ def test_dashboard_sums_usable_rows_only():
     assert "(r.duration_sec == null || Number(r.duration_sec) > 180)" in html
     # 한도 편집은 그 회차의 행 전부에 건다(set_source_limit 이 행 단위가 됐으므로)
     assert 'data-sids=' in html and "el.dataset.sids" in html
+
+
+# ── 0029 후속: 드라이브 등록 정합 · 작품 카드 시드 ──
+def test_register_source_cli_keys_on_sha_not_episode():
+    """🛑 (작품, 회차)로 기존 행을 찾아 PATCH 하면 같은 회차의 **다른 파일**을 덮어쓴다.
+
+    0027 부터 한 회차에 영상이 여럿이다. sha256·object_key 가 바뀌는 순간 그 행에
+    물려 있던 work_orders 매칭(wo_matches_source)이 통째로 끊겨 소진 카운트가 조용히
+    0 으로 리셋된다 — 데이터 파괴형이라 수동 CLI 라도 막아야 한다."""
+    import pathlib
+    src = pathlib.Path("deploy/register_source.py").read_text(encoding="utf-8")
+    reg = src.split("[3/3] 카탈로그", 1)[1].split("def summary", 1)[0]
+    assert "sources?sha256=eq." in reg, "기존 행을 sha 로 찾지 않는다"
+    assert "episode=is.null" not in reg, "회차로 찾던 조회가 남아 있다"
+    assert '"episode_source"' in reg     # 파일명 파싱 회차는 방송 회차다
+
+
+def test_register_drive_stamps_episode_source():
+    """0027 백필은 그때 있던 행만 채웠다 — 이후 등록분도 parsed 를 달아야
+    설명란 'N화' 표기 판정(approve_and_publish)이 옳게 간다."""
+    import inspect
+    from ves.adapters import register_drive
+    src = inspect.getsource(register_drive)
+    assert "episode_source" in src
+    assert '"parsed" if ep is not None else None' in src
+
+
+def test_work_card_seed_is_usable():
+    """시드 정규식이 깨지거나 캡처그룹이 없으면 register_playlist 가 PermanentError 로
+    죽는다(base.compile_episode_regex). 실제로 컴파일하고 표본을 파싱해 본다."""
+    from ves.adapters.base import compile_episode_regex, guess_episode_title
+    seed = _mig("0030_work_cards_seed.sql")
+    for rx in (r"#언니네산지직송in칼라페\s*EP[.\s]?(\d{1,3})\b",
+               r"#스트릿레스토랑파이터\s*EP[.\s]?(\d{1,3})\b",
+               r"#언더커버셰프\s*EP[.\s]?(\d{1,3})\b",
+               r"amazingsaturday\s*EP[.\s]?(\d{1,3})\b",
+               r"\bEP[.\s]?(\d{1,3})\b"):
+        assert rx in seed, f"시드에 없는 정규식: {rx}"
+        assert compile_episode_regex(rx).groups == 1
+    # 실제 제목 형태로 뽑히는지
+    assert guess_episode_title("#언더커버셰프 EP.7 풀버전",
+                               r"#언더커버셰프\s*EP[.\s]?(\d{1,3})\b") == 7
+    assert guess_episode_title("#amazingsaturday EP.412 도레미마켓",
+                               r"amazingsaturday\s*EP[.\s]?(\d{1,3})\b") == 412
+    # tvN Joy 공식채널은 세 작품이 공유한다 — 필터가 없으면 남의 회차를 집는다
+    joy = [ln for ln in seed.splitlines() if "@tvNJoy_official" in ln]
+    assert len(joy) == 3, f"tvN Joy 공유 작품 수가 다르다: {len(joy)}"
+    for name in ("언니네산지직송in칼라페", "스트릿레스토랑파이터", "언더커버셰프"):
+        assert f"'{name}'," in seed, f"{name} 제목 필터가 빠졌다"
+    # 사람이 관제에서 채운 카드를 시드가 덮으면 안 된다
+    assert "ON CONFLICT (work_title) DO NOTHING" in seed

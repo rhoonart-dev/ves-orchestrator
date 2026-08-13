@@ -397,12 +397,15 @@ def run(cfg, conn, job, deps):
                 #   ③ 길이를 새로 알게 된 경우에만 편수·사용여부를 다시 계산한다.
                 c.execute(
                     """INSERT INTO public.sources
-                           (work_title, episode, sha256, object_key, bytes, duration_sec,
-                            has_subtitle, subtitle_key, origin, registered_by, use_limit,
-                            is_active)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'drive',%s,%s,%s)
+                           (work_title, episode, episode_source, sha256, object_key,
+                            bytes, duration_sec, has_subtitle, subtitle_key, origin,
+                            registered_by, use_limit, is_active)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'drive',%s,%s,%s)
                        ON CONFLICT (sha256) DO UPDATE SET
                            registered_by = EXCLUDED.registered_by,
+                           -- 0027 백필은 그때 있던 행만 채웠다. 이후 등록분도 채운다.
+                           episode_source = COALESCE(sources.episode_source,
+                                                     EXCLUDED.episode_source),
                            duration_sec  = COALESCE(sources.duration_sec, EXCLUDED.duration_sec),
                            use_limit = CASE WHEN sources.duration_sec IS NULL
                                              AND EXCLUDED.duration_sec IS NOT NULL
@@ -411,7 +414,8 @@ def run(cfg, conn, job, deps):
                                              AND EXCLUDED.duration_sec IS NOT NULL
                                             THEN EXCLUDED.is_active ELSE sources.is_active END
                        RETURNING (xmax = 0) AS inserted""",
-                    (work, ep, sha, okey, size, dur, bool(sub_key), sub_key,
+                    (work, ep, "parsed" if ep is not None else None,
+                     sha, okey, size, dur, bool(sub_key), sub_key,
                      f"drive:{fid}", ulim, usable))
                 fresh = bool((c.fetchone() or {}).get("inserted"))
             mark = f"{ulim}편" if usable else f"미사용({round((dur or 0)/60,1)}분)"
