@@ -344,6 +344,19 @@ def run(cfg, conn, job, deps):
     srt_by_stem = {rel.rsplit("/", 1)[-1].rsplit(".", 1)[0]: (fid, rel)
                    for fid, rel in files if rel.lower().endswith(".srt")}
 
+    # 작품별 소스 길이 하한(0032) — 루프 안에서 매번 조회하지 않게 한 번에 읽는다.
+    # 카드가 없거나 값이 NULL 인 작품은 base 기본값(180)으로 간다.
+    # 0032 미적용 DB 에서는 컬럼이 없어 조회가 실패한다 — 그때는 종전 동작(기본값)으로
+    # 내려간다(배포 순서가 어긋나도 인입이 멈추지 않게).
+    min_by_work = {}
+    try:
+        with conn.cursor() as c:
+            c.execute("SELECT work_title, min_source_duration_sec FROM public.work_cards "
+                      "WHERE min_source_duration_sec IS NOT NULL")
+            min_by_work = {r["work_title"]: r["min_source_duration_sec"] for r in c.fetchall()}
+    except Exception as e:  # noqa: BLE001 — 0032 이전 DB 호환
+        print(f"[register_drive] 작품 카드 하한 조회 실패(기본값 진행): {e}")
+
     done, errors, skipped, refreshed = [], [], [], []
     for fid, work, rel in todo:
         name = rel.rsplit("/", 1)[-1]
@@ -376,7 +389,9 @@ def run(cfg, conn, job, deps):
             # 길이로 편수를 정한다(8/12 사용자 결정): 10분 미만 1편·10~30분 2편·30분↑ 3편
             dur = probe_duration(tmp)
             ulim = int(p["use_limit"]) if p.get("use_limit") else use_limit_for(dur)
-            usable = is_usable(dur)      # 3분 이하는 비활성으로 등록 — 다시 받지도, 쓰지도 않는다
+            # 하한 이하는 비활성으로 등록 — 다시 받지도, 쓰지도 않는다.
+            # 하한은 작품 카드값(0032), 없으면 기본 180 — planner·유튜브 등록과 같은 규칙.
+            usable = base.is_usable(dur, min_by_work.get(work))
             with conn.cursor() as c:
                 # ★같은 파일이 이미 있으면(sha 중복) '건너뛰기'가 아니라 '갱신'이다(8/12 실측).
                 #   ① registered_by 를 지금의 경로 키로 바꿔야 다음 회차 제외 목록에 잡힌다 —
