@@ -78,6 +78,8 @@ def classify_by_patterns(stderr: str, stdout: str = "") -> str:
         return "quota"
     if any(s in blob for s in ("private video", "video unavailable")):
         return "human_required"   # 소스 사멸 — 재시도 무의미, 사람이 소스를 바꿔야 함(스모크 실측)
+    if "payload too large" in blob:   # 413 — 업로드 한도 초과. 재시도 무의미(8/13 실측:
+        return "permanent"             # 피의 게임 X 마스터가 attempt 만 태우고 dead)
     if any(s in blob for s in ("no module named", "modulenotfounderror",
                                "no such file", "filenotfound", "unrecognized arguments",
                                "invalid choice", "credential", "unauthorized")):

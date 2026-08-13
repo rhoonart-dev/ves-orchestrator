@@ -1003,3 +1003,32 @@ def test_level_j_generates_without_text_overlays():
     kr = dict((k, p) for k, p, *_ in job_chain(
         {**wo, "pipeline": "shorts_kr", "localize_level": None}))["generate"]
     assert "no_tts_subtitles" not in kr and kr["no_subtitles"] is False
+
+
+# ── 8/13: 대용량 마스터 TUS 업로드 (피의 게임 X 413 전멸 실측) ──
+def test_large_upload_routes_to_tus():
+    """표준 POST 는 5GB 게이트웨이 하드캡 — 4.73GB 까지만 실증됐다. 그 위는 TUS."""
+    from ves.storage.supabase_storage import TUS_CHUNK, use_tus
+    assert not use_tus(25_000_000)            # shorts — 종전 경로 유지
+    assert not use_tus(4_400_000_000)         # 실증 범위 안 — 종전 경로 유지
+    assert use_tus(4_600_000_000) and use_tus(9_000_000_000)
+    assert not use_tus(None) and not use_tus("x")
+    assert TUS_CHUNK == 6 * 1024 * 1024       # Supabase TUS 계약: 6MB 고정 청크
+
+
+def test_tus_metadata_encoding():
+    import base64
+    from ves.storage.supabase_storage import tus_metadata
+    md = tus_metadata("ves-sources", "masters/abc123")
+    parts = dict(kv.split(" ", 1) for kv in md.split(", "))
+    assert base64.b64decode(parts["bucketName"]).decode() == "ves-sources"
+    assert base64.b64decode(parts["objectName"]).decode() == "masters/abc123"
+    assert base64.b64decode(parts["contentType"]).decode() == "application/octet-stream"
+
+
+def test_413_is_permanent():
+    """413 은 기다려도 안 풀린다 — transient 로 attempt 를 태우고 GB 재다운로드하던 것 차단."""
+    from ves.adapters.base import classify_by_patterns
+    assert classify_by_patterns("EP03: storage upload 413: <html> 413 Payload Too Large") \
+        == "permanent"
+    assert classify_by_patterns("storage upload 502: Bad Gateway") == "transient"  # 이건 재시도
