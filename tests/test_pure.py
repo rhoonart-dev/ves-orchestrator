@@ -1616,3 +1616,44 @@ def test_loopy_ledger_row_params_shape():
     assert ledger_row_params({**r, "scores": "{broken"})[11] is None
     # 파라미터 수가 SQL 플레이스홀더 수(17 + now())와 맞아야 한다
     assert len(params) == 17 and _MIRROR_SQL.count("%s") == 17
+
+
+def test_loopy_upload_argv_privacy():
+    """관제 3택(8/14): upload argv 에 공개 방식 전달 — public·형식오류는 차단."""
+    import pytest
+    from ves.adapters.base import PermanentError
+    from ves.adapters.zanmang import action_argv
+    a = action_argv("/r", "upload", "vid1", privacy="unlisted")
+    assert "--privacy" in a and "unlisted" in a and "--publish-at" not in a
+    a2 = action_argv("/r", "upload", "vid1", privacy="schedule",
+                     publish_at="2026-08-15T10:00:00Z")
+    assert "--publish-at" in a2 and "2026-08-15T10:00:00Z" in a2
+    assert "--privacy" not in action_argv("/r", "upload", "vid1")   # 미지정 = 종전 기본
+    with pytest.raises(PermanentError):
+        action_argv("/r", "upload", "vid1", privacy="public")       # R9
+    with pytest.raises(PermanentError):
+        action_argv("/r", "upload", "vid1", publish_at="내일 저녁")  # ISO 아님
+
+
+def test_loopy_review_meta_reads_ko_glosses(tmp_path):
+    """검수 카드 한글 대역(8/14) — metadata_draft(_ko) + 자막 쌍(C: ko_ja_pairs,
+    B/BJ 폴백: translations.json). 파일이 없거나 깨져도 빈 dict 로 조용히."""
+    import json
+    from ves.adapters.zanmang import review_meta
+    d = tmp_path / "vid1"; d.mkdir()
+    (d / "metadata_draft.json").write_text(json.dumps({
+        "title_candidates": ["ルーピーの日常"], "title_candidates_ko": ["루피의 일상"],
+        "description": "説明です", "description_ko": "설명입니다"}, ensure_ascii=False))
+    (d / "ko_ja_pairs.json").write_text(json.dumps({
+        "subs": [{"start": 1.0, "ko": "안녕", "ja": "こんにちは"}]}, ensure_ascii=False))
+    m = review_meta(d)
+    assert m["youtube_title"] == "ルーピーの日常" and m["youtube_title_ko"] == "루피의 일상"
+    assert m["description_ko"] == "설명입니다"
+    assert m["ko_ja_pairs"]["subs"][0]["ja"] == "こんにちは"
+    # C 쌍이 없으면 translations.json(B/BJ)로 폴백
+    (d / "ko_ja_pairs.json").unlink()
+    (d / "translations.json").write_text(json.dumps({
+        "entries": [{"source": "안녕", "target": "こんにちは"}]}, ensure_ascii=False))
+    m2 = review_meta(d)
+    assert m2["ko_ja_pairs"]["subs"][0]["ko"] == "안녕"
+    assert review_meta(tmp_path / "없음") == {} or "youtube_title" not in review_meta(tmp_path / "없음")

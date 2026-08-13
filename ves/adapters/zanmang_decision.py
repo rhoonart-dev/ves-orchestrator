@@ -90,7 +90,9 @@ def run(cfg, conn, job, deps):
     out = {"video_id": vid, "action": action, "from_state": state, "ran": []}
     for task in tasks:
         argv = zanmang.action_argv(repo, task, vid,
-                                   state="skipped" if task == "mark" else None)
+                                   state="skipped" if task == "mark" else None,
+                                   privacy=p.get("privacy") if task == "upload" else None,
+                                   publish_at=p.get("publish_at") if task == "upload" else None)
         r = subprocess.run(argv, cwd=repo, capture_output=True, text=True,
                            timeout=TIMEOUT_SEC)
         tail = ((r.stdout or "") + "\n" + (r.stderr or ""))[-500:]

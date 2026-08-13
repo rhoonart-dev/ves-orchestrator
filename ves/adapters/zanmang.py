@@ -48,11 +48,15 @@ def daily_argv(repo: str, task: str = "daily") -> list:
     return [f"{repo}/.venv/bin/python", "-m", "src.autopilot", task]
 
 
-def action_argv(repo: str, task: str, video_id: str, state: str | None = None) -> list:
+def action_argv(repo: str, task: str, video_id: str, state: str | None = None,
+                privacy: str | None = None, publish_at: str | None = None) -> list:
     """video_id 를 받는 CLI(approve·upload·mark) argv. 순수 — 테스트 대상.
 
     daily_argv 와 나눈 이유: 이 셋은 인자를 받고, 사람 결정을 원장에 확정하는 쓰기 명령이라
-    허용 목록을 따로 좁게 둔다(임의 실행 차단)."""
+    허용 목록을 따로 좁게 둔다(임의 실행 차단).
+
+    upload 공개 방식(관제 3택, 8/14): schedule|private|unlisted 만 — public 은 여기서도
+    막는다(R9). publish_at 은 schedule 에서만 의미가 있고 ISO 형태만 통과시킨다."""
     if task not in ("approve", "upload", "mark"):
         raise base.PermanentError(f"허용되지 않은 결정 task: {task}")
     if not (video_id or "").strip():
@@ -62,6 +66,17 @@ def action_argv(repo: str, task: str, video_id: str, state: str | None = None) -
         if state not in ("selected", "skipped"):
             raise base.PermanentError(f"mark state 는 selected|skipped (받은 값: {state})")
         argv += ["--state", state]
+    if task == "upload":
+        if privacy is not None:
+            if privacy not in ("schedule", "private", "unlisted"):
+                raise base.PermanentError(
+                    f"upload privacy 는 schedule|private|unlisted (받은 값: {privacy})")
+            argv += ["--privacy", privacy]
+        if publish_at:
+            import re as _re
+            if not _re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}", str(publish_at)):
+                raise base.PermanentError(f"publish_at 형식 오류(ISO8601 필요): {publish_at}")
+            argv += ["--publish-at", str(publish_at)]
     return argv
 
 
@@ -147,6 +162,46 @@ def _mirror_ledger(conn, repo: pathlib.Path) -> int:
     return len(rows)
 
 
+def review_meta(out_dir) -> dict:
+    """검수 카드용 한글 대역(8/14) — outputs/<vid> 의 산출 파일에서 모은다.
+    제목·설명: metadata_draft.json(_ko 대역 포함), 자막 쌍: ko_ja_pairs.json(C 더빙)
+    또는 translations.json(B/BJ, source→target). 파일이 없거나 깨져도 카드 등록은
+    계속돼야 한다 — 조용히 비운다. 순수(파일 읽기만) — 테스트 대상."""
+    import json as _json
+    d = pathlib.Path(out_dir)
+    out: dict = {}
+    try:
+        md = _json.loads((d / "metadata_draft.json").read_text(encoding="utf-8"))
+        cands = md.get("title_candidates") or []
+        cands_ko = md.get("title_candidates_ko") or []
+        if cands:
+            out["youtube_title"] = cands[0]
+        if cands_ko:
+            out["youtube_title_ko"] = cands_ko[0]
+        if md.get("description"):
+            out["description"] = md["description"]
+        if md.get("description_ko"):
+            out["description_ko"] = md["description_ko"]
+    except (OSError, ValueError):
+        pass
+    subs = []
+    try:
+        pj = _json.loads((d / "ko_ja_pairs.json").read_text(encoding="utf-8"))
+        subs = [x for x in (pj.get("subs") or []) if x.get("ko") or x.get("ja")][:40]
+    except (OSError, ValueError):
+        pass
+    if not subs:
+        try:
+            tj = _json.loads((d / "translations.json").read_text(encoding="utf-8"))
+            subs = [{"ko": e.get("source"), "ja": e.get("target")}
+                    for e in (tj.get("entries") or []) if e.get("source")][:40]
+        except (OSError, ValueError):
+            pass
+    if subs:
+        out["ko_ja_pairs"] = {"subs": subs}
+    return out
+
+
 def post_success(cfg, conn, job, result):
     """daily 가 끝나면 승인 대기분을 VES 검수함에 올린다 (사용자 요청 8/12).
 
@@ -197,6 +252,7 @@ def post_success(cfg, conn, job, result):
         payload = {"zanmang_video_id": vid, "title": r.get("title"), "url": r.get("url"),
                    "route": route, "score": r.get("score"), "notes": r.get("notes"),
                    "repo": str(repo)}
+        payload.update(review_meta(repo / "outputs" / vid))
         if key:
             payload.update({"preview_key": key, "bucket": "ves-localized"})
         with conn.cursor() as c:
