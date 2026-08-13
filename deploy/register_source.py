@@ -72,9 +72,12 @@ VIDEO_EXTS = (".mp4", ".mkv", ".mov", ".ts", ".avi", ".webm")
 
 def guess_episode(name: str):
     """파일명 → 회차 추정. 명시 표기만 신뢰(E01·ep.2·제3회·4화) — '시즌5' 같은
-    제목 속 숫자를 회차로 오인하지 않는다. 못 찾으면 None — 순수."""
+    제목 속 숫자를 회차로 오인하지 않는다. 못 찾으면 None — 순수.
+    NFC 정규화 필수: 맥 파일명은 NFD(자모 분해형)로 와서 '화'가 [화회]에 안 걸린다
+    (ves/adapters/base.py 의 동명 함수와 같은 규칙)."""
     import re
-    s = pathlib.Path(name).stem
+    import unicodedata
+    s = pathlib.Path(unicodedata.normalize("NFC", str(name))).stem
     for pat in (r"[Ee][Pp]?\.?\s*(\d{1,4})(?!\d)",
                 r"제\s*(\d{1,4})\s*[화회]?",
                 r"(\d{1,4})\s*[화회]"):

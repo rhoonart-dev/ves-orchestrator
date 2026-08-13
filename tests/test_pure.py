@@ -602,6 +602,11 @@ def test_guess_episode_and_drive_plan():
     assert guess_episode("약한영웅_E01.mp4") == 1 and guess_episode("참교육 3화.mkv") == 3
     assert guess_episode("하트시그널5_제2회.mp4") == 2      # '시즌5' 숫자 오인 금지
     assert guess_episode("finale.mp4") is None
+    import unicodedata
+    nfd = unicodedata.normalize("NFD", "샤먼미신전_클립마스터_2화.mp4")
+    assert guess_episode(nfd) == 2       # NFD 자모 분해형(맥 경유 Drive) — 샤먼 6행 NULL 실측
+    from ves.adapters.register_drive import episode_from_path
+    assert episode_from_path(unicodedata.normalize("NFD", "샤먼: 미신전/ 3화/클립.mp4")) == 3
     from ves.adapters.register_drive import plan_new
     files = [("f1", "유부녀 킬러/유부녀킬러_E01.mp4"), ("f2", "유부녀 킬러/자막_E01.srt"),
              ("f3", "루트직치기.mp4"), ("f4", "김부장/김부장 2화.mp4"), ("f1", "중복/x.mp4")]
