@@ -197,41 +197,66 @@ def _load_channels(cfg):
     return data if isinstance(data, list) else data.get("channels") or []
 
 
+def pick_from_rows(rows, legacy=None):
+    """정렬된 소스 행들 + 회차 단위 레거시 사용량 → 첫 사용 가능 행. 순수 — 테스트 대상.
+
+    행(=영상) 단위 소진(0027): used_wo 는 그 행(sha/url)에 물린 WO 수다. 레거시
+    (source_usage_legacy)는 회차 단위 기록이라 행에 못 물린다 — 그 회차의 앞선 행부터
+    남는 한도만큼 차감해 물린다(회차에 행이 하나면 종전과 동일하게 동작)."""
+    remain = {r["episode"]: int(r["used"]) for r in (legacy or [])}
+    for row in rows or []:
+        limit, used = int(row["use_limit"]), int(row["used_wo"])
+        free = max(limit - used, 0)
+        take = min(free, remain.get(row.get("episode"), 0))
+        if take:
+            remain[row.get("episode")] -= take
+        if used + take < limit:
+            return row
+    return None
+
+
 def _pick_source(conn, work, pipeline="shorts_kr", episode=None, channel_slug=None):
-    """회차 순환: 활성 소스 중 그 **채널이** 아직 use_limit 만큼 안 쓴 최저(=가장 오래된) 회차.
+    """소스 순환: 활성 소스 중 그 **채널이** 아직 use_limit 만큼 안 쓴 첫 행.
 
     ★소진은 채널별로 센다(사용자 결정 2026-08-12). SNL 시즌8을 몰입도둑과 킥킥극장이
       함께 쓰는데 종전엔 슬롯 3개를 나눠 썼다 — 한 채널이 다 쓰면 다른 채널이 굶었다.
       이제 채널마다 자기 3개를 갖는다.
+    ★집계는 소스 **행(=영상) 단위**다(0027). 같은 회차에 영상이 여러 개라도 각자
+      한도를 갖는다 — WO 가 sha(드라이브)/URL(유튜브)로 행에 고정돼 있어 그걸로 센다.
+      (종전 (작품, 회차) 집계는 회차를 공유하는 영상들의 한도를 서로 잡아먹었다)
     ★레거시 루프가 이미 쓴 몫(source_usage_legacy)도 더해서 센다 — 구 시스템에서 공개까지
-      마친 회차를 오케스트레이터가 처음부터 다시 돌지 않게 한다.
-    ★회차 번호는 '오래된 것 = 낮은 번호' 규약이다(register_playlist 가 그렇게 매긴다).
-      그래서 최저 회차부터 = 오래된 것부터.
+      마친 회차를 오케스트레이터가 처음부터 다시 돌지 않게 한다(차감 규칙은 pick_from_rows).
+    ★정렬: 회차 오름차순('오래된 것 = 낮은 번호' 규약) → 회차 안에서는 업로드시각
+      (published_ts, 없으면 등록시각).
     episode 지정(0016) 시 그 회차만 — 소진이면 None(사람 결정을 조용히 바꾸지 않는다)."""
     with conn.cursor() as c:
         c.execute(
             """SELECT s.*,
                       (SELECT count(*) FROM public.work_orders w
-                        WHERE w.work_title = s.work_title
-                          AND w.episode IS NOT DISTINCT FROM s.episode
-                          AND w.status NOT IN ('cancelled','failed')
-                          AND (%(ch)s::text IS NULL OR w.channel_slug = %(ch)s::text)) AS used_wo,
-                      coalesce((SELECT l.used FROM public.source_usage_legacy l
-                                 WHERE l.work_title = s.work_title
-                                   AND l.episode IS NOT DISTINCT FROM s.episode
-                                   AND l.channel_slug = %(ch)s::text), 0) AS used_legacy
+                        WHERE w.status NOT IN ('cancelled','failed')
+                          AND (%(ch)s::text IS NULL OR w.channel_slug = %(ch)s::text)
+                          -- 매칭 정본은 DB 함수 하나다(0027) — 세는 곳이 여섯이라
+                          -- 규칙을 복사하면 반드시 한 곳이 어긋난다.
+                          AND public.wo_matches_source(
+                                w.work_title, w.source_sha256, w.source_url,
+                                s.work_title, s.sha256, s.source_url)) AS used_wo
                  FROM public.sources s
                 WHERE s.work_title = %(work)s AND s.is_active
-                  -- 3분 이하 소스는 쓰지 않는다(8/12 사용자 결정). 등록 때 비활성으로 걸러지지만,
+                  -- 3분 이하 소스는 쓰지 않는다(8/12 사용자 결정). 등록 때 걸러지지만,
                   -- 사람이 실수로 활성화해도 여기서 한 번 더 막는다. 길이 미상은 종전대로 사용.
                   AND (s.duration_sec IS NULL OR s.duration_sec > 180)
                   AND (%(ep)s::int IS NULL OR s.episode = %(ep)s::int)
-                ORDER BY s.episode NULLS LAST, s.created_at, s.id""",
+                ORDER BY s.episode NULLS LAST,
+                         COALESCE(s.published_ts, s.created_at), s.id""",
             {"work": work, "ep": episode, "ch": channel_slug})
-        for row in c.fetchall():
-            if int(row["used_wo"]) + int(row["used_legacy"]) < int(row["use_limit"]):
-                return row
-    return None
+        rows = c.fetchall()
+        legacy = []
+        if channel_slug is not None:
+            c.execute("""SELECT episode, used FROM public.source_usage_legacy
+                          WHERE work_title = %s AND channel_slug = %s""",
+                      (work, channel_slug))
+            legacy = c.fetchall()
+    return pick_from_rows(rows, legacy)
 
 
 def _geoblock_required(cfg, work) -> bool:

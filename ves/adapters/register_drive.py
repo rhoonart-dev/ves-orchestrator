@@ -135,22 +135,8 @@ def top_folders(files) -> list:
     return sorted(out)
 
 
-def use_limit_for(duration_sec) -> int:
-    """소스 길이 → 이 소스로 만들 수 있는 편수 (사용자 결정 2026-08-12). 순수.
-    10분 미만 1편 · 10~30분 2편 · 30분 이상 3편. 길이를 모르면 종전값 3."""
-    if duration_sec is None:
-        return 3
-    try:
-        d = float(duration_sec)
-    except (TypeError, ValueError):
-        return 3
-    if d <= 0:
-        return 3
-    if d < 10 * 60:
-        return 1
-    if d < 30 * 60:
-        return 2
-    return 3
+# 소스 길이 → 편수 규칙은 base 로 이동(0027: 유튜브 등록과 공용). 이름은 유지.
+use_limit_for = base.use_limit_for
 
 
 def probe_duration(path) -> float | None:
