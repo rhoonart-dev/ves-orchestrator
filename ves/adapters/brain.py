@@ -118,8 +118,19 @@ class Evaluate:
 
     @staticmethod
     def post_success(cfg, conn, job, result):
-        """안전게이트 통과분을 사람 검수 대기열에 — 검수(D5-①)는 review_queue 로 통합(§8-1)."""
+        """안전게이트 통과분을 사람 검수 대기열에 — 검수(D5-①)는 review_queue 로 통합(§8-1).
+
+        JP 현지화 파이프라인은 제외(사용자 결정 8/14: "일본어로 된 영상만 올라오면 돼") —
+        이 시점의 preview 는 현지화 전 한국어판이라 보여줄 것도 결정할 것도 없다.
+        그 체인의 게이트는 localize 가 올리는 localization_qa(일본어판) 하나다.
+        (발행은 0033 부터 그 카드로 — approve_and_publish 가 두 kind 를 다 받는다)"""
         p = job["params"]
+        with conn.cursor() as c:
+            c.execute("SELECT pipeline FROM public.work_orders WHERE id=%s",
+                      (job["work_order_id"],))
+            row = c.fetchone()
+            if row and row["pipeline"] == "shorts_jp_localized":
+                return
         with conn.cursor() as c:
             c.execute(
                 """SELECT 1 FROM public.review_queue

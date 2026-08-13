@@ -284,6 +284,9 @@ def _run_scene_rerender(cfg, conn, job, deps):
                             "bucket": "ves-localized", "mode": "scene_rerender",
                             "youtube_title": meta.get("youtube_title"),
                             "description": meta.get("description"),
+                            # 한글 대역(8/14 사용자 요청) — 카드에서 일본어 제목·자막을
+                            # 한글과 나란히 본다. 엔진(l5_metadata)이 40건 상한을 이미 건다.
+                            "ko_ja_pairs": meta.get("ko_ja_pairs"),
                             "note": "\n".join(meta.get("notes") or [])[:300]})
     return {"run_id": run_id, "localized_key": out_key, "mode": "scene_rerender",
             "youtube_title": meta.get("youtube_title"),

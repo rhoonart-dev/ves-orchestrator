@@ -310,7 +310,22 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   /* wrap: 예약 시각 입력이 nowrap 에서 카드 밖으로 밀려 영상을 덮었다(8/13 실측
      — 날짜박스 left 299 < 영상 right 382). 전용 줄로 빼 버튼 줄 위에 둔다. */
   .rv2 .form{margin-top:auto;justify-content:flex-end;padding-top:10px;flex-wrap:wrap}
-  .rv2 .form input[type=datetime-local]{flex:1 1 100%;order:-1;margin-bottom:2px}
+  .rv2 .form input[type=datetime-local]{flex:1 1 100%;order:-1;margin-bottom:2px;
+    min-width:0;width:100%;box-sizing:border-box}
+  /* JP 메타(제목·설명·역주) — 일본어 장문이 카드 폭을 밀지 않게 꺾는다 */
+  .rv2 .jpmeta{margin-top:8px;padding:8px 10px;border:1px solid var(--ring);
+    border-radius:8px;background:var(--surface-2);font-size:13px;overflow-wrap:anywhere}
+  .rv2 .jpmeta .jt{font-weight:700;font-size:14px;margin-bottom:4px}
+  .rv2 .jpmeta .jd{white-space:pre-wrap;color:var(--muted);max-height:96px;overflow:auto}
+  .rv2 .jpmeta .jn{margin-top:6px;padding-top:6px;border-top:1px dashed var(--ring);
+    white-space:pre-wrap;font-size:12px;color:var(--muted)}
+  .rv2 .rv2-body{overflow-wrap:anywhere}
+  /* 한글 대역 표 — JA 왼쪽 · KO 오른쪽(흐리게). 길면 스크롤 */
+  .jpmeta .kjwrap{margin-top:6px;max-height:150px;overflow:auto;border-top:1px dashed var(--ring);padding-top:6px}
+  .jpmeta .kjcap{font-size:11px;color:var(--muted);margin:4px 0 2px;font-weight:600}
+  .jpmeta .kjrow{display:flex;gap:8px;padding:1px 0;font-size:12px}
+  .jpmeta .kj-ja{flex:1 1 55%}
+  .jpmeta .kj-ko{flex:1 1 45%;color:var(--muted)}
   .rv2 .form select{min-width:0;flex:0 1 auto}
   .rv2 .form button{white-space:nowrap;flex:none}
   .rv2 .rv2-chn{font-weight:700;font-size:14px}
@@ -898,7 +913,12 @@ window.decideLoopy = (rid, ok) => {
 };
 
 function renderReview(){
-  const all = (state.reviews||[]).filter(r => r.status === "waiting");
+  const all = (state.reviews||[]).filter(r => r.status === "waiting")
+    // JP 채널(현지화 파이프라인)의 publish_gate 는 현지화 전 한국어판 프리뷰다 —
+    // 사람이 볼 것도 결정할 것도 없다(사용자 결정 8/14: "한국어 버전은 보여줄 필요 없어").
+    // 결정은 같은 작업지시의 localization_qa(일본어판) 카드에서 한다.
+    .filter(r => !(r.kind === "publish_gate"
+                   && ((state.wo[r.work_order_id]||{}).pipeline === "shorts_jp_localized")));
   const rs = all.filter(r => rvCh === "all" || r.channel_slug === rvCh);
   const chChips = channelChips(all, rvCh, "rvCh");
   $("#page").innerHTML = `<section class="card"><h2>검수 대기 ${rs.length}건 — 결정은 100% 사람 · 프리뷰는 카드에서 바로 재생</h2>${chChips}<div class="rvgrid">` +
@@ -940,6 +960,27 @@ function renderReview(){
                 ? `<a class="rv2-chn" href="https://youtube.com/channel/${esc(cid)}" target="_blank" rel="noopener" title="YouTube 채널 열기">${esc(chName(slug))} ↗</a>`
                 : `<span class="rv2-chn">${esc(chName(slug))}</span>`; })()}
             <span class="right sub">${ago(r.created_at)}</span></div>
+          ${pay.youtube_title || pay.description || pay.note || pay.ko_ja_pairs ? `
+          <div class="jpmeta" title="현지화 산출 메타 — 영상 안 제목·자막은 프리뷰에서, 업로드 제목·설명은 여기서 확인">
+            ${pay.youtube_title ? `<div class="jt">🇯🇵 ${esc(pay.youtube_title)}</div>` : ""}
+            ${pay.description ? `<div class="jd">${esc(pay.description)}</div>` : ""}
+            ${(() => {
+              // 한글 대역(운영 결정 8/14): 일본어 제목·자막을 한글과 나란히 —
+              // 검수자가 일본어를 몰라도 번역이 맞는지 본다. 쌍은 엔진이 40건 상한.
+              const pr = pay.ko_ja_pairs; if (!pr) return "";
+              const row = (ja, ko) => `<div class="kjrow"><span class="kj-ja">${esc(ja||"")}</span><span class="kj-ko">${esc(ko||"")}</span></div>`;
+              const tt = pr.top_title && (pr.top_title.ja || pr.top_title.ko)
+                ? `<div class="kjcap">제목</div>` + row(pr.top_title.ja, pr.top_title.ko) : "";
+              const subs = (pr.subs||[]).length
+                ? `<div class="kjcap">자막 ${pr.subs.length}건</div>` +
+                  pr.subs.map(x => row(x.ja, x.ko)).join("") : "";
+              const tel = (pr.telops||[]).length
+                ? `<div class="kjcap">방송 텔롭 ${pr.telops.length}건</div>` +
+                  pr.telops.map(x => row(x.ja, x.ko)).join("") : "";
+              return (tt || subs || tel) ? `<div class="kjwrap">${tt}${subs}${tel}</div>` : "";
+            })()}
+            ${pay.note ? `<div class="jn">📝 ${esc(pay.note)}</div>` : ""}
+          </div>` : ""}
           <div class="rv2-work"><b>작품</b>${esc(wo.work_title || run || r.id.slice(0,8))}${
             wo.episode != null ? ` <span style="color:var(--muted)">· ${wo.episode}회차</span>` : ""}${
             (() => { const n = woNode(wo); return n
