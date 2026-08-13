@@ -767,6 +767,25 @@ def _mig(name):
     return pathlib.Path("ves/control/migrations", name).read_text(encoding="utf-8")
 
 
+def _live_mig(ddl: str):
+    """그 객체를 **마지막으로** 재정의한 마이그레이션 텍스트. 파일명이 NNNN_ 로
+    시작하므로 정렬의 마지막이 곧 라이브 정의다.
+
+    🛑 가드가 폐기된 파일을 붙들고 초록불을 내는 사고를 막는다. 0027 이
+    run_channel_now 를 통째로 다시 쓰며 priority 150 · 멱등키 'manual:' 접두사 ·
+    반환 'channel' 키를 흘렸는데, 0024 를 고정으로 읽던 가드는 그대로 통과했다
+    (0029 로 복구). 재정의되는 객체를 검사할 때는 이 헬퍼를 쓸 것.
+
+    ⚠ ddl 은 **정의 구문 전체**를 넘긴다("CREATE OR REPLACE FUNCTION public.X").
+      함수 이름만 넘기면 REVOKE/GRANT 같은 단순 언급에도 걸려 엉뚱한 파일을 집는다
+      — 0029 의 anon 권한 회수 줄이 실제로 그렇게 잡혔다."""
+    import pathlib
+    d = pathlib.Path("ves/control/migrations")
+    hits = sorted(p for p in d.glob("*.sql") if ddl in p.read_text(encoding="utf-8"))
+    assert hits, f"'{ddl}' 를 정의하는 마이그레이션이 없다"
+    return hits[-1].read_text(encoding="utf-8")
+
+
 def test_planner_keeps_daily_idempotence_without_on_conflict():
     """0024 부터 유일 제약이 origin='planner' 부분 인덱스다 — ON CONFLICT (4컬럼) 은
     그 인덱스를 추론하지 못한다. 존재 검사로 바뀌었는지, origin 을 박는지 본다."""
@@ -791,10 +810,13 @@ def test_channels_sync_mirrors_country_and_pipeline():
 def test_manual_run_chain_matches_planner():
     """관제 '작업 실행'의 잡 체인이 planner.job_chain 과 어긋나면 같은 일을 두 곳에서
     다르게 만들게 된다 — 캡이 틀리면 산출물 없는 맥에서 즉사하고, lease 가 짧으면
-    reaper 가 산 잡을 회수한다(8/12 현지화 무한반복 사고)."""
+    reaper 가 산 잡을 회수한다(8/12 현지화 무한반복 사고).
+
+    ★ run_channel_now 를 **마지막으로 재정의한** 마이그레이션을 본다. 0024 를 고정으로
+      읽던 종전 판은 0027 이 그 함수를 다시 쓰며 흘린 것들을 못 잡았다(_live_mig 주석)."""
     import re
     from ves.scheduler import planner
-    sql = _mig("0024_manual_run_and_source_edit.sql")
+    sql = _live_mig("CREATE OR REPLACE FUNCTION public.run_channel_now")
     chain = planner.job_chain({"work_title": "W", "episode": 1, "channel_slug": "S",
                                "channel_name": "N", "pipeline": "shorts_jp_localized"})
     assert [k for k, *_ in chain] == ["acquire", "generate", "upload_artifacts",
@@ -804,22 +826,53 @@ def test_manual_run_chain_matches_planner():
         pat = ("'" + re.escape(kind) + r"'(?:::text)?.*?ARRAY\["
                + ", ".join("'" + c + "'" for c in caps)
                + r"\](?:::text\[\])?, *" + str(ttl) + r"(?:::int)?, *" + str(i) + r"(?:::int)?\)")
-        assert re.search(pat, body), f"{kind} 체인이 0024 SQL 과 다르다"
+        assert re.search(pat, body), f"{kind} 체인이 라이브 SQL 과 다르다"
     # KR 채널은 localize 가 빠져야 한다
     assert "t.kind <> 'localize' OR v_pipe = 'shorts_jp_localized'" in sql
     # 사람이 눌러 기다리는 일 — claim 은 priority DESC 라 100 보다 커야 앞선다
     assert re.search(r"v_step\.ttl,\s*\n?\s*150\)", sql)
+    # 잡 큐에서 planner/manual 을 구분하는 멱등키 접두사
+    assert "'manual:' ||" in sql
+    # 대시보드 작업 실행 성공 토스트가 읽는 키 — 빠지면 "undefined" 가 뜬다
+    assert "'channel', v_ch.name" in sql
+    # 현지화 등급·백엔드·목소리 — 안 실으면 B 로 떨어져 mm-06 에서 즉사한다(0026 실측)
+    assert "'level', v_lv" in sql
+    assert "'backend', v_bk" in sql and "'voice_id', v_vo" in sql
+    # 등급 J 는 generate 에서 텍스트를 처음부터 안 그린다 — planner.job_chain 과 1:1
+    for flag in ("no_tts_subtitles", "no_title_overlay", "no_tts_audio"):
+        assert flag in sql, f"등급 J 플래그 {flag} 가 빠졌다"
+
+
+def test_legacy_waterfall_matches_between_python_and_sql():
+    """레거시(회차 단위)를 앞선 행부터 차감하는 규칙이 planner 와 SQL 에서 같아야 한다.
+
+    0027 의 SQL 은 앞 행의 **한도 합**을 뺐는데 pick_from_rows 는 앞 행이 실제로 흡수한
+    **남은 여유 합**만 뺀다. SQL 이 늘 더 느슨해 회차 총한도를 넘겨 한 편 더 만들었다
+    (0029 에서 free_before 로 교정). 아래 두 반례는 종전 SQL 만 통과시켰다."""
+    from ves.scheduler.planner import pick_from_rows
+    # ① 앞 행에 이미 발주가 물려 레거시를 다 흡수하지 못한다
+    rows = [{"episode": 5, "use_limit": 2, "used_wo": 1, "id": "A"},
+            {"episode": 5, "use_limit": 1, "used_wo": 0, "id": "B"}]
+    assert pick_from_rows(rows, [{"episode": 5, "used": 2}]) is None
+    # ② 앞 행이 완전히 소진 — 여유 0 이라 레거시가 그대로 뒤로 넘어온다
+    rows2 = [{"episode": 5, "use_limit": 3, "used_wo": 3, "id": "A"},
+             {"episode": 5, "use_limit": 2, "used_wo": 0, "id": "B"}]
+    assert pick_from_rows(rows2, [{"episode": 5, "used": 3}]) is None
+    # SQL 도 '여유' 누적이어야 한다 — '한도' 누적(limit_before)이면 위 두 건을 통과시킨다
+    sql = _live_mig("CREATE OR REPLACE FUNCTION public.run_channel_now")
+    assert "GREATEST(b.use_limit - b.used_wo, 0)" in sql, "free_before 가 여유 누적이 아니다"
+    assert "GREATEST(r.legacy_ep - r.free_before, 0)" in sql
+    assert "AS limit_before" not in sql, "0027 의 한도 합 방식이 남아 있다"
 
 
 def test_source_edit_rpcs_are_episode_scoped():
-    """한 회차에 파일 행이 여럿이다(혜미리예채파 5화 3행 실측). 한 행만 고치면 소진 셈
-    (작품·회차 기준)과 어긋나 사람이 기대한 대로 안 움직인다."""
-    sql = _mig("0024_manual_run_and_source_edit.sql")
-    lim = sql.split("FUNCTION public.set_source_limit", 1)[1].split("$$;", 1)[0]
-    assert "UPDATE public.sources s SET use_limit" in lim
-    assert "s.episode IS NOT DISTINCT FROM v_s.episode" in lim
-    assert "WHERE id = p_source" not in lim.split("UPDATE", 1)[1]   # 단일 행 갱신이면 실패
-    used = sql.split("FUNCTION public.set_source_used", 1)[1].split("$$;", 1)[0]
+    """레거시 장부(source_usage_legacy)는 (작품·채널·회차) PK 라 구조가 회차 단위다 —
+    set_source_used 는 그대로 회차로 건다.
+    ⚠ set_source_limit 은 0027 이 행 단위로 뒤집었다(같은 회차의 다른 영상 한도까지
+      바뀌면 안 된다). 그쪽은 test_set_source_limit_touches_only_chosen_row 가 본다."""
+    used = _live_mig("CREATE OR REPLACE FUNCTION public.set_source_used") \
+        .split("FUNCTION public.set_source_used", 1)[1].split("$$;", 1)[0]
+    assert "l.episode IS NOT DISTINCT FROM v_s.episode" in used
     assert "p_used < v_wo" in used            # 발주 기록 아래로는 못 내린다(이중장부 방지)
     assert "DELETE FROM public.source_usage_legacy" in used   # 0 이면 보정 행을 지운다
 
@@ -1084,7 +1137,7 @@ def test_view_rewrites_keep_columns_and_security_invoker():
 def test_set_source_limit_touches_only_chosen_row():
     """0024 는 회차 전체에 한도를 걸었다(소진이 회차 단위였으니 맞았다). 0027 이 전제를
     뒤집었으므로 고른 행만 고친다 — 안 그러면 같은 회차 남의 영상 한도까지 바뀐다."""
-    lim = _mig("0027_episode_per_video.sql").split(
+    lim = _live_mig("CREATE OR REPLACE FUNCTION public.set_source_limit").split(
         "CREATE OR REPLACE FUNCTION public.set_source_limit", 1)[1]
     assert "WHERE id = p_source" in lim
     assert "s.episode IS NOT DISTINCT FROM v_s.episode" not in lim
@@ -1108,15 +1161,26 @@ def test_set_work_card_keeps_unspecified_fields():
     assert "DROP FUNCTION IF EXISTS public.set_work_card(text, text, text, text, text)" in wc
 
 
-def test_dashboard_sums_limits_per_row():
-    """대시보드 소스 지도도 행 단위 합산이어야 planner 와 같은 숫자를 보여준다.
-    (5화에 8분·40분 영상이 하나씩이면 한도는 1+3=4편이다 — max 면 3으로 보인다)"""
+def test_dashboard_sums_usable_rows_only():
+    """대시보드 소스 지도가 planner 와 같은 숫자를 보여야 한다.
+
+    · 행 단위 합산 — 5화에 8분·40분 영상이 하나씩이면 한도는 1+3=4편이다(max 면 3).
+    · 단 **쓸 수 있는 행만** 더한다. 비활성·3분 이하까지 더하면 화면이 부풀어
+      '남음 27' 이라고 해놓고 실행하면 RPC 가 거절한다 — 개편이 없애려던 증상이
+      반대 방향으로 되살아난다(실측: 국대 단편 한도 33 vs 실제 6).
+    · 회차 사용가능 판정은 '행 중 하나라도 쓸 수 있으면'이다. 종전처럼 아무 행에서나
+      길이를 집으면 비활성 57초 클립 하나가 회차 전체를 화면에서 숨긴다."""
     import pathlib
     html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
     m = html.split("function buildEpMap", 1)[1].split("\n}", 1)[0]
     assert "e.limit   += " in m and "e.usedAny += " in m
     assert "Math.max(e.limit" not in m and "Math.max(e.usedAny" not in m
+    assert "if (!srcUsable(r)) return;" in m          # 쓸 수 있는 행만 합산
+    assert m.count("if (!srcUsable(r)) return;") == 2  # 한도 쪽·채널 사용량 쪽 모두
     # 레거시는 회차 단위 장부라 행마다 같은 값이 반복된다 — 합치면 부풀어서 한 번만 센다
     assert "Math.max(c.lg" in m
+    # 사용가능 판정은 행 기준
+    assert "const epUsable = e => e.usable > 0;" in html
+    assert "(r.duration_sec == null || Number(r.duration_sec) > 180)" in html
     # 한도 편집은 그 회차의 행 전부에 건다(set_source_limit 이 행 단위가 됐으므로)
     assert 'data-sids=' in html and "el.dataset.sids" in html

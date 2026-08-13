@@ -1226,22 +1226,34 @@ function effWorks(slug){
        한도는 1+3=4편이다. max 를 그대로 두면 3편으로 보이고, 한 영상이 소진되면
        회차 전체가 소진된 것처럼 보여 planner 가 배정하는 걸 관제가 설명 못 한다.
      · used_legacy 만은 예외 — 레거시 장부가 회차 단위라 뷰가 행마다 같은 값을 반복해
-       준다. 합치면 행 수만큼 부풀므로 회차당 한 번만 센다. */
+       준다. 합치면 행 수만큼 부풀므로 회차당 한 번만 센다.
+     · 합산 대상은 **planner 가 실제로 고를 수 있는 행**뿐이다(활성 · 3분 초과).
+       전부 더하면 비활성·짧은 클립까지 한도에 들어가 화면이 부풀고, 관제가 '남음 27'
+       이라고 표시한 뒤 실행하면 RPC 가 거절한다 — 이 개편이 없애려던 바로 그 증상이
+       반대 방향으로 되살아난다(실측: 국대 단편 한도 33 vs 실제 6). */
+const srcUsable = r => r.is_active !== false &&
+                       (r.duration_sec == null || Number(r.duration_sec) > 180);
 function buildEpMap(srcs, byCh){
   const map = {}, key = ep => ep == null ? "-" : String(ep);
   (srcs||[]).forEach(r => {
     const m = map[r.work_title] = map[r.work_title] || {};
     const e = m[key(r.episode)] = m[key(r.episode)] ||
       { work:r.work_title, ep:r.episode, limit:0, active:false, dur:null,
-        files:0, usedAny:0, ids:[], limits:[], ch:{} };
+        files:0, usable:0, usedAny:0, ids:[], limits:[], ch:{} };
+    if (r.is_active !== false) e.active = true;
+    e.files += 1; e.ids.push(r.source_id);
+    if (!srcUsable(r)) return;                  // 비활성·3분 이하는 셈에서 뺀다
+    e.usable  += 1;
     e.limit   += Number(r.use_limit)  || 0;     // 행별 한도의 합(0027)
     e.usedAny += Number(r.times_used) || 0;     // 전 채널 합 — 행별 사용의 합
-    if (r.is_active !== false) e.active = true;
+    e.limits.push(Number(r.use_limit) || 0);
+    // 길이는 쓸 수 있는 행에서만 집는다 — 비활성 57초 클립 하나가 회차 전체를
+    // '3분 이하'로 만들어 화면에서 숨기면서 planner 는 정상 배정하는 일이 생겼다.
     const d = Number(r.duration_sec); if (!e.dur && d > 0) e.dur = d;
-    e.files += 1; e.ids.push(r.source_id); e.limits.push(Number(r.use_limit) || 0);
   });
   (byCh||[]).forEach(r => {
     const e = (map[r.work_title] || {})[key(r.episode)]; if (!e) return;
+    if (!srcUsable(r)) return;                  // 한도와 같은 기준으로 센다
     const c = e.ch[r.channel_slug] = e.ch[r.channel_slug] || { wo:0, lg:0, used:0 };
     c.wo += Number(r.used_wo) || 0;
     c.lg  = Math.max(c.lg, Number(r.used_legacy) || 0);   // 회차 단위 장부 — 한 번만
@@ -1251,7 +1263,8 @@ function buildEpMap(srcs, byCh){
 }
 const epsOf    = w => Object.values((state.eps||{})[w] || {})
                         .sort((a,b) => (a.ep ?? 1e9) - (b.ep ?? 1e9));
-const epUsable = e => e.active && (e.dur == null || e.dur > 180);   // 3분 이하 미사용(8/12)
+// 쓸 수 있는 행이 하나라도 있으면 그 회차는 쓸 수 있다(0027: 회차에 영상이 여럿이다)
+const epUsable = e => e.usable > 0;
 const epUsed   = (e, slug) => (e.ch[slug] || {}).used || 0;
 const epRemain = (e, slug) => Math.max(0, e.limit - epUsed(e, slug));   // 0023: 소진은 채널별
 
@@ -1259,9 +1272,14 @@ function epBlock(e, chs, editable){
   const sid  = e.ids[0];
   const lab  = e.ep != null ? e.ep + "회차" : "단편";
   const mins = e.dur ? `<span class="sub">${Math.floor(e.dur/60)}분</span>` : "";
-  const nf   = e.files > 1 ? `<span class="sub">파일 ${e.files}개</span>` : "";
-  const dead = !e.active ? '<span class="sub">비활성</span>'
-             : (e.dur && e.dur <= 180 ? '<span class="sub">3분 이하 — 미사용</span>' : "");
+  // 한도·남음은 쓸 수 있는 행만 센다 — 파일 수와 다르면 그 사실을 같이 보여준다
+  const nf   = e.files > 1
+    ? `<span class="sub">파일 ${e.files}개${
+         e.usable < e.files ? ` · 쓸 수 있는 것 ${e.usable}개` : ""}</span>`
+    : "";
+  const dead = epUsable(e) ? ""
+             : (!e.active ? '<span class="sub">비활성</span>'
+                          : '<span class="sub">3분 이하 — 미사용</span>');
   /* 0027: 한도는 영상(파일 행)마다 걸린다. 입력칸은 '영상당' 값을 받아 이 회차의 행
      전부에 같은 값을 건다 — 회차 합계(e.limit)를 입력받으면 행마다 얼마씩 나눌지가
      모호해진다. 행마다 값이 다르면(길이 비례로 1·3 이 섞인다) 최댓값을 보여준다. */
