@@ -59,9 +59,12 @@ def storage_key(run_id: str, filename: str) -> str:
 def guess_episode(filename: str):
     """파일명 → 회차 추정. 명시 표기만 신뢰(E01·ep.2·제3회·4화) — '시즌5' 같은
     제목 속 숫자를 회차로 오인하지 않는다. 못 찾으면 None. 순수 — 테스트 대상.
-    (deploy/register_source.py 의 동명 함수와 같은 규칙 — 스크립트는 무의존이라 사본 유지)"""
+    (deploy/register_source.py 의 동명 함수와 같은 규칙 — 스크립트는 무의존이라 사본 유지)
+    NFC 정규화 필수: 맥 경유 Drive 파일명은 NFD(자모 분해형)로 와서 '화'가 [화회]에
+    안 걸린다 — 샤먼: 미신전 2~7화 6행 NULL 등록 실측(2026-08-11)."""
     import re as _re
-    stem = str(filename).rsplit("/", 1)[-1].rsplit(".", 1)[0]
+    import unicodedata as _ud
+    stem = _ud.normalize("NFC", str(filename)).rsplit("/", 1)[-1].rsplit(".", 1)[0]
     for pat in (r"[Ee][Pp]?\.?\s*(\d{1,4})(?!\d)",
                 r"제\s*(\d{1,4})\s*[화회]?",
                 r"(\d{1,4})\s*[화회]"):
