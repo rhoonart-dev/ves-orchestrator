@@ -720,6 +720,23 @@ def test_guess_episode_title():
     assert guess_episode_title(unicodedata.normalize("NFD", "샤먼 3화")) == 3  # NFD 제목
 
 
+def test_pick_from_rows_per_row_and_legacy():
+    """0027: 행 단위 소진 + 회차 단위 레거시를 앞선 행부터 차감."""
+    from ves.scheduler.planner import pick_from_rows
+    # 같은 회차 두 행 — A(한도1) 소진이어도 B(한도3)는 살아 있다
+    rows = [{"episode": 5, "use_limit": 1, "used_wo": 1, "id": "A"},
+            {"episode": 5, "use_limit": 3, "used_wo": 0, "id": "B"}]
+    assert pick_from_rows(rows)["id"] == "B"
+    # 레거시 3(회차 단위)은 앞선 행부터 차감: A 남은 0 → B 가 3 전부 흡수해 소진 → 6화로
+    rows = [{"episode": 5, "use_limit": 1, "used_wo": 1, "id": "A"},
+            {"episode": 5, "use_limit": 3, "used_wo": 0, "id": "B"},
+            {"episode": 6, "use_limit": 3, "used_wo": 0, "id": "C"}]
+    assert pick_from_rows(rows, [{"episode": 5, "used": 3}])["id"] == "C"
+    # 회차에 행이 하나면 종전 동작 그대로 — 레거시 2 + WO 0 < 3 → 그 행
+    rows = [{"episode": 3, "use_limit": 3, "used_wo": 0, "id": "D"}]
+    assert pick_from_rows(rows, [{"episode": 3, "used": 2}])["id"] == "D"
+    assert pick_from_rows(rows, [{"episode": 3, "used": 3}]) is None
+    assert pick_from_rows([], []) is None
 
 
 def test_storage_4xx_permanent_except_429():

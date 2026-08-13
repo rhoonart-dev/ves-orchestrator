@@ -30,10 +30,12 @@ REFILL_PRIORITY = 150
 REMAIN_SQL = """
 WITH used AS (
   SELECT s.work_title, s.use_limit,
+         -- 행(=영상) 단위 집계(0027) — planner._pick_source 와 같은 매칭 규칙
          (SELECT count(*) FROM public.work_orders w
-           WHERE w.work_title = s.work_title
-             AND w.episode IS NOT DISTINCT FROM s.episode
-             AND w.status NOT IN ('cancelled','failed')) AS n
+           WHERE w.status NOT IN ('cancelled','failed')
+             AND ((s.sha256 IS NOT NULL AND w.source_sha256 = s.sha256)
+               OR (s.sha256 IS NULL AND s.source_url IS NOT NULL
+                   AND w.source_url = s.source_url))) AS n
     FROM public.sources s WHERE s.is_active)
 SELECT u.work_title,
        sum(greatest(u.use_limit - u.n, 0))::int AS remaining,
