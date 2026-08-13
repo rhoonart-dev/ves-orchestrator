@@ -149,7 +149,11 @@ def run(cfg, conn, job, deps):
                 print(f"[localize] {fname} 없음 — 해당 요소 생략(구 run 또는 자막 없는 회차)")
         out_local = pathlib.Path(eng) / "outputs" / run_id / "localized_ja.mp4"
         out_local.parent.mkdir(parents=True, exist_ok=True)
-        dub_py = str(pathlib.Path(eng) / (p.get("dub_python") or ".venv-gsv/bin/python"))
+        # 인터프리터(8/13 실측): 변환은 GSV 가 필요 없다 — ElevenLabs·ffmpeg·번역뿐.
+        # .venv-gsv 는 pip sync(엔진 requirements) 대상이 아니라 elevenlabs 가 영영 없다.
+        # 메인 venv 는 updater 가 requirements.txt 로 동기화한다.
+        dub_py = str(pathlib.Path(eng) / p.get("dub_python")) if p.get("dub_python") \
+            else cfgmod.engine_py(cfg, "localization")
         if not pathlib.Path(dub_py).exists():
             raise base.PermanentError(f"변환 인터프리터 없음: {dub_py}")
         cr = subprocess.run(
