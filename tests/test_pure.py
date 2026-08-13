@@ -1400,3 +1400,30 @@ def test_work_card_seed_is_usable():
         assert f"'{name}'," in seed, f"{name} 제목 필터가 빠졌다"
     # 사람이 관제에서 채운 카드를 시드가 덮으면 안 된다
     assert "ON CONFLICT (work_title) DO NOTHING" in seed
+
+
+def test_reparse_tool_is_dry_run_by_default_and_guards_legacy():
+    """회차 재파싱은 되돌리기 어려운 데이터 변경이다 — 기본은 dry-run 이어야 하고,
+    레거시 장부가 물린 회차를 바꾸려 하면 --apply 라도 멈춰야 한다.
+    (episode 를 바꾸면 source_usage_legacy 의 (작품·채널·회차) 매칭이 끊겨, 구
+    시스템이 이미 쓴 몫이 planner 에 반영되지 않아 중복 생산이 난다)"""
+    import pathlib
+    src = pathlib.Path("deploy/reparse_youtube_episodes.py").read_text(encoding="utf-8")
+    assert '"--apply", action="store_true"' in src        # 기본 False = dry-run
+    assert "if not apply:" in src and "return len(plan), 0" in src
+    # 레거시 충돌이면 apply 여도 건너뛴다
+    hit = src.split("legacy_eps = {", 1)[1]
+    assert "if apply:" in hit and "return 0, 1" in hit
+    # 제목을 못 읽으면 손대지 않는다(서수 유지) — 추측으로 회차를 박지 않는다
+    assert "if new_ep is None:" in src and "unchanged += 1" in src
+    # 회차 파싱 규칙은 base.guess_episode_title 과 같아야 한다(무의존 사본)
+    from ves.adapters.base import guess_episode_title as canon
+    ns = {}
+    exec(src.split("def guess_episode_title", 1)[1].split("\ndef fetch_titles", 1)[0]
+         .join(["def guess_episode_title", ""]), {"re": __import__("re"),
+                                                  "unicodedata": __import__("unicodedata")}, ns)
+    copy = ns["guess_episode_title"]
+    for t, rx in [("놀라운 토요일 EP.410 레전드", ""), ("언더커버셰프 12화", ""),
+                  ("하트시그널5 제2회", ""), ("도레미마켓 모음", ""),
+                  ("#언더커버셰프 EP.7", r"#언더커버셰프\s*EP[.\s]?(\d{1,3})\b")]:
+        assert copy(t, rx) == canon(t, rx), f"사본이 정본과 다르다: {t!r}"
