@@ -71,6 +71,46 @@ def guess_episode(filename: str):
     return None
 
 
+def guess_episode_title(title: str, regex: str = ""):
+    """영상 **제목** → 원본 방송 회차. 순수 — 테스트 대상. (0027 영상 단위 회차)
+
+    regex(작품별 title_episode_regex, 캡처그룹 1 = 회차)가 있으면 그것만 신뢰 —
+    표기 규칙이 작품마다 달라 레거시 scene_loop 도 작품별 정규식을 필수로 받았다.
+    없으면 guess_episode 와 같은 기본 패턴. 파일명용과 달리 확장자 절단을 하지
+    않는다('EP.410' 의 '.' 이 확장자로 오인되면 회차가 통째로 사라진다).
+    NFC 정규화: 맥 경유 제목이 NFD(자모 분해형)면 '화'가 [화회]에 안 걸린다."""
+    import re as _re
+    import unicodedata as _ud
+    t = _ud.normalize("NFC", str(title or ""))
+    pats = (regex,) if regex else (r"[Ee][Pp]?\.?\s*(\d{1,4})(?!\d)",
+                                   r"제\s*(\d{1,4})\s*[화회]?",
+                                   r"(\d{1,4})\s*[화회]")
+    for pat in pats:
+        m = _re.search(pat, t)
+        if m:
+            return int(m.group(1))
+    return None
+
+
+def use_limit_for(duration_sec) -> int:
+    """소스 길이 → 이 소스로 만들 수 있는 편수 (사용자 결정 2026-08-12). 순수.
+    10분 미만 1편 · 10~30분 2편 · 30분 이상 3편. 길이를 모르면 종전값 3.
+    (register_drive 에서 이동 — 0027부터 유튜브 등록도 같은 규칙을 쓴다)"""
+    if duration_sec is None:
+        return 3
+    try:
+        d = float(duration_sec)
+    except (TypeError, ValueError):
+        return 3
+    if d <= 0:
+        return 3
+    if d < 10 * 60:
+        return 1
+    if d < 30 * 60:
+        return 2
+    return 3
+
+
 def classify_by_patterns(stderr: str, stdout: str = "") -> str:
     """공통 에러 분류 폴백 — 어댑터별 classify_error 가 먼저, 못 정하면 이걸로."""
     blob = f"{stderr}\n{stdout}".lower()

@@ -467,11 +467,12 @@ def test_youtube_sources_numbered_oldest_first():
     # 일부만 시각이 있으면 신뢰하지 않고 URL 규칙으로 간다
     partial = [{"id": "x", "timestamp": 5}, {"id": "y"}]
     assert [e["id"] for e in chronological(partial, "https://youtube.com/@c/videos")] == ["y", "x"]
-    # 회차 번호는 오래된 것부터 1,2,3 — 사멸 항목은 빠지되 번호는 이어진다
+    # 서수 폴백 번호는 오래된 것부터 1,2,3 — 사멸 항목은 빠지되 번호는 이어진다
     rows = plan_rows("작품", [{"id": "n", "title": "최신"}, {"id": "m", "title": "[Private video]"},
                              {"id": "o", "title": "최초"}],
                      source_url="https://youtube.com/@c/videos")
-    assert [(ep, t) for ep, _u, t in rows] == [(1, "최초"), (3, "최신")]
+    assert [(r["episode"], r["title"]) for r in rows] == [(1, "최초"), (3, "최신")]
+    assert all(r["episode_source"] == "ordinal" for r in rows)
 
 
 def test_localize_lease_long_enough():
@@ -666,7 +667,7 @@ def test_drive_watch_folder_url():
 
 
 def test_register_playlist_plan_rows():
-    """구 관제 이관: 사멸 항목 스킵·제목 필터·순번 회차 (0012)."""
+    """구 관제 이관: 사멸 항목 스킵·제목 필터(0012) + 영상 단위 회차(0027)."""
     from ves.adapters.register_sources import plan_rows
     entries = [
         {"id": "a1", "title": "[Private video]"},                 # 도깨비 1번 실측
@@ -675,15 +676,50 @@ def test_register_playlist_plan_rows():
         {"id": "c3", "title": "산지직송 하이라이트"},
     ]
     rows = plan_rows("도깨비 10주년 여행", entries)
-    assert [(r[0], r[1]) for r in rows] == [
+    assert [(r["episode"], r["url"]) for r in rows] == [
         (2, "https://www.youtube.com/watch?v=b2"),
-        (4, "https://www.youtube.com/watch?v=c3")]                # 순번 유지, 사멸·불량 제외
+        (4, "https://www.youtube.com/watch?v=c3")]     # EP.2 는 파싱, 나머진 위치 서수
+    assert [r["episode_source"] for r in rows] == ["parsed", "ordinal"]
     only = plan_rows("언니네 산지직송 in 칼라페", entries, title_filter="산지직송")
-    assert len(only) == 1 and only[0][0] == 4
+    assert len(only) == 1 and only[0]["episode"] == 4
     assert plan_rows("x", None) == []
     # 띄어쓰기 무시 대조 (플릿 실측: '놀라운 토요일' 필터가 '놀라운토요일' 제목을 놓침)
     sp = [{"id": "z9", "title": "[놀라운토요일] 도레미마켓 레전드"}]
     assert len(plan_rows("놀라운 토요일", sp, title_filter="놀라운 토요일")) == 1
+
+
+def test_plan_rows_per_video_quota_and_shorts_skip():
+    """0027: 3분 이하는 등록 제외(번호도 안 줌) · use_limit 은 길이 비례 · 업로드시각 보존."""
+    from ves.adapters.register_sources import plan_rows
+    entries = [
+        {"id": "t", "title": "티저", "duration": 90, "timestamp": 100},      # ≤180s 제외
+        {"id": "a", "title": "5화 하이라이트", "duration": 8 * 60, "timestamp": 200},
+        {"id": "b", "title": "5화 풀버전", "duration": 40 * 60, "timestamp": 300},
+        {"id": "c", "title": "길이 미상", "timestamp": 400},
+    ]
+    rows = plan_rows("작품", entries)
+    assert [r["url"][-1] for r in rows] == ["a", "b", "c"]        # 티저는 행 자체가 없다
+    assert [(r["episode"], r["episode_source"]) for r in rows] == [
+        (5, "parsed"), (5, "parsed"), (4, "ordinal")]             # 같은 회차 공존 + 서수 폴백
+    assert [r["use_limit"] for r in rows] == [1, 3, 3]            # 8분→1 · 40분→3 · 미상→3
+    assert [r["published_ts"] for r in rows] == [200.0, 300.0, 400.0]
+    # 수동 오버라이드는 길이 규칙을 이긴다
+    assert {r["use_limit"] for r in plan_rows("작품", entries, use_limit=2)} == {2}
+
+
+def test_guess_episode_title():
+    """제목 → 원본 방송 회차. 확장자 절단 없음('EP.410' 보호) · 작품별 정규식 우선."""
+    from ves.adapters.base import guess_episode_title
+    assert guess_episode_title("놀라운 토요일 EP.410 레전드") == 410
+    assert guess_episode_title("언더커버셰프 12화 풀버전") == 12
+    assert guess_episode_title("하트시그널5 제2회") == 2         # '시즌5' 오인 금지
+    assert guess_episode_title("도레미마켓 레전드 모음") is None
+    assert guess_episode_title("놀토 [410-2]", regex=r"\[(\d+)-\d+\]") == 410
+    assert guess_episode_title("놀토 스페셜", regex=r"\[(\d+)-\d+\]") is None  # 정규식 지정 시 그것만
+    import unicodedata
+    assert guess_episode_title(unicodedata.normalize("NFD", "샤먼 3화")) == 3  # NFD 제목
+
+
 
 
 def test_storage_4xx_permanent_except_429():
