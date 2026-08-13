@@ -181,7 +181,8 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .judgebox details summary{cursor:pointer;color:var(--muted);font-size:11.5px}
   .hallu{color:var(--crit);font-size:12px;font-weight:600;margin-top:6px}
   .notehint{color:var(--warn);font-size:12px;margin:6px 0 0}
-  .reason{width:100%;margin-top:8px}
+  /* 사유·메모: 한 줄 input 은 길게 쓰면 앞이 안 보였다(운영 결정 8/13 — 여러 줄) */
+  .reason{width:100%;margin-top:8px;min-height:68px;resize:vertical;font:inherit;line-height:1.5}
   /* 반려 패널 — 평소엔 안 보이고, 반려를 누를 때만 카드 안에서 펼쳐진다 */
   .rjpanel{margin-top:8px;padding:10px;border:1px solid var(--line);border-radius:10px;
     background:var(--chip,rgba(127,127,127,.06))}
@@ -297,15 +298,19 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .now .what{font-size:13px;line-height:1.5}
   .now .what .st{color:#9cc4f2;font-weight:600}
   .now .idle{color:var(--muted);font-size:13px}
-  /* v3: 검수함 카드 그리드 */
-  .rvgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(470px,1fr));gap:12px;align-items:start}
+  /* v3: 검수함 카드 그리드. 영상 220px 확대(운영 결정 8/13) — 그리드 최소폭은
+     영상폭+294(본문 240+여백)와 세트다. 한쪽만 바꾸면 본문이 찌그러진다. */
+  .rvgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(514px,1fr));gap:12px;align-items:start}
   .rvgrid .review{margin-bottom:0}
   /* 목업: 검수 카드 좌우 배치 — 영상 왼쪽 · 채널/judge/사유 오른쪽 */
   .rv2{display:flex;gap:14px;align-items:stretch;flex-wrap:wrap}
-  .rv2 .rv2-vid{flex:none;width:176px}
+  .rv2 .rv2-vid{flex:none;width:220px}
   .rv2 .rv2-vid video{width:100%;max-width:none;margin-top:0;border-radius:8px}
   .rv2 .rv2-body{flex:1;min-width:240px;display:flex;flex-direction:column}
-  .rv2 .form{margin-top:auto;justify-content:flex-end;padding-top:10px;flex-wrap:nowrap}
+  /* wrap: 예약 시각 입력이 nowrap 에서 카드 밖으로 밀려 영상을 덮었다(8/13 실측
+     — 날짜박스 left 299 < 영상 right 382). 전용 줄로 빼 버튼 줄 위에 둔다. */
+  .rv2 .form{margin-top:auto;justify-content:flex-end;padding-top:10px;flex-wrap:wrap}
+  .rv2 .form input[type=datetime-local]{flex:1 1 100%;order:-1;margin-bottom:2px}
   .rv2 .form select{min-width:0;flex:0 1 auto}
   .rv2 .form button{white-space:nowrap;flex:none}
   .rv2 .rv2-chn{font-weight:700;font-size:14px}
@@ -350,11 +355,15 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .rjask{display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap}
   th.sortable{cursor:pointer;user-select:none}
   th.sortable:hover{color:var(--ink)}
-  /* v3.1: 채널 템플릿 편집 */
-  .chgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:12px;align-items:start}
-  .chcard{background:var(--surface-2);border:1px solid var(--ring);border-radius:10px;padding:12px}
+  /* v3.1: 채널 템플릿 편집. 카드 높이 통일(운영 결정 8/13) — align-items 기본(stretch)로
+     같은 행 카드가 같은 높이, 디자인 요약은 2줄 말줄임(전체 값은 편집 모달에서). */
+  .chgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:12px}
+  .chcard{background:var(--surface-2);border:1px solid var(--ring);border-radius:10px;padding:12px;
+    display:flex;flex-direction:column}
   .chcard .h{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
   .chcard .h b{font-size:15px}
+  .chcard .dsum-clamp{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .chcard .dacts{margin-top:auto}
   .sw{display:inline-block;width:13px;height:13px;border-radius:4px;border:1px solid var(--line);
       vertical-align:-2px;margin-right:4px}
   .dsum{font-size:12.5px;color:var(--ink-2);line-height:1.9}
@@ -621,6 +630,12 @@ const TABS = [["home","홈"],["review","검수함"],["feed","영상 피드"],["s
               ["channels","채널 템플릿"],["jobs","작업 내역"],["infra","맥·배포"],["perf","성과"]];
 const tabsFor = () => myRole === "admin" ? [...TABS, ["admin","권한 관리"]] : TABS;
 function render(){
+  // 검수함 입력 보존(운영 결정 8/13): 재렌더가 쓰던 메모·공개방식·예약시각을 지우지 않는다.
+  // userTyping() 가드는 '틱 순간의 포커스'만 지킨다 — 메모를 쓰다 영상을 클릭(포커스 이탈)한
+  // 뒤의 자동 갱신에 입력이 통째로 날아갔다. 값을 스냅샷해 재렌더 후 되살린다.
+  const keep = {};
+  document.querySelectorAll('#page .reason, #page select[id^="prv_"], #page input[id^="at_"]')
+    .forEach(el => { if (el.id && el.value) keep[el.id] = el.value; });
   const waiting = (state.reviews||[]).filter(r => r.status === "waiting").length;
   $("#tabs").innerHTML = tabsFor().map(([k,l]) =>
     `<button class="${tab===k?"on":""}" onclick="tab='${k}';render()">${l}${
@@ -628,6 +643,12 @@ function render(){
   ({home:renderHome, review:renderReview, feed:renderFeed, sources:renderSources,
     channels:renderChannels, jobs:renderJobsTab, infra:renderInfra, perf:renderPerf,
     admin:renderAdmin}[tab] || renderHome)();
+  for (const [id, v] of Object.entries(keep)){
+    const el = document.getElementById(id);
+    if (!el) continue;                       // 그 사이 결정된 카드는 사라진다 — 정상
+    if (el.tagName === "SELECT"){ el.value = v; el.onchange && el.onchange(); }
+    else if (!el.value) el.value = v;
+  }
 }
 
 // ───────── 홈 ─────────
@@ -846,7 +867,7 @@ const LOOPY_ROUTE = { A:"무변환 — 원본 그대로", B:"자막", C:"더빙"
 function loopyCard(r, pay){
   const vid = pay.zanmang_video_id;
   const acts = can("reviewer") ? `
-    <input class="reason" id="note_${r.id}" placeholder="사유·메모 (선택)">
+    <textarea class="reason" id="note_${r.id}" rows="3" placeholder="사유·메모 (선택)"></textarea>
     <div class="form">
       <span class="sub" title="업로더가 비공개로 올리고 19:00 JST 다음 빈 슬롯으로 예약 공개합니다">
         승인 시 비공개 업로드 · 19:00 JST 예약</span>
@@ -892,15 +913,17 @@ function renderReview(){
       const low = (() => { const cid = state.runToClip[run], j = cid && state.judgeByClip[cid];
         return j && Number(j.quality_score) < 0.5; })();
       const form = can("reviewer") ? `
-        <input class="reason" id="note_${r.id}" placeholder="사유·메모 — 반려 시 다시 만들 때 그대로 반영됩니다">
+        <textarea class="reason" id="note_${r.id}" rows="3"
+          placeholder="사유·메모 — 반려 시 재생성 프롬프트에 그대로 반영됩니다('제작' 단계 제외)"></textarea>
         ${low ? '<p class="notehint">💬 judge 가 낮게 봤습니다 — 그래도 합격시키신다면 이유를 남겨 주세요. judge 를 고칠 근거가 됩니다.</p>' : ""}
         <div class="form" id="rjb_${r.id}">
-          <select id="prv_${r.id}" onchange="$('#at_${r.id}').style.display=this.value==='schedule'?'':'none'">
+          <select id="prv_${r.id}"
+            title="R9: 자동 발행은 비공개·일부공개·예약까지 — 공개 전환은 사람이 Studio 에서"
+            onchange="$('#at_${r.id}').style.display=this.value==='schedule'?'':'none'">
             <option value="private">비공개</option><option value="unlisted">일부공개</option>
-            <option value="schedule">예약공개(비공개→시각)</option>
+            <option value="schedule" title="비공개로 올리고 지정 시각에 자동 공개">예약공개</option>
           </select>
           <input id="at_${r.id}" type="datetime-local" style="display:none">
-          <span class="sub" title="R9: 자동 발행은 비공개·일부공개·예약까지. 공개 전환은 사람이 Studio 에서">공개 전환은 발행 후 Studio</span>
           <button class="pri act" onclick="approve('${r.id}')">✓ 합격 · 발행</button>
           <button class="danger act" onclick="rejectAsk('${r.id}')">✕ 반려</button>
         </div>
@@ -923,17 +946,24 @@ function renderReview(){
               ? ` <span class="rv2-mac" title="이 영상을 제작한 맥 — 반려 후 재생성도 같은 맥에서 돕니다">🖥 ${esc(n)}</span>` : ""; })()}</div>
           ${jg}${form}</div></div>`;
     }).join("") || `<div class="empty">${rvCh==="all" ? "검수 대기 항목 없음 🎉" : esc(chName(rvCh)) + " — 검수 대기가 없습니다"}</div>`) + `</div></section>
-    <section class="card"><h2>최근 결정</h2><div class="tblwrap"><table>
-      <tr><th>시각</th><th>작품</th><th>결정</th><th>결정자</th><th>사유</th></tr>${
-      (state.reviews||[]).filter(r => r.status !== "waiting").slice(0,20).map(r => {
+    <section class="card"><h2>최근 결정${rvCh==="all" ? "" : ` — ${esc(chName(rvCh))}`}</h2><div class="tblwrap"><table>
+      <tr><th>시각</th><th>채널</th><th>작품</th><th>결정</th><th>결정자</th><th>사유</th></tr>${
+      (state.reviews||[]).filter(r => r.status !== "waiting")
+        // 최신 결정이 맨 위(운영 결정 8/13) — 종전엔 무정렬(생성시각 fetch 순)이라 뒤죽박죽
+        .sort((a,b) => new Date(b.decided_at || b.created_at) - new Date(a.decided_at || a.created_at))
+        // 위 채널 칩과 연동 — 칩을 고르면 그 채널의 결정 기록만
+        .filter(r => rvCh === "all" || r.channel_slug === rvCh)
+        .slice(0,20).map(r => {
         const wo = state.wo[r.work_order_id] || {};
+        const slug = wo.channel_slug || r.channel_slug;
         const d = r.status === "approved" ? chip("good","✓","합격")
                 : r.status === "rejected" ? chip("crit","✕","반려") : chip("mut","–",r.status);
         return `<tr><td class="num">${ago(r.decided_at || r.created_at)}</td>
+          <td style="white-space:nowrap">${chAvatarHtml(slug, 18)} ${esc(chName(slug))}</td>
           <td>${esc(wo.work_title||"")}</td><td>${d}</td>
           <td class="sub">${esc((r.decided_by||"").slice(0,18))}</td>
           <td class="sub">${esc((r.decision_note||"").slice(0,80))}</td></tr>`;
-      }).join("") || '<tr><td colspan="5" class="empty">아직 없음</td></tr>'}</table></div></section>`;
+      }).join("") || '<tr><td colspan="6" class="empty">아직 없음</td></tr>'}</table></div></section>`;
   // v3: 프리뷰 자동 로드 — 버튼 없이 카드에서 바로 본다(서명 URL)
   rs.forEach(async r => {
     const pay = r.payload || {}; if (!pay.preview_key) return;
@@ -1487,7 +1517,7 @@ function renderChannels(){
     const planTxt = plan
       ? `📌 ${esc(plan.work_title)} · ${plan.episode != null ? plan.episode + "회차 고정" : "회차 자동"}`
       : "자동 (작품 순서 · 회차 순환)";
-    return `<div class="chcard"><div class="h"><b>${esc(ch.name || ch.token_slug)}</b>${st}
+    return `<div class="chcard"><div class="h">${chAvatarHtml(ch.token_slug, 26)}<b>${esc(ch.name || ch.token_slug)}</b>${st}
         ${ovr ? `<span class="sub right">${esc((ovr.updated_by||"").split("@")[0])} · ${ago(ovr.updated_at)}</span>` : ""}</div>
       <div class="dsum" style="margin-bottom:6px"><b>작품 배정:</b> ${esc(effWorks.join(", ")) || "—"}
         ${wOvr ? chip("info","✎","관제 수정본") : ""}</div>
@@ -1495,7 +1525,7 @@ function renderChannels(){
         : `<div class="dsum" style="margin-bottom:6px"><b>다음 작업:</b> ${planTxt}
           ${plan ? `<span class="sub"> · ${esc((plan.updated_by||"").split("@")[0])}</span>` : ""}</div>`}
       <div style="border-top:1px solid var(--line);margin:8px 0"></div>
-      <div class="dsum">${sum}</div>
+      <div class="dsum dsum-clamp" title="전체 값은 ✎ 편집에서">${sum}</div>
       <div class="dacts">${can("operator")
         ? `<button class="mini" onclick="chEdit='${esc(ch.token_slug)}';render()">✎ 편집</button>`
         : '<span class="sub">편집은 operator 권한</span>'}</div></div>`;
