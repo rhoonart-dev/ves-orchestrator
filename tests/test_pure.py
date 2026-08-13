@@ -1546,3 +1546,22 @@ def test_dashboard_reads_usable_from_view():
     assert "r.usable === true" in fn
     assert "r.usable != null" in fn, "폴백 없이 usable 만 보면 0031 전에 전부 사용불가로 보인다"
     assert "> 180" in fn, "폴백 경로가 사라졌다"
+
+
+def test_register_drive_uses_work_card_floor():
+    """드라이브 등록도 작품별 하한을 쓴다(0032) — 유튜브·planner 와 같은 규칙.
+
+    하한을 코드가 직접 들고 있으면 그 경로에서만 작품 설정이 무시된다. 카드를 루프
+    바깥에서 한 번 읽고(파일마다 조회하지 않는다), 0032 미적용 DB 에서는 조회가
+    실패하므로 기본값으로 내려가야 인입이 멈추지 않는다."""
+    import inspect
+    from ves.adapters import register_drive
+    src = inspect.getsource(register_drive.run)
+    assert "min_source_duration_sec FROM public.work_cards" in src
+    assert "base.is_usable(dur, min_by_work.get(work))" in src
+    assert "is_usable(dur)" not in src, "기본값 하한이 그대로 남아 있다"
+    # 카드 조회는 파일 루프 **밖**에서 한 번만
+    head, loop = src.split("for fid, work, rel in todo:", 1)
+    assert "min_by_work = {" in head and "work_cards" not in loop
+    # 0032 이전 DB 호환 — 조회 실패가 인입을 멈추지 않는다
+    assert "except Exception" in head.split("min_by_work = {}", 1)[1]
