@@ -1602,3 +1602,17 @@ def test_source_sha_from_runlog():
         {"input": {"video_path": f"/opt/ves/cache/sources/{sha}"}}) == sha
     assert source_sha_from_runlog({"input": {"video_path": "/tmp/영상.mp4"}}) is None
     assert source_sha_from_runlog({}) is None and source_sha_from_runlog(None) is None
+
+
+def test_loopy_ledger_row_params_shape():
+    """원장 미러(0034) — sqlite 행 → upsert 파라미터. scores 는 유효 JSON 만 jsonb 로."""
+    from ves.adapters.zanmang import ledger_row_params, _MIRROR_SQL
+    r = {"video_id": "abc", "title": "볼살 뀨~", "state": "pending_approval",
+         "score": 0.69, "scores": '{"llm":0.7}', "notes": None}
+    params = ledger_row_params(r)
+    assert params[0] == "abc" and params[8] == "pending_approval"
+    assert params[11] == '{"llm":0.7}'
+    # 깨진 JSON 은 NULL 로 — jsonb 캐스트에서 upsert 전체가 죽으면 안 된다
+    assert ledger_row_params({**r, "scores": "{broken"})[11] is None
+    # 파라미터 수가 SQL 플레이스홀더 수(17 + now())와 맞아야 한다
+    assert len(params) == 17 and _MIRROR_SQL.count("%s") == 17

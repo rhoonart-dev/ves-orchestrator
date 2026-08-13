@@ -93,6 +93,60 @@ def pending_rows(ledger_path) -> list:
         conn.close()
 
 
+def ledger_row_params(r: dict) -> tuple:
+    """sqlite videos 행 → loopy_ledger upsert 파라미터. scores 는 JSON 문자열 그대로
+    jsonb 로(깨진 값은 NULL). 순수 — 테스트 대상."""
+    import json as _json
+    scores = r.get("scores")
+    if scores is not None:
+        try:
+            _json.loads(scores)
+        except (TypeError, ValueError):
+            scores = None
+    return (r.get("video_id"), r.get("title"), r.get("url"), r.get("duration"),
+            r.get("view_count"), r.get("like_count"), r.get("comment_count"),
+            r.get("published_at"), r.get("state"), r.get("level_guess"),
+            r.get("score"), scores, r.get("notes"), r.get("discovered_at"),
+            r.get("updated_at"), r.get("publish_at"), r.get("youtube_id"))
+
+
+_MIRROR_SQL = """INSERT INTO public.loopy_ledger
+    (video_id, title, url, duration, view_count, like_count, comment_count,
+     published_at, state, level_guess, score, scores, notes, discovered_at,
+     updated_at, publish_at, youtube_id, synced_at)
+VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s,%s,%s, now())
+ON CONFLICT (video_id) DO UPDATE SET
+    title=excluded.title, url=excluded.url, duration=excluded.duration,
+    view_count=excluded.view_count, like_count=excluded.like_count,
+    comment_count=excluded.comment_count, published_at=excluded.published_at,
+    state=excluded.state, level_guess=excluded.level_guess, score=excluded.score,
+    scores=excluded.scores, notes=excluded.notes, discovered_at=excluded.discovered_at,
+    updated_at=excluded.updated_at, publish_at=excluded.publish_at,
+    youtube_id=excluded.youtube_id, synced_at=now()"""
+
+
+def _mirror_ledger(conn, repo: pathlib.Path) -> int:
+    """sqlite 원장 전체 → public.loopy_ledger (B안 2단계 ①, 0034).
+
+    미러는 사본이다 — 정본은 여전히 sqlite 고, 여기 실패해도 검수·업로드는 계속돼야
+    한다(호출부에서 삼킨다). 행수 수천 규모라 통째로 upsert 해도 daily 한 번당 1초대."""
+    import sqlite3
+    db = repo / LEDGER_REL
+    if not db.exists():
+        return 0
+    src = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    src.row_factory = sqlite3.Row
+    try:
+        rows = [dict(r) for r in src.execute("SELECT * FROM videos")]
+    finally:
+        src.close()
+    if not rows:
+        return 0
+    with conn.cursor() as c:
+        c.executemany(_MIRROR_SQL, [ledger_row_params(r) for r in rows])
+    return len(rows)
+
+
 def post_success(cfg, conn, job, result):
     """daily 가 끝나면 승인 대기분을 VES 검수함에 올린다 (사용자 요청 8/12).
 
@@ -107,6 +161,12 @@ def post_success(cfg, conn, job, result):
     if (job.get("params") or {}).get("task", "daily") != "daily":
         return
     repo = pathlib.Path(cwd(cfg, job))
+    try:
+        n = _mirror_ledger(conn, repo)
+        if n:
+            print(f"[zanmang] 원장 미러 {n}행 → loopy_ledger")
+    except Exception as e:  # noqa: BLE001 — 미러 실패가 검수 등록을 막지 않는다
+        print(f"[zanmang] 원장 미러 실패(비치명): {e}")
     rows = pending_rows(repo / LEDGER_REL)
     if not rows:
         return
