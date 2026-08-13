@@ -167,13 +167,20 @@ END $function$;
 -- ③ source_usage 뷰(0010) — 전 채널 합계. 회차 조인 → 행 매칭.
 --    종전 조인은 같은 회차의 다른 파일이 쓴 WO 까지 이 행의 times_used 로 셌다
 --    (혜미리예채파 5화 3행 실측: 한 파일만 써도 세 행 모두 '3번 씀'으로 보였다).
+--
+-- ⚠ CREATE OR REPLACE VIEW 는 컬럼을 지우지 못한다("cannot drop columns from view").
+--   0010 정의만 보고 쓰면 안 되고, 그 뒤 마이그레이션이 덧붙인 컬럼을 **순서까지**
+--   그대로 유지해야 한다 — duration_sec 는 0022 가 마지막에 붙였다.
+--   security_invoker 도 반드시 명시한다(0024 가 복구한 값). 빠뜨리면 조회자 권한이
+--   아니라 뷰 소유자 권한으로 돌아 RLS 를 우회한다.
 -- =====================================================================
 CREATE OR REPLACE VIEW public.source_usage
 WITH (security_invoker = true) AS
 SELECT s.id AS source_id, s.work_title, s.episode, s.use_limit, s.is_active,
        s.bytes, s.has_subtitle,
        COUNT(w.id) FILTER (WHERE w.status NOT IN ('cancelled','failed')) AS times_used,
-       GREATEST(s.use_limit - COUNT(w.id) FILTER (WHERE w.status NOT IN ('cancelled','failed')), 0) AS remaining
+       GREATEST(s.use_limit - COUNT(w.id) FILTER (WHERE w.status NOT IN ('cancelled','failed')), 0) AS remaining,
+       s.duration_sec                     -- 0022 추가분 — 순서 유지 필수(맨 뒤)
 FROM public.sources s
 LEFT JOIN public.work_orders w
   ON public.wo_matches_source(w.work_title, w.source_sha256, w.source_url,
@@ -189,7 +196,8 @@ GRANT SELECT ON public.source_usage TO authenticated;
 --    여럿이면 같은 레거시 값이 각 행에 보이므로, 화면 합산은 행 단위로 하되
 --    레거시는 회차당 한 번만 세야 한다(대시보드 buildEpMap 참조).
 -- =====================================================================
-CREATE OR REPLACE VIEW public.source_usage_by_channel AS
+CREATE OR REPLACE VIEW public.source_usage_by_channel
+WITH (security_invoker = true) AS     -- 0024 복구분 — 생략하면 RLS 를 우회한다
 SELECT s.id                AS source_id,
        s.work_title,
        s.episode,

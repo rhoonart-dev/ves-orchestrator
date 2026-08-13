@@ -1063,6 +1063,24 @@ def test_row_level_usage_has_one_matching_rule():
     assert "coalesce(s2.published_ts, s2.created_at)" in pick   # planner 와 같은 정렬
 
 
+def test_view_rewrites_keep_columns_and_security_invoker():
+    """🛑 뷰를 다시 쓸 때 컬럼과 security_invoker 를 잃으면 안 된다(실적용에서 걸렸다).
+
+    · CREATE OR REPLACE VIEW 는 컬럼을 못 지운다 — 0010 정의만 보고 쓰면
+      'cannot drop columns from view' 로 마이그레이션이 중간에 멈춘다.
+      duration_sec 는 0022 가 맨 뒤에 붙인 컬럼이다.
+    · security_invoker 를 빠뜨리면 조회자 권한이 아니라 뷰 소유자 권한으로 돌아
+      RLS 를 우회한다(0024 가 일부러 복구해 둔 값이다)."""
+    mig = _mig("0027_episode_per_video.sql")
+    su = mig.split("CREATE OR REPLACE VIEW public.source_usage\n", 1)[1] \
+            .split("CREATE OR REPLACE VIEW public.source_usage_by_channel", 1)[0]
+    assert "s.duration_sec" in su, "0022 가 붙인 duration_sec 가 빠졌다"
+    assert "security_invoker = true" in su
+    bych = mig.split("CREATE OR REPLACE VIEW public.source_usage_by_channel", 1)[1]
+    assert "security_invoker = true" in bych.split("SELECT", 1)[0], \
+        "source_usage_by_channel 이 security_invoker 없이 재정의된다 — RLS 우회"
+
+
 def test_set_source_limit_touches_only_chosen_row():
     """0024 는 회차 전체에 한도를 걸었다(소진이 회차 단위였으니 맞았다). 0027 이 전제를
     뒤집었으므로 고른 행만 고친다 — 안 그러면 같은 회차 남의 영상 한도까지 바뀐다."""
