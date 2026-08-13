@@ -105,23 +105,11 @@ def excludes_for(folder_id: str, known_ids) -> list:
                    if isinstance(k, str) and k.startswith(pre) and len(k) > len(pre)})
 
 
-MIN_USABLE_SEC = 180   # 3분 이하 소스는 쓰지 않는다 (사용자 결정 2026-08-12)
-
-
-def is_usable(duration_sec) -> bool:
-    """이 소스로 쇼츠를 만들 수 있는가. 순수 — 테스트 대상.
-
-    3분 이하는 예고편·티저·클립이라 장면을 골라낼 여지가 없다 — 등록은 하되(다시 받지 않도록)
-    비활성으로 둬서 planner 가 집지 않게 한다. 길이를 모르면(프로브 실패) 종전대로 사용."""
-    if duration_sec is None:
-        return True
-    try:
-        d = float(duration_sec)
-    except (TypeError, ValueError):
-        return True
-    if d <= 0:
-        return True                      # 0/음수 = 못 잰 것 — 길이 미상과 같게 취급
-    return d > MIN_USABLE_SEC
+# 길이 하한 규칙은 base 로 이동(0031: 유튜브 등록·planner·관제와 공용). 이름은 유지.
+# 작품별 하한을 쓰려면 base.is_usable(dur, min_sec) 로 부른다 — 드라이브 등록은
+# 아직 기본값(180)으로 돈다(작품 카드 연결은 후속).
+MIN_USABLE_SEC = base.MIN_USABLE_SEC
+is_usable = base.is_usable
 
 
 def top_folders(files) -> list:

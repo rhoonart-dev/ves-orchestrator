@@ -430,11 +430,14 @@ def test_short_sources_are_not_used():
 
 
 def test_planner_excludes_short_sources_in_sql():
-    """SQL 쪽 2차 방어 — 사람이 실수로 활성화해도 3분 이하는 안 집힌다."""
+    """SQL 쪽 2차 방어 — 사람이 실수로 활성화해도 하한 이하는 안 집힌다.
+    0031 부터 하한은 작품별이라 숫자가 아니라 정본 함수를 부른다(기본값은 함수 안에 180).
+    길이 미상은 종전대로 통과시킨다 — 프로브 실패로 소스를 잃지 않기 위해."""
     import inspect
     from ves.scheduler import planner
     sql = inspect.getsource(planner._pick_source)
-    assert "duration_sec IS NULL OR s.duration_sec > 180" in sql
+    assert "s.duration_sec IS NULL" in sql
+    assert "public.source_min_duration(s.work_title)" in sql
 
 
 def test_use_limit_by_source_length():
@@ -1433,3 +1436,87 @@ def test_reparse_tool_is_dry_run_by_default_and_guards_legacy():
                   ("하트시그널5 제2회", ""), ("도레미마켓 모음", ""),
                   ("#언더커버셰프 EP.7", r"#언더커버셰프\s*EP[.\s]?(\d{1,3})\b")]:
         assert copy(t, rx) == canon(t, rx), f"사본이 정본과 다르다: {t!r}"
+
+
+# ── 0031: 작품별 소스 길이 하한 ──
+def test_min_duration_falls_back_to_default():
+    """작품 카드에 값이 없거나 이상하면 종전 기본값(180) — 설정 오류가 등록을 막지 않는다."""
+    from ves.adapters.base import MIN_USABLE_SEC, min_duration_for
+    assert MIN_USABLE_SEC == 180
+    assert min_duration_for(None) == 180
+    assert min_duration_for(600) == 600 and min_duration_for("500") == 500
+    assert min_duration_for(0) == 180 and min_duration_for(-1) == 180
+    assert min_duration_for("이상한값") == 180 and min_duration_for("") == 180
+
+
+def test_is_usable_respects_per_work_floor():
+    """하한은 작품마다 다르다(놀토 600 · 커리어데이 300). 길이 미상은 종전대로 사용."""
+    from ves.adapters.base import is_usable
+    assert is_usable(181) and not is_usable(180)              # 기본 하한
+    assert not is_usable(500, 600) and is_usable(601, 600)    # 작품 하한 600
+    assert is_usable(301, 300) and not is_usable(300, 300)
+    # 길이를 모르면(프로브 실패·0·음수) 막지 않는다 — 하한이 있어도 마찬가지
+    for bad in (None, "", 0, -1):
+        assert is_usable(bad) and is_usable(bad, 600)
+    # register_drive 는 base 를 그대로 재수출한다(규칙이 갈라지면 안 된다)
+    from ves.adapters import register_drive as rd
+    from ves.adapters.base import is_usable as canon, MIN_USABLE_SEC as canon_min
+    assert rd.is_usable is canon and rd.MIN_USABLE_SEC == canon_min
+
+
+def test_plan_rows_uses_work_card_floor():
+    """0031: 하한 이하는 등록 자체를 건너뛴다 — 번호도 안 준다."""
+    from ves.adapters.register_sources import plan_rows
+    entries = [{"id": "a", "title": "5화", "duration": 400, "timestamp": 100},
+               {"id": "b", "title": "6화", "duration": 700, "timestamp": 200}]
+    assert [r["url"][-1] for r in plan_rows("작품", entries)] == ["a", "b"]          # 기본 180
+    assert [r["url"][-1] for r in plan_rows("작품", entries, min_duration=600)] == ["b"]
+    assert plan_rows("작품", entries, min_duration=900) == []
+    # 카드가 없으면(None) 종전 동작
+    assert len(plan_rows("작품", entries, min_duration=None)) == 2
+
+
+def test_min_duration_has_one_rule_everywhere():
+    """🛑 하한을 보는 곳이 여섯이다 — 전부 정본(source_min_duration / base)을 쓰는지 고정한다.
+    하나라도 180 을 직접 들고 있으면 작품별 하한이 그 경로에서만 무시된다."""
+    import inspect
+    from ves.scheduler import planner
+    mig = _mig("0031_work_card_min_duration.sql")
+    assert "CREATE OR REPLACE FUNCTION public.source_min_duration" in mig
+    assert "min_source_duration_sec" in mig
+    # planner 는 SQL 정본 함수를 쓴다
+    src = inspect.getsource(planner._pick_source)
+    assert "public.source_min_duration(s.work_title)" in src
+    assert "> 180" not in src, "planner 에 하한이 하드코딩돼 있다"
+    # run_channel_now 도(0031 이 마지막 재정의본)
+    rcn = _live_mig("CREATE OR REPLACE FUNCTION public.run_channel_now")
+    body = rcn.split("CREATE OR REPLACE FUNCTION public.run_channel_now", 1)[1]
+    pick = body.split("IF NOT v_found", 1)[0]
+    assert "public.source_min_duration(s2.work_title)" in pick
+    assert "> 180" not in pick, "run_channel_now 에 하한이 하드코딩돼 있다"
+    # 0029 가 복구한 것들을 0031 이 또 흘리지 않았는지
+    for must in ("'manual:' ||", "'channel', v_ch.name", "'level', v_lv", "free_before"):
+        assert must in body, f"0031 재정의에서 유실: {must}"
+    assert re_search_priority(body), "priority 150 이 유실됐다"
+    # 뷰 2개가 usable 을 내려준다 — 대시보드가 숫자를 알 필요가 없다
+    assert mig.count("AS usable") == 2
+    assert mig.count("security_invoker = true") == 2
+    # 등록 경로는 base 정본
+    import ves.adapters.register_sources as rs
+    assert "base.is_usable(dur, min_duration)" in inspect.getsource(rs.plan_rows)
+
+
+def re_search_priority(s):
+    import re
+    return bool(re.search(r"v_step\.ttl,\s*\n?\s*150\)", s))
+
+
+def test_dashboard_reads_usable_from_view():
+    """0031: 하한이 작품마다 다르므로 화면이 숫자를 알면 또 어긋난다 — 뷰의 usable 을 읽는다.
+    단 0031 적용 전(컬럼 없음)에는 종전 규칙으로 폴백해야 배포 순서가 안전하다."""
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    fn = html.split("const srcUsable", 1)[1].split(";", 1)[0]
+    assert "r.usable === true" in fn
+    assert "r.usable != null" in fn, "폴백 없이 usable 만 보면 0031 전에 전부 사용불가로 보인다"
+    assert "> 180" in fn, "폴백 경로가 사라졌다"

@@ -133,6 +133,45 @@ def guess_episode_title(title: str, regex=""):
     return None
 
 
+MIN_USABLE_SEC = 180   # 기본 하한(사용자 결정 2026-08-12) — 작품 카드에 값이 없을 때
+
+
+def min_duration_for(card_min=None) -> int:
+    """작품별 소스 길이 하한(초). 순수 — 테스트 대상. (0031 작품 카드)
+
+    작품마다 '쓸 만한 분량'이 다르다 — 레거시 works.json 은 놀토·도깨비 600s,
+    산지직송·스레파 500s, 커리어데이·B급 300s 를 요구했다. 카드에 값이 없거나
+    이상하면 종전 기본값(180)으로 간다 — 설정 오류가 등록·배정을 막지 않는다.
+    ★SQL 쪽 정본은 public.source_min_duration(work_title) 이다. 둘이 같은 규칙이어야
+      하고, 규칙이 바뀌면 반드시 둘 다 고친다."""
+    if card_min is None:
+        return MIN_USABLE_SEC
+    try:
+        v = int(float(card_min))
+    except (TypeError, ValueError):
+        return MIN_USABLE_SEC
+    return v if v > 0 else MIN_USABLE_SEC
+
+
+def is_usable(duration_sec, min_sec=None) -> bool:
+    """이 소스로 쇼츠를 만들 수 있는가. 순수 — 테스트 대상.
+
+    하한 이하는 예고편·티저·클립이라 장면을 골라낼 여지가 없다 — 등록은 하되(다시 받지
+    않도록) 비활성으로 둬서 planner 가 집지 않게 한다. 길이를 모르면(프로브 실패)
+    종전대로 사용한다. min_sec 를 주면 그 작품의 하한, 없으면 기본 180.
+    (register_drive 에서 이동 — 0031부터 유튜브 등록·planner 도 같은 규칙을 쓴다)"""
+    lo = min_duration_for(min_sec)
+    if duration_sec is None:
+        return True
+    try:
+        d = float(duration_sec)
+    except (TypeError, ValueError):
+        return True
+    if d <= 0:
+        return True                      # 0/음수 = 못 잰 것 — 길이 미상과 같게 취급
+    return d > lo
+
+
 def use_limit_for(duration_sec) -> int:
     """소스 길이 → 이 소스로 만들 수 있는 편수 (사용자 결정 2026-08-12). 순수.
     10분 미만 1편 · 10~30분 2편 · 30분 이상 3편. 길이를 모르면 종전값 3.

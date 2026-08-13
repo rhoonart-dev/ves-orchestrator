@@ -1261,8 +1261,12 @@ function effWorks(slug){
        전부 더하면 비활성·짧은 클립까지 한도에 들어가 화면이 부풀고, 관제가 '남음 27'
        이라고 표시한 뒤 실행하면 RPC 가 거절한다 — 이 개편이 없애려던 바로 그 증상이
        반대 방향으로 되살아난다(실측: 국대 단편 한도 33 vs 실제 6). */
-const srcUsable = r => r.is_active !== false &&
-                       (r.duration_sec == null || Number(r.duration_sec) > 180);
+/* planner 가 실제로 고를 수 있는 행인가. 0031 부터 뷰가 usable 을 계산해 준다 —
+   하한이 작품마다 다르므로(work_cards.min_source_duration_sec) 화면이 숫자를 알면
+   또 어긋난다. 0031 적용 전(뷰에 컬럼이 없어 undefined)에는 종전 규칙으로 폴백한다. */
+const srcUsable = r => r.usable != null
+  ? r.usable === true
+  : (r.is_active !== false && (r.duration_sec == null || Number(r.duration_sec) > 180));
 function buildEpMap(srcs, byCh){
   const map = {}, key = ep => ep == null ? "-" : String(ep);
   (srcs||[]).forEach(r => {
