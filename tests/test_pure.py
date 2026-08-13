@@ -1032,3 +1032,18 @@ def test_413_is_permanent():
     assert classify_by_patterns("EP03: storage upload 413: <html> 413 Payload Too Large") \
         == "permanent"
     assert classify_by_patterns("storage upload 502: Bad Gateway") == "transient"  # 이건 재시도
+
+
+def test_localize_run_has_no_unbound_r():
+    """8/13 실측: 등급 J 경로는 r(process_video 결과)이 정의되지 않는데 검수 등록부가
+    r.stdout 을 참조해 — 변환이 다 끝나고도 UnboundLocalError 로 잡이 죽었다.
+    두 분기 모두 note_tail 로 수렴하는지 소스로 고정한다."""
+    import inspect
+    from ves.adapters import localize
+    src = inspect.getsource(localize.run)
+    import re
+    tail = src.split("# 더빙(TTS 일본어)", 1)[1]
+    assert not re.search(r"\b(?<![a-z])r\.stdout", tail), \
+        "더빙 이후 구간에 분기 종속 변수 r 참조가 남아 있다"
+    assert tail.count("note_tail") >= 2
+    assert src.count("note_tail = (cr.stdout") == 1 and src.count("note_tail = (r.stdout") == 1

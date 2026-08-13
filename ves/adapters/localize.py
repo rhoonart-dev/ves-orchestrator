@@ -136,6 +136,7 @@ def run(cfg, conn, job, deps):
             if cls == "permanent":
                 raise base.PermanentError(f"JP 변환 실패: {msg}")
             raise RuntimeError(f"JP 변환 실패: {msg}")
+        note_tail = (cr.stdout or "")[-300:]
     else:
         argv = localize_argv(cfgmod.engine_py(cfg, "localization"), str(src), run_id, p)
         r = subprocess.run(argv, cwd=eng, env=dict(os.environ),
@@ -149,6 +150,7 @@ def run(cfg, conn, job, deps):
             if cls == "permanent":
                 raise base.PermanentError(msg)
             raise RuntimeError(msg)
+        note_tail = (r.stdout or "")[-300:]
 
     # 더빙(TTS 일본어) — 등급이 요구하면 process_video 뒤에 이어 돌린다.
     # 인터프리터는 autopilot 과 같은 것(.venv-gsv, 파이썬 3.11 전용 스택)을 쓴다.
@@ -188,6 +190,5 @@ def run(cfg, conn, job, deps):
                 (job["work_order_id"], job["id"], p.get("channel_slug"),
                  json.dumps({"run_id": run_id, "preview_key": out_key,
                              "bucket": "ves-localized",
-                             "note": (r.stdout or "")[-300:]}, ensure_ascii=False)))
-    return {"run_id": run_id, "localized_key": out_key,
-            "stdout_tail": (r.stdout or "")[-300:]}
+                             "note": note_tail}, ensure_ascii=False)))
+    return {"run_id": run_id, "localized_key": out_key, "stdout_tail": note_tail}
