@@ -256,8 +256,10 @@ def _run_scene_rerender(cfg, conn, job, deps):
     if not (run_id and run_dir):
         raise base.PermanentError("generate 결과(run_id/run_dir) 없음 — 의존 확인")
     if not os.path.isdir(run_dir):
-        # 핀이 풀렸거나(노드 사망 후 수동 해제) 디스크 GC 로 사라진 경우 — 재시도 무의미
-        raise base.PermanentError(f"job 디렉토리 없음(노드 어긋남?): {run_dir}")
+        # B안 1단계(8/14): 핀이 풀렸거나(노드 사망·수동 해제) 디스크 GC 로 사라졌으면
+        # ves-runs 번들에서 복원해 **이 노드에서** 계속한다 — 종전엔 즉사(permanent)였다.
+        store = Store(cfg.supabase_url, cfg.supabase_service_key)
+        _restore_run_dir(cfg, conn, store, run_id, run_dir)
 
     eng = cfgmod.engine_dir(cfg, "localization")
     ai_py = cfgmod.engine_py(cfg, "ai_video")
@@ -291,3 +293,67 @@ def _run_scene_rerender(cfg, conn, job, deps):
     return {"run_id": run_id, "localized_key": out_key, "mode": "scene_rerender",
             "youtube_title": meta.get("youtube_title"),
             "stdout_tail": (r.stdout or "")[-300:]}
+
+
+def source_sha_from_runlog(run_log: dict):
+    """run_log.input.video_path → 내용주소 sha256. 캐시 경로 규약(§9-2)이 정본 —
+    /…/cache/sources/<sha256>. 규약 밖 경로(유튜브 URL 소스 등)는 None. 순수 — 테스트 대상."""
+    path = str(((run_log or {}).get("input") or {}).get("video_path") or "")
+    name = path.rsplit("/", 1)[-1]
+    return name if len(name) == 64 and all(c in "0123456789abcdef" for c in name.lower()) \
+        else None
+
+
+def _restore_run_dir(cfg, conn, store, run_id: str, run_dir: str) -> None:
+    """ves-runs 번들 + ves-outputs(shorts) + ves-sources(원본)로 job 디렉토리 복원.
+
+    복원 대상(l4_render 실측 필요집합): run_log.json(플래그·소스경로)·checkpoint_*·
+    subtitle_segments.json·edit_plan.json·crop_*.json·*.txt — 전부 번들에 있다.
+    shorts.mp4 는 L0 백업(shorts_ko.mp4)과 컷 길이 검증의 기준이라 반드시 넣는다.
+    번들이 없으면(구 run) 종전과 같이 permanent — 재시도 무의미."""
+    import json as _json
+    mkey = base.storage_key(run_id, "run_manifest.json")
+    root = pathlib.Path(run_dir)
+    root.mkdir(parents=True, exist_ok=True)
+    mlocal = root / ".run_manifest.json"
+    try:
+        store.download("ves-runs", mkey, str(mlocal))
+    except RuntimeError as e:
+        raise base.PermanentError(
+            f"job 디렉토리 없음 + 번들도 없음({run_id}) — 신버전 upload_artifacts 이후 "
+            f"run 부터 복원 가능: {e}")
+    manifest = _json.loads(mlocal.read_text(encoding="utf-8"))
+    bprefix = base.storage_key(run_id, "bundle")
+    for item in manifest.get("files", []):
+        rel = item["rel"]
+        if ".." in rel or rel.startswith("/"):
+            continue                      # 경로 탈출 방어
+        dest = root / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        store.download("ves-runs", f"{bprefix}/{rel}", str(dest))
+    # 원본 shorts(KR) — L0 이 shorts_ko.mp4 로 백업하고 L4 가 길이 검증 기준으로 쓴다
+    try:
+        store.download("ves-outputs", base.storage_key(run_id, "shorts.mp4"),
+                       str(root / "shorts.mp4"))
+    except RuntimeError as e:
+        raise base.PermanentError(f"복원 실패 — ves-outputs 에 shorts.mp4 없음({run_id}): {e}")
+    # 소스 마스터 — 내용주소 캐시 경로에 없으면 ves-sources 에서
+    try:
+        rl = _json.loads((root / "run_log.json").read_text(encoding="utf-8"))
+    except Exception:
+        rl = {}
+    sha = source_sha_from_runlog(rl)
+    if sha:
+        cache = pathlib.Path(cfgmod.source_cache_path(cfg, sha))
+        if not cache.exists():
+            with conn.cursor() as c:
+                c.execute("SELECT object_key FROM public.sources WHERE sha256=%s", (sha,))
+                row = c.fetchone()
+            if not row:
+                raise base.PermanentError(f"복원 실패 — sources 에 sha 없음: {sha}")
+            cache.parent.mkdir(parents=True, exist_ok=True)
+            tmp = cache.with_suffix(".part")
+            store.download("ves-sources", row["object_key"], str(tmp))
+            tmp.rename(cache)
+    mlocal.unlink(missing_ok=True)
+    print(f"[localize] job 디렉토리 복원 완료: {run_dir} (번들 {len(manifest.get('files', []))}건)")

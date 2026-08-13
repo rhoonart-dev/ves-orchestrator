@@ -73,6 +73,46 @@ def run(cfg, conn, job, deps):
         if f.exists():
             plan.append((f, base.storage_key(run_id, name), kind, "90 days"))
 
+    # run 번들(B안 1단계, 8/14): 텍스트 산출물 전부를 ves-runs 로 — scene_rerender 가
+    # 생성 노드가 죽어도(핀 해제·GC) 다른 맥에서 job 디렉토리를 복원해 돌 수 있고,
+    # 모든 중간 산출물이 중앙(Storage)에서 관리된다(사용자 결정 8/14).
+    # 미디어(mp4·wav·png)는 제외 — 소스는 ves-sources(내용주소), shorts 는 ves-outputs 에
+    # 이미 있고, 나머지 렌더 중간물은 재렌더로 재현된다. 번들은 KB~MB 급 텍스트만.
+    bundle = bundle_files(run_dir)
+    bprefix = base.storage_key(run_id, "bundle")
+    manifest = {"run_id": run_id, "files": []}
+    for rel, full in bundle:
+        bkey = f"{bprefix}/{rel}"
+        try:
+            store.upload("ves-runs", bkey, str(full))
+        except RuntimeError as e:
+            if _is_permanent_storage_error(str(e)):
+                print(f"[upload] 번들 업로드 실패(비치명, 건너뜀): {rel}: {e}")
+                continue
+            raise
+        manifest["files"].append({"rel": rel, "bytes": full.stat().st_size})
+    if manifest["files"]:
+        import json as _json
+        import tempfile
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False,
+                                         encoding="utf-8") as tf:
+            _json.dump(manifest, tf, ensure_ascii=False)
+            mpath = tf.name
+        mkey = base.storage_key(run_id, "run_manifest.json")
+        try:
+            store.upload("ves-runs", mkey, mpath)
+            with conn.cursor() as c:
+                c.execute(
+                    """INSERT INTO public.artifacts
+                           (job_id, work_order_id, kind, sha256, bytes, bucket, object_key,
+                            expires_at)
+                       VALUES (%s,%s,'run_bundle',%s,%s,'ves-runs',%s, now() + '30 days')
+                       ON CONFLICT (sha256, kind) DO NOTHING""",
+                    (job["id"], job["work_order_id"], _sha256(pathlib.Path(mpath)),
+                     pathlib.Path(mpath).stat().st_size, mkey))
+        finally:
+            pathlib.Path(mpath).unlink(missing_ok=True)
+
     for path, key, kind, keep in plan:
         try:
             store.upload("ves-outputs", key, str(path))
@@ -92,6 +132,31 @@ def run(cfg, conn, job, deps):
                 (job["id"], job["work_order_id"], kind, sha, path.stat().st_size, key, keep))
         uploaded.append(key)
     return {"run_id": run_id, "run_dir": run_dir, "uploaded": uploaded}
+
+
+BUNDLE_EXT = (".json", ".txt", ".ass", ".srt", ".md")
+BUNDLE_SKIP_DIRS = ("localize_backup_ko", "localize_ja", "renders", "chunks")
+BUNDLE_MAX_BYTES = 8 * 1024 * 1024      # 텍스트가 이보다 크면 뭔가 잘못된 것 — 건너뛴다
+
+
+def bundle_files(run_dir):
+    """run 디렉토리에서 번들 대상(텍스트 산출물) 목록 → [(상대경로, 절대경로)].
+    scene_rerender 복원의 필요집합(run_log·checkpoint_*·subtitle_segments·edit_plan·
+    crop_*.json·*.txt)을 포함하는 안전한 상위집합. 순수 필터 — 테스트 대상."""
+    root = pathlib.Path(run_dir)
+    out = []
+    if not root.is_dir():
+        return out
+    for f in sorted(root.rglob("*")):
+        if not f.is_file() or f.suffix.lower() not in BUNDLE_EXT:
+            continue
+        rel = f.relative_to(root)
+        if any(part in BUNDLE_SKIP_DIRS for part in rel.parts[:-1]):
+            continue
+        if f.stat().st_size > BUNDLE_MAX_BYTES:
+            continue
+        out.append((str(rel), f))
+    return out
 
 
 def _is_permanent_storage_error(msg: str) -> bool:

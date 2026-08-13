@@ -1567,3 +1567,38 @@ def test_register_drive_uses_work_card_floor():
     assert "min_by_work = {" in head and "work_cards" not in loop
     # 0032 이전 DB 호환 — 조회 실패가 인입을 멈추지 않는다
     assert "except Exception" in head.split("min_by_work = {}", 1)[1]
+
+
+# ── B안 1단계(8/14): run 번들 — 아무 맥에서나 scene_rerender ──
+def test_bundle_files_filters_text_only():
+    """번들 = 텍스트 산출물만(복원 필요집합의 상위집합) — 미디어·출력 디렉토리 제외."""
+    import pathlib, tempfile
+    from ves.adapters.upload_artifacts import bundle_files
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        (root / "run_log.json").write_text("{}")
+        (root / "checkpoint_story.json").write_text("{}")
+        (root / "crop_hook_0.json").write_text("{}")
+        (root / "work_title.txt").write_text("혜미리예채파")
+        (root / "subtitles.ass").write_text("[Events]")
+        (root / "shorts.mp4").write_bytes(b"x" * 10)              # 미디어 제외
+        (root / "localize_ja").mkdir()
+        (root / "localize_ja" / "translation.json").write_text("{}")   # 출력 제외
+        (root / "renders").mkdir()
+        (root / "renders" / "meta.json").write_text("{}")          # 렌더 중간물 제외
+        rels = [r for r, _ in bundle_files(root)]
+        assert "run_log.json" in rels and "crop_hook_0.json" in rels
+        assert "work_title.txt" in rels and "subtitles.ass" in rels
+        assert "shorts.mp4" not in rels
+        assert not any(r.startswith("localize_ja") or r.startswith("renders") for r in rels)
+        assert bundle_files(root / "없는디렉토리") == []
+
+
+def test_source_sha_from_runlog():
+    """run_log 의 소스 경로 → 내용주소 sha 추출 — 규약 밖(URL 소스)은 None."""
+    from ves.adapters.localize import source_sha_from_runlog
+    sha = "e4d5527699ab4c0ed39c80ec17978381499164c67da01da834035247aee7bdac"
+    assert source_sha_from_runlog(
+        {"input": {"video_path": f"/opt/ves/cache/sources/{sha}"}}) == sha
+    assert source_sha_from_runlog({"input": {"video_path": "/tmp/영상.mp4"}}) is None
+    assert source_sha_from_runlog({}) is None and source_sha_from_runlog(None) is None
