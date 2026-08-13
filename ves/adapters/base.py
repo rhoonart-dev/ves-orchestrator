@@ -71,14 +71,46 @@ def guess_episode(filename: str):
     return None
 
 
-def guess_episode_title(title: str, regex: str = ""):
+def compile_episode_regex(regex):
+    """작품 카드의 회차 정규식 → 컴파일된 패턴 | None(미지정). 순수 — 테스트 대상.
+
+    🛑 잘못된 정규식은 **여기서 PermanentError 로 끊는다**. 그냥 흘리면 re.search 가
+    던지는 re.error 를 executor 가 transient 로 분류해(executor.py 의 마지막 except)
+    백오프 재시도만 무한히 돈다 — 사람이 작품 카드를 고쳐야 풀리는 문제라 재시도로는
+    영영 안 풀리고, 운영자에게는 원인 모를 반복 실패로만 보인다.
+    캡처그룹 1 이 **숫자**를 잡는지까지는 여기서 못 본다 — 그건 guess_episode_title 이
+    None 으로 흘리고 등록 결과의 회차 인식 요약([ALERT])이 알린다."""
+    import re as _re
+    if not regex:
+        return None
+    if hasattr(regex, "search"):
+        return regex                      # 이미 컴파일된 패턴 — 그대로
+    try:
+        pat = _re.compile(regex)
+    except _re.error as e:
+        raise PermanentError(
+            f"작품 카드 회차 정규식 문법 오류: {regex!r} — {e}. "
+            "대시보드 [작품 카드]에서 고친 뒤 다시 실행하세요") from e
+    if pat.groups < 1:
+        raise PermanentError(
+            f"작품 카드 회차 정규식에 캡처그룹이 없습니다: {regex!r} — "
+            r"회차를 잡을 ( ) 이 필요합니다(예: EP\.?(\d+))")
+    return pat
+
+
+def guess_episode_title(title: str, regex=""):
     """영상 **제목** → 원본 방송 회차. 순수 — 테스트 대상. (0027 영상 단위 회차)
 
     regex(작품별 title_episode_regex, 캡처그룹 1 = 회차)가 있으면 그것만 신뢰 —
     표기 규칙이 작품마다 달라 레거시 scene_loop 도 작품별 정규식을 필수로 받았다.
+    문자열·컴파일된 패턴 둘 다 받는다(plan_rows 는 한 번 컴파일해서 넘긴다).
     없으면 guess_episode 와 같은 기본 패턴. 파일명용과 달리 확장자 절단을 하지
     않는다('EP.410' 의 '.' 이 확장자로 오인되면 회차가 통째로 사라진다).
-    NFC 정규화: 맥 경유 제목이 NFD(자모 분해형)면 '화'가 [화회]에 안 걸린다."""
+    NFC 정규화: 맥 경유 제목이 NFD(자모 분해형)면 '화'가 [화회]에 안 걸린다.
+
+    ★어떤 입력에도 죽지 않는다 — 회차를 못 읽으면 None(=서수 폴백)이다. 운영자가 넣은
+      정규식이 캡처그룹으로 숫자가 아닌 것을 잡아도('(EP)\\.?\\d+' → int('EP')) 여기서
+      잡 전체를 죽이면 안 된다. 문법 오류는 compile_episode_regex 가 먼저 끊는다."""
     import re as _re
     import unicodedata as _ud
     t = _ud.normalize("NFC", str(title or ""))
@@ -86,9 +118,15 @@ def guess_episode_title(title: str, regex: str = ""):
                                    r"제\s*(\d{1,4})\s*[화회]?",
                                    r"(\d{1,4})\s*[화회]")
     for pat in pats:
-        m = _re.search(pat, t)
+        try:
+            m = _re.search(pat, t)
+        except _re.error:
+            return None                   # 검증 전 경로로 들어온 깨진 정규식
         if m:
-            return int(m.group(1))
+            try:
+                return int(m.group(1))
+            except (IndexError, ValueError):
+                return None               # 캡처그룹 없음·숫자 아님 → 서수 폴백
     return None
 
 

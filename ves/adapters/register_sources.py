@@ -69,7 +69,11 @@ def plan_rows(work_title: str, entries, title_filter: str = "", use_limit=None,
         빠져도 남은 번호가 안 흔들리게 위치 기준을 유지한다. 서수는 설명란에 안 쓴다.
       · use_limit = 길이 비례(base.use_limit_for) — 인자로 주면 그 값으로 고정.
       · 3분 이하는 등록 자체를 건너뛴다(종전엔 planner 가 거르되 번호만 소비했다).
-      · published_ts(업로드 시각 epoch) — 같은 회차 안에서의 소비 순서 근거."""
+      · published_ts(업로드 시각 epoch) — 같은 회차 안에서의 소비 순서 근거.
+
+    작품 카드 정규식은 **여기서 한 번만** 컴파일한다 — 문법이 깨졌으면 항목을 돌기 전에
+    PermanentError 로 끊어야 무한 재시도가 안 생긴다(base.compile_episode_regex)."""
+    rx = base.compile_episode_regex(title_episode_regex)
     out = []
     norm = lambda s: "".join(str(s or "").split())   # noqa: E731 — 띄어쓰기 무시 대조
     filt = norm(title_filter)
@@ -88,7 +92,7 @@ def plan_rows(work_title: str, entries, title_filter: str = "", use_limit=None,
             dur = None
         if dur is not None and dur <= 180:
             continue                      # 예고·쇼츠성(8/12 결정) — 번호도 안 준다
-        ep = base.guess_episode_title(title, title_episode_regex)
+        ep = base.guess_episode_title(title, rx)
         ep_src = "parsed" if ep is not None else "ordinal"
         out.append({"episode": idx if ep is None else ep, "episode_source": ep_src,
                     "url": f"https://www.youtube.com/watch?v={vid}", "title": title,

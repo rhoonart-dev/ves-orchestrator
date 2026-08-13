@@ -984,3 +984,121 @@ def test_localize_level_per_channel():
     assert dict((k, p) for k, p, *_ in job_chain({**wo, "localize_level": "C"}))["localize"]["level"] == "C"
     # 설정 없으면 종전 동작(B) — 조용히 더빙으로 올라가지 않는다
     assert dict((k, p) for k, p, *_ in job_chain({**wo, "localize_level": None}))["localize"]["level"] == "B"
+
+
+# ── 0027 리뷰 후속: 행 단위 집계 통일 · 정규식 안전망 · 카드 부분 갱신 ──
+def test_compile_episode_regex_rejects_broken_patterns():
+    """🛑 잘못된 작품 카드 정규식은 PermanentError 로 즉시 끊는다.
+
+    그냥 흘리면 re.search 의 re.error 를 executor 가 transient 로 분류해 백오프
+    재시도만 무한히 돈다 — 사람이 카드를 고쳐야 풀리는 문제라 재시도로는 안 풀린다."""
+    import pytest
+    from ves.adapters.base import PermanentError, compile_episode_regex
+    assert compile_episode_regex("") is None and compile_episode_regex(None) is None
+    assert compile_episode_regex(r"EP\.?(\d+)").search("EP.410") is not None
+    with pytest.raises(PermanentError):
+        compile_episode_regex(r"EP\.?((\d+")          # 괄호 불균형 — 문법 오류
+    with pytest.raises(PermanentError):
+        compile_episode_regex(r"EP\.?\d+")            # 캡처그룹 없음 — 회차를 못 뽑는다
+    with pytest.raises(PermanentError):
+        compile_episode_regex(r"(?:EP)\.?\d+")        # '(' 는 있지만 캡처는 아님
+    pat = compile_episode_regex(r"\[(\d+)-\d+\]")
+    assert compile_episode_regex(pat) is pat          # 이미 컴파일된 것은 그대로
+
+
+def test_guess_episode_title_never_raises():
+    """회차를 못 읽으면 None(=서수 폴백)이지, 잡을 죽이지 않는다."""
+    import re
+    from ves.adapters.base import guess_episode_title
+    # 캡처그룹이 숫자가 아닌 것을 잡는다 — int('EP') ValueError 가 새어나가면 안 된다
+    assert guess_episode_title("EP.410 레전드", r"(EP)\.?\d+") is None
+    # 그룹 없는 컴파일된 패턴이 검증 전 경로로 들어와도(IndexError) None
+    assert guess_episode_title("EP.410", re.compile(r"EP\.?\d+")) is None
+    assert guess_episode_title("놀라운 토요일 EP.410", re.compile(r"EP\.?(\d+)")) == 410
+    assert guess_episode_title(None) is None
+
+
+def test_plan_rows_stops_on_broken_regex():
+    """등록 진입점에서 한 번만 컴파일 — 항목을 돌기 전에 끊는다(무한 재시도 방지)."""
+    import pytest
+    from ves.adapters.base import PermanentError
+    from ves.adapters.register_sources import plan_rows
+    entries = [{"id": "a", "title": "5화", "duration": 600}]
+    with pytest.raises(PermanentError):
+        plan_rows("작품", entries, title_episode_regex=r"EP((\d+")
+    # 정상 정규식은 종전대로
+    rows = plan_rows("작품", entries, title_episode_regex=r"(\d+)화")
+    assert rows[0]["episode"] == 5 and rows[0]["episode_source"] == "parsed"
+
+
+def test_row_level_usage_has_one_matching_rule():
+    """🛑 사용량을 세는 곳이 여섯이다 — 전부 wo_matches_source 정본을 쓰는지 고정한다.
+
+    하나라도 (작품, 회차) 조인으로 남으면 planner 와 관제가 서로 다른 숫자를 본다:
+    같은 회차 영상 A·B 중 A 만 소진돼도 회차 전체가 소진으로 보여, planner 는 B 를
+    배정하는데 run_channel_now 는 '쓸 수 있는 소스가 없습니다'로 막힌다."""
+    import inspect
+    from ves.scheduler import planner, source_watch
+    mig = _mig("0027_episode_per_video.sql")
+    # 정본 함수가 work_title 까지 본다 — 같은 URL 이 두 작품에 등록될 수 있다(새 멱등키)
+    assert "CREATE OR REPLACE FUNCTION public.wo_matches_source" in mig
+    assert "SELECT w_work = s_work" in mig
+    # 코드 쪽 두 곳
+    src = inspect.getsource(planner._pick_source)
+    assert "wo_matches_source" in src
+    assert "w.episode IS NOT DISTINCT FROM s.episode" not in src
+    assert "wo_matches_source" in source_watch.REMAIN_SQL
+    assert "w.episode IS NOT DISTINCT FROM s.episode" not in source_watch.REMAIN_SQL
+    # 0027 이 SQL 쪽 네 소비처를 같이 갱신한다
+    for obj in ("CREATE OR REPLACE VIEW public.source_usage",
+                "CREATE OR REPLACE VIEW public.source_usage_by_channel",
+                "CREATE OR REPLACE FUNCTION public.run_channel_now",
+                "CREATE OR REPLACE FUNCTION public.set_source_limit"):
+        assert obj in mig, f"0027 이 {obj} 를 갱신하지 않는다 — 회차 단위로 남는다"
+    # run_channel_now 의 소스 선택에서 회차 조인이 사라졌는지
+    body = mig.split("CREATE OR REPLACE FUNCTION public.run_channel_now", 1)[1]
+    pick = body.split("IF NOT v_found", 1)[0]
+    assert "wo_matches_source" in pick
+    assert "w.episode IS NOT DISTINCT FROM s.episode" not in pick
+    assert "coalesce(s2.published_ts, s2.created_at)" in pick   # planner 와 같은 정렬
+
+
+def test_set_source_limit_touches_only_chosen_row():
+    """0024 는 회차 전체에 한도를 걸었다(소진이 회차 단위였으니 맞았다). 0027 이 전제를
+    뒤집었으므로 고른 행만 고친다 — 안 그러면 같은 회차 남의 영상 한도까지 바뀐다."""
+    lim = _mig("0027_episode_per_video.sql").split(
+        "CREATE OR REPLACE FUNCTION public.set_source_limit", 1)[1]
+    assert "WHERE id = p_source" in lim
+    assert "s.episode IS NOT DISTINCT FROM v_s.episode" not in lim
+
+
+def test_set_work_card_keeps_unspecified_fields():
+    """🛑 정규식만 고쳤는데 title_filter·playlist_url 이 날아가면 안 된다.
+
+    놀라운 토요일처럼 필터가 필수인 작품은 필터가 사라지는 순간 다음 등록에서
+    그 채널의 다른 프로그램 영상까지 전부 소스로 들어온다."""
+    wc = _mig("0028_work_cards.sql")
+    body = wc.split("CREATE OR REPLACE FUNCTION public.set_work_card", 1)[1]
+    # NULL = 미변경 (기존 값 유지), '' = 지우기
+    for col in ("title_episode_regex", "title_filter", "playlist_url", "note"):
+        assert f"CASE WHEN p_" in body and f"wc.{col}" in body, f"{col} 이 보존되지 않는다"
+    assert "excluded.title_filter" not in body, "안 넘긴 인자를 NULL 로 덮어쓴다"
+    # 카드 삭제는 '아무것도 안 넘김'이 아니라 명시적 플래그로
+    assert "p_clear boolean DEFAULT false" in body
+    assert "IF p_clear THEN" in body
+    # 초판(5인자)이 남아 있으면 기본값이 겹쳐 호출이 모호해진다
+    assert "DROP FUNCTION IF EXISTS public.set_work_card(text, text, text, text, text)" in wc
+
+
+def test_dashboard_sums_limits_per_row():
+    """대시보드 소스 지도도 행 단위 합산이어야 planner 와 같은 숫자를 보여준다.
+    (5화에 8분·40분 영상이 하나씩이면 한도는 1+3=4편이다 — max 면 3으로 보인다)"""
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    m = html.split("function buildEpMap", 1)[1].split("\n}", 1)[0]
+    assert "e.limit   += " in m and "e.usedAny += " in m
+    assert "Math.max(e.limit" not in m and "Math.max(e.usedAny" not in m
+    # 레거시는 회차 단위 장부라 행마다 같은 값이 반복된다 — 합치면 부풀어서 한 번만 센다
+    assert "Math.max(c.lg" in m
+    # 한도 편집은 그 회차의 행 전부에 건다(set_source_limit 이 행 단위가 됐으므로)
+    assert 'data-sids=' in html and "el.dataset.sids" in html

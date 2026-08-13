@@ -217,9 +217,11 @@ def _pick_source(conn, work, pipeline="shorts_kr", episode=None, channel_slug=No
                       (SELECT count(*) FROM public.work_orders w
                         WHERE w.status NOT IN ('cancelled','failed')
                           AND (%(ch)s::text IS NULL OR w.channel_slug = %(ch)s::text)
-                          AND ((s.sha256 IS NOT NULL AND w.source_sha256 = s.sha256)
-                            OR (s.sha256 IS NULL AND s.source_url IS NOT NULL
-                                AND w.source_url = s.source_url))) AS used_wo
+                          -- 매칭 정본은 DB 함수 하나다(0027) — 세는 곳이 여섯이라
+                          -- 규칙을 복사하면 반드시 한 곳이 어긋난다.
+                          AND public.wo_matches_source(
+                                w.work_title, w.source_sha256, w.source_url,
+                                s.work_title, s.sha256, s.source_url)) AS used_wo
                  FROM public.sources s
                 WHERE s.work_title = %(work)s AND s.is_active
                   -- 3분 이하 소스는 쓰지 않는다(8/12 사용자 결정). 등록 때 걸러지지만,

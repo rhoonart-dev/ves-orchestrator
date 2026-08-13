@@ -23,11 +23,19 @@ ALTER TABLE public.work_cards ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS wc_read ON public.work_cards;
 CREATE POLICY wc_read ON public.work_cards FOR SELECT TO authenticated USING (true);
 
+-- 인자 규약 (부분 갱신을 안전하게):
+--   NULL       = 그 필드는 건드리지 않는다  ← 기본값. 한 필드만 고칠 때 나머지가 산다
+--   ''(빈 문자) = 그 필드를 지운다(NULL 로)
+--   p_clear    = 카드 자체를 삭제
+-- 종전 구현은 안 넘긴 인자를 NULL 로 덮어써서, 정규식만 고치면 title_filter 와
+-- playlist_url 이 조용히 날아갔다(놀라운 토요일처럼 필터가 필수인 작품은 다음 등록에서
+-- 채널의 다른 프로그램까지 전부 소스로 들어온다). '안 넘김'과 '비움'을 구분한다.
 CREATE OR REPLACE FUNCTION public.set_work_card(
     p_work text, p_regex text DEFAULT NULL, p_filter text DEFAULT NULL,
-    p_playlist text DEFAULT NULL, p_note text DEFAULT NULL)
+    p_playlist text DEFAULT NULL, p_note text DEFAULT NULL,
+    p_clear boolean DEFAULT false)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
-DECLARE v_role text;
+DECLARE v_role text; v_n int;
 BEGIN
     SELECT role INTO v_role FROM public.user_roles WHERE user_id = auth.uid();
     IF v_role IS NULL OR v_role NOT IN ('operator','admin') THEN
@@ -36,28 +44,57 @@ BEGIN
     IF p_work IS NULL OR btrim(p_work) = '' THEN
         RAISE EXCEPTION '작품명 필요';
     END IF;
-    -- 정규식은 캡처그룹이 있어야 회차를 뽑는다 — 없는 채로 저장되는 실수를 막는다
-    IF p_regex IS NOT NULL AND position('(' in p_regex) = 0 THEN
-        RAISE EXCEPTION '정규식에 캡처그룹 ( ) 이 필요합니다 — 예: EP\.?(\d+)';
-    END IF;
-    IF p_regex IS NULL AND p_filter IS NULL AND p_playlist IS NULL AND p_note IS NULL THEN
+
+    IF p_clear THEN
         DELETE FROM public.work_cards WHERE work_title = p_work;
-        RETURN jsonb_build_object('work', p_work, 'cleared', true);
+        GET DIAGNOSTICS v_n = ROW_COUNT;
+        RETURN jsonb_build_object('work', p_work, 'cleared', v_n > 0);
     END IF;
+
+    -- 정규식 검증: 빈 문자('' = 지우기)는 통과, 그 외에는 실제로 써 본다.
+    -- ⚠ 여기서 도는 것은 Postgres ARE 이고 실제 파싱은 Python re 다 — 문법이 완전히
+    --   같지 않아 이 검사는 '명백한 오류'만 잡는다. 최종 안전망은 등록 어댑터 쪽
+    --   base.compile_episode_regex 의 PermanentError 다(0027 리뷰 후속).
+    IF p_regex IS NOT NULL AND p_regex <> '' THEN
+        IF position('(' in p_regex) = 0 THEN
+            RAISE EXCEPTION '정규식에 캡처그룹 ( ) 이 필요합니다 — 예: EP\.?(\d+)';
+        END IF;
+        BEGIN
+            PERFORM regexp_match('회차 확인용 표본 EP.410', p_regex);
+        EXCEPTION WHEN OTHERS THEN
+            RAISE EXCEPTION '정규식 문법 오류입니다: % — 저장하지 않았습니다', SQLERRM;
+        END;
+    END IF;
+
+    IF p_regex IS NULL AND p_filter IS NULL AND p_playlist IS NULL AND p_note IS NULL THEN
+        RETURN jsonb_build_object('work', p_work, 'saved', false,
+                                  'note', '바꿀 값이 없습니다 — 카드를 지우려면 p_clear => true');
+    END IF;
+
     INSERT INTO public.work_cards AS wc
         (work_title, title_episode_regex, title_filter, playlist_url, note,
          updated_by, updated_at)
-    VALUES (p_work, p_regex, p_filter, p_playlist, p_note,
-            coalesce(auth.uid()::text,'system'), now())
+    VALUES (p_work, nullif(p_regex,''), nullif(p_filter,''), nullif(p_playlist,''),
+            nullif(p_note,''), coalesce(auth.uid()::text,'system'), now())
     ON CONFLICT (work_title) DO UPDATE SET
-        title_episode_regex = excluded.title_episode_regex,
-        title_filter        = excluded.title_filter,
-        playlist_url        = excluded.playlist_url,
-        note                = excluded.note,
+        -- 안 넘긴 인자(NULL)는 기존 값 유지, ''는 지우기
+        title_episode_regex = CASE WHEN p_regex    IS NULL THEN wc.title_episode_regex
+                                   ELSE nullif(p_regex,'')    END,
+        title_filter        = CASE WHEN p_filter   IS NULL THEN wc.title_filter
+                                   ELSE nullif(p_filter,'')   END,
+        playlist_url        = CASE WHEN p_playlist IS NULL THEN wc.playlist_url
+                                   ELSE nullif(p_playlist,'') END,
+        note                = CASE WHEN p_note     IS NULL THEN wc.note
+                                   ELSE nullif(p_note,'')     END,
         updated_by          = excluded.updated_by,
         updated_at          = now();
     RETURN jsonb_build_object('work', p_work, 'saved', true);
 END $$;
+
+-- 0028 초판(5인자)이 이미 적용된 DB 가 있으면 기본값이 겹쳐 호출이 모호해진다 — 지운다.
+DROP FUNCTION IF EXISTS public.set_work_card(text, text, text, text, text);
+REVOKE ALL     ON FUNCTION public.set_work_card(text,text,text,text,text,boolean) FROM public;
+GRANT  EXECUTE ON FUNCTION public.set_work_card(text,text,text,text,text,boolean) TO authenticated;
 
 INSERT INTO public.applied_migrations(engine, version, applied_by)
 VALUES ('orchestrator','0028','claude (작품 카드 — 회차 정규식·필터 정본, git 아닌 DB)')
