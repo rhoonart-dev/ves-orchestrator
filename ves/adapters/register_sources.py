@@ -59,7 +59,7 @@ def _upload_ts(e):
 
 
 def plan_rows(work_title: str, entries, title_filter: str = "", use_limit=None,
-              source_url: str = "", title_episode_regex: str = ""):
+              source_url: str = "", title_episode_regex: str = "", min_duration=None):
     """flat-playlist entries → 등록 행(dict) 목록. 순수 — 테스트 대상.
 
     영상 단위 회차 체계(운영 합의 2026-08-13, 0027):
@@ -68,7 +68,8 @@ def plan_rows(work_title: str, entries, title_filter: str = "", use_limit=None,
       · 못 뽑으면 '오래된 것 = 1번' 위치 서수(episode_source='ordinal') — 항목이
         빠져도 남은 번호가 안 흔들리게 위치 기준을 유지한다. 서수는 설명란에 안 쓴다.
       · use_limit = 길이 비례(base.use_limit_for) — 인자로 주면 그 값으로 고정.
-      · 3분 이하는 등록 자체를 건너뛴다(종전엔 planner 가 거르되 번호만 소비했다).
+      · 길이 하한 이하는 등록 자체를 건너뛴다(종전엔 planner 가 거르되 번호만 소비했다).
+        하한은 작품 카드의 min_source_duration_sec, 없으면 기본 180(0031).
       · published_ts(업로드 시각 epoch) — 같은 회차 안에서의 소비 순서 근거.
 
     작품 카드 정규식은 **여기서 한 번만** 컴파일한다 — 문법이 깨졌으면 항목을 돌기 전에
@@ -90,7 +91,7 @@ def plan_rows(work_title: str, entries, title_filter: str = "", use_limit=None,
             dur = float(e["duration"]) if (e or {}).get("duration") is not None else None
         except (TypeError, ValueError):
             dur = None
-        if dur is not None and dur <= 180:
+        if not base.is_usable(dur, min_duration):
             continue                      # 예고·쇼츠성(8/12 결정) — 번호도 안 준다
         ep = base.guess_episode_title(title, rx)
         ep_src = "parsed" if ep is not None else "ordinal"
@@ -115,7 +116,7 @@ def summarize_episodes(rows):
 def _work_card(conn, work):
     """작품 카드(0028) — 회차 정규식·제목 필터의 정본. 잡 파라미터는 일회성 오버라이드."""
     with conn.cursor() as c:
-        c.execute("""SELECT title_episode_regex, title_filter
+        c.execute("""SELECT title_episode_regex, title_filter, min_source_duration_sec
                        FROM public.work_cards WHERE work_title = %s""", (work,))
         return c.fetchone() or {}
 
@@ -152,7 +153,10 @@ def run(cfg, conn, job, deps):
     regex = p.get("title_episode_regex") or card.get("title_episode_regex") or ""
     rows = plan_rows(work, entries,
                      p.get("title_filter") or card.get("title_filter") or "",
-                     p.get("use_limit"), source_url=url, title_episode_regex=regex)
+                     p.get("use_limit"), source_url=url, title_episode_regex=regex,
+                     # 길이 하한(0031) — 잡 파라미터가 일회성 오버라이드, 없으면 작품 카드
+                     min_duration=p.get("min_duration")
+                                  or card.get("min_source_duration_sec"))
 
     inserted = 0
     with conn.cursor() as c:
