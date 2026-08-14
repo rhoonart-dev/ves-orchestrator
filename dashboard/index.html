@@ -740,18 +740,36 @@ function renderHome(){
     w.channel_slug === ch.token_slug && (kstDay(w.service_date||w.created_at) === today));
   const woRecent = ch => alive.find(w => w.channel_slug === ch.token_slug);
   const board = (state.chans||[]).map(ch => {
-    // 전용 파이프라인 채널(잔망루피): 작업지시 대신 오늘의 자동화 잡 상태를 보여준다
+    // 전용 파이프라인 채널(잔망루피): 작업지시 대신 오늘의 자동화 잡 상태를 보여준다.
+    // 신호등 통일(운영 요청 8/14): 다른 채널과 같은 두 칸(생성·공개)·같은 점 색·같은
+    // 라벨 어휘 — 종전 '자동화/예약제' 특수 표기는 칸 제목이 달라 스캔이 끊기고,
+    // 공개 칸이 항상 초록(정보 0)이었다. 검수 대기도 이제 다른 채널처럼 노란 점으로 보인다.
     if (EXT_PIPE[ch.token_slug]){
-      const zj = j.find(x => x.kind === "zanmang_autopilot" && isToday(x.created_at));
-      const [zc, zl] = !zj ? ["none","오늘 실행 전"]
-        : zj.status === "succeeded" ? ["ok","오늘 실행 완료"]
-        : zj.status === "running" ? ["run","실행 중"]
-        : ["failed","dead"].includes(zj.status) ? ["bad","실패"] : ["wait","대기"];
+      const auto = j.filter(x => x.kind === "zanmang_autopilot" && isToday(x.created_at));
+      const decs = j.filter(x => x.kind === "zanmang_decision" && isToday(x.created_at)
+        && !["skip","rerender"].includes((x.params||{}).action || "publish"));
+      const latest = a => a.find(x => x.status === "running")
+        || a.slice().sort((x,y) => new Date(y.updated_at||y.created_at) - new Date(x.updated_at||x.created_at))[0];
+      const lqWait = waiting.some(r => r.kind === "localization_qa" && r.channel_slug === ch.token_slug);
+      const zj = latest(auto);
+      const [gc, gl] = (zj && zj.status === "running") ? ["run","진행 중"]
+        : (zj && ["failed","dead"].includes(zj.status)) ? ["bad","실패"]
+        : lqWait ? ["wait","검수 대기"]
+        : (zj && zj.status === "succeeded") ? ["ok","오늘 완료"]
+        : zj ? ["wait","대기"] : ["none","없음"];
+      const up = latest(decs);
+      const [pc, pl] = !up ? ["none","없음"]
+        : ["failed","dead"].includes(up.status) ? ["bad","발행 실패"]
+        : up.status === "succeeded"
+          ? ((((up.params||{}).privacy) || "schedule") === "schedule"
+              ? ["wait","예약됨"] : ["ok","업로드됨"])
+          : ["wait","발행 대기"];
       return `<div class="bch"><div class="bchL">
           <div class="bchName">${chAvatarHtml(ch.token_slug, 18)}<span>${esc(ch.name || ch.token_slug)}</span></div>
           <div class="bchWork" title="${esc(EXT_PIPE[ch.token_slug])}">${esc(EXT_PIPE[ch.token_slug])}</div></div>
-        <div class="dots"><div class="dcol"><span class="dcap">자동화</span><span class="chdot ${zc}"></span><span class="dlab">${esc(zl)}</span></div>
-          <div class="dcol"><span class="dcap">공개</span><span class="chdot ok" title="승인분은 19:00 JST 예약 공개"></span><span class="dlab">예약제</span></div>
+        <div class="dots">
+          <div class="dcol${gc === "none" ? " dim" : ""}"><span class="dcap">생성</span><span class="chdot ${gc}" title="${esc(gl)}"></span><span class="dlab">${esc(gl)}</span></div>
+          <div class="dcol${pc === "none" ? " dim" : ""}"><span class="dcap">공개</span><span class="chdot ${pc}" title="오늘 승인·업로드분 — 예약 업로드는 19:00 JST 슬롯"></span><span class="dlab">${esc(pl)}</span></div>
         </div></div>`;
     }
     const ws = woToday(ch);
