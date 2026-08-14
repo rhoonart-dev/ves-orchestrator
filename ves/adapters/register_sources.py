@@ -273,15 +273,43 @@ def run(cfg, conn, job, deps):
 
     inserted = backfilled = deactivated = 0
     with conn.cursor() as c:
+        # 0040 이전 DB(제목 컬럼 없음)에서도 돈다 — _work_card 와 같은 이유(배포 창).
+        try:
+            c.execute("SELECT title FROM public.sources LIMIT 0")
+            has_title = True
+        except Exception:  # noqa: BLE001
+            conn.rollback()
+            has_title = False
+            print("[register_playlist] sources.title 컬럼 없음 — 0040 미적용 DB 로 진행")
         for r in rows:
             # 멱등키 = (작품, 영상 URL) — 0027. 같은 회차에 영상 여러 개 허용,
             # 재실행 시 같은 영상만 걸러진다(종전 회차 키는 다른 영상을 중복으로 오인).
             # ★충돌 시 빈 칸만 채운다: 길이를 몰라 기본값 3 으로 등록된 0027 이전 행을
             #   길이 비례 편수로 되돌린다. 길이를 이미 알던 행의 use_limit 은 사람이 정한
             #   값일 수 있어 건드리지 않는다(register_drive 와 같은 규칙).
+            #   제목(0040)도 빈 칸만 — 등록 시점 박제라 갱신하지 않는다.
             # ★episode 는 갱신하지 않는다 — source_usage_legacy 매칭이 끊긴다(머리말).
-            c.execute(
-                """INSERT INTO public.sources
+            if has_title:
+                sql = """INSERT INTO public.sources
+                       (work_title, episode, episode_source, source_url, origin,
+                        registered_by, use_limit, duration_sec, published_ts, title)
+                   VALUES (%s,%s,%s,%s,'youtube',%s,%s,%s,to_timestamp(%s),%s)
+                   ON CONFLICT (work_title, source_url)
+                     WHERE source_url IS NOT NULL DO UPDATE SET
+                       duration_sec = COALESCE(sources.duration_sec, EXCLUDED.duration_sec),
+                       published_ts = COALESCE(sources.published_ts, EXCLUDED.published_ts),
+                       title        = COALESCE(sources.title, EXCLUDED.title),
+                       use_limit = CASE WHEN sources.duration_sec IS NULL
+                                         AND EXCLUDED.duration_sec IS NOT NULL
+                                        THEN EXCLUDED.use_limit ELSE sources.use_limit END
+                     WHERE sources.duration_sec IS NULL OR sources.published_ts IS NULL
+                        OR sources.title IS NULL
+                   RETURNING (xmax = 0) AS inserted"""
+                args = (work, r["episode"], r["episode_source"], r["url"],
+                        f"register_playlist:{job['id']}", r["use_limit"],
+                        r["duration"], r["published_ts"], (r.get("title") or None))
+            else:
+                sql = """INSERT INTO public.sources
                        (work_title, episode, episode_source, source_url, origin,
                         registered_by, use_limit, duration_sec, published_ts)
                    VALUES (%s,%s,%s,%s,'youtube',%s,%s,%s,to_timestamp(%s))
@@ -293,10 +321,11 @@ def run(cfg, conn, job, deps):
                                          AND EXCLUDED.duration_sec IS NOT NULL
                                         THEN EXCLUDED.use_limit ELSE sources.use_limit END
                      WHERE sources.duration_sec IS NULL OR sources.published_ts IS NULL
-                   RETURNING (xmax = 0) AS inserted""",
-                (work, r["episode"], r["episode_source"], r["url"],
-                 f"register_playlist:{job['id']}", r["use_limit"],
-                 r["duration"], r["published_ts"]))
+                   RETURNING (xmax = 0) AS inserted"""
+                args = (work, r["episode"], r["episode_source"], r["url"],
+                        f"register_playlist:{job['id']}", r["use_limit"],
+                        r["duration"], r["published_ts"])
+            c.execute(sql, args)
             # 채울 칸이 없으면 위 WHERE 가 갱신을 막아 돌아오는 행이 없다 — 이미 온전한 행을
             # 매 실행마다 다시 쓰지 않는다(정정 건수도 그만큼 정직해진다).
             res = c.fetchone()
