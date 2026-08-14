@@ -377,6 +377,22 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .gauge i{display:block;height:100%;border-radius:5px;background:var(--good)}
   .gauge i.full{background:var(--crit)}
   .eprow{display:flex;align-items:center;gap:10px;font-size:12.5px;padding:3px 0;color:var(--ink-2)}
+  /* 0040: 회차 안의 영상 목록 — 어느 영상이 소진됐는지 */
+  .vids{margin:4px 0 6px;border-left:2px solid var(--line);padding-left:10px}
+  .vidrow{display:flex;align-items:center;gap:9px;font-size:12px;padding:3px 0;
+          color:var(--ink-2);border-bottom:1px dotted var(--line)}
+  .vidrow:last-child{border-bottom:none}
+  .vidrow.dim{opacity:.45}
+  .vidrow .vt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .vidrow .vt a{color:var(--ink);text-decoration:none}
+  .vidrow .vt a:hover{text-decoration:underline}
+  .vidrow .vdur{flex:none;width:46px;text-align:right;color:var(--muted);
+                font-variant-numeric:tabular-nums}
+  .gauge.vsm{flex:none;width:72px;height:6px}
+  .vtag{flex:none;font-size:11px;padding:1px 6px;border-radius:5px;
+        background:var(--surface-2);color:var(--muted)}
+  .vtag.next{background:var(--warn);color:#3d2c04;font-weight:700}
+  .vtag.off{text-decoration:line-through}
   .eprow .ep{flex:none;width:52px;font-variant-numeric:tabular-nums}
   .eprow .cnt{flex:none;width:44px;text-align:right;font-variant-numeric:tabular-nums}
   /* v3.3: 회차 그룹 + 채널별 잔량 + 소진 수정 (0024) */
@@ -1533,9 +1549,15 @@ function buildEpMap(srcs, byCh){
     const m = map[r.work_title] = map[r.work_title] || {};
     const e = m[key(r.episode)] = m[key(r.episode)] ||
       { work:r.work_title, ep:r.episode, limit:0, active:false, dur:null,
-        files:0, usable:0, usedAny:0, ids:[], limits:[], ch:{} };
+        files:0, usable:0, usedAny:0, ids:[], limits:[], ch:{}, videos:[] };
     if (r.is_active !== false) e.active = true;
     e.files += 1; e.ids.push(r.source_id);
+    // 0040: 영상 단위 상세 — 제외된 행도 목록에는 흐리게 보인다(왜 안 쓰는지 알 수 있게)
+    e.videos.push({ sid:r.source_id, url:r.source_url || "", title:r.title || "",
+                    dur:Number(r.duration_sec) || null, limit:Number(r.use_limit) || 0,
+                    usable:srcUsable(r), active:r.is_active !== false,
+                    wo:Number(r.times_used) || 0, pin:0,
+                    ord:(r.published_ts || r.created_at || "") + "|" + r.source_id });
     if (!srcUsable(r)) return;                  // 비활성·3분 이하는 셈에서 뺀다
     e.usable  += 1;
     e.limit   += Number(r.use_limit)  || 0;     // 행별 한도의 합(0027)
@@ -1548,12 +1570,33 @@ function buildEpMap(srcs, byCh){
   (byCh||[]).forEach(r => {
     const e = (map[r.work_title] || {})[key(r.episode)]; if (!e) return;
     if (!srcUsable(r)) return;                  // 한도와 같은 기준으로 센다
-    const c = e.ch[r.channel_slug] = e.ch[r.channel_slug] || { wo:0, lg:0, used:0 };
-    c.wo += Number(r.used_wo) || 0;
-    c.lg  = Math.max(c.lg, Number(r.used_legacy) || 0);   // 회차 단위 장부 — 한 번만
-    c.used = c.wo + c.lg;
+    const c = e.ch[r.channel_slug] = e.ch[r.channel_slug] || { wo:0, lg:0, pin:0, used:0 };
+    c.wo  += Number(r.used_wo) || 0;
+    c.pin += Number(r.used_legacy_pin) || 0;    // 0040: 영상에 못박힌 몫 — 행 단위 정확값
+    c.lg   = Math.max(c.lg, Number(r.used_legacy) || 0);  // 못박히지 않은 회차 몫 — 한 번만
+    c.used = c.wo + c.pin + c.lg;
+    // 영상 행에도 이 채널 몫을 얹는다(전 채널 합) — 영상 목록의 사용량 재료
+    const v = e.videos.find(v => v.sid === r.source_id);
+    if (v) v.pin += Number(r.used_legacy_pin) || 0;
   });
   return map;
+}
+
+/* 0040: 회차 안의 영상 목록 — planner 와 같은 순서(업로드시각→등록시각)로 세우고,
+   못박히지 않은 레거시 몫(회차 단위)은 planner 와 같은 규칙으로 **앞선 영상부터** 배분.
+   순수 — 아래 검증 하니스가 이 함수를 그대로 꺼내 돌린다. */
+function videoRows(e){
+  const vids = (e.videos||[]).slice().sort((a,b) => a.ord < b.ord ? -1 : a.ord > b.ord ? 1 : 0);
+  let lgUn = Object.values(e.ch||{}).reduce((s,c) => s + (c.lg||0), 0);
+  return vids.map(v => {
+    let take = 0;
+    if (v.usable && lgUn > 0){
+      take = Math.min(Math.max(v.limit - v.wo - v.pin, 0), lgUn);
+      lgUn -= take;
+    }
+    const used = v.wo + v.pin + take;
+    return { ...v, used, left: v.usable ? Math.max(v.limit - used, 0) : 0 };
+  });
 }
 const epsOf    = w => Object.values((state.eps||{})[w] || {})
                         .sort((a,b) => (a.ep ?? 1e9) - (b.ep ?? 1e9));
@@ -1562,9 +1605,43 @@ const epUsable = e => e.usable > 0;
 const epUsed   = (e, slug) => (e.ch[slug] || {}).used || 0;
 const epRemain = (e, slug) => Math.max(0, e.limit - epUsed(e, slug));   // 0023: 소진은 채널별
 
-function epBlock(e, chs, editable){
+// 0040: 영상 목록 펼침 상태 — 회차 키(작품|회차)로 기억한다
+let vidOpen = new Set();
+window.vidToggle = k => { vidOpen.has(k) ? vidOpen.delete(k) : vidOpen.add(k); render(); };
+const mmss = d => d == null ? "–" : Math.floor(d/60) + ":" + String(Math.round(d%60)).padStart(2,"0");
+
+function videoList(e, chs, nextSid){
+  const rows = videoRows(e).map(v => {
+    const label = v.title || (v.url ? v.url.split("v=").pop() : v.sid.slice(0,8));
+    const name  = v.url
+      ? `<a href="${esc(v.url)}" target="_blank" rel="noopener">${esc(label)}</a>`
+      : esc(label);
+    let tag;
+    if (!v.usable) tag = `<span class="vtag off">${v.active ? "하한 미만" : "비활성"}</span>`;
+    else if (v.sid === nextSid) tag = `<span class="vtag next">다음 차례</span>`;
+    else if (v.left > 0) tag = `<span class="vtag">${v.left}편 남음</span>`;
+    else tag = `<span class="vtag done">소진</span>`;
+    const pct = v.limit ? Math.min(100, Math.round(v.used / v.limit * 100)) : 100;
+    const src = v.wo ? `발주 ${v.wo}` : (v.used ? `레거시 ${v.used}` : "미사용");
+    return `<div class="vidrow${v.usable ? "" : " dim"}"><span class="vt">${name}</span>
+      <span class="vdur">${mmss(v.dur)}</span>
+      <span class="gauge vsm"><i class="${v.left ? "" : "full"}" style="width:${pct}%"></i></span>
+      <span class="cnt">${v.used}/${v.limit}</span>
+      <span class="sub" style="min-width:56px">${src}</span>${tag}</div>`;
+  }).join("");
+  return `<div class="vids">${rows}</div>`;
+}
+
+function epBlock(e, chs, editable, nextSid){
   const sid  = e.ids[0];
   const lab  = e.ep != null ? e.ep + "회차" : "단편";
+  const vkey = e.work + "|" + (e.ep == null ? "-" : e.ep);
+  const vopen = vidOpen.has(vkey);
+  // 영상이 여럿이거나 제목·URL 이 있으면 펼침 버튼을 단다(0040 이전 데이터면 안 뜬다)
+  const canOpen = (e.videos||[]).some(v => v.url || v.title);
+  const vbtn = canOpen
+    ? `<button class="mini" data-k="${esc(vkey)}" onclick="vidToggle(this.dataset.k)">
+         ${vopen ? "▾" : "▸"} 영상 ${e.files}개</button>` : "";
   const mins = e.dur ? `<span class="sub">${Math.floor(e.dur/60)}분</span>` : "";
   // 한도·남음은 쓸 수 있는 행만 센다 — 파일 수와 다르면 그 사실을 같이 보여준다
   const nf   = e.files > 1
@@ -1605,8 +1682,8 @@ function epBlock(e, chs, editable){
         full ? "" : ` · 남음 ${remain}`}</span></div>`;
   }).join("")
     : '<div class="eprow"><span class="sub">배정된 채널이 없어 소진되지 않습니다 — 채널 템플릿에서 작품을 배정하세요</span></div>';
-  return `<div class="epgrp"><div class="ephd"><b>${lab}</b>${mins}${nf}${dead}
-      <span class="right"></span>${lim}</div>${rows}</div>`;
+  return `<div class="epgrp"><div class="ephd"><b>${lab}</b>${mins}${nf}${dead}${vbtn}
+      <span class="right"></span>${lim}</div>${vopen ? videoList(e, chs, nextSid) : ""}${rows}</div>`;
 }
 
 function renderSources(){
@@ -1638,6 +1715,12 @@ function renderSources(){
       return `${c.name}: ${e ? (e.ep != null ? e.ep + "회차" : "단편") : "없음"}`;
     }).join(" · ");
     const open = srcOpen.has(w);
+    // 0040: '다음 차례' 표시는 단일 채널 작품만 — 두 채널이 공유하는 작품(SNL)은 채널마다
+    // 다음이 달라 하나로 못 찍는다(채널별 남음은 각 채널 줄에 이미 있다).
+    const nextSid = chs.length === 1
+      ? (() => { for (const e of eps){ const v = videoRows(e).find(x => x.usable && x.left > 0);
+                 if (v) return v.sid; } return null; })()
+      : null;
     return `<div class="srcwork">
       <div class="swh" style="cursor:pointer" data-w="${esc(w)}" onclick="srcToggle(this.dataset.w)">
         <span class="sub">${open ? "▾" : "▸"}</span><b>${esc(w)}</b>
@@ -1647,7 +1730,7 @@ function renderSources(){
         <span class="right"></span>
         ${nexts ? `<span class="pill" title="채널별 다음 사용 회차">다음 ${esc(nexts)}</span>` : ""}
         ${head}</div>
-      ${open ? eps.map(e => epBlock(e, chs, editable)).join("") : ""}</div>`;
+      ${open ? eps.map(e => epBlock(e, chs, editable, nextSid)).join("") : ""}</div>`;
   }).join("");
 
   $("#page").innerHTML = `<section class="card">

@@ -719,6 +719,59 @@ def test_plan_rows_per_video_quota_and_shorts_skip():
     assert {r["use_limit"] for r in plan_rows("작품", entries, use_limit=2)} == {2}
 
 
+def test_legacy_pinned_to_source_survives_reorder():
+    """0039: 장부에 source_url 이 있으면 정렬이 바뀌어도 그 영상에 소진이 남는다.
+    도깨비 1회차 실측 구조 — 레거시는 최장 하이라이트를 썼는데 업로드는 그게 가장 늦다."""
+    from ves.scheduler.planner import pick_from_rows
+    hi = {"episode": 1, "use_limit": 3, "used_wo": 0,
+          "source_url": "https://www.youtube.com/watch?v=RMw9on5u2j0"}   # 레거시가 쓴 것
+    a = {"episode": 1, "use_limit": 3, "used_wo": 0,
+         "source_url": "https://www.youtube.com/watch?v=Uf5sTr0P5HM"}    # 안 쓴 것
+    pinned = [{"episode": 1, "used": 3, "source_url": hi["source_url"]}]
+    # 등록 순서(하이라이트가 앞) — 종전에도 맞았다
+    assert pick_from_rows([dict(hi), dict(a)], pinned)["source_url"] == a["source_url"]
+    # 업로드 순으로 뒤집혀도(안 쓴 것이 앞) 여전히 안 쓴 것을 고른다 ★이게 0039 의 값
+    assert pick_from_rows([dict(a), dict(hi)], pinned)["source_url"] == a["source_url"]
+    # 못박지 않으면 앞선 행이 차감돼 뒤집힌 순간 엉뚱한 영상이 소진된다(종전 동작)
+    loose = [{"episode": 1, "used": 3}]
+    assert pick_from_rows([dict(a), dict(hi)], loose)["source_url"] == hi["source_url"]
+    # 못박힌 몫이 한도를 넘어도 다른 영상으로 흘러넘치지 않는다
+    over = [{"episode": 1, "used": 9, "source_url": hi["source_url"]}]
+    assert pick_from_rows([dict(hi), dict(a)], over)["source_url"] == a["source_url"]
+    # 못박힌 것과 회차 단위 기록이 섞여 있으면 둘 다 센다
+    mixed = [{"episode": 1, "used": 3, "source_url": hi["source_url"]},
+             {"episode": 1, "used": 3}]
+    assert pick_from_rows([dict(hi), dict(a)], mixed) is None      # 3+3 = 두 영상 다 소진
+    assert pick_from_rows([], pinned) is None
+
+
+def test_episode_trend_reads_list_direction():
+    """8/14: --flat-playlist 가 업로드 시각을 안 줘서 URL 추측만 남아 있었다.
+    제목의 회차 증감으로 목록 방향을 직접 읽는다(tvN 재생목록은 최신순이었다)."""
+    from ves.adapters.register_sources import chronological, episode_trend
+    newest_first = [{"id": str(i), "title": f"본편 EP.{n}"} for i, n in enumerate([4, 4, 3, 2, 1, 0])]
+    oldest_first = [{"id": str(i), "title": f"본편 EP.{n}"} for i, n in enumerate([0, 1, 2, 2, 3, 4])]
+    assert episode_trend(newest_first) == -1     # 뒤집어야 한다
+    assert episode_trend(oldest_first) == 1      # 그대로 둔다
+    # 재생목록 URL 이라 종전 규칙은 '뒤집지 않음'이었다 — 이제 데이터가 이긴다
+    pl = "https://www.youtube.com/playlist?list=PL1"
+    assert [e["id"] for e in chronological(newest_first, pl)] == ["5", "4", "3", "2", "1", "0"]
+    assert [e["id"] for e in chronological(oldest_first, pl)] == ["0", "1", "2", "3", "4", "5"]
+    # 판단 불가일 때는 종전 규칙(URL 모양)으로 돌아간다
+    noeps = [{"id": str(i), "title": "회차 없는 제목"} for i in range(6)]
+    assert episode_trend(noeps) == 0
+    assert [e["id"] for e in chronological(noeps, pl)] == ["0", "1", "2", "3", "4", "5"]
+    assert [e["id"] for e in chronological(noeps, "https://youtube.com/@ch/videos")][0] == "5"
+    # 표본이 적거나 뒤죽박죽이면 판단하지 않는다
+    assert episode_trend([{"id": "a", "title": "EP.1"}, {"id": "b", "title": "EP.2"}]) == 0
+    assert episode_trend([{"id": str(i), "title": f"EP.{n}"}
+                          for i, n in enumerate([1, 5, 2, 4, 3, 3])]) == 0
+    # 업로드 시각이 다 있으면 그게 최우선이다(종전 규칙 유지)
+    stamped = [{"id": "new", "title": "EP.9", "timestamp": 200},
+               {"id": "old", "title": "EP.1", "timestamp": 100}]
+    assert [e["id"] for e in chronological(stamped, pl)] == ["old", "new"]
+
+
 def test_dead_entry_detects_none_title():
     """비공개 항목의 title 은 None 으로 온다(8/13 실측) — 문자열 대조만으로는 못 걸렀다."""
     from ves.adapters.register_sources import is_dead_entry, plan_rows

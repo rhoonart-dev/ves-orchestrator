@@ -37,14 +37,42 @@ def is_newest_first(url: str) -> bool:
     return any(h in u for h in _UPLOADS_HINTS)
 
 
-def chronological(entries, source_url: str = "") -> list:
+def episode_trend(entries, episode_regex=None) -> int:
+    """목록의 회차 번호가 뒤로 갈수록 커지는가. 순수 — 테스트 대상.
+    +1 = 오래된 것부터(그대로) · -1 = 최신부터(뒤집어야 함) · 0 = 판단 불가.
+
+    URL 모양(is_newest_first)은 추측이다 — "사람이 만든 재생목록은 대개 오래된 것이 앞"
+    이라는 가정이 tvN Joy 작품 재생목록에서 통째로 어긋났다(8/14 실측: 도깨비·언더커버셰프·
+    칼라페 모두 최신순인데 뒤집지 않아 최신 영상이 1번이 됐다). 제목에서 회차를 읽을 수
+    있으면 그게 목록의 실제 방향을 말해준다 — 추측 대신 데이터를 본다.
+
+    같은 회차 영상이 여럿이라 같은 번호가 이어지는 것은 방향 판단에서 무시한다(비긴다).
+    표본이 적거나(4개 미만) 증감이 팽팽하면 0 — 부르는 쪽이 종전 규칙으로 폴백한다."""
+    eps = []
+    for e in entries or []:
+        n = base.guess_episode_title((e or {}).get("title") or "", episode_regex or "")
+        if n is not None:
+            eps.append(n)
+    if len(eps) < 4:
+        return 0
+    up = sum(1 for a, b in zip(eps, eps[1:]) if b > a)
+    down = sum(1 for a, b in zip(eps, eps[1:]) if b < a)
+    if abs(up - down) < 2:            # 팽팽하면 판단하지 않는다(뒤죽박죽인 목록)
+        return 0
+    return 1 if up > down else -1
+
+
+def chronological(entries, source_url: str = "", episode_regex=None) -> list:
     """항목을 '오래된 것 → 최신' 순으로 세운다. 순수 — 테스트 대상.
 
     ★사용자 결정(2026-08-12): 소스는 오래된 것부터 쓴다. 회차 번호를 그 순서로 매겨야
       planner 의 '최저 회차부터'가 곧 '오래된 것부터'가 된다.
       종전엔 채널 업로드 피드(최신순)를 그대로 1번부터 매겨 **최신 영상이 1화**였다.
     판단 근거 우선순위: ① 항목의 업로드 시각(timestamp/release_timestamp)
-                      ② 없으면 원천 URL 모양(채널 피드면 뒤집는다)"""
+                      ② 제목에서 읽은 회차의 증감(episode_trend) — 8/14 추가
+                      ③ 없으면 원천 URL 모양(채널 피드면 뒤집는다)
+    ②가 필요한 이유: --flat-playlist 는 업로드 시각을 주지 않는다(실측 전 작품 0건).
+    그래서 ①은 사실상 안 타고 ③의 추측만 남아 있었다."""
     items = list(entries or [])
     def ts(e):
         for k in ("timestamp", "release_timestamp", "epoch"):
@@ -55,6 +83,9 @@ def chronological(entries, source_url: str = "") -> list:
     stamps = [ts(e) for e in items]
     if items and all(s is not None for s in stamps):
         return [e for _s, e in sorted(zip(stamps, items), key=lambda t: t[0])]
+    trend = episode_trend(items, episode_regex)
+    if trend:
+        return list(reversed(items)) if trend < 0 else items
     return list(reversed(items)) if is_newest_first(source_url) else items
 
 
@@ -137,7 +168,8 @@ def plan_rows(work_title: str, entries, title_filter: str = "", use_limit=None,
     out = []
     norm = lambda s: "".join(str(s or "").split())   # noqa: E731 — 띄어쓰기 무시 대조
     filt = norm(title_filter)
-    for idx, e in enumerate(chronological(entries, source_url), start=1):
+    # 정렬에도 회차 정규식을 넘긴다 — 목록 방향을 제목의 회차 증감으로 판단한다
+    for idx, e in enumerate(chronological(entries, source_url, rx), start=1):
         vid = (e or {}).get("id")
         title = str((e or {}).get("title") or "")
         if not vid:
@@ -241,15 +273,43 @@ def run(cfg, conn, job, deps):
 
     inserted = backfilled = deactivated = 0
     with conn.cursor() as c:
+        # 0040 이전 DB(제목 컬럼 없음)에서도 돈다 — _work_card 와 같은 이유(배포 창).
+        try:
+            c.execute("SELECT title FROM public.sources LIMIT 0")
+            has_title = True
+        except Exception:  # noqa: BLE001
+            conn.rollback()
+            has_title = False
+            print("[register_playlist] sources.title 컬럼 없음 — 0040 미적용 DB 로 진행")
         for r in rows:
             # 멱등키 = (작품, 영상 URL) — 0027. 같은 회차에 영상 여러 개 허용,
             # 재실행 시 같은 영상만 걸러진다(종전 회차 키는 다른 영상을 중복으로 오인).
             # ★충돌 시 빈 칸만 채운다: 길이를 몰라 기본값 3 으로 등록된 0027 이전 행을
             #   길이 비례 편수로 되돌린다. 길이를 이미 알던 행의 use_limit 은 사람이 정한
             #   값일 수 있어 건드리지 않는다(register_drive 와 같은 규칙).
+            #   제목(0040)도 빈 칸만 — 등록 시점 박제라 갱신하지 않는다.
             # ★episode 는 갱신하지 않는다 — source_usage_legacy 매칭이 끊긴다(머리말).
-            c.execute(
-                """INSERT INTO public.sources
+            if has_title:
+                sql = """INSERT INTO public.sources
+                       (work_title, episode, episode_source, source_url, origin,
+                        registered_by, use_limit, duration_sec, published_ts, title)
+                   VALUES (%s,%s,%s,%s,'youtube',%s,%s,%s,to_timestamp(%s),%s)
+                   ON CONFLICT (work_title, source_url)
+                     WHERE source_url IS NOT NULL DO UPDATE SET
+                       duration_sec = COALESCE(sources.duration_sec, EXCLUDED.duration_sec),
+                       published_ts = COALESCE(sources.published_ts, EXCLUDED.published_ts),
+                       title        = COALESCE(sources.title, EXCLUDED.title),
+                       use_limit = CASE WHEN sources.duration_sec IS NULL
+                                         AND EXCLUDED.duration_sec IS NOT NULL
+                                        THEN EXCLUDED.use_limit ELSE sources.use_limit END
+                     WHERE sources.duration_sec IS NULL OR sources.published_ts IS NULL
+                        OR sources.title IS NULL
+                   RETURNING (xmax = 0) AS inserted"""
+                args = (work, r["episode"], r["episode_source"], r["url"],
+                        f"register_playlist:{job['id']}", r["use_limit"],
+                        r["duration"], r["published_ts"], (r.get("title") or None))
+            else:
+                sql = """INSERT INTO public.sources
                        (work_title, episode, episode_source, source_url, origin,
                         registered_by, use_limit, duration_sec, published_ts)
                    VALUES (%s,%s,%s,%s,'youtube',%s,%s,%s,to_timestamp(%s))
@@ -261,10 +321,11 @@ def run(cfg, conn, job, deps):
                                          AND EXCLUDED.duration_sec IS NOT NULL
                                         THEN EXCLUDED.use_limit ELSE sources.use_limit END
                      WHERE sources.duration_sec IS NULL OR sources.published_ts IS NULL
-                   RETURNING (xmax = 0) AS inserted""",
-                (work, r["episode"], r["episode_source"], r["url"],
-                 f"register_playlist:{job['id']}", r["use_limit"],
-                 r["duration"], r["published_ts"]))
+                   RETURNING (xmax = 0) AS inserted"""
+                args = (work, r["episode"], r["episode_source"], r["url"],
+                        f"register_playlist:{job['id']}", r["use_limit"],
+                        r["duration"], r["published_ts"])
+            c.execute(sql, args)
             # 채울 칸이 없으면 위 WHERE 가 갱신을 막아 돌아오는 행이 없다 — 이미 온전한 행을
             # 매 실행마다 다시 쓰지 않는다(정정 건수도 그만큼 정직해진다).
             res = c.fetchone()
