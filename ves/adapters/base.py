@@ -101,6 +101,43 @@ def compile_episode_regex(regex):
     return pat
 
 
+def compile_exclude_regex(regex):
+    """작품 카드의 **제목 제외** 정규식 → 컴파일된 패턴 | None(미지정). 순수 — 테스트 대상.
+
+    회차 정규식과 달리 캡처그룹을 요구하지 않는다 — 걸리는지만 보면 된다(0037).
+    문법 오류는 여기서 PermanentError 로 끊는다. 그냥 흘리면 re.error 를 executor 가
+    transient 로 분류해 백오프 재시도만 무한히 돈다 — 사람이 작품 카드를 고쳐야 풀리는
+    문제라 재시도로는 영영 안 풀린다(compile_episode_regex 와 같은 이유)."""
+    import re as _re
+    if not regex:
+        return None
+    if hasattr(regex, "search"):
+        return regex                      # 이미 컴파일된 패턴 — 그대로
+    try:
+        return _re.compile(regex)
+    except _re.error as e:
+        raise PermanentError(
+            f"작품 카드 제목 제외 패턴 문법 오류: {regex!r} — {e}. "
+            "대시보드 [작품 카드]에서 고친 뒤 다시 실행하세요") from e
+
+
+def title_excluded(title: str, regex=None) -> bool:
+    """제목이 제외 패턴에 걸리는가. 순수 — 테스트 대상.
+
+    NFC 정규화: 맥 경유 제목이 NFD(자모 분해형)면 '예고'가 패턴에 안 걸린다
+    (guess_episode_title 과 같은 실측 이유).
+    ★어떤 입력에도 죽지 않는다 — 깨진 패턴이 검증 전 경로로 들어와도 False(=거르지 않음).
+      제외는 '빼는' 판단이라, 애매하면 남기는 쪽이 안전하다."""
+    if not regex:
+        return False
+    import re as _re
+    import unicodedata as _ud
+    try:
+        return bool(regex.search(_ud.normalize("NFC", str(title or ""))))
+    except (AttributeError, _re.error):
+        return False
+
+
 def guess_episode_title(title: str, regex=""):
     """영상 **제목** → 원본 방송 회차. 순수 — 테스트 대상. (0027 영상 단위 회차)
 

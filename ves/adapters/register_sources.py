@@ -81,14 +81,15 @@ def entry_duration(e):
         return None
 
 
-def unusable_urls(entries, min_duration=None) -> list:
+def unusable_urls(entries, min_duration=None, exclude_rx=None) -> list:
     """목록상 **이미 등록돼 있다면 내려야 할** 영상 URL. 순수 — 테스트 대상.
 
-    plan_rows 가 거르는 항목(사멸·길이 하한 이하)은 '등록만 안 될' 뿐이라, 0027 이전에
-    등록된 같은 영상은 활성으로 남는다. 그 행들은 duration_sec 이 비어 있어 planner 의
-    하한 방어도 통과한다 — 등록 잡이 목록을 다시 볼 때 함께 내려야 사람 손이 안 든다.
-    ★거르는 규칙은 plan_rows 와 같은 base.is_usable 하나를 쓴다 — 등록에서 뺀 것과
-      비활성으로 내리는 것이 어긋나면 매 실행마다 등록·해제가 오간다.
+    plan_rows 가 거르는 항목(사멸·길이 하한 이하·제외 패턴)은 '등록만 안 될' 뿐이라,
+    0027 이전에 등록된 같은 영상은 활성으로 남는다. 그 행들은 duration_sec 이 비어 있어
+    planner 의 하한 방어도 통과한다 — 등록 잡이 목록을 다시 볼 때 함께 내려야 사람 손이
+    안 든다(도깨비 10주년 여행 8/14: 예고·티저 18건을 손으로 내렸다).
+    ★거르는 규칙은 plan_rows 와 같은 함수(base.is_usable · base.title_excluded)를 쓴다 —
+      등록에서 뺀 것과 비활성으로 내리는 것이 어긋나면 매 실행마다 등록·해제가 오간다.
     ★title_filter 로 걸러진 항목은 넣지 않는다. '이 작품이 아니다'는 판단이라, 같은 원천을
       공유하는 다른 작품의 행을 내릴 수 있다(공식채널 원천)."""
     out = []
@@ -96,7 +97,9 @@ def unusable_urls(entries, min_duration=None) -> list:
         vid = (e or {}).get("id")
         if not vid:
             continue
-        if is_dead_entry(e) or not base.is_usable(entry_duration(e), min_duration):
+        if (is_dead_entry(e)
+                or not base.is_usable(entry_duration(e), min_duration)
+                or base.title_excluded((e or {}).get("title"), exclude_rx)):
             out.append(f"https://www.youtube.com/watch?v={vid}")
     return out
 
@@ -111,7 +114,8 @@ def _upload_ts(e):
 
 
 def plan_rows(work_title: str, entries, title_filter: str = "", use_limit=None,
-              source_url: str = "", title_episode_regex: str = "", min_duration=None):
+              source_url: str = "", title_episode_regex: str = "", min_duration=None,
+              title_exclude_regex=None):
     """flat-playlist entries → 등록 행(dict) 목록. 순수 — 테스트 대상.
 
     영상 단위 회차 체계(운영 합의 2026-08-13, 0027):
@@ -122,11 +126,14 @@ def plan_rows(work_title: str, entries, title_filter: str = "", use_limit=None,
       · use_limit = 길이 비례(base.use_limit_for) — 인자로 주면 그 값으로 고정.
       · 길이 하한 이하는 등록 자체를 건너뛴다(종전엔 planner 가 거르되 번호만 소비했다).
         하한은 작품 카드의 min_source_duration_sec, 없으면 기본 180(0031).
+      · title_exclude_regex 에 걸리는 제목은 등록하지 않는다(0037) — 예고·선공개·티저는
+        길이 하한만으로 못 거른다(언더커버셰프 [9화 선공개] 10분 24초 실측).
       · published_ts(업로드 시각 epoch) — 같은 회차 안에서의 소비 순서 근거.
 
     작품 카드 정규식은 **여기서 한 번만** 컴파일한다 — 문법이 깨졌으면 항목을 돌기 전에
     PermanentError 로 끊어야 무한 재시도가 안 생긴다(base.compile_episode_regex)."""
     rx = base.compile_episode_regex(title_episode_regex)
+    ex = base.compile_exclude_regex(title_exclude_regex)   # 여기서 한 번만 컴파일
     out = []
     norm = lambda s: "".join(str(s or "").split())   # noqa: E731 — 띄어쓰기 무시 대조
     filt = norm(title_filter)
@@ -139,6 +146,8 @@ def plan_rows(work_title: str, entries, title_filter: str = "", use_limit=None,
             continue                      # 사멸 항목 — 등록해봤자 acquire 에서 죽는다
         if filt and filt not in norm(title):
             continue                      # '놀라운토요일'≈'놀라운 토요일' (플릿 실측)
+        if base.title_excluded(title, ex):
+            continue                      # 예고·선공개·티저 — 본편이 아니다(0037)
         dur = entry_duration(e)
         if not base.is_usable(dur, min_duration):
             continue                      # 예고·쇼츠성(8/12 결정) — 번호도 안 준다
@@ -163,7 +172,21 @@ def summarize_episodes(rows):
 
 
 def _work_card(conn, work):
-    """작품 카드(0028) — 회차 정규식·제목 필터의 정본. 잡 파라미터는 일회성 오버라이드."""
+    """작품 카드(0028) — 회차 정규식·제목 필터의 정본. 잡 파라미터는 일회성 오버라이드.
+
+    0037 컬럼이 아직 없는 DB 에서도 돈다 — 코드가 마이그레이션보다 먼저 배포되는 순간이
+    반드시 생긴다(노드는 claim 경계마다 갱신하고, SQL 적용은 사람이 한다). 그 창에서
+    등록 잡이 통째로 깨지지 않게 종전 컬럼만으로 한 번 더 시도한다(planner 의 0016
+    이전 DB 호환과 같은 방식)."""
+    with conn.cursor() as c:
+        try:
+            c.execute("""SELECT title_episode_regex, title_filter,
+                                min_source_duration_sec, title_exclude_regex
+                           FROM public.work_cards WHERE work_title = %s""", (work,))
+            return c.fetchone() or {}
+        except Exception as e:  # noqa: BLE001 — 0037 이전 DB(컬럼 없음)
+            print(f"[register_playlist] 제외 패턴 컬럼 없음 — 0037 미적용 DB 로 진행: {e}")
+            conn.rollback()                # 실패한 트랜잭션을 열어둔 채 다음 질의를 못 한다
     with conn.cursor() as c:
         c.execute("""SELECT title_episode_regex, title_filter, min_source_duration_sec
                        FROM public.work_cards WHERE work_title = %s""", (work,))
@@ -207,10 +230,14 @@ def run(cfg, conn, job, deps):
     # 길이 하한(0031) — 잡 파라미터가 일회성 오버라이드, 없으면 작품 카드.
     # 등록에서 빼는 기준과 기등록 행을 내리는 기준이 같아야 한다(unusable_urls).
     min_duration = p.get("min_duration") or card.get("min_source_duration_sec")
+    # 제외 패턴(0037)도 한 번만 컴파일해 등록·비활성 두 경로에 같은 것을 넘긴다 —
+    # 문법이 깨졌으면 항목을 돌기 전에 PermanentError 로 끊는다.
+    exclude = base.compile_exclude_regex(
+        p.get("title_exclude_regex") or card.get("title_exclude_regex") or "")
     rows = plan_rows(work, entries,
                      p.get("title_filter") or card.get("title_filter") or "",
                      p.get("use_limit"), source_url=url, title_episode_regex=regex,
-                     min_duration=min_duration)
+                     min_duration=min_duration, title_exclude_regex=exclude)
 
     inserted = backfilled = deactivated = 0
     with conn.cursor() as c:
@@ -248,7 +275,7 @@ def run(cfg, conn, job, deps):
 
         # 사멸·쇼츠성으로 확인된 기등록 행 정리. rows 가 비면 목록을 제대로 못 읽었다는
         # 뜻이라 아무것도 내리지 않는다 — 한 번의 이상한 응답으로 소스를 쓸어내지 않게.
-        dead = unusable_urls(entries, min_duration)
+        dead = unusable_urls(entries, min_duration, exclude)
         if rows and dead:
             c.execute("""UPDATE public.sources SET is_active = false
                           WHERE work_title = %s AND origin = 'youtube' AND is_active

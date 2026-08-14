@@ -753,6 +753,56 @@ def test_unusable_urls_for_deactivation():
                                            "https://www.youtube.com/watch?v=ok"]
 
 
+def test_title_exclude_pattern_drops_promos_only():
+    """0037: 예고·선공개·티저는 빼고 본편·미방분은 남긴다 (8/14 실제 제목으로 대조)."""
+    from ves.adapters.base import compile_exclude_regex, title_excluded
+    rx = compile_exclude_regex(r"\[(?:[^\]]*\s)?(?:예고|선공개|티저|하이라이트)\]")
+    for t in ["[4화 예고] 윷놀이부터 자전거 타기에", "[최종회 예고] 도파민 집라인부터",
+              "[3회 선공개] 제1회 밥상예술대상", "[1차 티저] 모두 지쳤나요",
+              "[하이라이트] 이게 어떻게 휴가야"]:
+        assert title_excluded(t, rx), t
+    for t in ["[3회 미방분] 건강파 정아 VS 자극파 준면",      # 미방분은 쓴다(운영 결정)
+              "왔다 내 밥 친구 #highlight #언니네산지직송",   # 해시태그 highlight = 본편
+              "윷놀이 하고, 자전거 타고 #highlight #도깨비10주년여행 EP.4"]:
+        assert not title_excluded(t, rx), t
+    # NFD(자모 분해형) 제목도 걸러야 한다 — 맥 경유 제목이 그렇게 온다
+    import unicodedata
+    assert title_excluded(unicodedata.normalize("NFD", "[2회 예고] 노동 끝"), rx)
+    # 미지정이면 아무것도 안 거른다 · 어떤 입력에도 죽지 않는다
+    assert compile_exclude_regex("") is None
+    assert not title_excluded("[3회 예고] …", None)
+    assert not title_excluded(None, rx)
+
+
+def test_exclude_regex_syntax_error_is_permanent():
+    """깨진 제외 패턴은 항목을 돌기 전에 끊는다 — transient 로 흘리면 무한 재시도가 된다."""
+    import pytest
+    from ves.adapters import base
+    from ves.adapters.register_sources import plan_rows
+    with pytest.raises(base.PermanentError):
+        base.compile_exclude_regex(r"\[(?:예고")
+    with pytest.raises(base.PermanentError):
+        plan_rows("작품", [{"id": "a", "title": "1화", "duration": 600}],
+                  title_exclude_regex=r"[예고")
+    # 캡처그룹은 요구하지 않는다(회차 정규식과 다른 점)
+    assert base.compile_exclude_regex(r"\[예고\]") is not None
+
+
+def test_plan_rows_and_unusable_share_exclude_rule():
+    """등록에서 뺀 것과 비활성으로 내리는 것이 같아야 한다 — 어긋나면 매 실행마다 오간다."""
+    from ves.adapters.register_sources import plan_rows, unusable_urls
+    entries = [
+        {"id": "a", "title": "본편 하이라이트 #highlight", "duration": 900},
+        {"id": "b", "title": "[3화 예고] 다음 주에", "duration": 900},   # 길이는 충분하나 예고
+        {"id": "c", "title": "[3회 미방분] 남은 이야기", "duration": 900},
+    ]
+    rx = r"\[(?:[^\]]*\s)?(?:예고|선공개|티저)\]"
+    rows = plan_rows("작품", entries, title_exclude_regex=rx)
+    assert [r["url"][-1] for r in rows] == ["a", "c"]          # 예고만 빠진다
+    assert unusable_urls(entries, None, __import__("re").compile(rx)) == [
+        "https://www.youtube.com/watch?v=b"]                    # 같은 항목만 내려간다
+
+
 def test_summarize_episodes_speaks_korean():
     """등록 결과 요약(0028) — 대시보드 작업내역에서 정규식 문제를 바로 알아채게."""
     from ves.adapters.register_sources import summarize_episodes
