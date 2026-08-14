@@ -112,7 +112,21 @@ def entry_duration(e):
         return None
 
 
-def unusable_urls(entries, min_duration=None, exclude_rx=None) -> list:
+def out_of_range(title, episode_rx=None, start_episode=None) -> bool:
+    """시작 회차(0041) 밖인가. 순수 — 테스트 대상.
+
+    · 제목에서 읽은 회차 < start_episode → True(범위 밖)
+    · **회차를 못 읽어도 True** — 서수 폴백은 1부터라 start_episode 보다 늘 작고,
+      planner 는 최저 회차부터 고른다. 남겨두면 시작 회차 설정이 통째로 무력해진다.
+    · start_episode 가 없으면 언제나 False — 기존 작품 동작 그대로."""
+    if not start_episode:
+        return False
+    ep = base.guess_episode_title(title or "", episode_rx or "")
+    return ep is None or ep < int(start_episode)
+
+
+def unusable_urls(entries, min_duration=None, exclude_rx=None,
+                  episode_rx=None, start_episode=None) -> list:
     """목록상 **이미 등록돼 있다면 내려야 할** 영상 URL. 순수 — 테스트 대상.
 
     plan_rows 가 거르는 항목(사멸·길이 하한 이하·제외 패턴)은 '등록만 안 될' 뿐이라,
@@ -130,7 +144,8 @@ def unusable_urls(entries, min_duration=None, exclude_rx=None) -> list:
             continue
         if (is_dead_entry(e)
                 or not base.is_usable(entry_duration(e), min_duration)
-                or base.title_excluded((e or {}).get("title"), exclude_rx)):
+                or base.title_excluded((e or {}).get("title"), exclude_rx)
+                or out_of_range((e or {}).get("title"), episode_rx, start_episode)):
             out.append(f"https://www.youtube.com/watch?v={vid}")
     return out
 
@@ -146,7 +161,7 @@ def _upload_ts(e):
 
 def plan_rows(work_title: str, entries, title_filter: str = "", use_limit=None,
               source_url: str = "", title_episode_regex: str = "", min_duration=None,
-              title_exclude_regex=None):
+              title_exclude_regex=None, start_episode=None):
     """flat-playlist entries → 등록 행(dict) 목록. 순수 — 테스트 대상.
 
     영상 단위 회차 체계(운영 합의 2026-08-13, 0027):
@@ -159,6 +174,9 @@ def plan_rows(work_title: str, entries, title_filter: str = "", use_limit=None,
         하한은 작품 카드의 min_source_duration_sec, 없으면 기본 180(0031).
       · title_exclude_regex 에 걸리는 제목은 등록하지 않는다(0037) — 예고·선공개·티저는
         길이 하한만으로 못 거른다(언더커버셰프 [9화 선공개] 10분 24초 실측).
+      · start_episode 미만은 등록하지 않는다(0041) — 장수 방영작의 운영 시작점.
+        회차를 못 읽은 항목(서수)도 함께 제외한다: 서수는 1부터라 시작 회차보다 늘 작아
+        planner 가 그것부터 집는다(놀라운 토요일 410화 — 재생목록엔 344화부터 있다).
       · published_ts(업로드 시각 epoch) — 같은 회차 안에서의 소비 순서 근거.
 
     작품 카드 정규식은 **여기서 한 번만** 컴파일한다 — 문법이 깨졌으면 항목을 돌기 전에
@@ -180,6 +198,8 @@ def plan_rows(work_title: str, entries, title_filter: str = "", use_limit=None,
             continue                      # '놀라운토요일'≈'놀라운 토요일' (플릿 실측)
         if base.title_excluded(title, ex):
             continue                      # 예고·선공개·티저 — 본편이 아니다(0037)
+        if out_of_range(title, rx, start_episode):
+            continue                      # 시작 회차 밖 — 쓰지 않기로 한 회차(0041)
         dur = entry_duration(e)
         if not base.is_usable(dur, min_duration):
             continue                      # 예고·쇼츠성(8/12 결정) — 번호도 안 준다
@@ -213,7 +233,8 @@ def _work_card(conn, work):
     with conn.cursor() as c:
         try:
             c.execute("""SELECT title_episode_regex, title_filter,
-                                min_source_duration_sec, title_exclude_regex
+                                min_source_duration_sec, title_exclude_regex,
+                                start_episode
                            FROM public.work_cards WHERE work_title = %s""", (work,))
             return c.fetchone() or {}
         except Exception as e:  # noqa: BLE001 — 0037 이전 DB(컬럼 없음)
@@ -264,12 +285,15 @@ def run(cfg, conn, job, deps):
     min_duration = p.get("min_duration") or card.get("min_source_duration_sec")
     # 제외 패턴(0037)도 한 번만 컴파일해 등록·비활성 두 경로에 같은 것을 넘긴다 —
     # 문법이 깨졌으면 항목을 돌기 전에 PermanentError 로 끊는다.
+    # 시작 회차(0041) — 장수 방영작의 운영 시작점. 잡 파라미터가 일회성 오버라이드.
+    start_ep = p.get("start_episode") or card.get("start_episode")
     exclude = base.compile_exclude_regex(
         p.get("title_exclude_regex") or card.get("title_exclude_regex") or "")
     rows = plan_rows(work, entries,
                      p.get("title_filter") or card.get("title_filter") or "",
                      p.get("use_limit"), source_url=url, title_episode_regex=regex,
-                     min_duration=min_duration, title_exclude_regex=exclude)
+                     min_duration=min_duration, title_exclude_regex=exclude,
+                     start_episode=start_ep)
 
     inserted = backfilled = deactivated = 0
     with conn.cursor() as c:
@@ -336,7 +360,7 @@ def run(cfg, conn, job, deps):
 
         # 사멸·쇼츠성으로 확인된 기등록 행 정리. rows 가 비면 목록을 제대로 못 읽었다는
         # 뜻이라 아무것도 내리지 않는다 — 한 번의 이상한 응답으로 소스를 쓸어내지 않게.
-        dead = unusable_urls(entries, min_duration, exclude)
+        dead = unusable_urls(entries, min_duration, exclude, regex, start_ep)
         if rows and dead:
             c.execute("""UPDATE public.sources SET is_active = false
                           WHERE work_title = %s AND origin = 'youtube' AND is_active

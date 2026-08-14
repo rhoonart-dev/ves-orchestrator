@@ -772,6 +772,34 @@ def test_episode_trend_reads_list_direction():
     assert [e["id"] for e in chronological(stamped, pl)] == ["old", "new"]
 
 
+def test_start_episode_keeps_only_operating_range():
+    """0041: 장수 방영작의 운영 시작점 — 놀라운 토요일 410화(재생목록엔 344화부터 있다)."""
+    from ves.adapters import base
+    from ves.adapters.register_sources import out_of_range, plan_rows, unusable_urls
+    rx = base.compile_episode_regex(r"amazingsaturday\s*EP[.\s]?(\d{1,3})\b")
+    old = "옛 회차 #amazingsaturday EP.344"
+    new = "쓰는 회차 #amazingsaturday EP.410"
+    assert out_of_range(old, rx, 410)
+    assert not out_of_range(new, rx, 410)
+    assert not out_of_range(old, rx, None)          # 미설정이면 아무것도 안 거른다
+    # ★회차를 못 읽으면 제외한다 — 서수는 1부터라 시작 회차보다 늘 작아 먼저 뽑힌다
+    assert out_of_range("회차 표기 없는 제목", rx, 410)
+    assert not out_of_range("회차 표기 없는 제목", rx, None)
+
+    entries = [{"id": "a", "title": old, "duration": 600},
+               {"id": "b", "title": new, "duration": 600},
+               {"id": "c", "title": "표기 없음", "duration": 600}]
+    rows = plan_rows("놀라운 토요일", entries, title_episode_regex=rx, start_episode=410)
+    assert [r["url"][-1] for r in rows] == ["b"]              # 410화만 남는다
+    assert [r["episode"] for r in rows] == [410]
+    # 등록에서 뺀 것과 비활성으로 내리는 것이 같아야 한다(0037 과 같은 규율)
+    assert sorted(unusable_urls(entries, None, None, rx, 410)) == [
+        "https://www.youtube.com/watch?v=a", "https://www.youtube.com/watch?v=c"]
+    # 미설정이면 종전대로 전부 등록된다
+    assert len(plan_rows("놀라운 토요일", entries, title_episode_regex=rx)) == 3
+    assert unusable_urls(entries, None, None, rx, None) == []
+
+
 def test_dead_entry_detects_none_title():
     """비공개 항목의 title 은 None 으로 온다(8/13 실측) — 문자열 대조만으로는 못 걸렀다."""
     from ves.adapters.register_sources import is_dead_entry, plan_rows
