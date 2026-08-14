@@ -37,14 +37,42 @@ def is_newest_first(url: str) -> bool:
     return any(h in u for h in _UPLOADS_HINTS)
 
 
-def chronological(entries, source_url: str = "") -> list:
+def episode_trend(entries, episode_regex=None) -> int:
+    """목록의 회차 번호가 뒤로 갈수록 커지는가. 순수 — 테스트 대상.
+    +1 = 오래된 것부터(그대로) · -1 = 최신부터(뒤집어야 함) · 0 = 판단 불가.
+
+    URL 모양(is_newest_first)은 추측이다 — "사람이 만든 재생목록은 대개 오래된 것이 앞"
+    이라는 가정이 tvN Joy 작품 재생목록에서 통째로 어긋났다(8/14 실측: 도깨비·언더커버셰프·
+    칼라페 모두 최신순인데 뒤집지 않아 최신 영상이 1번이 됐다). 제목에서 회차를 읽을 수
+    있으면 그게 목록의 실제 방향을 말해준다 — 추측 대신 데이터를 본다.
+
+    같은 회차 영상이 여럿이라 같은 번호가 이어지는 것은 방향 판단에서 무시한다(비긴다).
+    표본이 적거나(4개 미만) 증감이 팽팽하면 0 — 부르는 쪽이 종전 규칙으로 폴백한다."""
+    eps = []
+    for e in entries or []:
+        n = base.guess_episode_title((e or {}).get("title") or "", episode_regex or "")
+        if n is not None:
+            eps.append(n)
+    if len(eps) < 4:
+        return 0
+    up = sum(1 for a, b in zip(eps, eps[1:]) if b > a)
+    down = sum(1 for a, b in zip(eps, eps[1:]) if b < a)
+    if abs(up - down) < 2:            # 팽팽하면 판단하지 않는다(뒤죽박죽인 목록)
+        return 0
+    return 1 if up > down else -1
+
+
+def chronological(entries, source_url: str = "", episode_regex=None) -> list:
     """항목을 '오래된 것 → 최신' 순으로 세운다. 순수 — 테스트 대상.
 
     ★사용자 결정(2026-08-12): 소스는 오래된 것부터 쓴다. 회차 번호를 그 순서로 매겨야
       planner 의 '최저 회차부터'가 곧 '오래된 것부터'가 된다.
       종전엔 채널 업로드 피드(최신순)를 그대로 1번부터 매겨 **최신 영상이 1화**였다.
     판단 근거 우선순위: ① 항목의 업로드 시각(timestamp/release_timestamp)
-                      ② 없으면 원천 URL 모양(채널 피드면 뒤집는다)"""
+                      ② 제목에서 읽은 회차의 증감(episode_trend) — 8/14 추가
+                      ③ 없으면 원천 URL 모양(채널 피드면 뒤집는다)
+    ②가 필요한 이유: --flat-playlist 는 업로드 시각을 주지 않는다(실측 전 작품 0건).
+    그래서 ①은 사실상 안 타고 ③의 추측만 남아 있었다."""
     items = list(entries or [])
     def ts(e):
         for k in ("timestamp", "release_timestamp", "epoch"):
@@ -55,6 +83,9 @@ def chronological(entries, source_url: str = "") -> list:
     stamps = [ts(e) for e in items]
     if items and all(s is not None for s in stamps):
         return [e for _s, e in sorted(zip(stamps, items), key=lambda t: t[0])]
+    trend = episode_trend(items, episode_regex)
+    if trend:
+        return list(reversed(items)) if trend < 0 else items
     return list(reversed(items)) if is_newest_first(source_url) else items
 
 
@@ -137,7 +168,8 @@ def plan_rows(work_title: str, entries, title_filter: str = "", use_limit=None,
     out = []
     norm = lambda s: "".join(str(s or "").split())   # noqa: E731 — 띄어쓰기 무시 대조
     filt = norm(title_filter)
-    for idx, e in enumerate(chronological(entries, source_url), start=1):
+    # 정렬에도 회차 정규식을 넘긴다 — 목록 방향을 제목의 회차 증감으로 판단한다
+    for idx, e in enumerate(chronological(entries, source_url, rx), start=1):
         vid = (e or {}).get("id")
         title = str((e or {}).get("title") or "")
         if not vid:

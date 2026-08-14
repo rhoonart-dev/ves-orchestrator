@@ -188,18 +188,34 @@ def _load_channels(cfg):
 
 
 def pick_from_rows(rows, legacy=None):
-    """정렬된 소스 행들 + 회차 단위 레거시 사용량 → 첫 사용 가능 행. 순수 — 테스트 대상.
+    """정렬된 소스 행들 + 레거시 사용량 → 첫 사용 가능 행. 순수 — 테스트 대상.
 
     행(=영상) 단위 소진(0027): used_wo 는 그 행(sha/url)에 물린 WO 수다. 레거시
-    (source_usage_legacy)는 회차 단위 기록이라 행에 못 물린다 — 그 회차의 앞선 행부터
-    남는 한도만큼 차감해 물린다(회차에 행이 하나면 종전과 동일하게 동작)."""
-    remain = {r["episode"]: int(r["used"]) for r in (legacy or [])}
+    (source_usage_legacy)는 회차 단위 기록이라 원래 행에 못 물렸다 — 그 회차의 앞선
+    행부터 남는 한도만큼 차감해 물린다(회차에 행이 하나면 종전과 동일하게 동작).
+
+    ★0039: 장부에 source_url 이 있으면 **그 영상에 정확히 물린다**. '앞선 행부터'는
+      순서에 기대는 규칙이라, 정렬 기준이 바뀌면(published_ts 백필) 소진이 엉뚱한
+      영상으로 옮겨간다 — 이미 쓴 영상이 풀려 같은 소재를 또 만들고, 안 쓴 영상은
+      잠긴다. 아는 것은 못박고, 모르는 것만 종전 규칙으로 흘린다."""
+    pinned, spread = {}, {}
+    for r in (legacy or []):
+        url = (r.get("source_url") or "").strip()
+        if url:
+            pinned[url] = pinned.get(url, 0) + int(r["used"])
+        else:
+            ep = r.get("episode")
+            spread[ep] = spread.get(ep, 0) + int(r["used"])
     for row in rows or []:
         limit, used = int(row["use_limit"]), int(row["used_wo"])
+        ep, url = row.get("episode"), (row.get("source_url") or "").strip()
         free = max(limit - used, 0)
-        take = min(free, remain.get(row.get("episode"), 0))
-        if take:
-            remain[row.get("episode")] -= take
+        take = min(free, pinned.pop(url, 0)) if url else 0   # ① 못박힌 몫 먼저
+        if free - take > 0:                                  # ② 남는 여유에 회차 몫
+            more = min(free - take, spread.get(ep, 0))
+            if more:
+                spread[ep] -= more
+                take += more
         if used + take < limit:
             return row
     return None
@@ -244,10 +260,22 @@ def _pick_source(conn, work, pipeline="shorts_kr", episode=None, channel_slug=No
         rows = c.fetchall()
         legacy = []
         if channel_slug is not None:
-            c.execute("""SELECT episode, used FROM public.source_usage_legacy
-                          WHERE work_title = %s AND channel_slug = %s""",
-                      (work, channel_slug))
-            legacy = c.fetchall()
+            # source_url(0039)이 있으면 그 영상에 정확히 물린다. 컬럼이 아직 없는 DB
+            # (코드가 마이그레이션보다 먼저 도는 창)에서는 종전 질의로 돌아간다.
+            try:
+                c.execute("""SELECT episode, used, source_url
+                               FROM public.source_usage_legacy
+                              WHERE work_title = %s AND channel_slug = %s""",
+                          (work, channel_slug))
+                legacy = c.fetchall()
+            except Exception as e:  # noqa: BLE001 — 0039 이전 DB
+                print(f"[planner] 장부 source_url 컬럼 없음 — 회차 단위로 진행: {e}")
+                conn.rollback()
+                with conn.cursor() as c2:
+                    c2.execute("""SELECT episode, used FROM public.source_usage_legacy
+                                   WHERE work_title = %s AND channel_slug = %s""",
+                               (work, channel_slug))
+                    legacy = c2.fetchall()
     return pick_from_rows(rows, legacy)
 
 
