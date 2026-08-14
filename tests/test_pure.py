@@ -1750,3 +1750,47 @@ def test_loopy_store_key_and_text_files():
         == "loopy/o3HEuV8iNPE/metadata_draft.json"
     assert "metadata_draft.json" in LOOPY_TEXT_FILES
     assert "ja_dub.srt" in LOOPY_TEXT_FILES        # C 루트 자막도 패키지 원료다
+
+
+def test_rerender_plan_and_argv():
+    """반려-수정 재렌더(0038): 원장 정상 전이로만 — approved/uploaded 는 거부."""
+    import pytest
+    from ves.adapters import zanmang
+    from ves.adapters import zanmang_decision as zd
+    assert zd.plan("pending_approval", "rerender") == ["mark_skip", "mark_select", "process"]
+    assert zd.plan("skipped", "rerender") == ["mark_select", "process"]
+    assert zd.plan("failed", "rerender") == ["mark_select", "process"]
+    assert zd.plan("selected", "rerender") == ["process"]
+    assert zd.plan("processing", "rerender") == []          # 진행 중 — 손대지 않는다
+    for st in ("approved", "uploaded"):
+        with pytest.raises(Exception):
+            zd.plan(st, "rerender")
+    argv = zanmang.process_argv("/r", "vid1")
+    assert argv[0] == "/r/.venv/bin/python" and argv[-2:] == ["--video-id", "vid1"]
+    assert "process" in argv
+    # task 이름 → argv 매핑(멱등 체인의 배선)
+    assert zd._task_argv("/r", "mark_skip", "v", {})[-2:] == ["--state", "skipped"]
+    assert zd._task_argv("/r", "mark_select", "v", {})[-2:] == ["--state", "selected"]
+    assert zd._task_argv("/r", "process", "v", {}) == zanmang.process_argv("/r", "v")
+
+
+def test_scene_rerender_argv_overrides():
+    """SHOTCONE 재렌더: overrides 경로가 있으면 --overrides 로 엔진에 전달."""
+    from ves.adapters.localize import scene_rerender_argv
+    a = scene_rerender_argv("/py", "/eng", "/job")
+    assert "--overrides" not in a and a[-2:] == ["--job-dir", "/job"]
+    b = scene_rerender_argv("/py", "/eng", "/job", "/job/localize_overrides.json")
+    assert b[-2:] == ["--overrides", "/job/localize_overrides.json"]
+    assert b[:len(a)] == a                          # 기존 인자 앞부분은 불변
+
+
+def test_review_meta_translations_fallback_has_idx(tmp_path):
+    """B/BJ 폴백 자막 쌍에 idx(0038 오버라이드 좌표) — entries 순번, 필터 전에 매긴다."""
+    import json as _json
+    from ves.adapters.zanmang import review_meta
+    d = tmp_path / "v"; d.mkdir()
+    (d / "translations.json").write_text(_json.dumps({
+        "entries": [{"source": "하나", "target": "一"}, {"source": "", "target": "x"},
+                    {"source": "셋", "target": "三"}]}, ensure_ascii=False))
+    subs = review_meta(d)["ko_ja_pairs"]["subs"]
+    assert subs[0]["idx"] == 0 and subs[1]["idx"] == 2   # 빈 source 를 걸러도 좌표 유지

@@ -80,6 +80,17 @@ def action_argv(repo: str, task: str, video_id: str, state: str | None = None,
     return argv
 
 
+def process_argv(repo: str, video_id: str) -> list:
+    """재처리(반려-수정 재렌더, 8/14) argv — `process --video-id <id>` 는 그 한 편만
+    다시 돌린다(cmd_process 단일 지정 경로 — 원장 selected 전이는 호출부(plan)가 선행).
+    outputs/<vid>/overrides.json 이 있으면 파이프라인(dub·process_video)이 병합한다.
+    순수 — 테스트 대상."""
+    if not (str(video_id or "")).strip():
+        raise base.PermanentError("video_id 없음")
+    return [f"{repo}/.venv/bin/python", "-m", "src.autopilot", "process",
+            "--video-id", str(video_id)]
+
+
 def final_video(route, base_dir) -> str | None:
     """라우트별 최종 산출 영상 경로. 없으면 None(=A 무변환이거나 산출 실패). 순수."""
     d = pathlib.Path(base_dir)
@@ -203,8 +214,10 @@ def review_meta(out_dir) -> dict:
     if not subs:
         try:
             tj = _json.loads((d / "translations.json").read_text(encoding="utf-8"))
-            subs = [{"ko": e.get("source"), "ja": e.get("target")}
-                    for e in (tj.get("entries") or []) if e.get("source")][:40]
+            # idx(8/14 반려-수정): entries 순번 — '수정 재렌더' overrides 의 좌표.
+            # 필터 전에 매기므로 화면에서 빠진 항목이 있어도 좌표가 어긋나지 않는다.
+            subs = [{"idx": i, "ko": e.get("source"), "ja": e.get("target")}
+                    for i, e in enumerate(tj.get("entries") or []) if e.get("source")][:40]
         except (OSError, ValueError):
             pass
     if subs:

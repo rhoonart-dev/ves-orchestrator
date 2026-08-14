@@ -21,10 +21,16 @@ from ves.adapters import base
 from ves.storage.supabase_storage import Store
 
 
-def scene_rerender_argv(ai_py: str, engine: str, job_dir: str) -> list:
+def scene_rerender_argv(ai_py: str, engine: str, job_dir: str,
+                        overrides_path: str | None = None) -> list:
     """scene_rerender 호출 argv — localize_run 은 **ai-video venv** 로 돈다(런타임 의존
-    google-genai·edge-tts 가 그 venv 에 있고, 재렌더도 같은 엔진을 부른다). 순수 — 테스트 대상."""
-    return [ai_py, f"{engine}/scripts/localize_run.py", "--job-dir", job_dir]
+    google-genai·edge-tts 가 그 venv 에 있고, 재렌더도 같은 엔진을 부른다).
+    overrides_path(8/14 반려-수정 재렌더): 검수함에서 고친 텍스트 JSON — 엔진이 L1 번역에
+    병합해 고친 본으로 L3+ 를 다시 돈다. 순수 — 테스트 대상."""
+    argv = [ai_py, f"{engine}/scripts/localize_run.py", "--job-dir", job_dir]
+    if overrides_path:
+        argv += ["--overrides", str(overrides_path)]
+    return argv
 
 
 def localize_argv(py: str, video: str, video_id: str, params: dict) -> list:
@@ -263,7 +269,15 @@ def _run_scene_rerender(cfg, conn, job, deps):
 
     eng = cfgmod.engine_dir(cfg, "localization")
     ai_py = cfgmod.engine_py(cfg, "ai_video")
-    argv = scene_rerender_argv(ai_py, eng, str(run_dir))
+    ov_path = None
+    if p.get("overrides"):
+        # 반려-수정 재렌더(8/14, 0038): 검수함에서 고친 텍스트를 job 디렉토리에 내려놓고
+        # 엔진에 넘긴다. 같은 노드 재실행이라 L1 캐시(translation.json) 위에 병합된다.
+        ov_path = pathlib.Path(run_dir) / "localize_overrides.json"
+        ov_path.write_text(json.dumps(p["overrides"], ensure_ascii=False, indent=2),
+                           encoding="utf-8")
+    argv = scene_rerender_argv(ai_py, eng, str(run_dir),
+                               str(ov_path) if ov_path else None)
     r = subprocess.run(argv, cwd=eng, env=dict(os.environ),
                        capture_output=True, text=True, timeout=3600 * 2)
     meta_path = pathlib.Path(run_dir) / "localize_ja" / "metadata.json"

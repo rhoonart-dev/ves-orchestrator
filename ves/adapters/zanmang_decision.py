@@ -25,6 +25,7 @@ from ves.adapters import base
 from ves.adapters import zanmang
 
 TIMEOUT_SEC = 60 * 30          # 패키지 생성 + 업로드. 현지화(수십 분)는 이미 끝난 뒤다.
+TIMEOUT_PROCESS = 3600 * 3     # rerender 의 process 는 현지화 전체(다운로드·demucs·더빙 포함)
 _URL_RE = re.compile(r"https://youtu\.be/([A-Za-z0-9_-]{6,})")
 
 
@@ -35,6 +36,21 @@ def plan(state: str, action: str) -> list:
     이 표가 멱등의 전부다. 알 수 없는 상태면 빈 목록(사람이 봐야 한다)."""
     if action == "skip":
         return [] if state in ("skipped", "uploaded") else ["mark"]
+    if action == "rerender":
+        # 반려-수정 재렌더(8/14, 0038): 원장 **정상 전이로만** 되돌려 다시 돌린다 —
+        # pending_approval→skipped→selected→(process: processing→…→pending_approval).
+        # force 전이는 쓰지 않는다(감사 추적·상태기계 보존). 이미 승인/게시된 건은 거부 —
+        # 게시물 교체는 사람이 원장·Studio 에서 직접 푸는 영역이다.
+        if state == "pending_approval":
+            return ["mark_skip", "mark_select", "process"]
+        if state in ("skipped", "failed"):
+            return ["mark_select", "process"]      # 재시도(첫 실행이 죽었을 때) 멱등 경로
+        if state == "selected":
+            return ["process"]
+        if state in ("approved", "uploaded"):
+            raise base.PermanentError(
+                f"원장 상태 '{state}' — 재렌더 불가(이미 승인/게시됨). 원장을 직접 되돌린 뒤 다시.")
+        return []                       # processing 등 — 손대지 않는다(진행 중)
     if action != "publish":
         raise base.PermanentError(f"알 수 없는 결정: {action}")
     if state == "uploaded":
@@ -71,6 +87,18 @@ def _ledger_state(repo, video_id):
     return row[0]
 
 
+def _task_argv(repo: str, task: str, vid: str, p: dict) -> list:
+    """plan 의 task 이름 → CLI argv. 순수 — 테스트 대상."""
+    if task == "process":
+        return zanmang.process_argv(repo, vid)
+    if task in ("mark", "mark_skip", "mark_select"):
+        return zanmang.action_argv(repo, "mark", vid,
+                                   state="selected" if task == "mark_select" else "skipped")
+    return zanmang.action_argv(repo, task, vid,
+                               privacy=p.get("privacy") if task == "upload" else None,
+                               publish_at=p.get("publish_at") if task == "upload" else None)
+
+
 def run(cfg, conn, job, deps):
     p = job["params"] or {}
     vid = p.get("video_id")
@@ -87,18 +115,27 @@ def run(cfg, conn, job, deps):
         # 산출물 복원(2단계 ③): approve 는 outputs/<vid> 로 패키지를 만든다 — 처리한
         # 맥이 아니면(또는 정리됐으면) ves-runs/ves-localized 에서 재구성한다.
         _restore_outputs(cfg, repo, vid)
+    if action == "rerender" and tasks:
+        # 반려-수정 재렌더(8/14, 0038): 검수함에서 고친 텍스트를 파이프라인이 읽는 자리
+        # (outputs/<vid>/overrides.json)에 내려놓는다 — dub(C)·process_video(B/BJ)가
+        # 렌더 직전에 병합한다. 좌표는 카드 ko_ja_pairs 의 idx.
+        ov = p.get("overrides") or {}
+        if not ov:
+            raise base.PermanentError("rerender 인데 params.overrides 없음 — 0038 RPC 확인")
+        import json as _json
+        out_dir = pathlib.Path(repo) / "outputs" / str(vid)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / "overrides.json").write_text(
+            _json.dumps(ov, ensure_ascii=False, indent=2), encoding="utf-8")
     if not tasks:
         return {"video_id": vid, "action": action, "state": state, "skipped": True,
                 "note": f"원장 상태 '{state}' — 할 일 없음(이미 반영됨)"}
 
     out = {"video_id": vid, "action": action, "from_state": state, "ran": []}
     for task in tasks:
-        argv = zanmang.action_argv(repo, task, vid,
-                                   state="skipped" if task == "mark" else None,
-                                   privacy=p.get("privacy") if task == "upload" else None,
-                                   publish_at=p.get("publish_at") if task == "upload" else None)
+        argv = _task_argv(repo, task, vid, p)
         r = subprocess.run(argv, cwd=repo, capture_output=True, text=True,
-                           timeout=TIMEOUT_SEC)
+                           timeout=TIMEOUT_PROCESS if task == "process" else TIMEOUT_SEC)
         tail = ((r.stdout or "") + "\n" + (r.stderr or ""))[-500:]
         if r.returncode != 0:
             cls = base.classify_by_patterns(r.stderr or "", r.stdout or "")
@@ -114,7 +151,46 @@ def run(cfg, conn, job, deps):
             if url:
                 out["youtube_url"] = url
         out[f"{task}_tail"] = tail[-200:]
+
+    if action == "rerender" and "process" in out["ran"]:
+        # 업로드 제목·설명은 process 가 LLM 으로 초안을 다시 뽑는다(비결정) — 운영자가
+        # 고친 값이 이겨야 하므로 metadata_draft 를 사후 패치한다. 자막은 파이프라인이
+        # overrides.json 으로 이미 반영했다.
+        _patch_meta(repo, vid, p.get("overrides") or {})
+        out["rerendered"] = True
+        try:
+            # 새 검수 카드 즉시 등록 — 다음 daily(내일 10시)를 기다리지 않는다.
+            # post_success 는 pending_approval 전수를 훑고 대기 카드 중복을 걸러 멱등.
+            zanmang.post_success(cfg, conn,
+                                 {"id": job["id"], "params": {"task": "daily", "repo": repo}},
+                                 {})
+            out["card_registered"] = True
+        except Exception as e:  # noqa: BLE001 — 카드 등록 실패는 비치명(다음 daily 가 등록)
+            print(f"[zanmang_decision] 재렌더 후 카드 등록 실패(비치명): {e}")
     return out
+
+
+def _patch_meta(repo, vid: str, ov: dict) -> None:
+    """운영자가 고친 업로드 제목·설명을 metadata_draft.json 에 반영 — uploader 가
+    title_candidates[0]·description 을 쓴다. 실패는 비치명(새 카드에서 다시 고치면 된다)."""
+    title = str(ov.get("youtube_title_ja") or "").strip()
+    desc = str(ov.get("description_ja") or "").strip()
+    if not (title or desc):
+        return
+    import json as _json
+    f = pathlib.Path(repo) / "outputs" / str(vid) / "metadata_draft.json"
+    try:
+        md = _json.loads(f.read_text(encoding="utf-8"))
+        if title:
+            cands = md.get("title_candidates") or []
+            md["title_candidates"] = [title] + [c for c in cands if c != title]
+        if desc:
+            md["description"] = desc
+        f.write_text(_json.dumps(md, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"[zanmang_decision] metadata_draft 패치(운영자 수정 반영): "
+              f"제목 {'O' if title else '-'} 설명 {'O' if desc else '-'}")
+    except (OSError, ValueError) as e:
+        print(f"[zanmang_decision] metadata_draft 패치 실패(비치명): {e}")
 
 
 def _restore_outputs(cfg, repo, vid: str) -> None:
