@@ -5,8 +5,11 @@ anon key 는 공개값, 여기서의 검증은 UX 일 뿐(R15). 서버 프로세
 
 ## 배포
 
+main 에 `index.html` 이 올라가면 `.github/workflows/dashboard-deploy.yml` 이
+문법 검사 → S3 업로드 → CloudFront 무효화까지 한다(설정·수동 절차는 HANDOFF §7).
+
 ```
-빌드 → aws s3 sync dist/ s3://<bucket> → CloudFront invalidation
+node --check(인라인 script) → aws s3 cp index.html s3://<bucket> → CloudFront invalidation
 ```
 - ⚠ S3 웹사이트 엔드포인트는 HTTP 전용 — **CloudFront + ACM 필수**
 - ⚠ SPA 라우팅: CloudFront 커스텀 에러 403/404 → /index.html(200)

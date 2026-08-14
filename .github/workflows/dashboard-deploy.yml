@@ -1,0 +1,71 @@
+name: 대시보드 배포
+
+# main 에 dashboard/index.html 이 올라가면 S3 업로드 + CloudFront 무효화까지 자동으로 한다.
+# 수동 실행(workflow_dispatch)은 배포가 밀렸거나 버킷만 다시 맞출 때 쓴다.
+on:
+  push:
+    branches: [main]
+    paths:
+      - dashboard/index.html
+      - deploy/check_dashboard.py
+      - .github/workflows/dashboard-deploy.yml
+  workflow_dispatch:
+
+# 연속 머지 때 업로드 순서가 뒤집히지 않도록 한 번에 하나만 돈다.
+concurrency:
+  group: dashboard-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write # OIDC 역할 수임용 — 액세스 키 방식이면 쓰이지 않는다
+
+env:
+  BUCKET: ${{ vars.DASHBOARD_BUCKET || 'ves-dashboard-039612860860' }}
+  DISTRIBUTION_ID: ${{ vars.DASHBOARD_DISTRIBUTION_ID || 'E3LW0DDWGND9XX' }}
+  AWS_REGION: ${{ vars.AWS_REGION || 'ap-northeast-2' }}
+  DASHBOARD_URL: https://d3tcpxqaoa3rfi.cloudfront.net
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 서버가 없으니 문법이 깨진 index.html 은 화면을 통째로 백지로 만든다. 올리기 전에 막는다.
+      - name: 스크립트 문법 검사
+        run: python3 deploy/check_dashboard.py dashboard/index.html
+
+      - name: AWS 인증 — OIDC 역할
+        if: vars.AWS_ROLE_ARN != ''
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: AWS 인증 — 액세스 키
+        if: vars.AWS_ROLE_ARN == ''
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # no-cache 를 걸어두므로 업로드만으로 즉시 반영된다(무효화는 엣지 잔여분 정리용).
+      - name: S3 업로드
+        run: |
+          aws s3 cp dashboard/index.html "s3://$BUCKET/index.html" \
+            --content-type "text/html; charset=utf-8" \
+            --cache-control "no-cache, must-revalidate"
+
+      - name: CloudFront 무효화
+        run: |
+          id=$(aws cloudfront create-invalidation \
+                 --distribution-id "$DISTRIBUTION_ID" --paths "/*" \
+                 --query 'Invalidation.Id' --output text)
+          echo "invalidation: $id"
+
+      - name: 요약
+        run: |
+          echo "대시보드 배포 완료 — [$DASHBOARD_URL]($DASHBOARD_URL) (\`${GITHUB_SHA:0:7}\`)" \
+            >> "$GITHUB_STEP_SUMMARY"
