@@ -207,6 +207,18 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
   .err{color:var(--serious);font-size:12px;word-break:break-all}
   .filters{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+  /* 채널 탭 좌우 이동(운영 요청 8/14) — 카드를 읽는 동안 방해되지 않게 평소엔 흐리게 둔다 */
+  .chipnav{position:fixed;top:50%;transform:translateY(-50%);z-index:40;
+    width:44px;height:76px;display:flex;align-items:center;justify-content:center;
+    font-size:26px;line-height:1;color:var(--ink-2);background:var(--surface);
+    border:1px solid var(--ring);box-shadow:0 2px 10px rgba(0,0,0,.18);
+    opacity:.55;transition:opacity .12s}
+  .chipnav:hover:not(:disabled){opacity:1;color:var(--ink)}
+  .chipnav:disabled{opacity:.16;cursor:default}
+  .chipnav.l{left:0;border-radius:0 12px 12px 0;border-left:none}
+  .chipnav.r{right:0;border-radius:12px 0 0 12px;border-right:none}
+  /* 좁은 화면에선 칩이 이미 여러 줄이라 겹친다 — 숨긴다 */
+  @media (max-width:760px){ .chipnav{display:none} }
   tr.selrow td{background:rgba(128,128,128,.14);font-weight:600}
   /* 목업: 선택 칩 = 무채색 강조 (비선택 칩에서 살짝 진하게) */
   .filters button.on{background:rgba(128,128,128,.18);border-color:var(--muted);color:var(--ink);font-weight:700}
@@ -1126,9 +1138,58 @@ function channelChips(items, cur, varName){
   const btn = (val, label, n) =>
     `<button class="mini ${cur===val?"on":""}" onclick="${varName}='${val}';feedCalOff=0;render()">${label}${
       n ? ` <span style="${nStyle}">${n}</span>` : ""}</button>`;
+  // 좌우 화살표가 훑을 순서를 칩과 같은 배열에서 만든다 — 둘이 어긋나면
+  // 화살표가 화면에 없는 탭으로 데려간다.
+  chipNavVar = varName;
+  chipNavAll = [{ val: "all", label: "전체", n: (items||[]).length }].concat(
+    chans.map(c => ({ val: c.token_slug, label: c.name || c.token_slug,
+                      n: cnt[c.token_slug] || 0 })));
+  const arrow = (d, cls, glyph, lbl) => {
+    const t = chipNavTarget(d);
+    return `<button class="chipnav ${cls}" ${t ? "" : "disabled"} onclick="chipNav(${d})"
+      title="${lbl} 채널${t ? " — " + esc(t.label) : ""}" aria-label="${lbl} 채널">${glyph}</button>`;
+  };
   return `<div class="filters">${btn("all", "전체", (items||[]).length)}${
-    chans.map(c => btn(c.token_slug, esc(c.name||c.token_slug), cnt[c.token_slug])).join("")}</div>`;
+    chans.map(c => btn(c.token_slug, esc(c.name||c.token_slug), cnt[c.token_slug])).join("")}</div>` +
+    arrow(-1, "l", "‹", "이전") + arrow(1, "r", "›", "다음");
 }
+
+// ───────── 채널 탭 좌우 이동 (운영 요청 2026-08-14) ─────────
+// 한 채널을 다 검수하고 다음으로 넘어갈 때 칩을 눈으로 찾아 클릭하던 수고를 없앤다.
+// 규칙(운영자 결정): ① 건수 0인 채널은 건너뛴다 — 검수는 남은 것만 훑는 작업이라 빈 탭에
+// 멈추면 화살표를 두 번 눌러야 한다. ② 끝에서는 처음으로 순환한다 — 남은 채널을 계속
+// 돌며 비울 수 있다. 검수함·영상 피드가 이 함수를 공유한다(칩 컴포넌트가 하나다).
+let chipNavAll = [], chipNavVar = null;
+function chipNavTarget(d){
+  const all = chipNavAll, len = all.length;
+  if (!len) return null;
+  const cur = chipNavVar === "rvCh" ? rvCh : feedCh;
+  let i = all.findIndex(x => x.val === cur);
+  if (i < 0) i = 0;                       // 지금 탭이 빈 채널이면 그 자리에서 출발
+  for (let k = 1; k <= len; k++){         // 한 바퀴 돌며 첫 '건수 있는' 탭을 찾는다
+    const j = ((i + d * k) % len + len) % len;
+    if (all[j].n > 0 && all[j].val !== cur) return all[j];
+  }
+  return null;                            // 갈 곳이 없다(건수 있는 탭이 지금 것뿐)
+}
+window.chipNav = d => {
+  const t = chipNavTarget(d);
+  if (!t) return;
+  if (chipNavVar === "rvCh") rvCh = t.val; else feedCh = t.val;
+  feedCalOff = 0;
+  render();
+  window.scrollTo({ top: 0 });            // 다음 채널은 위에서부터 본다
+};
+// ←/→ 키로도 넘긴다. 메모·공개방식 입력 중에는 넘기지 않는다 —
+// 사유를 쓰다 방향키를 누르면 카드가 통째로 바뀌어 입력이 무의미해진다.
+document.addEventListener("keydown", e => {
+  if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+  if (tab !== "review" && tab !== "feed") return;
+  const t = e.target;
+  if (t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable)) return;
+  if (e.key === "ArrowLeft"){ e.preventDefault(); chipNav(-1); }
+  else if (e.key === "ArrowRight"){ e.preventDefault(); chipNav(1); }
+});
 
 // ───────── 목업: 피드 채널 상세 헤더 + 업로드 달력 ─────────
 // 채널 아이콘 — 목업용 정적 스냅샷 (2026-08-11 YouTube og:image 수집).
