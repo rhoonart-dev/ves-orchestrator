@@ -35,8 +35,13 @@ def tus_metadata(bucket: str, key: str, content_type: str = "application/octet-s
         return base64.b64encode(v.encode("utf-8")).decode("ascii")
     # ⚠ 구분자는 공백 없는 콤마다. ", " 로 이었더니 Supabase 가 400 Invalid upload-metadata
     #   로 전부 거부했다(8/13 실측: 피의 게임 X EP06~08 — 5GB 벽을 넘기도 전에 create 에서).
+    # ⚠ upsert 는 **여기(메타데이터)** 에 넣어야 한다 — x-upsert 헤더는 표준 POST 전용이라
+    #   TUS 커밋이 기존 객체와 충돌하면 409 The resource already exists 로 죽는다
+    #   (8/15 실측: sync_drive_folder 3건 dead — 이전 시도가 올려둔 마스터에 재시도가 막혀
+    #   폴더의 '신규' 파일 인입까지 통째로 중단됐다).
     return ",".join([f"bucketName {b64(bucket)}", f"objectName {b64(key)}",
-                     f"contentType {b64(content_type)}", f"cacheControl {b64('3600')}"])
+                     f"contentType {b64(content_type)}", f"cacheControl {b64('3600')}",
+                     f"upsert {b64('true')}"])
 
 
 class Store:
@@ -58,10 +63,28 @@ class Store:
         if r.status_code not in (200, 201):
             raise RuntimeError(f"storage upload {r.status_code}: {r.text[:200]}")
 
+    def _object_size(self, bucket: str, key: str):
+        """객체가 있으면 바이트 크기, 없으면 None — 재업로드 생략 판단용(TUS 멱등)."""
+        import requests
+        r = requests.head(f"{self.base}/object/{bucket}/{key}",
+                          headers=self.headers, timeout=30)
+        if r.status_code != 200:
+            return None
+        try:
+            return int(r.headers.get("Content-Length") or -1)
+        except (TypeError, ValueError):
+            return -1
+
     def _upload_tus(self, bucket: str, key: str, path: str) -> None:
         """TUS 재개형 업로드 — 4.5GB 초과 마스터용(모듈 머리말 참조)."""
         import requests
         size = os.path.getsize(path)
+        # 멱등(8/15): 같은 키에 같은 크기가 이미 있으면 완주분 — 수 GB 재전송을 생략한다.
+        # ves-sources 는 내용주소 키(sha256)라 '같은 키 = 같은 내용'이 보장된다. 재시도가
+        # 절반쯤 올린 폴더를 다시 훑을 때 이 분기가 앞선 완주 파일들을 몇 초에 통과시킨다.
+        if self._object_size(bucket, key) == size:
+            print(f"[storage] tus 생략 — 동일 크기 객체 존재: {bucket}/{key}")
+            return
         r = requests.post(f"{self.base}/upload/resumable",
                           headers={**self.headers, "Tus-Resumable": "1.0.0",
                                    "Upload-Length": str(size), "x-upsert": "true",

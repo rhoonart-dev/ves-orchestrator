@@ -1327,6 +1327,8 @@ def test_tus_metadata_encoding():
     assert base64.b64decode(parts["bucketName"]).decode() == "ves-sources"
     assert base64.b64decode(parts["objectName"]).decode() == "masters/abc123"
     assert base64.b64decode(parts["contentType"]).decode() == "application/octet-stream"
+    # upsert 는 메타데이터에 있어야 한다(8/15) — 없으면 재시도가 기존 객체에 409 로 막힌다
+    assert base64.b64decode(parts["upsert"]).decode() == "true"
 
 
 def test_413_is_permanent():
