@@ -13,8 +13,11 @@ def test_tus_metadata_comma_no_space():
     md = tus_metadata("ves-sources", "masters/abc")
     assert ", " not in md, "구분자에 공백 금지 — Supabase 가 400 으로 거부한다(8/13 실측)"
     pairs = md.split(",")
-    assert len(pairs) == 4
+    # 5쌍(8/15): bucketName·objectName·contentType·cacheControl + upsert —
+    # upsert 는 TUS 커밋의 409(기존 객체 충돌)를 막는 재시도 멱등의 핵심이라 빠지면 안 된다.
+    assert len(pairs) == 5
     kv = dict(p.split(" ", 1) for p in pairs)
     assert not any(k.startswith(" ") for k in kv), "키 앞 공백 = Invalid upload-metadata"
     assert base64.b64decode(kv["bucketName"]).decode() == "ves-sources"
     assert base64.b64decode(kv["objectName"]).decode() == "masters/abc"
+    assert base64.b64decode(kv["upsert"]).decode() == "true"
