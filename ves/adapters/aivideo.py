@@ -6,6 +6,10 @@ params 계약(planner 가 채움):
   topic · no_research(기본 true) · no_subtitles(sources.has_subtitle=false 면 true)
   flags{silence,length,loudness} — 라운드 노브(§12) · resource('gemini:<GCP>')
 경로: 소스는 content-addressed 캐시(sha 만으로 결정) — acquire 가 워밍, 여기선 경로 계산만.
+
+편집실(0043): params.edit_overrides 가 있으면 그 JSON 을 run_dir 에 써서
+`--edit-overrides` 로 넘긴다 — 사람이 고친 제목·자막·구간이 체크포인트를 이긴다.
+반드시 이어달리기(resume_run_id) 와 함께여야 한다(아래 _build_argv_fresh 참고).
 """
 from __future__ import annotations
 
@@ -301,8 +305,39 @@ def build_argv(cfg, job):
     return _build_argv_fresh(cfg, job)
 
 
+def edit_overrides_argv(base_argv, overrides_path) -> list:
+    """편집실 오버라이드 경로가 있으면 `--edit-overrides` 를 뒤에 붙인다. 순수 — 테스트 대상.
+
+    앞부분은 절대 손대지 않는다(하위호환) — 오버라이드가 없는 잡은 종전과 완전히 같은
+    명령으로 돌아야 한다. localize.scene_rerender_argv 와 같은 규약."""
+    argv = list(base_argv)
+    return argv + ["--edit-overrides", str(overrides_path)] if overrides_path else argv
+
+
+def _write_edit_overrides(run_dir, overrides) -> pathlib.Path | None:
+    """오버라이드 dict → <run_dir>/edit_overrides.json. 없으면 None.
+
+    파일로 넘기는 이유: 자막 수십 줄이 들어가면 argv 로는 셸 인용·길이 한계에 걸린다.
+    0038 의 localize_overrides.json 과 같은 방식이며, 파일이 run_dir 에 남으므로
+    '무엇을 보냈는지'가 그 맥에 증거로 남는다."""
+    if not overrides:
+        return None
+    d = pathlib.Path(run_dir)
+    if not d.exists():
+        raise base.PermanentError(f"run_dir 없음: {d} — 편집 재렌더는 원본 run 이 있어야 합니다")
+    p = d / "edit_overrides.json"
+    p.write_text(json.dumps(overrides, ensure_ascii=False, indent=2), encoding="utf-8")
+    return p
+
+
 def _build_argv_fresh(cfg, job):
     p = job["params"]
+    if p.get("edit_overrides") and not p.get("resume_run_id"):
+        # 새 run 에 편집 오버라이드는 의미가 없다 — 사람이 고친 구간은 그 run 의 좌표계
+        # (원본 절대초 + 그 편의 자막 타임라인)에 묶여 있다. 조용히 무시하면 사람이 고친
+        # 값이 빠진 영상이 나가므로 즉시 실패시킨다(edit_overrides 모듈과 같은 원칙).
+        raise base.PermanentError(
+            "edit_overrides 는 resume_run_id 와 함께여야 합니다 — 새 run 에는 적용할 수 없습니다")
     src = cfgmod.source_cache_path(cfg, p["source_sha256"]) if p.get("source_sha256") else None
     if src and not pathlib.Path(src).exists():
         raise base.PermanentError(f"소스 캐시 없음: {src} — acquire 선행 확인")
@@ -327,7 +362,9 @@ def resume_argv(cfg, job, partial_run_id, default_step=None):
     argv += ["--job-id", partial_run_id]
     if step:
         argv += ["--from-step", step]
-    return argv
+    # 편집실(0043): 사람이 고친 제목·자막·구간. 파일로 써서 경로만 넘긴다.
+    return edit_overrides_argv(
+        argv, _write_edit_overrides(run_dir, (job["params"] or {}).get("edit_overrides")))
 
 
 def parse_result(cfg, job, stdout):

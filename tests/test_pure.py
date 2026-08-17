@@ -1956,3 +1956,83 @@ def test_pick_scrub_source_prefers_proxy(tmp_path):
 def test_editor_assets_registered():
     from ves.adapters import base as abase
     assert abase.get("editor_assets") is not None
+
+
+# ───────── 편집실 2단계 (0043 · 고친 제목·자막으로 재렌더) ─────────
+def test_edit_overrides_argv_is_additive():
+    """오버라이드가 없으면 종전과 **완전히 같은** 명령이어야 한다(하위호환).
+    localize.scene_rerender_argv 와 같은 규약 — 앞부분 불변, 뒤에만 붙인다."""
+    from ves.adapters.aivideo import edit_overrides_argv
+    base_argv = ["/py", "-m", "app.cli", "create_shorts", "--job-id", "가왕쇼_df50a39c"]
+    assert edit_overrides_argv(base_argv, None) == base_argv
+    assert edit_overrides_argv(base_argv, "") == base_argv
+    got = edit_overrides_argv(base_argv, "/runs/x/edit_overrides.json")
+    assert got[:len(base_argv)] == base_argv
+    assert got[-2:] == ["--edit-overrides", "/runs/x/edit_overrides.json"]
+
+
+def test_edit_overrides_written_to_run_dir(tmp_path):
+    """오버라이드는 파일로 넘긴다 — 자막 수십 줄이 argv 인용 한계에 걸리지 않게.
+    run_dir 에 남으므로 '무엇을 보냈는지'가 그 맥에 증거로 남는다."""
+    import json as _json
+    from ves.adapters.aivideo import _write_edit_overrides
+    ov = {"schema": "edit_overrides/v1", "subtitles": [
+        {"start_sec": 0.2, "end_sec": 2.3, "text": '따옴표 "있는" 줄\n줄바꿈도'}]}
+    p = _write_edit_overrides(tmp_path, ov)
+    assert p == tmp_path / "edit_overrides.json"
+    assert _json.loads(p.read_text(encoding="utf-8")) == ov      # 왕복 무손실
+    assert _write_edit_overrides(tmp_path, None) is None          # 없으면 파일도 안 만든다
+
+
+def test_edit_overrides_require_resume_run():
+    """새 run 에 편집 오버라이드는 좌표계가 맞지 않는다 — 조용히 무시하지 말고 즉시 실패.
+    (사람이 고친 값이 빠진 영상이 나가는 것이 최악이라는 edit_overrides 모듈 원칙)"""
+    from ves.adapters import aivideo, base as abase
+    job = {"params": {"work_title": "가왕쇼", "edit_overrides": {"schema": "edit_overrides/v1"}}}
+    try:
+        aivideo._build_argv_fresh(None, job)
+    except abase.PermanentError as e:
+        assert "resume_run_id" in str(e)
+    else:
+        raise AssertionError("새 run + edit_overrides 는 반드시 PermanentError 여야 한다")
+
+
+def test_0043_submit_editor_render_contract():
+    """RPC 계약: reviewer 게이트 · publish_gate/waiting 한정 · 체인 4잡 · 생성 노드 핀."""
+    sql = _live_mig("CREATE OR REPLACE FUNCTION public.submit_editor_render")
+    assert "has_role(auth.uid(),'reviewer')" in sql
+    # 대상 카드 — 일본어(localization_qa)는 0038 담당이라 여기서 받으면 안 된다
+    assert "rq.kind = 'publish_gate' AND rq.status = 'waiting'" in sql
+    # 스키마 주입: 화면이 빠뜨려도 엔진 계약이 성립해야 한다
+    assert "jsonb_build_object('schema', 'edit_overrides/v1')" in sql
+    # 재개 단계: 구간을 고쳤으면 resources(TTS cue 앵커), 아니면 render
+    assert "CASE WHEN p_overrides ? 'clips' THEN 'resources' ELSE 'render' END" in sql
+    # 옛 카드를 닫아야 evaluate 가 새 카드를 넣는다(brain.py 의 waiting 중복 방지)
+    assert "SET status = 'rejected'" in sql
+    # 체인 4잡 + 생성 노드 핀 + 멱등키
+    for k in ("'generate'", "'upload_artifacts'", "'ingest'", "'evaluate'"):
+        assert k in sql, k
+    assert "ARRAY['generate', 'node:' || v_gen.node_id]" in sql
+    assert "'editrender:' || p_review_id" in sql
+    # 이중 렌더 방지 + 재료 무효화 + 감사
+    assert "이미 렌더가 대기·진행 중입니다" in sql
+    assert "UPDATE public.editor_assets SET status='pending'" in sql
+    assert "_audit('editor_render'" in sql
+    assert "REVOKE ALL     ON FUNCTION public.submit_editor_render(uuid, jsonb, text) FROM public, anon;" in sql
+    assert "GRANT  EXECUTE ON FUNCTION public.submit_editor_render(uuid, jsonb, text) TO authenticated;" in sql
+
+
+def test_dashboard_editor_edit_ui_wired():
+    """화면 배선: 편집 폼 → submit_editor_render. 고치지 않은 항목은 키를 빼야 한다
+    (자막을 안 건드렸는데 subtitles 를 보내면 전량 교체로 재매핑 결과가 못박힌다)."""
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert 'sb.rpc("request_editor_assets"' in html          # 1단계 유지
+    assert '"submit_editor_render"' in html
+    assert "p_overrides" in html and "p_review_id: edRid" in html
+    # 권한·카드 게이트가 화면에도 있어야 한다(서버가 최종 방어선이지만 버튼부터 안 보이게)
+    assert 'can("reviewer") && r.kind === "publish_gate" && r.status === "waiting"' in html
+    # draft 분리 — 화면이 다시 그려져도 고치던 문장이 살아남는다
+    assert "dTitle" in html and "dSubs" in html
+    # 자막 전량 삭제 방어
+    assert "자막을 전부 지울 수는 없습니다" in html

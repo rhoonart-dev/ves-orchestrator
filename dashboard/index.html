@@ -228,6 +228,19 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .edsub:hover{background:var(--surface-2)}
   .edsub .t{flex:none;width:62px;color:var(--muted);font-variant-numeric:tabular-nums}
   .edsub .x{flex:1;min-width:0}
+  /* 2단계 편집 — 고친 줄은 눈에 띄게(전량 교체라 '뭘 고쳤는지'가 화면에만 남는다) */
+  .edsub .t{cursor:pointer}
+  .edsub input.x{border:1px solid transparent;border-radius:5px;padding:2px 5px;
+                 background:transparent;color:var(--ink);font:inherit}
+  .edsub input.x:focus{border-color:var(--line);background:var(--surface);outline:none}
+  .edsub input.x.dirty{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 12%,transparent)}
+  .edsub input.x.empty{text-decoration:line-through;opacity:.5}
+  #edtitle{width:100%;font:inherit;font-size:14px;line-height:1.5;padding:6px 8px;
+           border:1px solid var(--line);border-radius:8px;background:var(--surface);
+           color:var(--ink);resize:vertical}
+  #edtitle.dirty{border-color:var(--warn)}
+  .edfoot2{margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;
+           font-size:12px;color:var(--muted)}
   /* 타임라인: 원본 전체 길이가 가로 100% — 색 블록이 실제로 쓰인 구간 */
   .edtl{position:relative;height:74px;margin-top:4px;border:1px solid var(--line);
         border-radius:8px;background:var(--surface-2);overflow:hidden;cursor:crosshair}
@@ -1308,14 +1321,87 @@ window.submitRerender = rid => {
   RERENDER_ORIG = null;
 };
 
-// ═════════ 편집실 1단계 (0042) — 이 쇼츠가 원본 어디에서 왔는가 ═════════
-// 읽기 전용이다. 구간을 만지는 것은 다음 단계이고, 지금은 "보이게 하는 것"까지가 목표 —
-// 원본 4시간 어디를 잘라 60초를 만들었는지 눈으로 확인하는 것만으로 검수 판단이 달라진다
-// (특히 가왕쇼처럼 '경연 결과 스포 금지' 같은 제약이 있는 작품).
+// ═════════ 편집실 (0042 보기 · 0043 고치기) ═════════
+// 1단계: 원본 4시간 어디를 잘라 60초를 만들었는지 보여준다 — 그것만으로 검수 판단이
+//   달라진다(가왕쇼처럼 '경연 결과 스포 금지' 제약이 있는 작품).
+// 2단계: 그 화면에서 제목·자막을 고쳐 다시 렌더한다. 구간(clips)은 3단계.
+// 편집 폼 상태는 edForm 하나로 모은다 — 0038 의 RERENDER_ORIG 처럼 전역 단일 슬롯이지만,
+// 편집실은 카드를 한 번에 하나만 여는 화면이라(탭 전체를 차지) 충돌 지점이 없다.
 let edRid = null, edData = null, edLoading = false, edPoll = null, edCursor = 0;
+let edForm = null;
+
+function edResetForm(){
+  const tl = (edData && edData.timeline) || {};
+  const subs = (tl.subtitles || []).map(s => ({
+    start: Number(s.edited_start) || 0, end: Number(s.edited_end) || 0,
+    src: s.source_sec, text: s.text || "",
+  }));
+  // draft = 사람이 지금 치고 있는 값. 원본(text)과 따로 들고 있어야 화면이 다시 그려져도
+  // (탭 복귀·재조회) 고치던 문장이 날아가지 않는다.
+  edForm = { rid: edRid, title: tl.top_title || "", subs,
+             dTitle: tl.top_title || "", dSubs: subs.map(s => s.text) };
+}
+
+const edTitleEl = () => document.getElementById("edtitle");
+const edSubEl = i => document.getElementById("edsx_" + i);
+
+// 화면의 현재 값 → 오버라이드. 고치지 않은 항목은 **키 자체를 뺀다** — 자막을 안 건드렸는데
+// subtitles 를 보내면 엔진이 전량 교체로 받아 재매핑 결과를 사람 값으로 못박아 버린다.
+function edCollect(){
+  if (!edForm) return {};
+  const ov = {}, t = edForm.dTitle;
+  if (t != null && t.trim() && t !== edForm.title) ov.title = { top_title: t };
+  if (edForm.dSubs.some((v, i) => v !== edForm.subs[i].text)){
+    ov.subtitles = edForm.subs
+      .map((s, i) => ({ start_sec: s.start, end_sec: s.end, text: edForm.dSubs[i] }))
+      .filter(x => String(x.text).trim());
+  }
+  return ov;
+}
+
+// 입력할 때마다 '무엇이 달라졌는지'를 화면에 반영 — 전량 교체라 서버에 보낸 뒤에는
+// 어느 줄을 고쳤는지 알 수 없다. 고친 줄은 테두리로, 비운 줄은 취소선으로 보여준다.
+window.edMark = () => {
+  if (!edForm) return;
+  const te = edTitleEl();
+  if (te){
+    edForm.dTitle = te.value;
+    te.classList.toggle("dirty", te.value !== edForm.title);
+  }
+  edForm.subs.forEach((s, i) => {
+    const el = edSubEl(i); if (!el) return;
+    edForm.dSubs[i] = el.value;
+    el.classList.toggle("dirty", el.value !== s.text);
+    el.classList.toggle("empty", !el.value.trim());
+  });
+  const ov = edCollect();
+  const n = (ov.title ? 1 : 0) + (ov.subtitles ? 1 : 0);
+  const btn = document.getElementById("edsubmit");
+  if (btn){
+    btn.disabled = !n;
+    btn.textContent = n ? `✏️ 고친 내용으로 다시 렌더 (${
+      [ov.title ? "제목" : null, ov.subtitles ? "자막" : null].filter(Boolean).join("·")})`
+      : "✏️ 고친 내용으로 다시 렌더";
+  }
+};
+
+window.edSubmit = async () => {
+  const ov = edCollect();
+  if (!Object.keys(ov).length){ toast("고친 내용이 없습니다", true); return; }
+  if (ov.subtitles && !ov.subtitles.length){
+    toast("자막을 전부 지울 수는 없습니다 — 자막 없이 가려면 검수에서 반려하세요", true); return;
+  }
+  const btn = document.getElementById("edsubmit");
+  if (btn){ btn.disabled = true; btn.textContent = "보내는 중…"; }
+  const r = await rpc("submit_editor_render",
+    { p_review_id: edRid, p_overrides: ov, p_note: null },
+    "다시 렌더합니다 — 끝나면 새 검수 카드가 올라옵니다(수십 초~수 분)");
+  if (r){ edRid = null; edData = null; edForm = null; tab = "review"; render(); }
+  else if (btn) edMark();
+};
 
 window.openEditor = async (rid) => {
-  edRid = rid; edData = null; tab = "edit"; render();
+  edRid = rid; edData = null; edForm = null; tab = "edit"; render();
   try {
     const r = await sb.rpc("request_editor_assets", { p_review_id: rid });
     if (r.error) throw r.error;
@@ -1417,6 +1503,10 @@ function renderEdit(){
   const dur = Number(tl.duration_sec) || 1;
   const pct = t => (Math.max(0, Math.min(dur, Number(t)||0)) / dur * 100).toFixed(4);
   const pay = r.payload || {};
+  // 고치기(0043)는 대기중인 **한국어 발행 게이트**에서만. 일본어 카드는 0038 '수정 재렌더'가
+  // 담당한다(그쪽은 이미 만든 일본어판을 고치고, 이쪽은 한국어 원본 렌더를 다시 만든다).
+  const canEdit = can("reviewer") && r.kind === "publish_gate" && r.status === "waiting";
+  if (!edForm || edForm.rid !== edRid) edResetForm();
   const blocks = (tl.clips||[]).map(c => `
     <div class="edclip ${esc(c.role)}" style="left:${pct(c.start_sec)}%;width:${
         Math.max(0.15, (c.dur_sec/dur*100)).toFixed(4)}%"
@@ -1433,13 +1523,19 @@ function renderEdit(){
           · 클립 ${(tl.clips||[]).length}개 · 원본 ${edFmt(dur)}</div>
       </div>
       <div class="edright">
-        <div class="edcap">상단 제목</div>
-        <div class="edval">${esc(tl.top_title || "(없음)").replace(/\n/g,"<br>")}</div>
-        <div class="edcap">자막 ${(tl.subtitles||[]).length}건 <span class="sub">— 누르면 원본 위치로</span></div>
-        <div class="edsubs">${(tl.subtitles||[]).map(s => `
-          <div class="edsub" ${s.source_sec != null ? `onclick="edSeek(${s.source_sec})"` : ""}>
-            <span class="t">${s.source_sec != null ? edFmt(s.source_sec) : "—"}</span>
-            <span class="x">${esc(s.text)}</span></div>`).join("") ||
+        <div class="edcap">상단 제목 <span class="sub">— 영상 안에 그려지는 글자(줄바꿈 유지)</span></div>
+        <textarea id="edtitle" rows="2" oninput="edMark()"
+          ${canEdit ? "" : "disabled"}></textarea>
+        <div class="edcap">자막 ${(tl.subtitles||[]).length}건
+          <span class="sub">— 시각을 누르면 원본 위치로 · 비우면 그 줄이 빠집니다</span></div>
+        <div class="edsubs">${(tl.subtitles||[]).map((s, i) => `
+          <div class="edsub">
+            <span class="t" ${s.source_sec != null ? `onclick="edSeek(${s.source_sec})"` : ""}
+              title="원본 ${s.source_sec != null ? edFmt(s.source_sec) : "—"} · 완성본 ${
+                Number(s.edited_start||0).toFixed(1)}s">${
+                s.source_sec != null ? edFmt(s.source_sec) : "—"}</span>
+            <input class="x" type="text" id="edsx_${i}" oninput="edMark()"
+              ${canEdit ? "" : "disabled"}></div>`).join("") ||
           '<div class="sub">자막 없음</div>'}</div>
       </div>
     </div>
@@ -1456,9 +1552,23 @@ function renderEdit(){
       <div class="edscrubinfo"><b id="edtime">${edFmt(0)}</b>
         <span class="sub">타임라인을 누르면 그 지점의 원본 화면을 봅니다</span></div>
     </div>
-    <div class="sub" style="margin-top:10px">
-      1단계는 보기 전용입니다 — 구간·자막을 고쳐 다시 렌더하는 기능은 다음 단계입니다.
-    </div></section>`;
+    ${canEdit ? `<div class="edfoot2">
+      <button class="pri act" id="edsubmit" onclick="edSubmit()" disabled>
+        ✏️ 고친 내용으로 다시 렌더</button>
+      <span>지금 카드는 반려로 닫히고, 고친 본으로 다시 렌더한 새 카드가 올라옵니다
+        · 구간 이동·삭제는 다음 단계입니다</span>
+    </div>` : `<div class="sub" style="margin-top:10px">
+      ${r.kind === "publish_gate" ? "reviewer 권한이 있어야 고칠 수 있습니다"
+        : "일본어 카드는 검수함의 ✏️ 수정 재렌더를 쓰세요 — 이 화면은 보기 전용입니다"}
+    </div>`}</section>`;
+
+  // 값은 프로그래매틱으로 — 따옴표·줄바꿈이 attribute 를 깨지 않게(0038 과 같은 규약).
+  // 넣는 것은 draft 다 — 화면이 다시 그려져도 고치던 문장을 되돌리지 않는다.
+  if (edTitleEl()) edTitleEl().value = edForm.dTitle;
+  edForm.subs.forEach((s, i) => {
+    const el = edSubEl(i); if (el) el.value = edForm.dSubs[i] ?? s.text;
+  });
+  edMark();
 
   // 프리뷰(완성본) + 파형은 서명 URL 로
   if (pay.preview_key) signedUrl(pay.bucket || "ves-outputs", pay.preview_key, 1800)
