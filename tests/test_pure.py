@@ -2016,7 +2016,8 @@ def test_0043_submit_editor_render_contract():
     assert "'editrender:' || p_review_id" in sql
     # 이중 렌더 방지 + 재료 무효화 + 감사
     assert "이미 렌더가 대기·진행 중입니다" in sql
-    assert "UPDATE public.editor_assets SET status='pending'" in sql
+    # 재료 무효화는 0044 부터 초안 정리와 한 문장이다(status='pending', draft=NULL …)
+    assert "UPDATE public.editor_assets" in sql and "SET status='pending'" in sql
     assert "_audit('editor_render'" in sql
     assert "REVOKE ALL     ON FUNCTION public.submit_editor_render(uuid, jsonb, text) FROM public, anon;" in sql
     assert "GRANT  EXECUTE ON FUNCTION public.submit_editor_render(uuid, jsonb, text) TO authenticated;" in sql
@@ -2036,3 +2037,40 @@ def test_dashboard_editor_edit_ui_wired():
     assert "dTitle" in html and "dSubs" in html
     # 자막 전량 삭제 방어
     assert "자막을 전부 지울 수는 없습니다" in html
+
+
+# ───────── 0044: 편집 초안 · 발행 전 채널 안내 ─────────
+def test_0044_draft_rpc_and_geoblock_notice():
+    """초안은 reviewer 만 저장하고, 빈 값은 '삭제'다 — 빈 초안이 남으면 편집실 목록에
+    '아직 안 보낸 것'으로 계속 떠서 사람을 혼란시킨다."""
+    sql = _live_mig("CREATE OR REPLACE FUNCTION public.save_editor_draft")
+    assert "has_role(auth.uid(),'reviewer')" in sql
+    assert "ADD COLUMN IF NOT EXISTS draft" in sql
+    assert "SET draft=NULL, draft_at=NULL, draft_by=NULL" in sql          # 빈 초안 = 삭제
+    assert "편집실 재료가 없는 run 입니다" in sql                          # 없는 run 은 거부
+    assert "REVOKE ALL     ON FUNCTION public.save_editor_draft(text, jsonb) FROM public, anon;" in sql
+    assert "GRANT  EXECUTE ON FUNCTION public.save_editor_draft(text, jsonb) TO authenticated;" in sql
+    # 발행 전 안내는 코드가 아니라 설정에 둔다 — 채널이 계속 늘기 때문
+    assert "'geoblock_notice'" in sql and "JAEMISHOTS" in sql
+
+
+def test_0044_submit_clears_draft():
+    """재렌더를 보내면 초안을 지운다 — 보낸 것과 안 보낸 것이 구분돼야 목록이 의미를 갖는다."""
+    sql = _live_mig("CREATE OR REPLACE FUNCTION public.submit_editor_render")
+    assert "0044" in sql, "submit_editor_render 의 라이브 정의가 0044 여야 한다"
+    assert "SET status='pending', draft=NULL, draft_at=NULL, draft_by=NULL" in sql
+    # 0043 계약은 그대로 유지돼야 한다(전문 재정의라 빠뜨리기 쉽다)
+    assert "rq.kind = 'publish_gate' AND rq.status = 'waiting'" in sql
+    assert "ARRAY['generate', 'node:' || v_gen.node_id]" in sql
+    assert "이미 렌더가 대기·진행 중입니다" in sql
+
+
+def test_dashboard_geoblock_modal_and_draft_list():
+    """발행 전 안내는 채널 목록을 코드에 박지 않고 ops_config 에서 읽는다."""
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert "geoblock_notice" in html and "askNotice(" in html
+    assert "JAEMISHOTS" not in html, "대상 채널을 화면 코드에 박으면 안 된다(설정으로 관리)"
+    assert '"save_editor_draft"' in html and "edQueueSave" in html
+    assert "edDraftList" in html
+    assert 'editor_assets:"편집실 준비"' in html
