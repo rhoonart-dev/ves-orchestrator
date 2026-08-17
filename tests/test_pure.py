@@ -2208,3 +2208,21 @@ def test_edit_subtitles_turn_captions_on():
     assert "--no-subtitles" in build_argv_pure("/py", titleonly, "/s.mp4")
     # 원래 자막이 켜진 작품은 아무 영향 없다
     assert "--no-subtitles" not in build_argv_pure("/py", {"work_title": "x"}, "/s.mp4")
+
+
+def test_0045_cache_requires_editing_video():
+    """캐시는 '있다/없다'가 아니라 '지금 화면이 요구하는 것을 갖췄는가'로 판정한다.
+
+    2026-08-17 실측: 재료 6건 중 4건에 편집용 영상이 없고 1건은 상한 초과(418MB)였는데,
+    옛 조건(ready + 만료 전)은 그것들을 전부 재사용해 **영상 없는 편집실**을 열었다.
+    재료 구성이 늘 때마다 이 조건에 한 줄씩 붙인다."""
+    sql = _live_mig("CREATE OR REPLACE FUNCTION public.request_editor_assets")
+    assert "0045" in sql, "request_editor_assets 의 라이브 정의가 0045 여야 한다"
+    assert "v_ex.scan_key IS NOT NULL" in sql
+    assert "v_ex.scan_bytes <= 400 * 1024 * 1024" in sql
+    # 0042 계약은 유지 — 전문 재정의라 빠뜨리기 쉽다
+    assert "has_role(auth.uid(),'reviewer')" in sql
+    assert "작업지시 없는 카드는 편집실 대상이 아닙니다" in sql
+    assert "'editor_assets:' || v_gen.run_id" in sql
+    assert "ARRAY['generate', 'node:' || v_gen.node_id]" in sql
+    assert "_audit('editor_open'" in sql
