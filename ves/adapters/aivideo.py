@@ -89,6 +89,23 @@ def effective_design(override, file_design):
     return override if override is not None else file_design
 
 
+def edit_design(base_design, edit):
+    """편집실 스타일(edit_overrides.design)을 채널 디자인 **위에** 얹는다. 순수 — 테스트 대상.
+
+    여기만 통째 교체가 아니라 **필드 병합**인 이유: 편집실이 보내는 것은 사람이 이 한 편에서
+    만진 몇 개 값뿐이고, 나머지는 채널 정체성(폰트·색 규약)을 그대로 따라야 한다. 통째로
+    바꾸면 자막 크기 하나 고쳤다고 채널 폰트가 기본값으로 돌아간다.
+    빈 값(None·'')은 '안 건드림'이다 — 화면의 빈 입력칸이 기본값 강제로 둔갑하지 않게."""
+    if not edit:
+        return base_design
+    out = dict(base_design or {})
+    for k, v in edit.items():
+        if v is None or (isinstance(v, str) and not v.strip()):
+            continue
+        out[k] = v
+    return out
+
+
 def enrich_params(cfg, conn, job):
     """실행 직전(관제 저장 즉시 다음 잡부터): channel_design_overrides → params.design_override."""
     p = dict(job.get("params") or {})
@@ -343,8 +360,10 @@ def _build_argv_fresh(cfg, job):
         raise base.PermanentError(f"소스 캐시 없음: {src} — acquire 선행 확인")
     argv = build_argv_pure(cfgmod.engine_py(cfg, "ai_video"), p, src)
     # 채널 템플릿(채널 정체성): 관제 오버라이드(0014) > channels.json "design" (registry 규약)
+    # 편집실 스타일(0044)은 그보다 위 — 사람이 이 한 편에 대해 지금 고른 값이다.
     rec = _channel_record(cfg, p.get("channel_name"))
     design = effective_design(p.get("design_override"), (rec or {}).get("design"))
+    design = edit_design(design, (p.get("edit_overrides") or {}).get("design"))
     argv += channel_design_flags(design, p.get("channel_name"))
     # 로고(가이드 자동화): 작품 카드에 branding.logo 가 있으면 scene_loop 과 같은 플래그
     argv += branding_flags(_brain_json(cfg, "works.json").get(p.get("work_title")),

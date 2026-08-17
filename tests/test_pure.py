@@ -2074,3 +2074,96 @@ def test_dashboard_geoblock_modal_and_draft_list():
     assert '"save_editor_draft"' in html and "edQueueSave" in html
     assert "edDraftList" in html
     assert 'editor_assets:"편집실 준비"' in html
+
+
+# ───────── 편집 프리뷰(구간 편집용 영상) ─────────
+def test_remux_is_copy_and_faststart():
+    """전체 프리뷰는 재인코딩하지 않는다 — 4시간물을 다시 뜨면 수십 분이다.
+    faststart 가 빠지면 브라우저가 중간 재생을 위해 파일 전체를 받는다."""
+    from ves.adapters.editor_assets import remux_cmd
+    a = remux_cmd("/runs/x/작품_480.mp4", "/tmp/scan.mp4")
+    s = " ".join(a)
+    assert "-c copy" in s and "+faststart" in s
+    assert "-crf" not in s and "libx264" not in s          # 재인코딩 금지
+
+
+def test_closeup_cmd_seeks_before_input_and_uses_duration():
+    """-ss 는 입력 앞(빠른 탐색), 길이는 -t 로 입력 뒤 — -to 를 뒤에 두면 기준이 달라져
+    엉뚱한 구간이 잘린다."""
+    from ves.adapters.editor_assets import closeup_cmd
+    a = closeup_cmd("/m.mp4", "/tmp/c0.mp4", 100.0, 160.0)
+    i_in = a.index("-i")
+    assert a.index("-ss") < i_in                            # 탐색은 입력 앞
+    assert a.index("-t") > i_in and a[a.index("-t") + 1] == "60.000"
+    s = " ".join(a)
+    assert "fps=24" in s and "scale=-2:480" in s and "+faststart" in s
+    assert "-g 48" in s                                     # 2초 GOP — 스크럽 seek
+
+
+def test_closeup_windows_merge_and_cap():
+    """클립 앞뒤를 감싸 병합하되, 총합이 상한을 넘으면 **긴 것부터** 버린다 —
+    남은 것이 촘촘한 구간이어야 편집에 쓸모가 있다."""
+    from ves.adapters.editor_assets import closeup_windows
+    clips = [{"start_sec": 100, "end_sec": 130}, {"start_sec": 200, "end_sec": 210},
+             {"start_sec": 5000, "end_sec": 5020}]
+    w = closeup_windows(clips, pad=90, duration_sec=6000)
+    assert len(w) == 2                                       # 앞 둘은 병합(10~300)
+    assert w[0] == {"start_sec": 10.0, "end_sec": 300.0}
+    assert w[1] == {"start_sec": 4910.0, "end_sec": 5110.0}
+    assert w[0]["start_sec"] >= 0                            # 0 아래로 안 내려간다
+    capped = closeup_windows(clips, pad=90, duration_sec=6000, max_total=250)
+    assert capped == [{"start_sec": 4910.0, "end_sec": 5110.0}]   # 290초짜리가 먼저 탈락
+    # 끝이 원본 길이를 넘지 않는다
+    assert closeup_windows([{"start_sec": 10, "end_sec": 20}], pad=90,
+                           duration_sec=60)[0]["end_sec"] == 60.0
+
+
+def test_pick_master_falls_back_to_none(tmp_path):
+    """마스터가 GC 됐으면 None — 호출부가 프록시로 떨어진다(4fps 한계를 알고 쓴다)."""
+    from ves.adapters.editor_assets import pick_master
+    assert pick_master({"input": {"video_path": "/없는/경로.mp4"}}, str(tmp_path)) is None
+    real = tmp_path / "m.mp4"; real.write_bytes(b"x")
+    assert pick_master({"input": {"video_path": str(real)}}, str(tmp_path)) == str(real)
+    assert pick_master({}, str(tmp_path)) is None
+
+
+# ───────── 편집실 스타일(design 오버라이드) ─────────
+def test_edit_design_merges_not_replaces():
+    """편집실 스타일은 채널 디자인 **위에 얹는다**. 통째 교체하면 자막 크기 하나 고쳤다고
+    채널 폰트·색이 기본값으로 돌아간다(채널 정체성 상실)."""
+    from ves.adapters.aivideo import edit_design
+    base = {"title_font": "채널폰트", "subtitle_size": 65, "subtitle_color": "#FFF"}
+    got = edit_design(base, {"subtitle_size": 80})
+    assert got == {"title_font": "채널폰트", "subtitle_size": 80, "subtitle_color": "#FFF"}
+    assert base["subtitle_size"] == 65                    # 원본 불변(부작용 금지)
+    # 빈 값은 '안 건드림' — 화면의 빈 입력칸이 기본값 강제로 둔갑하면 안 된다
+    assert edit_design(base, {"subtitle_size": "", "title_font": None}) == base
+    assert edit_design(base, None) is base
+    assert edit_design(None, {"title_y": 120}) == {"title_y": 120}
+
+
+def test_edit_design_keys_are_known_flags():
+    """화면이 보내는 스타일 키는 전부 CLI 플래그로 번역돼야 한다 — 모르는 키가 오면
+    어댑터가 PermanentError 를 내므로(registry 원칙) 화면 목록과 계약이 어긋나면 잡이 죽는다."""
+    import pathlib, re
+    from ves.adapters.aivideo import CHANNEL_DESIGN_FLAGS, channel_design_flags
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    block = html.split("const ED_STYLE_FIELDS = [", 1)[1].split("];", 1)[0]
+    keys = re.findall(r'\["(\w+)"', block)
+    assert keys, "화면 스타일 목록을 찾지 못했다"
+    for k in keys:
+        assert k in CHANNEL_DESIGN_FLAGS, f"화면이 보내는 {k!r} 를 어댑터가 모른다"
+    # 실제로 argv 로도 나오는지(플래그 이름 오타 방어)
+    flags = channel_design_flags({k: "1" for k in keys}, "TEST")
+    assert len(flags) == len(keys) * 2
+
+
+def test_dashboard_editor_v2_wired():
+    """구간·자막·스타일 편집이 화면에 배선됐는지 — 특히 '구간을 바꾸면 자막은 안 보낸다'."""
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    for fn in ("edSourceAt", "edMountVideo", "edAddClip", "edDelClip", "edMove",
+               "edAddSub", "edDelSub", "edStyleSet", "edParseTime"):
+        assert fn in html, fn
+    assert "if (!clipsDirty){" in html          # 구간 변경 시 자막 오버라이드 제외
+    assert "closeups" in html and "scan" in html   # 두 층 프리뷰를 화면이 안다

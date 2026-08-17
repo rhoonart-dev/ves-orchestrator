@@ -42,6 +42,20 @@ WAVE_SIZE = "1920x120"
 ASSET_TTL = "7 days"
 TIMEOUT_SEC = 60 * 20
 
+# ── 편집 프리뷰(2026-08-17) — 스프라이트로는 '어디쯤'까지만 알 수 있다. 구간을 프레임
+#    단위로 잡으려면 **소리와 움직임이 있는 영상**을 봐야 한다. 두 층으로 준다:
+#      · 전체 프리뷰(scan)  — 원본 전체 길이. 4fps 분석 프록시를 그대로 리먹스해 쓴다
+#        (재인코딩 0초). 끊기지만 '어디쯤인가'를 소리와 함께 훑기에는 충분하다.
+#      · 구간 클로즈업(closeup) — 쓰인 클립 앞뒤 CLOSEUP_PAD 초를 24fps 로 다시 뜬다.
+#        실제로 경계를 잡는 곳은 여기뿐이라, 전체를 고품질로 뜨는 낭비를 피한다.
+#    브라우저는 서명 URL + Range 로 필요한 구간만 받는다 — faststart 가 그래서 필수다.
+PREVIEW_H = 480
+CLOSEUP_FPS = 24
+CLOSEUP_CRF = 26
+CLOSEUP_PAD = 90.0             # 클립 앞뒤 여유(초) — 이 밖은 전체 프리뷰로 본다
+CLOSEUP_MAX_TOTAL = 40 * 60    # 클로즈업 총합 상한(초). 넘으면 긴 것부터 버린다
+SCAN_MAX_BYTES = 700 * 1024 * 1024   # 이보다 크면 전체 프리뷰를 올리지 않는다(회선 보호)
+
 
 # ───────── 순수 (테스트 대상) ─────────
 def sprite_layout(duration_sec: float, interval: float = GLOBAL_INTERVAL,
@@ -157,6 +171,70 @@ def wave_cmd(src: str, out: str, size: str = WAVE_SIZE) -> list:
             "-frames:v", "1", out]
 
 
+def remux_cmd(src: str, out: str) -> list:
+    """재인코딩 없이 faststart 로만 다시 담는다. 순수 — 테스트 대상.
+
+    브라우저가 Range 로 중간부터 재생하려면 moov 가 앞에 있어야 한다. 분석 프록시는
+    그 배치가 아니라, 그대로 올리면 첫 재생에 파일 전체를 받는다. 스트림은 건드리지
+    않으므로(-c copy) 4시간물도 수십 초면 끝난다."""
+    return ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", src,
+            "-c", "copy", "-movflags", "+faststart", out]
+
+
+def closeup_cmd(src: str, out: str, start: float, end: float,
+                height: int = PREVIEW_H, fps: int = CLOSEUP_FPS,
+                crf: int = CLOSEUP_CRF) -> list:
+    """구간 클로즈업 인코딩 argv. 순수 — 테스트 대상.
+
+    -ss 는 입력 앞(빠른 탐색), -to 는 입력 뒤에 **구간 길이**로 준다 — 앞에 두면
+    -ss 와 같은 기준이라 잘리는 지점이 달라진다. GOP 2초로 스크럽 seek 을 촘촘히."""
+    return ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+            "-ss", f"{max(0.0, start):.3f}", "-i", src,
+            "-t", f"{max(0.0, end - start):.3f}",
+            "-vf", f"scale=-2:{height},fps={fps}",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", str(crf),
+            "-g", str(fps * 2), "-c:a", "aac", "-b:a", "96k",
+            "-movflags", "+faststart", out]
+
+
+def closeup_windows(clips: list, pad: float = CLOSEUP_PAD,
+                    duration_sec: float | None = None,
+                    max_total: float = CLOSEUP_MAX_TOTAL) -> list:
+    """클립 앞뒤 pad 초 → 병합된 클로즈업 구간. 순수 — 테스트 대상.
+
+    edge_windows 와 달리 **클립 전체**를 감싼다(경계만이 아니라 그 안도 보면서 고쳐야
+    한다). 총합이 max_total 을 넘으면 긴 구간부터 버린다 — 4시간물에서 클립이 많으면
+    클로즈업만 수백 MB 가 되는데, 그건 전체 프리뷰로 보면 되는 영역이다."""
+    marks = []
+    for c in clips or []:
+        lo = max(0.0, float(c.get("start_sec", 0)) - pad)
+        hi = float(c.get("end_sec", 0)) + pad
+        if duration_sec:
+            hi = min(hi, float(duration_sec))
+        if hi > lo:
+            marks.append((lo, hi))
+    marks.sort()
+    merged: list[list[float]] = []
+    for lo, hi in marks:
+        if merged and lo <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], hi)
+        else:
+            merged.append([lo, hi])
+    out = [{"start_sec": round(a, 2), "end_sec": round(b, 2)} for a, b in merged]
+    total = sum(w["end_sec"] - w["start_sec"] for w in out)
+    while out and total > max_total:
+        longest = max(out, key=lambda w: w["end_sec"] - w["start_sec"])
+        total -= longest["end_sec"] - longest["start_sec"]
+        out.remove(longest)
+    return sorted(out, key=lambda w: w["start_sec"])
+
+
+def pick_master(edit_plan: dict, run_dir: str) -> str | None:
+    """클로즈업을 뜰 원본. 없으면 None — 그러면 프록시로 뜬다(4fps 한계). 순수."""
+    p = ((edit_plan or {}).get("input") or {}).get("video_path")
+    return p if p and os.path.exists(p) else None
+
+
 def pick_scrub_source(run_dir: str, master_path: str | None = None) -> str | None:
     """스크럽 재료로 쓸 영상 — 480p 프록시 우선, 없으면 마스터. 순수(파일 존재만 봄).
 
@@ -238,6 +316,10 @@ def run(cfg, conn, job, deps):
     except RuntimeError as e:      # 무음 트랙이면 실패할 수 있다 — 파형 없이 진행
         print(f"[editor] 파형 생성 실패(비치명): {e}")
 
+    # 편집 프리뷰 — 실패해도 편집실은 열려야 한다(스프라이트로 보기는 된다)
+    assets["media"] = _build_media(cfg, store, run_id, run_dir, src,
+                                   pick_master(edit_plan, run_dir), tl, duration, work)
+
     with conn.cursor() as c:
         c.execute(
             """INSERT INTO public.editor_assets
@@ -256,11 +338,62 @@ def run(cfg, conn, job, deps):
              cfg.node_id, ASSET_TTL))
     # 스토리지 GC 가 치우도록 카탈로그에도 남긴다(대표 1건 — 시트는 같은 접두사)
     _catalog(conn, job, run_id, assets)
+    med = assets.get("media") or {}
     print(f"[editor] 준비 완료 — 길이 {duration:.0f}s · 전역 시트 {len(assets['global'])}장 · "
-          f"경계 구간 {len(assets['edges'])}개")
+          f"경계 구간 {len(assets['edges'])}개 · 프리뷰 {med.get('scan_bytes',0)/1e6:.0f}MB · "
+          f"클로즈업 {len(med.get('closeups') or [])}개")
     return {"run_id": run_id, "duration_sec": duration,
             "sheets": len(assets["global"]), "edge_windows": len(assets["edges"]),
-            "wave": bool(assets["wave"])}
+            "wave": bool(assets["wave"]),
+            "scan_mb": round(med.get("scan_bytes", 0) / 1e6, 1),
+            "closeups": len(med.get("closeups") or []),
+            "closeup_mb": round(sum(c.get("bytes", 0) for c in (med.get("closeups") or [])) / 1e6, 1)}
+
+
+def _build_media(cfg, store, run_id, run_dir, scrub_src, master, tl, duration, work) -> dict:
+    """편집 프리뷰(전체 + 구간 클로즈업) 생성·업로드. 실패는 비치명 — 보기는 스프라이트로
+    되므로 편집실 자체를 막지 않는다. 반환값이 그대로 sprites.assets.media 에 들어간다."""
+    media: dict = {"scan": None, "scan_bytes": 0, "closeups": [], "source": None}
+    prefix = base.storage_key(run_id, "editor")
+
+    # ① 전체 프리뷰 — 분석 프록시를 faststart 로 리먹스만(재인코딩 없음)
+    try:
+        scan_out = work / "scan.mp4"
+        _ffmpeg(remux_cmd(scrub_src, str(scan_out)))
+        size = scan_out.stat().st_size
+        if size > SCAN_MAX_BYTES:
+            print(f"[editor] 전체 프리뷰 {size/1e6:.0f}MB — 상한 초과, 올리지 않음")
+            scan_out.unlink(missing_ok=True)
+        else:
+            key = f"{prefix}/scan.mp4"
+            store.upload("ves-outputs", key, str(scan_out))
+            media.update(scan=key, scan_bytes=size,
+                         source="proxy" if scrub_src.endswith("_480.mp4") else "master")
+            print(f"[editor] 전체 프리뷰 {size/1e6:.1f}MB 업로드")
+            scan_out.unlink(missing_ok=True)
+    except Exception as e:  # noqa: BLE001
+        print(f"[editor] 전체 프리뷰 실패(비치명): {e}")
+
+    # ② 구간 클로즈업 — 마스터가 있으면 마스터에서(움직임이 살아 있다), 없으면 프록시에서
+    csrc = master or scrub_src
+    media["closeup_source"] = "master" if master else "proxy"
+    for wi, w in enumerate(closeup_windows(tl.get("clips"), duration_sec=duration)):
+        out = work / f"c{wi}.mp4"
+        try:
+            _ffmpeg(closeup_cmd(csrc, str(out), w["start_sec"], w["end_sec"]))
+            key = f"{prefix}/c{wi}.mp4"
+            store.upload("ves-outputs", key, str(out))
+            media["closeups"].append({**w, "key": key, "bytes": out.stat().st_size,
+                                      "fps": CLOSEUP_FPS})
+            out.unlink(missing_ok=True)
+        except Exception as e:  # noqa: BLE001
+            print(f"[editor] 클로즈업 {wi} 실패(비치명): {e}")
+            out.unlink(missing_ok=True)
+    if media["closeups"]:
+        mb = sum(c["bytes"] for c in media["closeups"]) / 1e6
+        print(f"[editor] 클로즈업 {len(media['closeups'])}개 {mb:.1f}MB "
+              f"({media['closeup_source']} 기준)")
+    return media
 
 
 def _catalog(conn, job, run_id, assets):

@@ -259,6 +259,46 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .edcard .badge{flex:none;font-size:11px;padding:2px 7px;border-radius:999px;
                  background:var(--warn);color:#000;font-weight:700}
   .edsaved{font-size:11.5px;color:var(--muted)}
+  /* 2차: 영상 보며 구간 편집 */
+  .edgrid2{display:grid;grid-template-columns:minmax(320px,1.1fr) minmax(300px,1fr);gap:14px}
+  .edbar{display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap;font-size:12px}
+  .edbar .right{margin-left:auto;display:flex;gap:6px}
+  .edbar b{font-variant-numeric:tabular-nums;font-size:13px}
+  .edtabs{display:flex;gap:4px;margin-bottom:8px}
+  .edtab{font-size:12px;padding:4px 10px;border-radius:999px;border:1px solid var(--line);
+         background:var(--surface-2);color:var(--muted);cursor:pointer}
+  .edtab.on{background:var(--ink);color:var(--surface);border-color:var(--ink);font-weight:600}
+  .edpane{max-height:360px;overflow:auto}
+  .edrows{display:flex;flex-direction:column;gap:3px}
+  .edrow2{display:flex;gap:5px;align-items:center;padding:3px 5px;border-radius:6px;
+          font-size:12px;cursor:pointer;border:1px solid transparent}
+  .edrow2:hover{background:var(--surface-2)}
+  .edrow2.sel{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 10%,transparent)}
+  .edrow2 .n{flex:none;width:16px;text-align:center;font-weight:700;color:var(--muted)}
+  .edrow2 select{font:inherit;font-size:11.5px;padding:1px 3px}
+  .edrow2 .tm{width:74px;font:inherit;font-size:11.5px;text-align:center;padding:2px;
+              border:1px solid var(--line);border-radius:4px;background:var(--surface);
+              color:var(--ink);font-variant-numeric:tabular-nums}
+  .edrow2 .dash{color:var(--muted)}
+  .edrow2 .len{flex:1;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
+  .edrow2 .ops{flex:none;display:flex;gap:2px}
+  .edrow3{display:flex;gap:8px;align-items:center;font-size:12px}
+  .edrow3 label{flex:0 0 96px;color:var(--muted)}
+  .edrow3 input{flex:1;font:inherit;font-size:12px;padding:3px 6px;border:1px solid var(--line);
+                border-radius:5px;background:var(--surface);color:var(--ink)}
+  .edaddrow{display:flex;gap:5px;margin-top:6px;align-items:center}
+  .edaddrow input{font:inherit;font-size:12px;padding:3px 6px;border:1px solid var(--line);
+                  border-radius:5px;background:var(--surface);color:var(--ink)}
+  .edaddrow input:not(.tm){flex:1}
+  .edaddrow .tm{width:70px;text-align:center}
+  .edwarn{font-size:12px;line-height:1.5;padding:7px 9px;border-radius:7px;margin-bottom:8px;
+          background:color-mix(in srgb,var(--warn) 15%,transparent);border:1px solid var(--warn)}
+  .edclip.sel{outline:2px solid var(--warn);z-index:3}
+  .edmark{position:absolute;top:0;bottom:0;width:2px;background:var(--warn);z-index:4}
+  .edmark.in{box-shadow:2px 0 0 var(--warn)} .edmark.out{box-shadow:-2px 0 0 var(--warn)}
+  .edhq{position:absolute;top:0;bottom:0;background:#5b8def22;border-left:1px solid #5b8def55;
+        border-right:1px solid #5b8def55;pointer-events:none}
+  .edscrubinfo .bad{color:var(--warn)}
   /* 타임라인: 원본 전체 길이가 가로 100% — 색 블록이 실제로 쓰인 구간 */
   .edtl{position:relative;height:74px;margin-top:4px;border:1px solid var(--line);
         border-radius:8px;background:var(--surface-2);overflow:hidden;cursor:crosshair}
@@ -1379,7 +1419,7 @@ window.submitRerender = rid => {
 // 편집 폼 상태는 edForm 하나로 모은다 — 0038 의 RERENDER_ORIG 처럼 전역 단일 슬롯이지만,
 // 편집실은 카드를 한 번에 하나만 여는 화면이라(탭 전체를 차지) 충돌 지점이 없다.
 let edRid = null, edData = null, edLoading = false, edPoll = null, edCursor = 0;
-let edForm = null;
+let edForm = null, edPane = "clips", edSel = -1;
 
 function edResetForm(){
   const tl = (edData && edData.timeline) || {};
@@ -1387,18 +1427,31 @@ function edResetForm(){
     start: Number(s.edited_start) || 0, end: Number(s.edited_end) || 0,
     src: s.source_sec, text: s.text || "",
   }));
-  // draft = 사람이 지금 치고 있는 값. 원본(text)과 따로 들고 있어야 화면이 다시 그려져도
-  // (탭 복귀·재조회) 고치던 문장이 날아가지 않는다.
+  const clips = (tl.clips || []).map(c => ({
+    start: Number(c.start_sec) || 0, end: Number(c.end_sec) || 0, role: c.role || "build",
+  }));
+  // d* = 사람이 지금 만지고 있는 값. 원본과 따로 들고 있어야 화면이 다시 그려져도
+  // (탭 전환·재조회) 고치던 것이 날아가지 않는다. clips 는 편집 자체가 순서·개수를
+  // 바꾸므로 원본 스냅샷(clips0)과 비교해 '고쳤는지'를 판정한다.
   edForm = { rid: edRid, title: tl.top_title || "", subs,
-             dTitle: tl.top_title || "", dSubs: subs.map(s => s.text) };
-  // 저장해둔 초안(0044)이 있으면 그 위에서 이어서 고친다. 자막은 전량 교체라 개수·시간이
-  // 일치할 때만 덮는다 — 그 사이 재렌더로 자막 구성이 바뀌었으면 초안이 엉뚱한 줄에 붙는다.
+             dTitle: tl.top_title || "",
+             dSubs: subs.map(s => ({ ...s })),
+             clips0: clips.map(c => ({ ...c })), clips,
+             design: {}, in: null, out: null };
+  edSel = -1;
+  // 저장해둔 초안(0044)이 있으면 그 위에서 이어서 고친다. 자막은 전량 교체라 개수가
+  // 일치할 때만 덮는다 — 그 사이 재렌더로 자막 구성이 바뀌었으면 엉뚱한 줄에 붙는다.
   const d = (edData && edData.draft) || null;
   if (d){
     if (d.title && d.title.top_title) edForm.dTitle = d.title.top_title;
+    if (d.design && typeof d.design === "object") edForm.design = { ...d.design };
+    if (Array.isArray(d.clips) && d.clips.length)
+      edForm.clips = d.clips.map(c => ({ start: Number(c.start_sec) || 0,
+                                         end: Number(c.end_sec) || 0,
+                                         role: c.role || "build" }));
     const ds = d.subtitles;
     if (Array.isArray(ds) && ds.length === subs.length)
-      edForm.dSubs = ds.map((x, i) => String(x.text ?? subs[i].text));
+      edForm.dSubs = ds.map((x, i) => ({ ...subs[i], text: String(x.text ?? subs[i].text) }));
     else if (Array.isArray(ds) && ds.length)
       edForm.draftMismatch = ds.length;      // 화면이 '초안 불일치'로 알린다
   }
@@ -1407,17 +1460,37 @@ function edResetForm(){
 const edTitleEl = () => document.getElementById("edtitle");
 const edSubEl = i => document.getElementById("edsx_" + i);
 
+// 구간이 원본과 달라졌는가 — 개수·순서·시각·역할 중 하나라도 다르면 참.
+function edClipsChanged(){
+  const a = edForm.clips, b = edForm.clips0;
+  if (a.length !== b.length) return true;
+  return a.some((c, i) => Math.abs(c.start - b[i].start) > 0.001
+                       || Math.abs(c.end - b[i].end) > 0.001 || c.role !== b[i].role);
+}
+
 // 화면의 현재 값 → 오버라이드. 고치지 않은 항목은 **키 자체를 뺀다** — 자막을 안 건드렸는데
 // subtitles 를 보내면 엔진이 전량 교체로 받아 재매핑 결과를 사람 값으로 못박아 버린다.
 function edCollect(){
   if (!edForm) return {};
   const ov = {}, t = edForm.dTitle;
   if (t != null && t.trim() && t !== edForm.title) ov.title = { top_title: t };
-  if (edForm.dSubs.some((v, i) => v !== edForm.subs[i].text)){
-    ov.subtitles = edForm.subs
-      .map((s, i) => ({ start_sec: s.start, end_sec: s.end, text: edForm.dSubs[i] }))
-      .filter(x => String(x.text).trim());
+  const clipsDirty = edClipsChanged();
+  if (clipsDirty && edForm.clips.length)
+    ov.clips = edForm.clips.map(c => ({ start_sec: +c.start.toFixed(3),
+                                        end_sec: +c.end.toFixed(3), role: c.role }));
+  // 구간을 바꾸면 자막은 보내지 않는다 — 엔진이 새 구간에 맞춰 대사에서 다시 매핑하는데,
+  // 옛 편집본 시간축으로 만든 자막을 함께 보내면 전량 교체라 시각이 통째로 어긋난다.
+  if (!clipsDirty){
+    const dirty = edForm.dSubs.length !== edForm.subs.length
+      || edForm.dSubs.some((s, i) => s.text !== edForm.subs[i].text
+                                  || Math.abs(s.start - edForm.subs[i].start) > 0.001);
+    if (dirty)
+      ov.subtitles = edForm.dSubs
+        .map(s => ({ start_sec: +Number(s.start).toFixed(3),
+                     end_sec: +Number(s.end).toFixed(3), text: s.text }))
+        .filter(x => String(x.text).trim());
   }
+  if (edForm.design && Object.keys(edForm.design).length) ov.design = { ...edForm.design };
   return ov;
 }
 
@@ -1448,29 +1521,44 @@ window.edMark = () => {
     edForm.dTitle = te.value;
     te.classList.toggle("dirty", te.value !== edForm.title);
   }
-  edForm.subs.forEach((s, i) => {
+  edForm.dSubs.forEach((s, i) => {
     const el = edSubEl(i); if (!el) return;
-    edForm.dSubs[i] = el.value;
-    el.classList.toggle("dirty", el.value !== s.text);
+    s.text = el.value;
+    const orig = edForm.subs[i];
+    el.classList.toggle("dirty", !orig || el.value !== orig.text);
     el.classList.toggle("empty", !el.value.trim());
   });
   const ov = edCollect();
-  const n = (ov.title ? 1 : 0) + (ov.subtitles ? 1 : 0);
+  const bits = [ov.title ? "제목" : null, ov.clips ? "구간" : null,
+                ov.subtitles ? "자막" : null, ov.design ? "스타일" : null].filter(Boolean);
   const btn = document.getElementById("edsubmit");
   if (btn){
-    btn.disabled = !n;
-    btn.textContent = n ? `✏️ 고친 내용으로 다시 렌더 (${
-      [ov.title ? "제목" : null, ov.subtitles ? "자막" : null].filter(Boolean).join("·")})`
-      : "✏️ 고친 내용으로 다시 렌더";
+    btn.disabled = !bits.length;
+    btn.textContent = bits.length
+      ? `✏️ 고친 내용으로 다시 렌더 (${bits.join("·")})` : "✏️ 고친 내용으로 다시 렌더";
   }
   edQueueSave();
 };
+
+// 60초 초과는 막지 않고 알린다 — 렌더가 역할별로 줄이므로 결과는 나오지만, 사람이
+// 의도한 구간이 잘릴 수 있다는 것을 알고 보내야 한다.
+function confirmOver(total){
+  return window.confirm(
+    `구간 합계가 ${total.toFixed(1)}초입니다(쇼츠 상한 59.7초).\n` +
+    `렌더가 훅 시작·마무리 끝을 지키며 자동으로 줄입니다. 이대로 보낼까요?`);
+}
 
 window.edSubmit = async () => {
   const ov = edCollect();
   if (!Object.keys(ov).length){ toast("고친 내용이 없습니다", true); return; }
   if (ov.subtitles && !ov.subtitles.length){
     toast("자막을 전부 지울 수는 없습니다 — 자막 없이 가려면 검수에서 반려하세요", true); return;
+  }
+  if (ov.clips){
+    const bad = ov.clips.find(c => c.end <= c.start);
+    if (bad){ toast("끝이 시작보다 앞인 구간이 있습니다", true); return; }
+    const total = ov.clips.reduce((a,c) => a + (c.end - c.start), 0);
+    if (total > 59.7 && !confirmOver(total)) return;
   }
   const btn = document.getElementById("edsubmit");
   if (btn){ btn.disabled = true; btn.textContent = "보내는 중…"; }
@@ -1583,7 +1671,8 @@ function renderEdit(){
   const head = `<div class="edhead"><b>${esc(wo.work_title || "")}</b>
       ${wo.episode != null ? `<span class="sub">${wo.episode}회차</span>` : ""}
       <span class="rv2-mac">${esc(chName(wo.channel_slug || r.channel_slug))}</span>
-      <span class="right"><button class="mini" onclick="tab='review';render()">← 검수함</button></span></div>`;
+      <span class="right"><button class="mini" onclick="tab='review';render()">← 검수함</button>
+      <button class="mini" onclick="edRid=null;edData=null;edForm=null;render()">편집 목록</button></span></div>`;
 
   if (!edData){
     $("#page").innerHTML = `<section class="card">${head}
@@ -1597,8 +1686,8 @@ function renderEdit(){
   }
   if (edData.status === "pending"){
     $("#page").innerHTML = `<section class="card">${head}
-      <div class="empty">원본 타임라인 재료를 만드는 중입니다 — 4시간짜리 원본이면 1~2분 걸립니다.
-        <div class="sub" style="margin-top:6px">썸네일·파형을 그 영상을 만든 맥에서 뜨는 중…</div>
+      <div class="empty">원본 편집 재료를 만드는 중입니다 — 4시간짜리 원본이면 2~5분 걸립니다.
+        <div class="sub" style="margin-top:6px">썸네일·파형·편집용 영상을 그 영상을 만든 맥에서 뜨는 중…</div>
       </div></section>`;
     return;
   }
@@ -1613,84 +1702,335 @@ function renderEdit(){
   const dur = Number(tl.duration_sec) || 1;
   const pct = t => (Math.max(0, Math.min(dur, Number(t)||0)) / dur * 100).toFixed(4);
   const pay = r.payload || {};
-  // 고치기(0043)는 대기중인 **한국어 발행 게이트**에서만. 일본어 카드는 0038 '수정 재렌더'가
-  // 담당한다(그쪽은 이미 만든 일본어판을 고치고, 이쪽은 한국어 원본 렌더를 다시 만든다).
   const canEdit = can("reviewer") && r.kind === "publish_gate" && r.status === "waiting";
   if (!edForm || edForm.rid !== edRid) edResetForm();
-  const blocks = (tl.clips||[]).map(c => `
-    <div class="edclip ${esc(c.role)}" style="left:${pct(c.start_sec)}%;width:${
-        Math.max(0.15, (c.dur_sec/dur*100)).toFixed(4)}%"
-      title="${esc(c.role)} · ${edFmt(c.start_sec)}~${edFmt(c.end_sec)} (${c.dur_sec.toFixed(1)}초)"
-      onclick="edSeek(${c.start_sec})"><span>${esc(c.role)}</span></div>`).join("");
+  const med = (sp.assets || {}).media || {};
+  const hasVideo = !!(med.scan || (med.closeups||[]).length);
+
+  // 완성본 순서(편집 결과) — 구간을 만지면 여기 길이가 바로 바뀐다
+  const total = edForm.clips.reduce((a,c) => a + Math.max(0, c.end - c.start), 0);
+  const over = total > 59.7;
+
+  const blocks = edForm.clips.map((c,i) => `
+    <div class="edclip ${esc(c.role)} ${i === edSel ? "sel" : ""}"
+      style="left:${pct(c.start)}%;width:${Math.max(0.15,((c.end-c.start)/dur*100)).toFixed(4)}%"
+      title="${esc(c.role)} · ${edFmt(c.start)}~${edFmt(c.end)} (${(c.end-c.start).toFixed(1)}초)"
+      onclick="event.stopPropagation();edPick(${i})"><span>${i+1}</span></div>`).join("");
+  const marks = (edForm.in != null ? `<div class="edmark in" style="left:${pct(edForm.in)}%"></div>` : "")
+              + (edForm.out != null ? `<div class="edmark out" style="left:${pct(edForm.out)}%"></div>` : "");
 
   $("#page").innerHTML = `<section class="card">${head}
-    <div class="edgrid">
+    <div class="edgrid2">
       <div class="edleft">
-        <div class="edprev">${pay.preview_key
-          ? `<video id="edvid" controls playsinline preload="metadata"></video>`
-          : '<div class="sub" style="padding:20px;text-align:center">프리뷰 없음</div>'}</div>
-        <div class="sub" style="margin-top:6px">완성본 ${Number(tl.total_clip_sec||0).toFixed(1)}초
-          · 클립 ${(tl.clips||[]).length}개 · 원본 ${edFmt(dur)}</div>
+        <div class="edprev">${hasVideo
+          ? `<video id="edvid" playsinline preload="metadata" controls></video>`
+          : `<div class="sub" style="padding:20px;text-align:center">
+               편집용 영상이 아직 없습니다 — 재료를 다시 만들면 생깁니다
+               <div><button class="mini" onclick="edRebuild()">재료 다시 만들기</button></div></div>`}</div>
+        <div class="edbar">
+          <button class="mini" onclick="edNudge(-5)" title="5초 뒤로">⏪</button>
+          <button class="mini" onclick="edNudge(-1/24)" title="한 프레임 뒤로">◀|</button>
+          <button class="mini" onclick="edToggle()" id="edplay">▶</button>
+          <button class="mini" onclick="edNudge(1/24)" title="한 프레임 앞으로">|▶</button>
+          <button class="mini" onclick="edNudge(5)" title="5초 앞으로">⏩</button>
+          <b id="edtime">${edFmt(edCursor)}</b>
+          <span class="sub" id="edsrcname"></span>
+          <span class="right">
+            <button class="mini" onclick="edMarkIn()" title="현재 위치를 구간 시작으로 (I)">[ 시작</button>
+            <button class="mini" onclick="edMarkOut()" title="현재 위치를 구간 끝으로 (O)">끝 ]</button>
+            <button class="pri mini" onclick="edAddClip()" title="표시한 구간을 목록에 추가">＋ 구간 추가</button>
+          </span>
+        </div>
+        <div class="sub" id="edmarkinfo">${edMarkText()}</div>
       </div>
+
       <div class="edright">
-        <div class="edcap">상단 제목 <span class="sub">— 영상 안에 그려지는 글자(줄바꿈 유지)</span></div>
-        <textarea id="edtitle" rows="2" oninput="edMark()"
-          ${canEdit ? "" : "disabled"}></textarea>
-        <div class="edcap">자막 ${(tl.subtitles||[]).length}건
-          <span class="sub">— 시각을 누르면 원본 위치로 · 비우면 그 줄이 빠집니다</span></div>
-        <div class="edsubs">${(tl.subtitles||[]).map((s, i) => `
-          <div class="edsub">
-            <span class="t" ${s.source_sec != null ? `onclick="edSeek(${s.source_sec})"` : ""}
-              title="원본 ${s.source_sec != null ? edFmt(s.source_sec) : "—"} · 완성본 ${
-                Number(s.edited_start||0).toFixed(1)}s">${
-                s.source_sec != null ? edFmt(s.source_sec) : "—"}</span>
-            <input class="x" type="text" id="edsx_${i}" oninput="edMark()"
-              ${canEdit ? "" : "disabled"}></div>`).join("") ||
-          '<div class="sub">자막 없음</div>'}</div>
+        <div class="edtabs">
+          ${[["clips","구간 "+edForm.clips.length],["subs","자막 "+edForm.dSubs.length],
+             ["style","스타일"]].map(([k,l]) =>
+            `<button class="edtab ${edPane===k?"on":""}" onclick="edPane='${k}';render()">${esc(l)}</button>`).join("")}
+        </div>
+        <div class="edpane">${
+          edPane === "clips" ? edPaneClips(canEdit, dur)
+          : edPane === "subs" ? edPaneSubs(canEdit)
+          : edPaneStyle(canEdit)}</div>
       </div>
     </div>
 
-    <div class="edcap" style="margin-top:12px">원본 타임라인 — 색 블록이 이 쇼츠에 쓰인 구간입니다</div>
+    <div class="edcap" style="margin-top:12px">원본 타임라인 — 색 블록이 이 쇼츠에 쓰인 구간입니다
+      ${(med.closeups||[]).length ? `<span class="sub">· 진한 부분은 정밀 편집용 고화질이 있는 구간</span>` : ""}</div>
     <div class="edtl" id="edtl" onclick="edClickTl(event)">
       ${sp.assets && sp.assets.wave ? `<img class="edwave" id="edwave">` : ""}
+      ${(med.closeups||[]).map(c => `<div class="edhq" style="left:${pct(c.start_sec)}%;width:${
+          ((c.end_sec-c.start_sec)/dur*100).toFixed(4)}%"></div>`).join("")}
       <div class="edticks">${edTicks(dur)}</div>
-      ${blocks}
-      <div class="edcur" id="edcur" style="left:0%"></div>
+      ${blocks}${marks}
+      <div class="edcur" id="edcur" style="left:${pct(edCursor)}%"></div>
     </div>
     <div class="edscrub">
       <div class="edthumb" id="edthumb"></div>
-      <div class="edscrubinfo"><b id="edtime">${edFmt(0)}</b>
-        <span class="sub">타임라인을 누르면 그 지점의 원본 화면을 봅니다</span></div>
+      <div class="edscrubinfo">
+        <b class="${over ? "bad" : ""}">완성본 ${total.toFixed(1)}초 · 구간 ${edForm.clips.length}개</b>
+        <span class="sub">${over ? "⚠ 60초를 넘으면 렌더가 뒤를 잘라냅니다"
+          : "타임라인을 누르면 그 지점으로 이동합니다"}</span></div>
     </div>
+
     ${canEdit ? `<div class="edfoot2">
       <button class="pri act" id="edsubmit" onclick="edSubmit()" disabled>
         ✏️ 고친 내용으로 다시 렌더</button>
       <span id="edsaved" class="edsaved">${edForm.draftMismatch
-        ? `⚠ 저장된 초안(자막 ${edForm.draftMismatch}줄)이 지금 자막 구성과 달라 제목만 되살렸습니다`
+        ? `⚠ 저장된 초안(자막 ${edForm.draftMismatch}줄)이 지금 자막 구성과 달라 나머지만 되살렸습니다`
         : (edData.draft_at ? "초안 이어서 편집 중 — "
               + new Date(edData.draft_at).toLocaleString("ko-KR") : "")}</span>
-      <span>지금 카드는 반려로 닫히고, 고친 본으로 다시 렌더한 새 카드가 올라옵니다
-        · 구간 이동·삭제는 다음 단계입니다</span>
+      <span>지금 카드는 반려로 닫히고, 고친 본으로 다시 렌더한 새 카드가 올라옵니다</span>
     </div>` : `<div class="sub" style="margin-top:10px">
       ${r.kind === "publish_gate" ? "reviewer 권한이 있어야 고칠 수 있습니다"
         : "일본어 카드는 검수함의 ✏️ 수정 재렌더를 쓰세요 — 이 화면은 보기 전용입니다"}
     </div>`}</section>`;
 
-  // 값은 프로그래매틱으로 — 따옴표·줄바꿈이 attribute 를 깨지 않게(0038 과 같은 규약).
-  // 넣는 것은 draft 다 — 화면이 다시 그려져도 고치던 문장을 되돌리지 않는다.
+  // 값 주입은 프로그래매틱으로(따옴표·줄바꿈이 attribute 를 깨지 않게)
   if (edTitleEl()) edTitleEl().value = edForm.dTitle;
-  edForm.subs.forEach((s, i) => {
-    const el = edSubEl(i); if (el) el.value = edForm.dSubs[i] ?? s.text;
+  edForm.dSubs.forEach((s, i) => { const el = edSubEl(i); if (el) el.value = s.text; });
+  Object.entries(edForm.design || {}).forEach(([k,v]) => {
+    const el = document.getElementById("edd_" + k); if (el) el.value = v ?? "";
   });
   edMark();
 
-  // 프리뷰(완성본) + 파형은 서명 URL 로
-  if (pay.preview_key) signedUrl(pay.bucket || "ves-outputs", pay.preview_key, 1800)
-    .then(u => { const v = document.getElementById("edvid"); if (v) v.src = u; }).catch(()=>{});
+  if (hasVideo) edMountVideo();
   if (sp.assets && sp.assets.wave) signedUrl("ves-outputs", sp.assets.wave, 1800)
     .then(u => { const w = document.getElementById("edwave"); if (w) w.src = u; }).catch(()=>{});
   edPaintThumb(document.getElementById("edthumb"), sp, edCursor);
 }
+
+// ── 우측 패널: 구간 ────────────────────────────────────────────────────
+function edPaneClips(canEdit, dur){
+  if (!edForm.clips.length)
+    return `<div class="sub">구간이 없습니다 — 영상에서 <b>[ 시작</b> · <b>끝 ]</b> 을 찍고
+      <b>＋ 구간 추가</b> 를 누르세요.</div>`;
+  return `<div class="edrows">${edForm.clips.map((c,i) => `
+    <div class="edrow2 ${i === edSel ? "sel" : ""}" onclick="edPick(${i})">
+      <span class="n">${i+1}</span>
+      <select ${canEdit?"":"disabled"} onchange="edSetRole(${i},this.value)"
+        onclick="event.stopPropagation()">
+        ${["hook","build","payoff"].map(v =>
+          `<option value="${v}" ${c.role===v?"selected":""}>${
+            v==="hook"?"훅":v==="payoff"?"마무리":"전개"}</option>`).join("")}
+      </select>
+      <input class="tm" value="${edFmtMs(c.start)}" ${canEdit?"":"disabled"}
+        onclick="event.stopPropagation()" onchange="edSetTime(${i},'start',this.value)">
+      <span class="dash">~</span>
+      <input class="tm" value="${edFmtMs(c.end)}" ${canEdit?"":"disabled"}
+        onclick="event.stopPropagation()" onchange="edSetTime(${i},'end',this.value)">
+      <span class="len">${(c.end-c.start).toFixed(1)}s</span>
+      <span class="ops" onclick="event.stopPropagation()">
+        <button class="mini" onclick="edPlayClip(${i})" title="이 구간 재생">▶</button>
+        <button class="mini" onclick="edMove(${i},-1)" ${canEdit&&i>0?"":"disabled"} title="위로">↑</button>
+        <button class="mini" onclick="edMove(${i},1)" ${canEdit&&i<edForm.clips.length-1?"":"disabled"} title="아래로">↓</button>
+        <button class="mini danger" onclick="edDelClip(${i})" ${canEdit?"":"disabled"} title="삭제">✕</button>
+      </span></div>`).join("")}</div>
+    <div class="sub" style="margin-top:6px">순서가 곧 완성본 순서입니다 ·
+      시각은 <b>원본</b> 기준(시:분:초.밀리) · 구간을 바꾸면 자막은 대사에서 다시 맞춰집니다</div>`;
+}
+
+// ── 우측 패널: 자막 ────────────────────────────────────────────────────
+function edPaneSubs(canEdit){
+  const locked = edForm.clips.length && edClipsChanged();
+  return `${locked ? `<div class="edwarn">구간을 고쳤기 때문에 자막은 <b>대사에서 다시 맞춰집니다</b> —
+      지금 고친 자막 문구는 보내지 않습니다. 구간을 먼저 확정해 렌더한 뒤 자막을 고치세요.</div>` : ""}
+    <div class="edcap">상단 제목 <span class="sub">— 영상 안에 그려지는 글자(줄바꿈 유지)</span></div>
+    <textarea id="edtitle" rows="2" oninput="edMark()" ${canEdit ? "" : "disabled"}></textarea>
+    <div class="edcap">자막 ${edForm.dSubs.length}건
+      <span class="sub">— 시각(완성본 기준)을 누르면 원본 위치로 · 비우면 그 줄이 빠집니다</span></div>
+    <div class="edsubs">${edForm.dSubs.map((s, i) => `
+      <div class="edsub">
+        <span class="t" onclick="edSeek(${s.src ?? 0})"
+          title="원본 ${s.src != null ? edFmt(s.src) : "—"}">${
+          Number(s.start).toFixed(1)}s</span>
+        <input class="x" type="text" id="edsx_${i}" oninput="edMark()" ${
+          canEdit && !locked ? "" : "disabled"}>
+        <button class="mini danger" onclick="edDelSub(${i})" ${
+          canEdit && !locked ? "" : "disabled"} title="이 줄 삭제">✕</button>
+      </div>`).join("") || '<div class="sub">자막 없음</div>'}</div>
+    ${canEdit && !locked ? `<div class="edaddrow">
+      <input class="tm" id="edns" placeholder="시작 초" value="${
+        (edForm.dSubs.length ? Number(edForm.dSubs[edForm.dSubs.length-1].end).toFixed(1) : "0")}">
+      <input class="tm" id="edne" placeholder="끝 초" value="${
+        (edForm.dSubs.length ? (Number(edForm.dSubs[edForm.dSubs.length-1].end)+2).toFixed(1) : "2")}">
+      <input id="ednt" placeholder="새 자막 문구">
+      <button class="mini" onclick="edAddSub()">＋ 자막 추가</button>
+    </div>` : ""}`;
+}
+
+// ── 우측 패널: 스타일 ──────────────────────────────────────────────────
+// 채널 디자인 위에 이 한 편만 얹는다(빈 칸 = 채널 값 그대로).
+const ED_STYLE_FIELDS = [
+  ["title_size",       "제목 크기",     "예: 96"],
+  ["title_y",          "제목 세로 위치", "위에서부터 px"],
+  ["title_color",      "제목 색(1줄)",   "#FFFFFF"],
+  ["title_color2",     "제목 색(2줄)",   "#FFE400"],
+  ["subtitle_size",    "자막 크기",     "예: 65"],
+  ["subtitle_color",   "자막 색",       "#FFFFFF"],
+  ["subtitle_style",   "자막 스타일",   "kvar_yellow 등"],
+  ["subtitle_font",    "자막 폰트",     "여기어때 잘난체 2 TTF"],
+];
+function edPaneStyle(canEdit){
+  const ch = (state.chans||[]).find(c => c.token_slug ===
+    ((state.wo[((state.reviews||[]).find(x=>x.id===edRid)||{}).work_order_id]||{}).channel_slug));
+  const base = ((state.designOvr||{})[(ch||{}).token_slug]||{}).design || (ch||{}).design || {};
+  return `<div class="sub" style="margin-bottom:6px">비워두면 채널 기본값을 그대로 씁니다 —
+      이 편에만 적용됩니다.</div>
+    <div class="edrows">${ED_STYLE_FIELDS.map(([k,l,ph]) => `
+      <div class="edrow3"><label>${esc(l)}</label>
+        <input id="edd_${k}" placeholder="${esc(base[k] != null ? "채널: " + base[k] : ph)}"
+          ${canEdit?"":"disabled"} oninput="edStyleSet('${k}',this.value)"></div>`).join("")}</div>
+    <div class="sub" style="margin-top:8px">자막 세로 위치는 화면 비율에 맞춰 엔진이 계산합니다 —
+      지금은 바꿀 수 없습니다.</div>`;
+}
+
+// ── 플레이어 ───────────────────────────────────────────────────────────
+// 원본 시각 t 를 어느 소스로 볼지: 고화질 클로즈업 구간이면 그것, 아니면 전체 프리뷰.
+// 어느 쪽이든 화면에 찍히는 시각은 **원본 절대초**다(offset 을 더해 되돌린다).
+function edSourceAt(t){
+  const med = ((edData.sprites||{}).assets||{}).media || {};
+  for (const c of med.closeups || [])
+    if (t >= c.start_sec && t <= c.end_sec)
+      return { key: c.key, offset: c.start_sec, hq: true };
+  return med.scan ? { key: med.scan, offset: 0, hq: false } : null;
+}
+
+let edCurSrc = null, edSeeking = false;
+async function edMountVideo(){
+  const v = document.getElementById("edvid"); if (!v) return;
+  v.ontimeupdate = () => {
+    if (edSeeking) return;
+    edCursorSet((edCurSrc ? edCurSrc.offset : 0) + v.currentTime, false);
+  };
+  v.onplay = () => { const b = document.getElementById("edplay"); if (b) b.textContent = "⏸"; };
+  v.onpause = () => { const b = document.getElementById("edplay"); if (b) b.textContent = "▶"; };
+  await edLoadSource(edCursor, false);
+}
+
+async function edLoadSource(t, play){
+  const v = document.getElementById("edvid"); if (!v) return;
+  const want = edSourceAt(t);
+  if (!want){ return; }
+  const nm = document.getElementById("edsrcname");
+  if (!edCurSrc || edCurSrc.key !== want.key){
+    edSeeking = true;
+    try {
+      v.src = await signedUrl("ves-outputs", want.key, 3600);
+      edCurSrc = want;
+    } catch(e){ toast("영상 열기 실패: " + e.message, true); edSeeking = false; return; }
+    await new Promise(res => { v.onloadedmetadata = res; setTimeout(res, 4000); });
+    edSeeking = false;
+  }
+  if (nm) nm.textContent = want.hq ? "정밀 구간(24fps)" : "전체 훑기(4fps)";
+  v.currentTime = Math.max(0, t - want.offset);
+  if (play) v.play().catch(()=>{});
+}
+
+function edCursorSet(t, moveVideo){
+  edCursor = Math.max(0, Number(t) || 0);
+  const dur = Number((edData.timeline||{}).duration_sec) || 1;
+  const cur = document.getElementById("edcur");
+  if (cur) cur.style.left = (edCursor / dur * 100).toFixed(4) + "%";
+  const lab = document.getElementById("edtime");
+  if (lab) lab.textContent = edFmtMs(edCursor);
+  edPaintThumb(document.getElementById("edthumb"), edData.sprites || {}, edCursor);
+  if (moveVideo) edLoadSource(edCursor, false);
+}
+
+window.edSeek = t => edCursorSet(t, true);
+window.edClickTl = ev => {
+  const el = document.getElementById("edtl"); if (!el) return;
+  const rect = el.getBoundingClientRect();
+  const dur = Number((edData.timeline||{}).duration_sec) || 1;
+  edSeek((ev.clientX - rect.left) / rect.width * dur);
+};
+window.edToggle = () => {
+  const v = document.getElementById("edvid"); if (!v) return;
+  if (v.paused) v.play().catch(()=>{}); else v.pause();
+};
+window.edNudge = d => {
+  const v = document.getElementById("edvid");
+  if (v && edCurSrc){ v.currentTime = Math.max(0, v.currentTime + d); edCursorSet(edCurSrc.offset + v.currentTime, false); }
+  else edSeek(edCursor + d);
+};
+window.edPlayClip = i => {
+  const c = edForm.clips[i]; if (!c) return;
+  edPick(i);
+  edLoadSource(c.start, true);
+};
+window.edRebuild = () => openEditor(edRid);
+
+// ── 구간 편집 ─────────────────────────────────────────────────────────
+function edMarkText(){
+  const a = edForm.in, b = edForm.out;
+  if (a == null && b == null) return "구간을 찍으려면 영상을 재생하며 [ 시작 · 끝 ] 을 누르세요";
+  const len = (a != null && b != null) ? ` · 길이 ${(b-a).toFixed(1)}초` : "";
+  return `표시: ${a != null ? edFmtMs(a) : "—"} ~ ${b != null ? edFmtMs(b) : "—"}${len}`;
+}
+window.edMarkIn  = () => { edForm.in  = edCursor; if (edForm.out != null && edForm.out <= edCursor) edForm.out = null; render(); };
+window.edMarkOut = () => { edForm.out = edCursor; if (edForm.in  != null && edForm.in  >= edCursor) edForm.in  = null; render(); };
+window.edAddClip = () => {
+  const a = edForm.in, b = edForm.out;
+  if (a == null || b == null || b <= a){ toast("시작과 끝을 먼저 찍으세요", true); return; }
+  edForm.clips.push({ start: +a.toFixed(3), end: +b.toFixed(3),
+                      role: edForm.clips.length ? "build" : "hook" });
+  edForm.clips.sort((x,y) => x.start - y.start);
+  edForm.in = edForm.out = null;
+  edSel = edForm.clips.findIndex(c => c.start === +a.toFixed(3));
+  render();
+};
+window.edPick = i => { edSel = i; const c = edForm.clips[i]; if (c) edSeek(c.start); else render(); };
+window.edDelClip = i => { edForm.clips.splice(i,1); if (edSel >= edForm.clips.length) edSel = -1; render(); };
+window.edMove = (i, d) => {
+  const j = i + d; if (j < 0 || j >= edForm.clips.length) return;
+  const t = edForm.clips[i]; edForm.clips[i] = edForm.clips[j]; edForm.clips[j] = t;
+  edSel = j; render();
+};
+window.edSetRole = (i, v) => { edForm.clips[i].role = v; edMark(); };
+window.edSetTime = (i, which, v) => {
+  const t = edParseTime(v);
+  if (t == null){ toast("시각 형식: 1:23:45.6 또는 초", true); render(); return; }
+  const c = edForm.clips[i];
+  if (which === "start" && t >= c.end){ toast("시작이 끝보다 뒤입니다", true); render(); return; }
+  if (which === "end" && t <= c.start){ toast("끝이 시작보다 앞입니다", true); render(); return; }
+  c[which] = +t.toFixed(3); render();
+};
+
+// "1:02:03.4" | "2:03" | "123.4" → 초. 형식이 아니면 null(조용히 0으로 만들지 않는다).
+function edParseTime(v){
+  const s = String(v || "").trim(); if (!s) return null;
+  if (/^\d+(\.\d+)?$/.test(s)) return parseFloat(s);
+  const m = s.match(/^(?:(\d+):)?(\d{1,2}):(\d{1,2}(?:\.\d+)?)$/);
+  if (!m) return null;
+  return (+(m[1]||0)) * 3600 + (+m[2]) * 60 + parseFloat(m[3]);
+}
+const edFmtMs = s => {
+  s = Math.max(0, Number(s) || 0);
+  const h = Math.floor(s/3600), m = Math.floor(s%3600/60), x = (s%60).toFixed(1);
+  return (h ? h + ":" : "") + String(m).padStart(2,"0") + ":" + String(x).padStart(4,"0");
+};
+
+// ── 자막 편집 ─────────────────────────────────────────────────────────
+window.edDelSub = i => { edForm.dSubs.splice(i,1); render(); };
+window.edAddSub = () => {
+  const a = edParseTime(($("#edns")||{}).value), b = edParseTime(($("#edne")||{}).value);
+  const t = (($("#ednt")||{}).value || "").trim();
+  if (a == null || b == null || b <= a){ toast("자막 시간이 올바르지 않습니다", true); return; }
+  if (!t){ toast("자막 문구를 적으세요", true); return; }
+  edForm.dSubs.push({ start: a, end: b, text: t, src: null, added: true });
+  edForm.dSubs.sort((x,y) => x.start - y.start);
+  render();
+};
+
+// ── 스타일 ────────────────────────────────────────────────────────────
+window.edStyleSet = (k, v) => {
+  edForm.design = edForm.design || {};
+  if (String(v).trim()) edForm.design[k] = String(v).trim(); else delete edForm.design[k];
+  edMark();
+};
 
 function edTicks(dur){
   // 눈금은 10등분 — 4시간이든 40분이든 같은 밀도로 읽힌다
@@ -1699,24 +2039,6 @@ function edTicks(dur){
     out += `<span style="left:${i*10}%">${edFmt(dur * i / 10)}</span>`;
   return out;
 }
-
-window.edSeek = t => {
-  edCursor = Number(t) || 0;
-  const dur = Number((edData.timeline||{}).duration_sec) || 1;
-  const cur = document.getElementById("edcur");
-  if (cur) cur.style.left = (edCursor / dur * 100).toFixed(4) + "%";
-  const lab = document.getElementById("edtime");
-  if (lab) lab.textContent = edFmt(edCursor);
-  edPaintThumb(document.getElementById("edthumb"), edData.sprites || {}, edCursor);
-};
-
-window.edClickTl = ev => {
-  const el = document.getElementById("edtl");
-  if (!el) return;
-  const rect = el.getBoundingClientRect();
-  const dur = Number((edData.timeline||{}).duration_sec) || 1;
-  edSeek((ev.clientX - rect.left) / rect.width * dur);
-};
 
 // ───────── 채널 필터 칩 (목업: 맥별 → 채널별 나열) ─────────
 // items: channel_slug 를 가진 행들. varName: 전역 필터 변수 이름('feedCh'|'rvCh').
