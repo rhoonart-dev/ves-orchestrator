@@ -273,3 +273,5 @@ def _load_all():
     from ves.adapters import zanmang, zanmang_decision
     register("zanmang_autopilot", zanmang)             # 잔망루피 현지화 편입(8/10)
     register("zanmang_decision", zanmang_decision)     # 검수함 결정 → 원장 확정(8/12)
+    from ves.adapters import editor_assets
+    register("editor_assets", editor_assets)           # 검수함 편집실 재료(8/16)

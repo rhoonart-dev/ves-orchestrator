@@ -1877,3 +1877,82 @@ def test_review_meta_translations_fallback_has_idx(tmp_path):
                     {"source": "셋", "target": "三"}]}, ensure_ascii=False))
     subs = review_meta(d)["ko_ja_pairs"]["subs"]
     assert subs[0]["idx"] == 0 and subs[1]["idx"] == 2   # 빈 source 를 걸러도 좌표 유지
+
+
+# ───────── 편집실 1단계 (0042 · editor_assets) ─────────
+def test_sprite_layout_grid_math():
+    """화면이 'n번째 썸네일 = 몇 번 시트의 몇 행 몇 열'을 계산한다 — 규약을 고정."""
+    from ves.adapters.editor_assets import sprite_layout
+    lay = sprite_layout(14400)                 # 4시간
+    assert lay["interval"] == 10.0 and lay["grid"] == 10
+    assert lay["count"] == 1441                # 0초 포함
+    assert lay["sheets"] == 15                 # 100장/시트
+    assert sprite_layout(0)["count"] == 0 and sprite_layout(0)["sheets"] == 0
+    assert sprite_layout(None)["count"] == 0
+    assert sprite_layout(95)["count"] == 10 and sprite_layout(95)["sheets"] == 1
+
+
+def test_edge_windows_merge_and_clamp():
+    """경계 ±15초만 밀집 — 겹치면 합치고, 0 미만·길이 초과는 자른다."""
+    from ves.adapters.editor_assets import edge_windows
+    clips = [{"start_sec": 5, "end_sec": 20}, {"start_sec": 100, "end_sec": 130}]
+    got = edge_windows(clips, window=15, duration_sec=140)
+    # 5±15 → [0,20], 20±15 → [5,35] : 겹쳐서 [0,35] 하나로
+    assert got[0] == {"start_sec": 0.0, "end_sec": 35.0}
+    # 100±15 → [85,115], 130±15 → [115,140(클램프)] : 115 에서 맞닿으므로 한 구간으로 합친다
+    # (붙어 있는 두 구간을 따로 뜨면 ffmpeg 를 두 번 돌리고 경계에서 프레임이 겹친다)
+    assert got[1] == {"start_sec": 85.0, "end_sec": 140.0}
+    assert len(got) == 2
+    assert edge_windows([]) == []
+
+
+def test_timeline_from_plan_dual_coordinates():
+    """clips 는 원본 절대초, subtitles 는 편집본 시각 + 역산한 원본 시각."""
+    from ves.adapters.editor_assets import timeline_from_plan
+    plan = {"layout": {"top_title": "제목\n2줄", "bottom_label": "작품"},
+            "timeline": [{"role": "hook", "clip_start_sec": 100.0, "clip_end_sec": 130.0,
+                          "use_original_audio": True, "subtitle": "장면 묘사"},
+                         {"role": "payoff", "clip_start_sec": 500.0, "clip_end_sec": 520.0,
+                          "use_original_audio": False}]}
+    segs = [{"start_sec": 2.0, "end_sec": 4.0, "text": "첫 자막"},
+            {"start_sec": 31.0, "end_sec": 33.0, "text": "둘째 클립 자막"},
+            {"start_sec": 999.0, "end_sec": 1000.0, "text": "범위 밖"}]
+    tl = timeline_from_plan(plan, segs, duration_sec=3600)
+    assert tl["top_title"] == "제목\n2줄" and tl["duration_sec"] == 3600.0
+    assert tl["total_clip_sec"] == 50.0
+    assert tl["clips"][0]["offset_sec"] == 0.0 and tl["clips"][1]["offset_sec"] == 30.0
+    assert tl["clips"][1]["use_original_audio"] is False
+    # 편집본 2초 = 첫 클립 시작(100) + 2 = 원본 102초
+    assert tl["subtitles"][0]["source_sec"] == 102.0
+    # 편집본 31초 = 둘째 클립 offset 30 → 원본 500 + 1 = 501초
+    assert tl["subtitles"][1]["source_sec"] == 501.0
+    assert tl["subtitles"][2]["source_sec"] is None        # 클립 밖 = 매핑 없음
+
+
+def test_sprite_and_wave_cmd():
+    """긴 소스 탐색을 위해 -ss/-to 는 입력 **앞**에 와야 한다."""
+    from ves.adapters.editor_assets import sprite_cmd, sprite_key, wave_cmd
+    c = sprite_cmd("/p/proxy_480.mp4", "/tmp/g_%03d.jpg", 10.0)
+    assert "fps=1/10.0" in " ".join(c) and "tile=10x10" in " ".join(c)
+    assert c[c.index("-i") + 1] == "/p/proxy_480.mp4"
+    e = sprite_cmd("/p/x.mp4", "/tmp/e_%03d.jpg", 2.0, start=100.0, end=130.0)
+    assert e.index("-ss") < e.index("-i") and e.index("-to") < e.index("-i")
+    assert sprite_key("작품_abc123", "g", 7).endswith("/editor/g_007.jpg")
+    assert "showwavespic" in " ".join(wave_cmd("/p/x.mp4", "/tmp/w.png"))
+
+
+def test_pick_scrub_source_prefers_proxy(tmp_path):
+    """프록시(480p·4fps)가 마스터보다 훨씬 빨리 훑힌다 — 타임코드는 1:1."""
+    from ves.adapters.editor_assets import pick_scrub_source
+    d = tmp_path / "run"; d.mkdir()
+    master = tmp_path / "master.mp4"; master.write_bytes(b"x")
+    assert pick_scrub_source(str(d), str(master)) == str(master)   # 프록시 없으면 마스터
+    proxy = d / "피의 게임 X_480.mp4"; proxy.write_bytes(b"x")
+    assert pick_scrub_source(str(d), str(master)) == str(proxy)
+    assert pick_scrub_source(str(d), None) == str(proxy)
+    assert pick_scrub_source(str(tmp_path / "없음"), None) is None
+
+
+def test_editor_assets_registered():
+    from ves.adapters import base as abase
+    assert abase.get("editor_assets") is not None

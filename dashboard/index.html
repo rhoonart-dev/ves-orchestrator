@@ -214,6 +214,43 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .edpanel textarea{resize:vertical}
   .edpanel .edfoot{margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;
     font-size:11.5px;color:var(--muted)}
+  /* 편집실(0042) — 원본 타임라인 */
+  .edhead{display:flex;align-items:center;gap:10px;margin-bottom:10px;font-size:15px}
+  .edhead .right{margin-left:auto}
+  .edgrid{display:grid;grid-template-columns:minmax(220px,300px) 1fr;gap:14px}
+  .edprev video{width:100%;max-height:420px;background:#000;border-radius:10px}
+  .edcap{font-size:11px;color:var(--muted);font-weight:600;margin:8px 0 3px}
+  .edval{font-size:14px;line-height:1.5;white-space:pre-wrap}
+  .edsubs{max-height:300px;overflow:auto;border:1px solid var(--line);border-radius:8px}
+  .edsub{display:flex;gap:8px;padding:4px 8px;font-size:12.5px;cursor:pointer;
+         border-bottom:1px dotted var(--line)}
+  .edsub:last-child{border-bottom:none}
+  .edsub:hover{background:var(--surface-2)}
+  .edsub .t{flex:none;width:62px;color:var(--muted);font-variant-numeric:tabular-nums}
+  .edsub .x{flex:1;min-width:0}
+  /* 타임라인: 원본 전체 길이가 가로 100% — 색 블록이 실제로 쓰인 구간 */
+  .edtl{position:relative;height:74px;margin-top:4px;border:1px solid var(--line);
+        border-radius:8px;background:var(--surface-2);overflow:hidden;cursor:crosshair}
+  .edwave{position:absolute;inset:0;width:100%;height:100%;opacity:.35;
+          object-fit:fill;pointer-events:none}
+  .edticks{position:absolute;inset:0;pointer-events:none}
+  .edticks span{position:absolute;top:2px;transform:translateX(-50%);font-size:10px;
+                color:var(--muted);font-variant-numeric:tabular-nums}
+  .edticks span:first-child{transform:none}
+  .edticks span:last-child{transform:translateX(-100%)}
+  .edclip{position:absolute;bottom:6px;height:40px;border-radius:5px;min-width:2px;
+          display:flex;align-items:flex-end;justify-content:center;overflow:hidden;
+          background:var(--accent,#5b8def);opacity:.85;cursor:pointer}
+  .edclip:hover{opacity:1;outline:2px solid var(--ink)}
+  .edclip span{font-size:9px;color:#fff;padding-bottom:2px;text-shadow:0 1px 2px #0008}
+  .edclip.hook{background:#e2725b} .edclip.payoff{background:#4a9d6f}
+  .edcur{position:absolute;top:0;bottom:0;width:2px;background:var(--warn);
+         pointer-events:none;box-shadow:0 0 4px var(--warn)}
+  .edscrub{display:flex;gap:10px;align-items:center;margin-top:8px}
+  .edthumb{flex:none;width:160px;height:90px;border-radius:6px;background:var(--surface-2);
+           background-size:cover;border:1px solid var(--line)}
+  .edscrubinfo b{font-variant-numeric:tabular-nums;font-size:15px}
+  @media (max-width: 900px){ .edgrid{grid-template-columns:1fr} }
   /* 테이블 공통 */
   table{width:100%;border-collapse:collapse;font-size:13px}
   th{color:var(--muted);font-weight:600;text-align:left;font-size:12px;
@@ -693,7 +730,8 @@ function pubDot(wo){
 }
 
 // ───────── 탭 셸 ─────────
-const TABS = [["home","홈"],["review","검수함"],["feed","영상 피드"],["sources","소스 창고"],
+const TABS = [["home","홈"],["review","검수함"],["edit","편집실"],["feed","영상 피드"],
+              ["sources","소스 창고"],
               ["channels","채널 템플릿"],["jobs","작업 내역"],["infra","맥·배포"],["perf","성과"]];
 const tabsFor = () => myRole === "admin" ? [...TABS, ["admin","권한 관리"]] : TABS;
 function render(){
@@ -708,7 +746,7 @@ function render(){
     `<button class="${tab===k?"on":""}" onclick="tab='${k}';render()">${l}${
       k==="review"&&waiting?`<span class="badge">${waiting}</span>`:""}</button>`).join("");
   ({home:renderHome, review:renderReview, feed:renderFeed, sources:renderSources,
-    channels:renderChannels, jobs:renderJobsTab, infra:renderInfra, perf:renderPerf,
+    edit:renderEdit, channels:renderChannels, jobs:renderJobsTab, infra:renderInfra, perf:renderPerf,
     admin:renderAdmin}[tab] || renderHome)();
   for (const [id, v] of Object.entries(keep)){
     const el = document.getElementById(id);
@@ -1064,6 +1102,8 @@ function renderReview(){
           <input id="at_${r.id}" type="datetime-local" style="display:none">
           <button class="pri act" onclick="approve('${r.id}')">✓ 합격 · 발행</button>
           <button class="danger act" onclick="rejectAsk('${r.id}')">✕ 반려</button>
+          <button class="act" title="이 쇼츠가 원본 어디에서 왔는지 타임라인으로 봅니다"
+            onclick="openEditor('${r.id}')">🎬 편집실</button>
           ${pay.mode === "scene_rerender"
             ? `<button class="act" title="일본어 자막·제목·TTS 를 고쳐서 같은 체크포인트로 다시 렌더(0038)"
                  onclick="rerenderPanel('${r.id}')">✏️ 수정 재렌더</button>` : ""}
@@ -1266,6 +1306,192 @@ window.submitRerender = rid => {
   rpc("reject_and_rerender", { p_review_id: rid, p_edits: edits, p_note: note },
       `반려 — 고친 ${Object.keys(edits).length}가지로 다시 렌더합니다 (끝나면 새 검수 카드가 올라옵니다)`);
   RERENDER_ORIG = null;
+};
+
+// ═════════ 편집실 1단계 (0042) — 이 쇼츠가 원본 어디에서 왔는가 ═════════
+// 읽기 전용이다. 구간을 만지는 것은 다음 단계이고, 지금은 "보이게 하는 것"까지가 목표 —
+// 원본 4시간 어디를 잘라 60초를 만들었는지 눈으로 확인하는 것만으로 검수 판단이 달라진다
+// (특히 가왕쇼처럼 '경연 결과 스포 금지' 같은 제약이 있는 작품).
+let edRid = null, edData = null, edLoading = false, edPoll = null, edCursor = 0;
+
+window.openEditor = async (rid) => {
+  edRid = rid; edData = null; tab = "edit"; render();
+  try {
+    const r = await sb.rpc("request_editor_assets", { p_review_id: rid });
+    if (r.error) throw r.error;
+    edLoadAssets((r.data || {}).run_id);
+  } catch (e){
+    edData = { error: e.message || String(e) }; render();
+  }
+};
+
+async function edLoadAssets(runId){
+  if (!runId || edLoading) return;
+  edLoading = true;
+  try {
+    const { data, error } = await sb.from("editor_assets")
+      .select("*").eq("run_id", runId).maybeSingle();
+    if (error) throw error;
+    edData = data || { status: "pending", run_id: runId };
+    // 준비 중이면 폴링 — 4시간물 스프라이트는 수십 초 걸린다
+    if (edData.status === "pending"){
+      clearTimeout(edPoll);
+      edPoll = setTimeout(() => { edLoading = false; edLoadAssets(runId); }, 5000);
+    }
+  } catch (e){
+    edData = { error: e.message || String(e) };
+  } finally {
+    if (!edData || edData.status !== "pending") edLoading = false;
+    render();
+  }
+}
+
+const edFmt = s => {
+  s = Math.max(0, Math.round(Number(s) || 0));
+  const h = Math.floor(s/3600), m = Math.floor(s%3600/60), x = s%60;
+  return (h ? String(h).padStart(2,"0") + ":" : "") +
+         String(m).padStart(2,"0") + ":" + String(x).padStart(2,"0");
+};
+
+// 원본 시각 → 스프라이트 시트 좌표. 어댑터 sprite_layout 과 같은 규약(n = t/interval).
+function edTile(sp, t){
+  const iv = sp.interval || 10, g = sp.grid || 10, per = g*g;
+  const n = Math.floor(t / iv);
+  const keys = ((sp.assets||{}).global) || [];
+  const sheet = Math.floor(n / per);
+  if (sheet >= keys.length) return null;
+  return { key: keys[sheet], col: n % g, row: Math.floor((n % per) / g),
+           w: sp.thumb_w || 160 };
+}
+
+async function edPaintThumb(el, sp, t){
+  const tile = edTile(sp, t);
+  if (!el || !tile){ if (el) el.style.background = "var(--surface-2)"; return; }
+  try {
+    const url = await signedUrl("ves-outputs", tile.key, 1800);
+    const g = sp.grid || 10, w = tile.w, h = Math.round(w * 9 / 16);
+    el.style.backgroundImage = `url("${url}")`;
+    el.style.backgroundSize = `${w*g}px ${h*g}px`;
+    el.style.backgroundPosition = `-${tile.col*w}px -${tile.row*h}px`;
+  } catch(e){ /* 서명 실패는 조용히 — 타임라인 자체는 계속 쓴다 */ }
+}
+
+function renderEdit(){
+  if (!edRid){
+    $("#page").innerHTML = `<section class="card"><h2>편집실</h2>
+      <div class="empty">검수함에서 영상의 <b>🎬 편집실</b> 버튼을 눌러 여세요.</div></section>`;
+    return;
+  }
+  const r = (state.reviews||[]).find(x => x.id === edRid) || {};
+  const wo = state.wo[r.work_order_id] || {};
+  const head = `<div class="edhead"><b>${esc(wo.work_title || "")}</b>
+      ${wo.episode != null ? `<span class="sub">${wo.episode}회차</span>` : ""}
+      <span class="rv2-mac">${esc(chName(wo.channel_slug || r.channel_slug))}</span>
+      <span class="right"><button class="mini" onclick="tab='review';render()">← 검수함</button></span></div>`;
+
+  if (!edData){
+    $("#page").innerHTML = `<section class="card">${head}
+      <div class="empty">편집실 여는 중…</div></section>`; return;
+  }
+  if (edData.error){
+    $("#page").innerHTML = `<section class="card">${head}
+      <div class="empty">열기 실패 — ${esc(edData.error)}
+        <button class="mini" onclick="openEditor('${edRid}')">다시 시도</button></div></section>`;
+    return;
+  }
+  if (edData.status === "pending"){
+    $("#page").innerHTML = `<section class="card">${head}
+      <div class="empty">원본 타임라인 재료를 만드는 중입니다 — 4시간짜리 원본이면 1~2분 걸립니다.
+        <div class="sub" style="margin-top:6px">썸네일·파형을 그 영상을 만든 맥에서 뜨는 중…</div>
+      </div></section>`;
+    return;
+  }
+  if (edData.status === "failed"){
+    $("#page").innerHTML = `<section class="card">${head}
+      <div class="empty">재료 생성 실패 — ${esc(edData.error || "")}
+        <button class="mini" onclick="openEditor('${edRid}')">다시 시도</button></div></section>`;
+    return;
+  }
+
+  const tl = edData.timeline || {}, sp = edData.sprites || {};
+  const dur = Number(tl.duration_sec) || 1;
+  const pct = t => (Math.max(0, Math.min(dur, Number(t)||0)) / dur * 100).toFixed(4);
+  const pay = r.payload || {};
+  const blocks = (tl.clips||[]).map(c => `
+    <div class="edclip ${esc(c.role)}" style="left:${pct(c.start_sec)}%;width:${
+        Math.max(0.15, (c.dur_sec/dur*100)).toFixed(4)}%"
+      title="${esc(c.role)} · ${edFmt(c.start_sec)}~${edFmt(c.end_sec)} (${c.dur_sec.toFixed(1)}초)"
+      onclick="edSeek(${c.start_sec})"><span>${esc(c.role)}</span></div>`).join("");
+
+  $("#page").innerHTML = `<section class="card">${head}
+    <div class="edgrid">
+      <div class="edleft">
+        <div class="edprev">${pay.preview_key
+          ? `<video id="edvid" controls playsinline preload="metadata"></video>`
+          : '<div class="sub" style="padding:20px;text-align:center">프리뷰 없음</div>'}</div>
+        <div class="sub" style="margin-top:6px">완성본 ${Number(tl.total_clip_sec||0).toFixed(1)}초
+          · 클립 ${(tl.clips||[]).length}개 · 원본 ${edFmt(dur)}</div>
+      </div>
+      <div class="edright">
+        <div class="edcap">상단 제목</div>
+        <div class="edval">${esc(tl.top_title || "(없음)").replace(/\n/g,"<br>")}</div>
+        <div class="edcap">자막 ${(tl.subtitles||[]).length}건 <span class="sub">— 누르면 원본 위치로</span></div>
+        <div class="edsubs">${(tl.subtitles||[]).map(s => `
+          <div class="edsub" ${s.source_sec != null ? `onclick="edSeek(${s.source_sec})"` : ""}>
+            <span class="t">${s.source_sec != null ? edFmt(s.source_sec) : "—"}</span>
+            <span class="x">${esc(s.text)}</span></div>`).join("") ||
+          '<div class="sub">자막 없음</div>'}</div>
+      </div>
+    </div>
+
+    <div class="edcap" style="margin-top:12px">원본 타임라인 — 색 블록이 이 쇼츠에 쓰인 구간입니다</div>
+    <div class="edtl" id="edtl" onclick="edClickTl(event)">
+      ${sp.assets && sp.assets.wave ? `<img class="edwave" id="edwave">` : ""}
+      <div class="edticks">${edTicks(dur)}</div>
+      ${blocks}
+      <div class="edcur" id="edcur" style="left:0%"></div>
+    </div>
+    <div class="edscrub">
+      <div class="edthumb" id="edthumb"></div>
+      <div class="edscrubinfo"><b id="edtime">${edFmt(0)}</b>
+        <span class="sub">타임라인을 누르면 그 지점의 원본 화면을 봅니다</span></div>
+    </div>
+    <div class="sub" style="margin-top:10px">
+      1단계는 보기 전용입니다 — 구간·자막을 고쳐 다시 렌더하는 기능은 다음 단계입니다.
+    </div></section>`;
+
+  // 프리뷰(완성본) + 파형은 서명 URL 로
+  if (pay.preview_key) signedUrl(pay.bucket || "ves-outputs", pay.preview_key, 1800)
+    .then(u => { const v = document.getElementById("edvid"); if (v) v.src = u; }).catch(()=>{});
+  if (sp.assets && sp.assets.wave) signedUrl("ves-outputs", sp.assets.wave, 1800)
+    .then(u => { const w = document.getElementById("edwave"); if (w) w.src = u; }).catch(()=>{});
+  edPaintThumb(document.getElementById("edthumb"), sp, edCursor);
+}
+
+function edTicks(dur){
+  // 눈금은 10등분 — 4시간이든 40분이든 같은 밀도로 읽힌다
+  let out = "";
+  for (let i = 0; i <= 10; i++)
+    out += `<span style="left:${i*10}%">${edFmt(dur * i / 10)}</span>`;
+  return out;
+}
+
+window.edSeek = t => {
+  edCursor = Number(t) || 0;
+  const dur = Number((edData.timeline||{}).duration_sec) || 1;
+  const cur = document.getElementById("edcur");
+  if (cur) cur.style.left = (edCursor / dur * 100).toFixed(4) + "%";
+  const lab = document.getElementById("edtime");
+  if (lab) lab.textContent = edFmt(edCursor);
+  edPaintThumb(document.getElementById("edthumb"), edData.sprites || {}, edCursor);
+};
+
+window.edClickTl = ev => {
+  const el = document.getElementById("edtl");
+  if (!el) return;
+  const rect = el.getBoundingClientRect();
+  const dur = Number((edData.timeline||{}).duration_sec) || 1;
+  edSeek((ev.clientX - rect.left) / rect.width * dur);
 };
 
 // ───────── 채널 필터 칩 (목업: 맥별 → 채널별 나열) ─────────
@@ -2347,7 +2573,7 @@ const anyVideoPlaying = () =>
   [...document.querySelectorAll("video")].some(v => !v.paused && !v.ended);
 const userTyping = () => { const a = document.activeElement;
   return !!a && ["INPUT","TEXTAREA","SELECT"].includes(a.tagName); };
-setInterval(() => { if (auto && !document.hidden && tab !== "perf"
+setInterval(() => { if (auto && !document.hidden && tab !== "perf" && tab !== "edit"
                     && !anyVideoPlaying() && !userTyping()) refresh(); }, 15000);
 $("#btnRefresh").onclick = () => refresh();
 $("#btnTheme").onclick = () =>
