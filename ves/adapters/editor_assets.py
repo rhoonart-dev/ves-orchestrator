@@ -44,17 +44,26 @@ TIMEOUT_SEC = 60 * 20
 
 # ── 편집 프리뷰(2026-08-17) — 스프라이트로는 '어디쯤'까지만 알 수 있다. 구간을 프레임
 #    단위로 잡으려면 **소리와 움직임이 있는 영상**을 봐야 한다. 두 층으로 준다:
-#      · 전체 프리뷰(scan)  — 원본 전체 길이. 4fps 분석 프록시를 그대로 리먹스해 쓴다
-#        (재인코딩 0초). 끊기지만 '어디쯤인가'를 소리와 함께 훑기에는 충분하다.
+#      · 전체 프리뷰(scan)  — 원본 전체 길이. 360p 로 **목표 용량에 맞춰** 다시 뜬다.
 #      · 구간 클로즈업(closeup) — 쓰인 클립 앞뒤 CLOSEUP_PAD 초를 24fps 로 다시 뜬다.
 #        실제로 경계를 잡는 곳은 여기뿐이라, 전체를 고품질로 뜨는 낭비를 피한다.
 #    브라우저는 서명 URL + Range 로 필요한 구간만 받는다 — faststart 가 그래서 필수다.
+#
+#    🛑 리먹스(-c copy)로 시작했다가 실측에서 갈아엎었다(가왕쇼 47분 = 418MB).
+#    분석 프록시는 ultrafast·CRF26 이라 4fps 인데도 1.2Mbps 다 — 4시간물이면 2GB 로
+#    상한에 걸려 아예 안 올라간다. 그래서 CRF 가 아니라 **총 용량 목표에서 역산한
+#    비트레이트**를 쓴다. 길이에 상관없이 크기가 예측되고(길수록 자동으로 낮은 화질),
+#    브라우저 seek 응답은 총 크기가 아니라 비트레이트가 좌우하므로 체감도 나쁘지 않다.
 PREVIEW_H = 480
 CLOSEUP_FPS = 24
 CLOSEUP_CRF = 26
 CLOSEUP_PAD = 90.0             # 클립 앞뒤 여유(초) — 이 밖은 전체 프리뷰로 본다
 CLOSEUP_MAX_TOTAL = 40 * 60    # 클로즈업 총합 상한(초). 넘으면 긴 것부터 버린다
-SCAN_MAX_BYTES = 700 * 1024 * 1024   # 이보다 크면 전체 프리뷰를 올리지 않는다(회선 보호)
+SCAN_H = 360                   # 전체 훑기 해상도 — '어디쯤'을 보는 용도
+SCAN_TARGET_MB = 150           # 전체 훑기 목표 용량(길이에 맞춰 비트레이트 역산)
+SCAN_AUDIO_KBPS = 40           # 대사가 들려야 구간을 잡는다 — 화질보다 이쪽이 중요
+SCAN_VMIN_KBPS, SCAN_VMAX_KBPS = 120, 900
+SCAN_MAX_BYTES = 400 * 1024 * 1024   # 그래도 이보다 크면 올리지 않는다(회선 보호)
 
 
 # ───────── 순수 (테스트 대상) ─────────
@@ -171,14 +180,33 @@ def wave_cmd(src: str, out: str, size: str = WAVE_SIZE) -> list:
             "-frames:v", "1", out]
 
 
-def remux_cmd(src: str, out: str) -> list:
-    """재인코딩 없이 faststart 로만 다시 담는다. 순수 — 테스트 대상.
+def scan_bitrate_kbps(duration_sec: float, target_mb: int = SCAN_TARGET_MB,
+                      audio_kbps: int = SCAN_AUDIO_KBPS) -> int:
+    """전체 훑기 영상의 비디오 비트레이트. 순수 — 테스트 대상.
 
-    브라우저가 Range 로 중간부터 재생하려면 moov 가 앞에 있어야 한다. 분석 프록시는
-    그 배치가 아니라, 그대로 올리면 첫 재생에 파일 전체를 받는다. 스트림은 건드리지
-    않으므로(-c copy) 4시간물도 수십 초면 끝난다."""
+    총 용량 목표에서 오디오 몫을 빼고 역산한다. 길수록 자동으로 낮은 화질이 되지만,
+    4시간물이 2GB 가 되어 아예 못 쓰게 되는 것보다 낫다(2026-08-17 실측)."""
+    dur = max(1.0, float(duration_sec or 0))
+    budget_kbit = target_mb * 8192.0            # MB → kbit
+    v = budget_kbit / dur - audio_kbps
+    return int(max(SCAN_VMIN_KBPS, min(SCAN_VMAX_KBPS, v)))
+
+
+def scan_cmd(src: str, out: str, duration_sec: float, height: int = SCAN_H) -> list:
+    """전체 훑기 인코딩 argv. 순수 — 테스트 대상.
+
+    ABR(-b:v + maxrate/bufsize)로 크기를 예측 가능하게 한다. faststart 가 없으면
+    브라우저가 중간 재생을 위해 파일 전체를 받는다 — 필수다. GOP 는 소스 fps 를
+    모르므로 프레임이 아니라 **시간**으로 준다(-g 는 프레임 단위라 keyint_min 과
+    함께 -force_key_frames 로 2초마다 박는다)."""
+    v = scan_bitrate_kbps(duration_sec)
     return ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", src,
-            "-c", "copy", "-movflags", "+faststart", out]
+            "-vf", f"scale=-2:{height}",
+            "-c:v", "libx264", "-preset", "veryfast",
+            "-b:v", f"{v}k", "-maxrate", f"{int(v*1.5)}k", "-bufsize", f"{v*2}k",
+            "-force_key_frames", "expr:gte(t,n_forced*2)",
+            "-c:a", "aac", "-b:a", f"{SCAN_AUDIO_KBPS}k", "-ac", "1",
+            "-movflags", "+faststart", out]
 
 
 def closeup_cmd(src: str, out: str, start: float, end: float,
@@ -356,10 +384,10 @@ def _build_media(cfg, store, run_id, run_dir, scrub_src, master, tl, duration, w
     media: dict = {"scan": None, "scan_bytes": 0, "closeups": [], "source": None}
     prefix = base.storage_key(run_id, "editor")
 
-    # ① 전체 프리뷰 — 분석 프록시를 faststart 로 리먹스만(재인코딩 없음)
+    # ① 전체 프리뷰 — 목표 용량에 맞춰 360p 로 다시 뜬다(리먹스는 2GB 가 된다)
     try:
         scan_out = work / "scan.mp4"
-        _ffmpeg(remux_cmd(scrub_src, str(scan_out)))
+        _ffmpeg(scan_cmd(scrub_src, str(scan_out), duration))
         size = scan_out.stat().st_size
         if size > SCAN_MAX_BYTES:
             print(f"[editor] 전체 프리뷰 {size/1e6:.0f}MB — 상한 초과, 올리지 않음")
@@ -368,8 +396,10 @@ def _build_media(cfg, store, run_id, run_dir, scrub_src, master, tl, duration, w
             key = f"{prefix}/scan.mp4"
             store.upload("ves-outputs", key, str(scan_out))
             media.update(scan=key, scan_bytes=size,
-                         source="proxy" if scrub_src.endswith("_480.mp4") else "master")
-            print(f"[editor] 전체 프리뷰 {size/1e6:.1f}MB 업로드")
+                         source="proxy" if scrub_src.endswith("_480.mp4") else "master",
+                         scan_kbps=scan_bitrate_kbps(duration))
+            print(f"[editor] 전체 프리뷰 {size/1e6:.1f}MB "
+                  f"({scan_bitrate_kbps(duration)}kbps) 업로드")
             scan_out.unlink(missing_ok=True)
     except Exception as e:  # noqa: BLE001
         print(f"[editor] 전체 프리뷰 실패(비치명): {e}")

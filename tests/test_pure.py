@@ -2077,14 +2077,30 @@ def test_dashboard_geoblock_modal_and_draft_list():
 
 
 # ───────── 편집 프리뷰(구간 편집용 영상) ─────────
-def test_remux_is_copy_and_faststart():
-    """전체 프리뷰는 재인코딩하지 않는다 — 4시간물을 다시 뜨면 수십 분이다.
-    faststart 가 빠지면 브라우저가 중간 재생을 위해 파일 전체를 받는다."""
-    from ves.adapters.editor_assets import remux_cmd
-    a = remux_cmd("/runs/x/작품_480.mp4", "/tmp/scan.mp4")
-    s = " ".join(a)
-    assert "-c copy" in s and "+faststart" in s
-    assert "-crf" not in s and "libx264" not in s          # 재인코딩 금지
+def test_scan_bitrate_scales_with_length():
+    """전체 훑기는 **총 용량 목표에서 역산**한다 — CRF 로 뜨면 길이에 따라 크기가
+    폭발한다(2026-08-17 실측: 47분 리먹스 = 418MB → 4시간이면 2GB 로 못 씀)."""
+    from ves.adapters.editor_assets import scan_bitrate_kbps, SCAN_TARGET_MB
+    short, long_ = scan_bitrate_kbps(2829), scan_bitrate_kbps(13499)
+    assert short > long_                                   # 길수록 낮은 화질
+    for dur in (600, 2829, 13499, 30000):
+        kbps = scan_bitrate_kbps(dur)
+        assert 120 <= kbps <= 900                          # 하한·상한을 벗어나지 않는다
+        if 120 < kbps < 900:                               # 클램프에 안 걸린 구간이면
+            mb = (kbps + 40) * dur / 8192                  # 오디오 포함 실제 크기
+            assert abs(mb - SCAN_TARGET_MB) < 1            # 목표 용량에 맞는다
+    assert scan_bitrate_kbps(0) == 900                     # 길이 미상이면 상한(짧다고 본다)
+
+
+def test_scan_cmd_is_abr_and_faststart():
+    """ABR 로 크기를 예측 가능하게, faststart 로 중간 재생 가능하게, 2초 키프레임으로
+    스크럽이 붙게. 셋 중 하나만 빠져도 편집기로 못 쓴다."""
+    from ves.adapters.editor_assets import scan_cmd
+    s = " ".join(scan_cmd("/runs/x/작품_480.mp4", "/tmp/scan.mp4", 2829))
+    assert "-b:v" in s and "-maxrate" in s and "-bufsize" in s
+    assert "+faststart" in s and "scale=-2:360" in s
+    assert "expr:gte(t,n_forced*2)" in s                    # 2초마다 키프레임
+    assert "-crf" not in s                                  # CRF 는 크기 예측 불가
 
 
 def test_closeup_cmd_seeks_before_input_and_uses_duration():
