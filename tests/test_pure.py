@@ -2183,3 +2183,28 @@ def test_dashboard_editor_v2_wired():
         assert fn in html, fn
     assert "if (!clipsDirty){" in html          # 구간 변경 시 자막 오버라이드 제외
     assert "closeups" in html and "scan" in html   # 두 층 프리뷰를 화면이 안다
+
+
+def test_edit_subtitles_turn_captions_on():
+    """자막을 고쳐 보내면 그 편만 --no-subtitles 를 뗀다.
+
+    2026-08-17 실측: 활성 소스 486개가 전부 has_subtitle=false 라 모든 영상이
+    --no-subtitles 로 렌더된다. 그 상태에서 편집실 자막 수정을 받으면 subtitles.ass 만
+    바뀌고 mp4 는 그대로여서, 사람 눈에는 '고쳤는데 안 바뀌는' 버그로 보인다.
+    사용자 결정: 평상시는 지금대로, 사람이 손대면 그 편만 켠다."""
+    from ves.adapters.aivideo import build_argv_pure, subtitles_requested
+    base = {"work_title": "피의 게임 X", "no_subtitles": True}
+    assert "--no-subtitles" in build_argv_pure("/py", base, "/s.mp4")
+    assert subtitles_requested(base) is False
+    withsub = {**base, "edit_overrides": {"schema": "edit_overrides/v1",
+                                          "subtitles": [{"start_sec": 0, "end_sec": 1,
+                                                         "text": "고친 자막"}]}}
+    assert subtitles_requested(withsub) is True
+    assert "--no-subtitles" not in build_argv_pure("/py", withsub, "/s.mp4")
+    # 제목·구간만 고친 요청은 종전대로(자막을 켜지 않는다)
+    titleonly = {**base, "edit_overrides": {"schema": "edit_overrides/v1",
+                                            "title": {"top_title": "새 제목"}}}
+    assert subtitles_requested(titleonly) is False
+    assert "--no-subtitles" in build_argv_pure("/py", titleonly, "/s.mp4")
+    # 원래 자막이 켜진 작품은 아무 영향 없다
+    assert "--no-subtitles" not in build_argv_pure("/py", {"work_title": "x"}, "/s.mp4")

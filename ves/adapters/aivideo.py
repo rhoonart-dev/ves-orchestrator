@@ -161,6 +161,18 @@ def _brain_json(cfg, name):
 
 
 # ───────── 순수 (테스트 대상) ─────────
+def subtitles_requested(params: dict) -> bool:
+    """편집실에서 사람이 대사 자막을 고쳐 보냈는가. 순수 — 테스트 대상.
+
+    지금 모든 소스가 has_subtitle=false 라 planner 가 no_subtitles=true 를 넣고, 엔진은
+    대사 자막을 아예 굽지 않는다(subtitle_segments.json·subtitles.ass 는 만들어지지만
+    렌더 입력에서 빠진다). 그 상태에서 편집실 자막 수정을 받으면 파일만 바뀌고 영상은
+    그대로다 — 사람 눈에는 '고쳤는데 안 바뀌는' 버그로 보인다. 그래서 자막을 고쳐 보낸
+    그 편만 자막을 켠다. 사용자 결정(2026-08-17): 평상시는 지금대로, 손대면 켜진다."""
+    ov = (params or {}).get("edit_overrides") or {}
+    return bool(ov.get("subtitles"))
+
+
 def build_argv_pure(py: str, params: dict, source_path: str | None) -> list:
     p = params
     cmd = [py, "-u", "-m", "app.cli", "create_shorts",
@@ -178,7 +190,10 @@ def build_argv_pure(py: str, params: dict, source_path: str | None) -> list:
         cmd += ["--episode", str(p["episode"])]
     if p.get("no_research", True):
         cmd += ["--no-research"]
-    if p.get("no_subtitles"):        # 자막 미제공 작품 합의(brain CLAUDE.md §5)
+    # 자막 미제공 작품 합의(brain CLAUDE.md §5) — 다만 편집실에서 사람이 자막을 고쳐
+    # 보냈으면 그 편만 자막을 켠다. 고친 문장이 화면에 안 나가면 편집실이 거짓말을 하는
+    # 셈이다(2026-08-17 실측: subtitles.ass 는 바뀌는데 mp4 는 그대로였다).
+    if p.get("no_subtitles") and not subtitles_requested(p):
         cmd += ["--no-subtitles"]
     if p.get("no_tts_subtitles"):    # 등급 J(8/13): 텍스트는 vlp 가 일본어로 그린다
         cmd += ["--no-tts-subtitles"]
