@@ -37,11 +37,38 @@ def _load_env_file(path):
     return out
 
 
-def load_env():
+def file_env() -> dict:
+    """env 파일들의 병합값(앞 파일 우선 — load_env 와 같은 순서·같은 재료).
+    잡 서브프로세스 환경을 만들 때도 이걸 쓴다(job_env)."""
     home = os.environ.get("VES_HOME", DEFAULT_HOME)
+    out = {}
     for path in (NODE_ENV, f"{home}/secrets/ves.env"):
         for k, v in _load_env_file(path).items():
-            os.environ.setdefault(k, v)
+            out.setdefault(k, v)
+    return out
+
+
+def load_env():
+    for k, v in file_env().items():
+        os.environ.setdefault(k, v)
+
+
+def job_env(cfg) -> dict:
+    """잡 서브프로세스 환경 = 에이전트 환경 + **지금 다시 읽은** env 파일.
+
+    ★2026-08-18 실측. 에이전트는 기동 때 딱 한 번 env 파일을 읽는다(load_env).
+    그래서 사람이 노드에 시크릿을 새로 넣으면 **재기동 전까지 잡이 그것을 못 본다** —
+    한 입 주막 발행 토큰(08-17)과 YouTube 쿠키(08-18)가 연달아 같은 함정에 빠졌고,
+    두 번 다 '넣었는데 왜 안 되지'로 몇 시간을 썼다. 증상이 "설정은 맞는데 동작만
+    옛날"이라 원인을 코드에서 찾을 수 없다는 게 이 함정의 비용이다.
+
+    잡을 띄울 때 한 번 더 읽어 그 계열을 통째로 없앤다. 에이전트 환경이 우선이다 —
+    사람이 셸에서 임시로 덮어쓴 값을 파일이 되돌리면 그건 그것대로 함정이 된다."""
+    e = dict(os.environ)
+    for k, v in file_env().items():
+        e.setdefault(k, v)
+    e["AI_VIDEO_ROOT"] = engine_dir(cfg, "ai_video")
+    return e
 
 
 @dataclass

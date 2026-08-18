@@ -2087,6 +2087,46 @@ def test_0046_editor_render_rewarms_source_on_same_node():
     assert "jsonb_build_array(v_acq, v_gen_job, v_up, v_in, v_ev)" in sql
 
 
+# ───────── 잡 서브프로세스 환경: env 파일 재읽기 ─────────
+def test_job_env_rereads_env_files_without_restart(tmp_path, monkeypatch):
+    """🛑 에이전트는 기동 때 딱 한 번 env 파일을 읽는다(load_env) — 사람이 노드에
+    시크릿을 새로 넣으면 **재기동 전까지 잡이 그것을 못 본다**.
+
+    이 함정에 두 번 연달아 빠졌다: 한 입 주막 발행 토큰(2026-08-17)과 YouTube
+    쿠키(08-18). 두 번 다 '파일엔 분명히 있는데 동작만 옛날'이라 코드에서 원인을
+    찾을 수 없었고, 그게 이 함정의 비용이다. 잡을 띄울 때 다시 읽어 계열을 없앤다.
+
+    단 **프로세스 환경이 우선**이어야 한다 — 셸에서 임시로 덮어쓴 값을 파일이
+    되돌리면 그것대로 함정이 된다."""
+    import os
+    import types
+    from ves import config as cfgmod
+
+    (tmp_path / "secrets").mkdir()
+    (tmp_path / "secrets" / "ves.env").write_text(
+        "YTDLP_COOKIES=/opt/ves/secrets/yt_cookies.txt\n"
+        'SHADOWED="파일값"\n', encoding="utf-8")
+    monkeypatch.setenv("VES_HOME", str(tmp_path))
+    monkeypatch.setenv("SHADOWED", "프로세스값")
+    monkeypatch.delenv("YTDLP_COOKIES", raising=False)
+
+    e = cfgmod.job_env(types.SimpleNamespace(home="/opt/ves"))
+    assert e["YTDLP_COOKIES"] == "/opt/ves/secrets/yt_cookies.txt"   # 재기동 없이 닿는다
+    assert e["SHADOWED"] == "프로세스값"                              # 프로세스 환경 우선
+    assert e["AI_VIDEO_ROOT"] == "/opt/ves/engines/ai-video"
+    assert "YTDLP_COOKIES" not in os.environ    # 에이전트 프로세스는 오염시키지 않는다
+
+
+def test_both_adapters_use_job_env():
+    """한쪽만 고치면 그 엔진의 잡만 새 시크릿을 본다 — 둘 다 같은 통로여야 한다."""
+    import inspect
+    from ves.adapters import aivideo, brain
+    for name, fn in (("aivideo.env", aivideo.env), ("brain._env", brain._env)):
+        src = inspect.getsource(fn)
+        assert "job_env" in src, name
+        assert "dict(os.environ)" not in src, name
+
+
 def test_dashboard_geoblock_modal_and_draft_list():
     """발행 전 안내는 채널 목록을 코드에 박지 않고 ops_config 에서 읽는다."""
     import pathlib

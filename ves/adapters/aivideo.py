@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import glob
 import json
-import os
 import pathlib
 import re
 
@@ -320,9 +319,9 @@ def cwd(cfg, job):
 
 
 def env(cfg, job):
-    e = dict(os.environ)
-    e["AI_VIDEO_ROOT"] = cfgmod.engine_dir(cfg, "ai_video")
-    return e
+    # 잡마다 env 파일을 다시 읽는다 — 노드에 새로 넣은 시크릿(YouTube 쿠키 등)이
+    # 에이전트 재기동 없이도 이 서브프로세스에 닿아야 한다(config.job_env 주석 참고).
+    return cfgmod.job_env(cfg)
 
 
 def resource(cfg, job):

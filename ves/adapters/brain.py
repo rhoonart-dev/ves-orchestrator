@@ -7,7 +7,6 @@ measure/audit 접합은 Phase 4(reconcile 이 잡을 만들 때 활성화 — sc
 from __future__ import annotations
 
 import glob
-import os
 
 from ves import config as cfgmod
 from ves.adapters import base
@@ -22,9 +21,9 @@ def _scripts(cfg):
 
 
 def _env(cfg):
-    e = dict(os.environ)
-    e["AI_VIDEO_ROOT"] = cfgmod.engine_dir(cfg, "ai_video")
-    return e
+    # 발행 토큰(YT_REFRESH_TOKEN_*)도 사람이 노드에 나중에 넣는다 — aivideo 와 같은
+    # 규약으로 잡마다 env 파일을 다시 읽는다(config.job_env).
+    return cfgmod.job_env(cfg)
 
 
 class Ingest:
