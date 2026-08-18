@@ -320,6 +320,29 @@ def test_perf_sync_chunks():
     assert max(len(c) for c in chunks(list(range(450)))) == 200
 
 
+def test_yt_key_lookup_order():
+    """키는 환경변수 → 노드 시크릿 → brain .env 순. 시크릿을 넣고 재기동을 안 해도 잡히는 게 핵심."""
+    from ves.scheduler.yt_public import pick_key
+    env = {"YOUTUBE_API_KEY": "from-env"}
+    sec = {"YOUTUBE_API_KEY": "from-secrets"}
+    brain = {"REACT_APP_YOUTUBE_API_KEY": '"from-brain"'}
+    assert pick_key(env, sec, brain) == "from-env"
+    assert pick_key({}, sec, brain) == "from-secrets"
+    assert pick_key({}, {}, brain) == "from-brain"          # 따옴표는 벗긴다
+    assert pick_key({}, {"YOUTUBE_API_KEY": "  "}, brain) == "from-brain"   # 빈 값은 건너뛴다
+    assert pick_key({}, {}, {}) is None
+
+
+def test_yt_status_payload():
+    """조용한 실패를 막는 기록 — 대시보드가 이 JSON 을 읽어 경고를 띄운다."""
+    import json
+    from ves.scheduler.yt_public import status_payload
+    d = json.loads(status_payload("api_key_missing", 48, 0, "2026-08-19T05:00:00+00:00"))
+    assert d == {"reason": "api_key_missing", "pending": 48, "filled": 0,
+                 "at": "2026-08-19T05:00:00+00:00"}
+    assert json.loads(status_payload("ok", 0, 0, "x"))["reason"] == "ok"
+
+
 def test_perf_sync_copy_window():
     """복사 창(매시간)과 보존 창(미러 보관)의 분리 — 과거를 매시간 다시 긁지 않는다."""
     from datetime import date, timedelta

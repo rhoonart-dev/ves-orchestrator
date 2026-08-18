@@ -82,6 +82,7 @@ def sync_avatars(conn, cfg) -> int:
     key = yt_public.api_key(cfg)
     if not key:
         print(f"[channels_sync] 아이콘 갱신 대상 {len(ids)}건 — YouTube API 키 없어 생략")
+        yt_public.note_status(conn, "avatar_sync_status", "api_key_missing", len(ids), 0)
         return 0
     rows = yt_public.channel_avatars(key, ids)
     with conn.cursor() as c:
@@ -90,6 +91,9 @@ def sync_avatars(conn, cfg) -> int:
                             SET avatar_url=%s, avatar_synced_at=now()
                           WHERE channel_id=%s""", (url, cid))
     print(f"[channels_sync] 아이콘 {len(rows)}/{len(ids)}건 갱신")
+    yt_public.note_status(conn, "avatar_sync_status",
+                          "ok" if len(rows) == len(ids) else ("api_error" if not rows else "partial"),
+                          len(ids), len(rows))
     return len(rows)
 
 

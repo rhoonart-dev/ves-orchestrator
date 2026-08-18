@@ -624,6 +624,8 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .pf-warnbar{border-color:var(--serious);background:var(--surface-2);margin-top:0;
     font-size:12.5px;color:var(--ink-2);line-height:1.6}
   .pf-warnbar b{color:var(--serious)}
+  .pf-warnbar.crit{border-color:var(--crit)}
+  .pf-warnbar.crit b{color:var(--crit)}
   /* 업로드 히트맵 — 채널 × 날짜 */
   .pf-heat{display:grid;grid-template-columns:minmax(74px,132px) 1fr;gap:3px 8px;align-items:center;
     font-size:12px}
@@ -3433,6 +3435,29 @@ const PERF_METRICS = {
            unit: "명", color: "var(--good)", absolute: true },
 };
 const PERF_COV_LOW = 0.7;   // 이 아래면 "그날 대부분이 보간 추정" — 차트에 음영으로 표시한다
+// perf_sync 가 ops_config.perf_backfill_status 에 남기는 보완 상태.
+// laeebly 가 통계를 안 주는 채널은 YouTube 공개 API 로 메우는데, 키가 없으면 그 보완이
+// 통째로 멈춘다(2026-08 실측: 8일간 6개 채널 48편이 비었고 화면엔 아무 표시가 없었다).
+const PERF_BACKFILL_MSG = {
+  api_key_missing: ["노드에 YouTube API 키가 없어 성과 보완이 멈춰 있습니다",
+                    "스케줄러 노드의 secrets/ves.env 에 YOUTUBE_API_KEY 를 넣으면 다음 회전(1시간 내)에 채워집니다"],
+  api_error: ["YouTube API 호출이 실패해 성과 보완이 되지 않았습니다",
+              "키가 만료됐거나 하루 쿼터를 넘겼을 수 있습니다"],
+  partial: ["일부 영상만 보완됐습니다", "비공개·삭제된 영상은 API 가 통계를 주지 않습니다 — 그만큼은 정상입니다"],
+};
+function perfBackfillNote(){
+  const row = (state.ops || {}).perf_backfill_status;
+  if (!row || !row.value) return "";
+  let d; try { d = JSON.parse(row.value); } catch(e){ return ""; }
+  const msg = PERF_BACKFILL_MSG[d.reason];
+  if (!msg || !d.pending) return "";
+  const crit = d.reason !== "partial";
+  return `<section class="card pf-warnbar${crit ? " crit" : ""}">
+    <b>${esc(msg[0])} — 미수집 ${fmtN(d.pending)}편${d.filled ? ` · 보완 ${fmtN(d.filled)}편` : ""}.</b>
+    ${esc(msg[1])}.${crit ? " 그동안 이 영상들의 조회는 성과에 잡히지 않습니다." : ""}
+    <span style="color:var(--muted)">(마지막 확인 ${esc(String(d.at || "").slice(0, 16).replace("T", " "))})</span>
+  </section>`;
+}
 let perfFrom = null, perfTo = null;   // 직접 지정 구간(YYYY-MM-DD). 있으면 프리셋보다 우선
 let perfVid = null;                   // 상세를 펼친 영상(content_id)
 // 채널 멀티 필터 — null=전체, Set=선택된 채널들(빈 Set=전부 해제). 차트·표 전부에 걸린다.
@@ -3914,6 +3939,7 @@ function renderPerf(){
         onclick="perfChToggle('${esc(ch)}')">${esc(ch)} <span style="opacity:.6">${g.vids}</span></button>`; }).join("")}
     </div>` : ""}
 
+    ${perfBackfillNote()}
     ${V.covLow >= Math.max(3, V.span * 0.25) ? `<section class="card pf-warnbar">
       <b>이 기간의 ${V.covLow}일은 원천 수집이 ${Math.round(PERF_COV_LOW*100)}% 미만입니다.</b>
       그 날들의 조회·좋아요 증가는 관측이 아니라 앞뒤 관측을 이어 붙인 추정이라, 하루하루의
