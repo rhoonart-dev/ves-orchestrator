@@ -295,6 +295,22 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .edwarn{font-size:12px;line-height:1.5;padding:7px 9px;border-radius:7px;margin-bottom:8px;
           background:color-mix(in srgb,var(--warn) 15%,transparent);border:1px solid var(--warn)}
   .edclip.sel{outline:2px solid var(--warn);z-index:3}
+  /* 플레이어 모드·가상 미리보기 오버레이(P2-a) */
+  .edvmode{display:flex;gap:4px;margin-bottom:4px}
+  .edvmode .mini.on{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+  .edprev{position:relative}
+  .edov{position:absolute;inset:0;pointer-events:none}
+  .edovcrop{position:absolute;border:1px dashed #ffffff55;overflow:hidden}
+  .edovtitle{position:absolute;left:0;right:0;text-align:center;font-weight:900;
+             line-height:1.15;text-shadow:0 2px 6px #000c,0 0 2px #000}
+  .edovsub{position:absolute;left:4%;right:4%;bottom:13%;text-align:center;font-weight:800;
+           text-shadow:0 2px 5px #000c,0 0 2px #000}
+  .edovtts{position:absolute;left:4%;right:4%;bottom:25%;text-align:center;font-weight:800;
+           color:#87CEEB;text-shadow:0 2px 5px #000c,0 0 2px #000}
+  .edovnote{position:absolute;right:6px;top:4px;max-width:60%;text-align:right;
+            font-size:10px;line-height:1.3;color:#ffffffaa;text-shadow:0 1px 3px #000}
+  .edocur{position:absolute;top:0;bottom:0;width:2px;background:#fff;box-shadow:0 0 4px #fff;
+          pointer-events:none;display:none}
   /* 트리밍 핸들(F-102) — 블록 양끝 7px. 호버에만 보이되 히트 영역은 상시 */
   .edclip .hL,.edclip .hR{position:absolute;top:0;bottom:0;width:7px;cursor:ew-resize;
                           font-style:normal}
@@ -1760,6 +1776,8 @@ let edPanAt = 0, edProgScroll = false;   // 사용자 팬 직후엔 커서 자�
 // undo/redo(F-104) — 스냅샷은 JSON 문자열(비교가 곧 무변화 감지). 초안 자동 저장과
 // 독립: 저장은 최신만 나가고, 스택은 화면 안에서만 산다. 카드를 새로 열면 리셋.
 let edUndo = [], edRedo = [], edSnapTag = "", edSnapAt = 0;
+// P2-a: 플레이어 모드(src=원본 스크럽 / prev=완성본 preview.mp4) · 가상 시퀀스 재생 상태
+let edVMode = "src", edSeq = null, edPrevKey = null, edPrevBucket = null, edPrevT = 0;
 
 function edResetForm(){
   const tl = (edData && edData.timeline) || {};
@@ -2078,7 +2096,9 @@ window.edSubmit = async () => {
 
 window.openEditor = async (rid) => {
   edRid = rid; edData = null; edForm = null; tab = "edit";
-  edZoom = 1; edTlScroll = 0; edKbHelp = false; render();
+  edZoom = 1; edTlScroll = 0; edKbHelp = false;
+  edVMode = "src"; edSeq = null; edPrevKey = null; edPrevBucket = null; edPrevT = 0;
+  render();
   try {
     const r = await sb.rpc("request_editor_assets", { p_review_id: rid });
     if (r.error) throw r.error;
@@ -2208,9 +2228,11 @@ function renderEdit(){
   }
 
   const tl = edData.timeline || {}, sp = edData.sprites || {};
+  edSeq = null;                       // 렌더는 미리보기 재생을 끝낸다(새 DOM 은 꺼진 상태)
   const dur = Number(tl.duration_sec) || 1;
   const pct = t => (Math.max(0, Math.min(dur, Number(t)||0)) / dur * 100).toFixed(4);
   const pay = r.payload || {};
+  edPrevKey = pay.preview_key || null; edPrevBucket = pay.bucket || null;
   const canEdit = edCanEdit(r);
   if (!edForm || edForm.rid !== edRid) edResetForm();
   const med = (sp.assets || {}).media || {};
@@ -2237,8 +2259,27 @@ function renderEdit(){
   $("#page").innerHTML = `<section class="card">${head}
     <div class="edgrid2">
       <div class="edleft">
-        <div class="edprev">${hasVideo
-          ? `<video id="edvid" playsinline preload="metadata" controls></video>`
+        <div class="edvmode">
+          <button class="mini ${edVMode === "src" ? "on" : ""}" onclick="edVSet('src')"
+            title="원본을 보며 구간을 찍는 화면">원본</button>
+          <button class="mini ${edVMode === "prev" ? "on" : ""}" onclick="edVSet('prev')"
+            ${edPrevKey ? "" : "disabled"} title="${edPrevKey
+              ? "이 검수 카드의 완성본(720p)을 재생합니다 — 카드가 닫혔다면 재렌더 전 판일 수 있습니다"
+              : "완성본 preview 가 아직 없습니다"}">현재 완성본</button>
+          <button class="mini" id="edseqbtn" onclick="edSeqToggle()"
+            title="구간 순서대로 이어 재생하며 제목·자막을 겹쳐 봅니다(근사)">▶ 가상 미리보기</button>
+        </div>
+        <div class="edprev">${hasVideo || edVMode === "prev"
+          ? `<video id="edvid" playsinline preload="metadata" controls></video>
+             <div class="edov" id="edov" style="display:none">
+               <div class="edovcrop" id="edovcrop">
+                 <div class="edovtitle" id="edovtitle"></div>
+                 <div class="edovtts" id="edovtts"></div>
+                 <div class="edovsub" id="edovsub"></div>
+               </div>
+               <div class="edovnote">근사 미리보기 — 글꼴·배치·색이 다를 수 있고,
+                 크롭은 중앙 기준(실제는 얼굴 추종으로 움직일 수 있음)</div>
+             </div>`
           : `<div class="sub" style="padding:20px;text-align:center">
                편집용 영상이 아직 없습니다 — 재료를 다시 만들면 생깁니다
                <div><button class="mini" onclick="edRebuild()">재료 다시 만들기</button></div></div>`}</div>
@@ -2251,9 +2292,12 @@ function renderEdit(){
           <b id="edtime">${edFmt(edCursor)}</b>
           <span class="sub" id="edsrcname"></span>
           <span class="right">
-            <button class="mini" onclick="edMarkIn()" title="현재 위치를 구간 시작으로 (I)">[ 시작</button>
-            <button class="mini" onclick="edMarkOut()" title="현재 위치를 구간 끝으로 (O)">끝 ]</button>
-            <button class="pri mini" onclick="edAddClip()" title="표시한 구간을 목록에 추가">＋ 구간 추가</button>
+            <button class="mini" onclick="edMarkIn()" ${edVMode === "src" ? "" : "disabled"}
+              title="현재 위치를 구간 시작으로 (I)">[ 시작</button>
+            <button class="mini" onclick="edMarkOut()" ${edVMode === "src" ? "" : "disabled"}
+              title="현재 위치를 구간 끝으로 (O)">끝 ]</button>
+            <button class="pri mini" onclick="edAddClip()" ${edVMode === "src" ? "" : "disabled"}
+              title="표시한 구간을 목록에 추가">＋ 구간 추가</button>
           </span>
         </div>
         <div class="sub" id="edmarkinfo">${edMarkText()}</div>
@@ -2354,7 +2398,7 @@ function renderEdit(){
   });
   edMark();
 
-  if (hasVideo) edMountVideo();
+  if (hasVideo || edVMode === "prev") edMountVideo();
   if (sp.assets && sp.assets.wave) signedUrl("ves-outputs", sp.assets.wave, 1800)
     .then(u => { const w = document.getElementById("edwave"); if (w) w.src = u; }).catch(()=>{});
   edTlAfterRender();
@@ -2501,9 +2545,7 @@ const ED_STYLE_FIELDS = [
   ["subtitle_font",    "자막 폰트",     "여기어때 잘난체 2 TTF"],
 ];
 function edPaneStyle(canEdit){
-  const ch = (state.chans||[]).find(c => c.token_slug ===
-    ((state.wo[((state.reviews||[]).find(x=>x.id===edRid)||{}).work_order_id]||{}).channel_slug));
-  const base = ((state.designOvr||{})[(ch||{}).token_slug]||{}).design || (ch||{}).design || {};
+  const base = edBaseDesign();
   return `<div class="sub" style="margin-bottom:6px">비워두면 채널 기본값을 그대로 씁니다 —
       이 편에만 적용됩니다.</div>
     <div class="edrows">${ED_STYLE_FIELDS.map(([k,l,ph]) => `
@@ -2529,11 +2571,40 @@ let edCurSrc = null, edSeeking = false, edLoadGen = 0;
 async function edMountVideo(){
   const v = document.getElementById("edvid"); if (!v) return;
   v.ontimeupdate = () => {
+    if (edVMode !== "src") return;          // 완성본 모드는 원본 좌표와 무관하다
     if (edSeeking) return;
-    edCursorSet((edCurSrc ? edCurSrc.offset : 0) + v.currentTime, false);
+    const srcT = (edCurSrc ? edCurSrc.offset : 0) + v.currentTime;
+    edCursorSet(srcT, false);
+    if (edSeq) edSeqTick(srcT);
   };
   v.onplay = () => { const b = document.getElementById("edplay"); if (b) b.textContent = "⏸"; };
   v.onpause = () => { const b = document.getElementById("edplay"); if (b) b.textContent = "▶"; };
+  // 구간이 closeup 파일 경계를 넘으면 파일이 구간 끝 전에 끝난다 — timeupdate 가 멎어
+  // 시퀀스가 고착되므로 ended 를 '구간 끝 도달'로 친다.
+  v.onended = () => {
+    if (!edSeq || edVMode !== "src") return;
+    const { eff } = edEffList(), s = edSeq;
+    if (s.k + 1 < eff.length){ s.k++; edLoadSource(eff[s.k].c.start, true); }
+    else edSeqStop();
+  };
+  if (edVMode === "prev"){
+    // 이 카드의 완성본(F-201) — 검수 카드가 쓰는 preview.mp4 그대로, 서버 작업 0
+    v.onerror = () => {
+      toast("완성본을 열 수 없습니다(보존 만료일 수 있음) — 원본 모드로 돌아갑니다", true);
+      edVSet("src");
+    };
+    v.ontimeupdate = () => { edPrevT = v.currentTime || edPrevT; };  // 렌더 후 위치 복원용
+    try {
+      const url = await signedUrl(edPrevBucket || "ves-outputs", edPrevKey, 1800);
+      if (v.src !== url || v.error) v.src = url;
+      if (edPrevT > 0){
+        const seekBack = () => { v.removeEventListener("loadedmetadata", seekBack);
+                                 v.currentTime = edPrevT; };
+        if (v.readyState > 0) seekBack(); else v.addEventListener("loadedmetadata", seekBack);
+      }
+    } catch (e){ toast("완성본 열기 실패: " + e.message, true); }
+    return;
+  }
   await edLoadSource(edCursor, false);
 }
 
@@ -2544,6 +2615,7 @@ async function edMountVideo(){
 // 실제로 온 뒤에만 기록하고, ② 세대표(edLoadGen)로 낡은 호출을 물러나게 한다 — 연타로
 // 로드 두 개가 겹치면 뒤 클릭이 이기고 앞 클릭은 src 도 시킹도 건드리지 않는다.
 async function edLoadSource(t, play){
+  if (edVMode !== "src") return;            // 완성본 모드에선 원본 소스를 만지지 않는다
   const v = document.getElementById("edvid"); if (!v) return;
   const want = edSourceAt(t);
   if (!want){ return; }
@@ -2622,6 +2694,10 @@ window.edToggle = () => {
 };
 window.edNudge = d => {
   const v = document.getElementById("edvid");
+  if (edVMode === "prev"){                    // 완성본 모드 — 보이는 영상을 직접 움직인다
+    if (v) v.currentTime = Math.max(0, v.currentTime + d);
+    return;
+  }
   if (v && edCurSrc){ v.currentTime = Math.max(0, v.currentTime + d); edCursorSet(edCurSrc.offset + v.currentTime, false); }
   else edSeek(edCursor + d);
 };
@@ -2908,6 +2984,7 @@ window.edClipDown = (ev, i) => {
   if (!edCanEdit() || !edForm.clips[i] || edForm.clips[i].del) return;
   if (ev.button !== 0) return;
   ev.preventDefault(); ev.stopPropagation();
+  edSeqStop();   // 재생 틱이 드래그 중 변이값으로 점프·정지를 일으키면 안 된다
   const tlc = document.getElementById("edtlc"); if (!tlc) return;
   const dur = Number((edData.timeline||{}).duration_sec) || 1;
   const c = edForm.clips[i];
@@ -2970,11 +3047,15 @@ function edClipUp(){
 // ── 출력 타임라인 (F-105) — 완성본 순서 트랙 ─────────────────────────
 // 좌표계가 다르다: 원본 트랙은 원본 절대초, 여기는 출력 누적초(0~). 내레이션 위치는
 // '담고 있는 구간의 오프셋 + 구간 내 상대시각'으로 환산한다(엔진과 같은 규칙의 근사).
-function edOutHtml(){
+function edEffList(){
   const eff = []; let off = 0;
   edForm.clips.forEach((c, i) => {
     if (!c.del){ eff.push({ i, c, off }); off += Math.max(0, c.end - c.start); } });
-  const total = off, lim = 59.7, span = Math.max(total, lim) || 1;
+  return { eff, total: off };
+}
+function edOutHtml(){
+  const { eff, total } = edEffList();
+  const lim = 59.7, span = Math.max(total, lim) || 1;
   const px = v => (Math.max(0, Math.min(span, v)) / span * 100).toFixed(3) + "%";
   let h = eff.map(e => `<div class="edoclip ${esc(e.c.role)} ${e.i === edSel ? "sel" : ""}"
       data-i="${e.i}" style="left:${px(e.off)};width:${
@@ -3005,11 +3086,13 @@ function edOutHtml(){
       ((total - lim) / span * 100).toFixed(3)}%"></div>`;
   // 상한선은 안쪽으로 2px 클램프 — total≤상한이면 left 가 100% 라 overflow 에 잘린다
   h += `<div class="edolim" style="left:calc(${px(lim)} - 2px)" title="쇼츠 상한 59.7초"></div>`;
+  h += `<div class="edocur" id="edocur"></div>`;   // 가상 미리보기(F-202) 재생 헤드
   return h;
 }
 window.edOutDown = (ev, i) => {
   if (ev.button !== 0) return;
   ev.preventDefault();
+  edSeqStop();
   edSel = i; edSelSync(); edDragJust = false;
   edDrag = { out: true };            // 드래그 중 키·휠·자동추적 동결(위 가드들 공용)
   const x0 = ev.clientX; let moved = false;
@@ -3043,6 +3126,118 @@ window.edOutDown = (ev, i) => {
   document.addEventListener("mousemove", move);
   document.addEventListener("mouseup", up);
 };
+
+// ── 플레이어 모드 (F-201) · 가상 시퀀스 (F-202) · 오버레이 (F-203) ────
+window.edVSet = m => {
+  if (m === edVMode) return;
+  edSeqStop();
+  edVMode = m; edCurSrc = null;     // 소스가 다르다 — 다음 마운트가 새로 연다
+  ++edLoadGen;                      // 진행 중이던 구 모드 로드를 물린다 — 안 올리면
+                                    // 늦게 끝난 로드가 edCurSrc 를 되살려 좌표를 오염
+  render();
+};
+window.edSeqToggle = () => { if (edSeq) edSeqStop(); else edSeqStart(); };
+function edSeqStart(){
+  const { eff } = edEffList();
+  if (!eff.length){ toast("재생할 구간이 없습니다", true); return; }
+  if (edVMode !== "src"){ edVMode = "src"; edCurSrc = null; render(); }
+  edSeq = { k: 0 };
+  const b = document.getElementById("edseqbtn"); if (b) b.textContent = "⏹ 미리보기 중";
+  const ov = document.getElementById("edov"); if (ov) ov.style.display = "";
+  edLoadSource(eff[0].c.start, true);
+}
+function edSeqStop(){
+  if (!edSeq) return;
+  edSeq = null;
+  const v = document.getElementById("edvid"); if (v) v.pause();
+  const b = document.getElementById("edseqbtn"); if (b) b.textContent = "▶ 가상 미리보기";
+  const ov = document.getElementById("edov"); if (ov) ov.style.display = "none";
+  const oc = document.getElementById("edocur"); if (oc) oc.style.display = "none";
+}
+// 재생 틱 — 구간 끝에 닿으면 다음 구간으로 점프(컷 전환의 근사. 소스 파일이 바뀌면
+// 로드 시간만큼 갭이 생긴다 — scan 하나로 이어질 땐 시킹이라 짧다).
+function edSeqTick(srcT){
+  const s = edSeq; if (!s) return;
+  const { eff, total } = edEffList();
+  const e = eff[s.k];
+  if (!e){ edSeqStop(); return; }
+  // 끝 감지가 먼저 — 백그라운드 탭 스로틀·버퍼링 뒤 몰아친 틱이 끝을 1.5초 넘게
+  // 지나쳐도 '시킹'이 아니라 전진이다. 시킹 판정은 뒤로 튄 경우만.
+  if (srcT >= e.c.end - 0.05){
+    if (s.k + 1 < eff.length){ s.k++; edLoadSource(eff[s.k].c.start, true); }
+    else edSeqStop();
+    return;
+  }
+  if (srcT < e.c.start - 1.5){ edSeqStop(); return; }
+  const outT = e.off + (srcT - e.c.start);
+  edOvPaint(outT);
+  const oc = document.getElementById("edocur");
+  if (oc){ oc.style.display = "";
+    oc.style.left = (outT / Math.max(total, 59.7) * 100).toFixed(3) + "%"; }
+}
+// 채널 기본 디자인 — 스타일 탭 placeholder 와 오버레이가 같은 정의를 써야 한다
+function edBaseDesign(){
+  const r = (state.reviews||[]).find(x => x.id === edRid) || {};
+  const wo = state.wo[r.work_order_id] || {};
+  const ch = (state.chans||[]).find(c => c.token_slug === wo.channel_slug) || {};
+  return ((state.designOvr||{})[ch.token_slug]||{}).design || ch.design || {};
+}
+// 이 편의 유효 디자인 — 채널 기본값 위에 편집실 스타일 오버라이드
+function edDesign(){
+  return { ...edBaseDesign(), ...((edForm && edForm.design) || {}) };
+}
+// 오버레이(F-203) — 9:16 크롭 프레임 + 제목·자막·내레이션 자막. 근사가 목적:
+// 렌더 정본은 엔진(1080×1920 캔버스)이고, 여기선 배율(크롭 높이/1920)만 맞춘다.
+function edOvPaint(outT){
+  const v = document.getElementById("edvid"), crop = document.getElementById("edovcrop");
+  if (!v || !crop || !edForm) return;
+  const bw = v.clientWidth, bh = v.clientHeight;
+  const vw = v.videoWidth || 16, vh = v.videoHeight || 9;
+  const s0 = Math.min(bw / vw, bh / vh), chh = vh * s0;   // contain 레터박스 안 표시 높이
+  const cropW = chh * 9 / 16;
+  crop.style.width = cropW + "px"; crop.style.height = chh + "px";
+  crop.style.left = ((bw - cropW) / 2) + "px"; crop.style.top = ((bh - chh) / 2) + "px";
+  const sc = chh / 1920, d = edDesign();
+  const tt = document.getElementById("edovtitle");
+  if (tt){
+    tt.style.fontSize = ((+d.title_size || 96) * sc) + "px";
+    tt.style.top = ((+d.title_y || 150) * sc) + "px";
+    // 제목은 틱마다 안 바뀐다 — innerHTML 재생성은 내용이 달라졌을 때만(깜빡임 방지)
+    const th = String(edForm.dTitle || "").split("\n").map((l, i) =>
+      `<div style="color:${esc(i === 0 ? (d.title_color || "#FFFFFF")
+                                       : (d.title_color2 || "#FFE400"))}">${esc(l)}</div>`).join("");
+    if (tt.dataset.h !== th){ tt.dataset.h = th; tt.innerHTML = th; }
+  }
+  const { eff } = edEffList();
+  const outPos = srcV => {                    // 원본 절대초 → 출력초(구간 밖이면 null)
+    const e = eff.find(x => srcV >= x.c.start - 0.5 && srcV <= x.c.end + 0.5);
+    return e ? e.off + Math.max(0, srcV - e.c.start) : null;
+  };
+  const sub = edForm.dSubs.find(s => {
+    if (s.del || !String(s.text).trim()) return false;
+    const len = Math.max(0.3, (Number(s.end) - Number(s.start)) || 0);
+    const p = s.src != null ? outPos(s.src) : (Number(s.start) || 0);
+    return p != null && outT >= p && outT < p + len;
+  });
+  const se = document.getElementById("edovsub");
+  if (se){
+    se.style.fontSize = ((+d.subtitle_size || 65) * sc) + "px";
+    se.style.color = d.subtitle_color || "#FFFFFF";
+    se.textContent = sub ? sub.text : "";
+  }
+  const cue = edForm.tts.find(t => {
+    if (t.del) return false;
+    const p = outPos(t.src);
+    return p != null && outT >= p && outT < p + t.dur;
+  });
+  const te = document.getElementById("edovtts");
+  if (te){
+    // 엔진 전용 키(tts_size·tts_color)가 있으면 그대로 — 없을 때만 근사 기본값
+    te.style.fontSize = ((+d.tts_size || (+d.subtitle_size || 65) * 0.9) * sc) + "px";
+    te.style.color = d.tts_color || "#87CEEB";
+    te.textContent = cue ? cue.text : "";
+  }
+}
 
 // ── 키보드 단축키 (F-103) ─────────────────────────────────────────────
 function edCanEdit(r){
@@ -3090,8 +3285,10 @@ document.addEventListener("keydown", e => {
   if (k === " "){ e.preventDefault(); edToggle(); }
   // I/O 는 e.code(자판 위치)로 — 한글 IME 가 켜져 있으면 e.key 가 "ㅑ"/"ㅐ"로 들어와
   // 문자 비교가 영영 안 맞는다. 검수자 대부분이 한글 자판이다.
-  else if (e.code === "KeyI"){ e.preventDefault(); edMarkIn(); }
-  else if (e.code === "KeyO"){ e.preventDefault(); edMarkOut(); }
+  else if (e.code === "KeyI"){ if (edVMode !== "src") return;
+    e.preventDefault(); edMarkIn(); }
+  else if (e.code === "KeyO"){ if (edVMode !== "src") return;
+    e.preventDefault(); edMarkOut(); }
   else if (k === "ArrowLeft"){ e.preventDefault(); edNudge(e.shiftKey ? -1 : -1/24); }
   else if (k === "ArrowRight"){ e.preventDefault(); edNudge(e.shiftKey ? 1 : 1/24); }
   else if (k === "ArrowUp" || k === "ArrowDown"){
@@ -4701,7 +4898,9 @@ $("#btnRefresh").onclick = () => refresh();
 $("#btnTheme").onclick = () =>
   applyTheme(document.documentElement.dataset.theme === "light" ? "dark" : "light");
 $("#btnAuto").onclick = e => { auto = !auto; e.target.textContent = `자동 15s: ${auto?"켬":"끔"}`; };
-document.addEventListener("visibilitychange", () => { if (!document.hidden && auto) refresh(); });
+// 편집실은 제외 — 복귀 refresh 가 미리보기 재생·편집 중 DOM 을 예고 없이 갈아치운다
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && auto && tab !== "edit") refresh(); });
 window.rpc = rpc; window.armed = armed; window.$ = $;
 </script>
 </body>
