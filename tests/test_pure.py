@@ -2264,6 +2264,40 @@ def test_scan_cmd_is_abr_and_faststart():
     assert "-crf" not in s                                  # CRF 는 크기 예측 불가
 
 
+def test_pick_scan_source_prefers_master():
+    """scan 은 사람이 **재생**하는 영상 — 마스터 우선(F-206). 프록시로 뜨면 4fps 를
+    물려받아 끊긴다. 스프라이트용 pick_scrub_source(프록시 우선)와 반대가 맞고,
+    반환은 항상 튜플 — 호출부가 언팩하므로 None 을 돌려주면 안 된다."""
+    from ves.adapters.editor_assets import pick_scan_source
+    assert pick_scan_source("/m.mp4", "/runs/x/작품_480.mp4") == ("/m.mp4", True)
+    assert pick_scan_source(None, "/runs/x/작품_480.mp4") \
+        == ("/runs/x/작품_480.mp4", False)
+    assert pick_scan_source(None, None) == (None, False)
+
+
+def test_scan_cmd_fps_and_budget_follow_source():
+    """fps 필터는 마스터 소스일 때만 — 4fps 프록시에 fps=24 를 걸면 같은 그림을
+    여섯 번 복제해 비트레이트만 낭비한다(F-206). fps 는 scale 보다 앞 — 버릴
+    프레임까지 스케일하지 않는다. 용량 예산도 소스를 따른다(폴백은 150MB)."""
+    from ves.adapters.editor_assets import scan_cmd, scan_bitrate_kbps, SCAN_FPS
+    hq = " ".join(scan_cmd("/m.mp4", "/tmp/scan.mp4", 2829, fps=SCAN_FPS))
+    lo = " ".join(scan_cmd("/runs/x/작품_480.mp4", "/tmp/scan.mp4", 2829,
+                           target_mb=150))
+    assert f"fps={SCAN_FPS},scale=-2:360" in hq             # fps 먼저 — 스케일 낭비 방지
+    assert "fps=" not in lo                                 # 폴백은 소스 fps 그대로
+    assert f"-b:v {scan_bitrate_kbps(2829, 150)}k" in lo    # 폴백은 낮은 예산으로 역산
+
+
+def test_dashboard_scan_fps_label_reads_meta():
+    """전체 훑기 라벨은 재료 메타(scan_fps)를 읽는다 — 구 재료(0048 전)엔 메타가
+    없으므로 프록시 산출물은 4fps 로, 마스터 산출물은 fps 미상(숫자 없음)으로 폴백."""
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert "scan_fps" in html
+    assert "전체 훑기(4fps)" in html                        # 구 프록시 재료 폴백
+    assert '=== "master"' in html                           # 구 마스터 재료는 숫자를 뺀다
+
+
 def test_closeup_cmd_seeks_before_input_and_uses_duration():
     """-ss 는 입력 앞(빠른 탐색), 길이는 -t 로 입력 뒤 — -to 를 뒤에 두면 기준이 달라져
     엉뚱한 구간이 잘린다."""

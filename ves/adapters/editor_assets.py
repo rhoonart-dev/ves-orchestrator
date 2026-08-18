@@ -45,6 +45,8 @@ TIMEOUT_SEC = 60 * 20
 # ── 편집 프리뷰(2026-08-17) — 스프라이트로는 '어디쯤'까지만 알 수 있다. 구간을 프레임
 #    단위로 잡으려면 **소리와 움직임이 있는 영상**을 봐야 한다. 두 층으로 준다:
 #      · 전체 프리뷰(scan)  — 원본 전체 길이. 360p 로 **목표 용량에 맞춰** 다시 뜬다.
+#        소스는 **마스터 우선**(F-206) — 프록시로 뜨면 4fps 를 물려받아 재생이 끊긴다.
+#        마스터가 이 노드에 없으면 종전대로 프록시 폴백(화면이 fps 라벨로 알린다).
 #      · 구간 클로즈업(closeup) — 쓰인 클립 앞뒤 CLOSEUP_PAD 초를 24fps 로 다시 뜬다.
 #        실제로 경계를 잡는 곳은 여기뿐이라, 전체를 고품질로 뜨는 낭비를 피한다.
 #    브라우저는 서명 URL + Range 로 필요한 구간만 받는다 — faststart 가 그래서 필수다.
@@ -60,7 +62,15 @@ CLOSEUP_CRF = 26
 CLOSEUP_PAD = 90.0             # 클립 앞뒤 여유(초) — 이 밖은 전체 프리뷰로 본다
 CLOSEUP_MAX_TOTAL = 40 * 60    # 클로즈업 총합 상한(초). 넘으면 긴 것부터 버린다
 SCAN_H = 360                   # 전체 훑기 해상도 — '어디쯤'을 보는 용도
-SCAN_TARGET_MB = 150           # 전체 훑기 목표 용량(길이에 맞춰 비트레이트 역산)
+SCAN_FPS = 24                  # 마스터 소스일 때만 적용 — 프록시(4fps) 폴백엔 걸지 않는다
+SCAN_GEN = 2                   # scan 세대 — 캐시 판정(0048)은 fps 가 아니라 이것만 본다:
+                               # fps 조건이면 마스터 GC 노드가 열 때마다 무한 재생성이 된다
+SCAN_TARGET_MB = 300           # 마스터(24fps) 목표 용량 — fps 상향(F-206)으로 150→300
+SCAN_TARGET_MB_PROXY = 150     # 4fps 폴백 목표 — 4fps 는 낮은 비트레이트에서 포화하므로
+                               # 예산을 올려봐야 화질 이득 없이 회선·스토리지만 쓴다
+SCAN_TIMEOUT_SEC = 60 * 60     # scan 전용 ffmpeg 상한 — 마스터(4~5GB) 디코드는 프록시보다
+                               # 수십 배 무겁다. 공용 20분이면 장편에서 타임아웃 → scan 없는
+                               # ready → 열 때마다 재생성(0048 머리말의 루프)이 된다
 SCAN_AUDIO_KBPS = 40           # 대사가 들려야 구간을 잡는다 — 화질보다 이쪽이 중요
 SCAN_VMIN_KBPS, SCAN_VMAX_KBPS = 120, 900
 SCAN_MAX_BYTES = 400 * 1024 * 1024   # 그래도 이보다 크면 올리지 않는다(회선 보호)
@@ -229,16 +239,20 @@ def scan_bitrate_kbps(duration_sec: float, target_mb: int = SCAN_TARGET_MB,
     return int(max(SCAN_VMIN_KBPS, min(SCAN_VMAX_KBPS, v)))
 
 
-def scan_cmd(src: str, out: str, duration_sec: float, height: int = SCAN_H) -> list:
+def scan_cmd(src: str, out: str, duration_sec: float, height: int = SCAN_H,
+             fps: int | None = None, target_mb: int = SCAN_TARGET_MB) -> list:
     """전체 훑기 인코딩 argv. 순수 — 테스트 대상.
 
     ABR(-b:v + maxrate/bufsize)로 크기를 예측 가능하게 한다. faststart 가 없으면
     브라우저가 중간 재생을 위해 파일 전체를 받는다 — 필수다. GOP 는 소스 fps 를
     모르므로 프레임이 아니라 **시간**으로 준다(-g 는 프레임 단위라 keyint_min 과
-    함께 -force_key_frames 로 2초마다 박는다)."""
-    v = scan_bitrate_kbps(duration_sec)
+    함께 -force_key_frames 로 2초마다 박는다).
+    fps 는 마스터 소스일 때만(F-206) — 4fps 프록시에 fps=24 를 걸면 같은 그림을
+    여섯 번 복제해 비트레이트만 낭비한다. 필터는 fps 가 scale 보다 **앞** —
+    버릴 프레임까지 스케일하지 않는다."""
+    v = scan_bitrate_kbps(duration_sec, target_mb)
     return ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", src,
-            "-vf", f"scale=-2:{height}",
+            "-vf", (f"fps={fps}," if fps else "") + f"scale=-2:{height}",
             "-c:v", "libx264", "-preset", "veryfast",
             "-b:v", f"{v}k", "-maxrate", f"{int(v*1.5)}k", "-bufsize", f"{v*2}k",
             "-force_key_frames", "expr:gte(t,n_forced*2)",
@@ -309,6 +323,17 @@ def pick_scrub_source(run_dir: str, master_path: str | None = None) -> str | Non
     if cands:
         return cands[0]
     return master_path if master_path and os.path.exists(master_path) else None
+
+
+def pick_scan_source(master: str | None, scrub_src: str | None):
+    """전체 훑기(scan)를 뜰 소스 — 마스터 우선. 순수(존재 확인은 호출자 몫).
+
+    스프라이트·파형은 4fps 프록시로 충분하지만(pick_scrub_source), scan 은 사람이
+    **재생**하는 영상이라 프록시로 뜨면 4fps 를 물려받아 끊긴다(F-206). 마스터가
+    이 노드에 없으면(캐시 GC 뒤) 종전대로 프록시 — 화면이 fps 라벨로 사실을 알린다.
+    반환은 **항상** (경로, 마스터 여부) — 호출부가 언팩하므로 None 을 돌려주지
+    않는다. scrub_src 존재는 호출자(run)가 보장한다."""
+    return (master, True) if master else (scrub_src, False)
 
 
 # ───────── 실행부 ─────────
@@ -432,10 +457,19 @@ def _build_media(cfg, store, run_id, run_dir, scrub_src, master, tl, duration, w
     media: dict = {"scan": None, "scan_bytes": 0, "closeups": [], "source": None}
     prefix = base.storage_key(run_id, "editor")
 
-    # ① 전체 프리뷰 — 목표 용량에 맞춰 360p 로 다시 뜬다(리먹스는 2GB 가 된다)
+    # ① 전체 프리뷰 — 목표 용량에 맞춰 360p 로 다시 뜬다(리먹스는 2GB 가 된다).
+    #    소스는 마스터 우선(F-206) — 프록시로 뜨면 4fps 를 물려받아 재생이 끊긴다.
     try:
+        scan_src, scan_hq = pick_scan_source(master, scrub_src)
+        # 비트레이트 역산은 **인코딩 소스의 길이** 기준 — 프록시가 부분 인코딩된 run 이면
+        # 프록시 길이로 역산한 비트레이트가 마스터 전체 길이에서 목표 용량을 넘긴다.
+        scan_dur = _probe_duration(scan_src) if scan_hq else duration
+        target = SCAN_TARGET_MB if scan_hq else SCAN_TARGET_MB_PROXY
+        kbps = scan_bitrate_kbps(scan_dur, target)
         scan_out = work / "scan.mp4"
-        _ffmpeg(scan_cmd(scrub_src, str(scan_out), duration))
+        _ffmpeg(scan_cmd(scan_src, str(scan_out), scan_dur,
+                         fps=SCAN_FPS if scan_hq else None, target_mb=target),
+                timeout=SCAN_TIMEOUT_SEC)
         size = scan_out.stat().st_size
         if size > SCAN_MAX_BYTES:
             print(f"[editor] 전체 프리뷰 {size/1e6:.0f}MB — 상한 초과, 올리지 않음")
@@ -444,10 +478,11 @@ def _build_media(cfg, store, run_id, run_dir, scrub_src, master, tl, duration, w
             key = f"{prefix}/scan.mp4"
             store.upload("ves-outputs", key, str(scan_out))
             media.update(scan=key, scan_bytes=size,
-                         source="proxy" if scrub_src.endswith("_480.mp4") else "master",
-                         scan_kbps=scan_bitrate_kbps(duration))
-            print(f"[editor] 전체 프리뷰 {size/1e6:.1f}MB "
-                  f"({scan_bitrate_kbps(duration)}kbps) 업로드")
+                         source="master" if scan_hq else "proxy",
+                         scan_fps=SCAN_FPS if scan_hq else _probe_fps(scan_src),
+                         scan_gen=SCAN_GEN, scan_kbps=kbps)
+            print(f"[editor] 전체 프리뷰 {size/1e6:.1f}MB ({kbps}kbps · "
+                  f"{'master ' + str(SCAN_FPS) + 'fps' if scan_hq else 'proxy'}) 업로드")
             scan_out.unlink(missing_ok=True)
     except Exception as e:  # noqa: BLE001
         print(f"[editor] 전체 프리뷰 실패(비치명): {e}")
@@ -503,18 +538,35 @@ def _upload_seq(store, run_id, kind, paths) -> list:
     return keys
 
 
-def _ffmpeg(argv):
-    r = subprocess.run(argv, capture_output=True, text=True, timeout=TIMEOUT_SEC)
+def _ffmpeg(argv, timeout: float = TIMEOUT_SEC):
+    r = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
     if r.returncode != 0:
         raise RuntimeError(f"ffmpeg 실패: {(r.stderr or r.stdout)[-300:]}")
 
 
-def _probe_duration(path: str) -> float:
-    r = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
-                        "-of", "default=nw=1:nk=1", path],
-                       capture_output=True, text=True, timeout=120)
+def _ffprobe_entry(path: str, entries: str, select: str | None = None) -> str:
+    """ffprobe 단일 항목 조회 — probe 헬퍼들의 공통 스캐폴딩(정책은 각자 유지)."""
+    argv = ["ffprobe", "-v", "error"]
+    if select:
+        argv += ["-select_streams", select]
+    argv += ["-show_entries", entries, "-of", "default=nw=1:nk=1", path]
+    r = subprocess.run(argv, capture_output=True, text=True, timeout=120)
+    return (r.stdout or "").strip()
+
+
+def _probe_fps(path: str) -> float | None:
+    """영상 fps — 화면 라벨용 메타일 뿐이라 실패해도 None(재료 생성을 막지 않는다)."""
     try:
-        return float((r.stdout or "0").strip())
+        num, _, den = _ffprobe_entry(path, "stream=avg_frame_rate", "v:0").partition("/")
+        f = float(num) / float(den or 1)
+        return round(f, 2) if f > 0 else None
+    except (ValueError, ZeroDivisionError, subprocess.SubprocessError, OSError):
+        return None
+
+
+def _probe_duration(path: str) -> float:
+    try:
+        return float(_ffprobe_entry(path, "format=duration") or "0")
     except ValueError:
         raise base.PermanentError(f"길이 판독 실패: {path}") from None
 

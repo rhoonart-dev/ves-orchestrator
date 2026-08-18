@@ -2383,7 +2383,13 @@ async function edLoadSource(t, play){
     edSeeking = false;
   }
   if (gen !== edLoadGen) return;
-  if (nm) nm.textContent = want.hq ? "정밀 구간(24fps)" : "전체 훑기(4fps)";
+  // 전체 훑기 fps 는 재료 메타에서 — 구 재료(0048 전)엔 scan_fps 가 없다: 프록시로 뜬
+  // 것은 4fps 가 사실이지만, 마스터로 뜬 것(source="master")은 fps 미상이라 숫자를 뺀다.
+  const med2 = (((edData.sprites||{}).assets||{}).media||{});
+  if (nm) nm.textContent = want.hq ? "정밀 구간(24fps)"
+    : med2.scan_fps ? `전체 훑기(${med2.scan_fps}fps)`
+    : med2.source === "master" ? "전체 훑기"
+    : "전체 훑기(4fps)";
   v.currentTime = Math.max(0, t - want.offset);
   if (play) v.play().catch(()=>{});
 }
