@@ -2288,6 +2288,31 @@ def test_scan_cmd_fps_and_budget_follow_source():
     assert f"-b:v {scan_bitrate_kbps(2829, 150)}k" in lo    # 폴백은 낮은 예산으로 역산
 
 
+def test_tts_from_checkpoints_carries_audio_file():
+    """F-204: cue 에 합성 mp3 경로(file/path)가 있으면 미리듣기용으로 실어 나른다 —
+    경로 필드가 없는 구 스키마는 그대로(미리듣기만 빠지고 편집실은 정상)."""
+    from ves.adapters.editor_assets import tts_from_checkpoints
+    res = {"tts_cue_files": [
+        {"file": "tts_000.mp3",
+         "cue": {"source_time_sec": 10, "text": "가", "start_sec": 1, "end_sec": 3}},
+        {"cue": {"source_time_sec": 20, "text": "나"}}]}
+    out = tts_from_checkpoints(res, None)
+    assert out[0].get("file") == "tts_000.mp3"
+    assert "file" not in out[1]
+
+
+def test_dashboard_tts_preview_and_conflicts():
+    """F-204 미리듣기(저장된 합성본만 — 새 문구는 재렌더 후) · F-205 충돌 검사(자막↔
+    내레이션 겹침·원본 구간 중복·창 경계 이탈)."""
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert "edTtsPlay" in html and '"key": c.key' not in html  # 키는 timeline.tts 에서
+    assert "edConflicts" in html and "ttsClash" in html
+    assert "재렌더 후 합성" in html                            # 정직한 라벨
+    sql = pathlib.Path("ves/control/migrations/0049_editor_tts_audio.sql").read_text(encoding="utf-8")
+    assert "tts_gen" in sql and ">= 1" in sql                  # 세대 마커 캐시 판정
+
+
 def test_dashboard_editor_preview_modes():
     """P2-a: 완성본 preview.mp4 재생(F-201, 서버 작업 0)·가상 시퀀스(F-202)·
     제목·자막·내레이션 오버레이(F-203). 오버레이는 근사임을 화면에 명시한다."""
