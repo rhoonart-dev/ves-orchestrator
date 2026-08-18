@@ -2057,12 +2057,34 @@ def test_0044_draft_rpc_and_geoblock_notice():
 def test_0044_submit_clears_draft():
     """재렌더를 보내면 초안을 지운다 — 보낸 것과 안 보낸 것이 구분돼야 목록이 의미를 갖는다."""
     sql = _live_mig("CREATE OR REPLACE FUNCTION public.submit_editor_render")
-    assert "0044" in sql, "submit_editor_render 의 라이브 정의가 0044 여야 한다"
     assert "SET status='pending', draft=NULL, draft_at=NULL, draft_by=NULL" in sql
     # 0043 계약은 그대로 유지돼야 한다(전문 재정의라 빠뜨리기 쉽다)
     assert "rq.kind = 'publish_gate' AND rq.status = 'waiting'" in sql
     assert "ARRAY['generate', 'node:' || v_gen.node_id]" in sql
     assert "이미 렌더가 대기·진행 중입니다" in sql
+
+
+# ───────── 0046: 편집 재렌더 앞 소스 재가열 ─────────
+def test_0046_editor_render_rewarms_source_on_same_node():
+    """🛑 재렌더는 며칠 뒤에 눌린다 — 그 사이 노드 캐시는 GC 된다.
+
+    2026-08-18 02:38 실측: '국대: 로드 투 노스 아메리카' ep4 의 첫 실사용 재렌더가
+    `소스 캐시 없음: …/cff7c45f… — acquire 선행 확인` 로 즉사했다(원본 회전은 08-16
+    01:47 mm-03 정상 완주). 체인 맨 앞에 acquire 를 세우되 **같은 노드에 핀**해야 한다 —
+    다른 노드에서 성공하면 acquire.post_success 가 generate 에 두 번째 node: 캡을 붙여
+    영원히 못 잡는 잡이 된다(required_caps <@ effective_caps 는 전량 포함 조건)."""
+    sql = _live_mig("CREATE OR REPLACE FUNCTION public.submit_editor_render")
+    assert "0046" in sql, "submit_editor_render 의 라이브 정의가 0046 이어야 한다"
+    assert "'acquire'" in sql, "재렌더 체인 맨 앞에 acquire 가 있어야 한다"
+    assert "ARRAY['network', 'node:' || v_gen.node_id]" in sql, "acquire 도 같은 노드에 핀"
+    assert "'editrender:' || p_review_id || ':acq'" in sql
+    # generate 는 그 acquire 를 기다려야 한다 — 핀만으로는 순서가 안 잡힌다
+    assert "ARRAY[v_acq], ARRAY['generate', 'node:' || v_gen.node_id]" in sql
+    # 재시도(ON CONFLICT) 경로에서도 의존이 되살아나야 한다
+    gen_block = sql.split("'editrender:' || p_review_id,", 1)[1].split("RETURNING id INTO v_gen_job", 1)[0]
+    assert "depends_on=excluded.depends_on" in gen_block
+    # 반환 chain 에도 acquire 를 실어 화면이 진행을 따라갈 수 있게 한다
+    assert "jsonb_build_array(v_acq, v_gen_job, v_up, v_in, v_ev)" in sql
 
 
 def test_dashboard_geoblock_modal_and_draft_list():
