@@ -2288,6 +2288,21 @@ def test_scan_cmd_fps_and_budget_follow_source():
     assert f"-b:v {scan_bitrate_kbps(2829, 150)}k" in lo    # 폴백은 낮은 예산으로 역산
 
 
+def test_dashboard_editor_undo_and_soft_delete():
+    """편집 실수 복구(F-104·F-106): Cmd+Z 스냅샷 스택 + 구간·자막 소프트 삭제.
+    타이핑 스냅샷은 값이 바뀌기 **전**(beforeinput)에 잡아야 한다 — 바뀐 뒤에 잡으면
+    그 타이핑은 영영 못 되돌린다. 제출 검증은 계약 필드명(start_sec/end_sec)으로."""
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert "edUndoOp" in html and "edRedoOp" in html         # Cmd+Z / Shift+Cmd+Z
+    assert 'e.code === "KeyZ"' in html
+    assert "beforeinput" in html                             # 타이핑 스냅샷 시점
+    assert "edRestoreClip" in html and "edRestoreSub" in html  # 소프트 삭제 되살리기
+    assert "c.end_sec <= c.start_sec" in html                # 죽어 있던 제출 검증 소생
+    assert "draftMismatch" not in html                       # 초안 복원은 start 매칭으로
+    assert "edCollect(true)" in html                         # 초안엔 del 마커 포함 저장
+
+
 def test_dashboard_editor_zoom_and_shortcuts():
     """편집실 타임라인은 줌·팬(F-101)과 키보드 단축키(F-103)를 갖는다 — [ 시작 버튼
     툴팁의 (I)/(O) 표기는 이제 실제 바인딩이다. 10등분 고정 눈금은 폐지."""
