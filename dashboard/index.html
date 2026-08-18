@@ -295,6 +295,29 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .edwarn{font-size:12px;line-height:1.5;padding:7px 9px;border-radius:7px;margin-bottom:8px;
           background:color-mix(in srgb,var(--warn) 15%,transparent);border:1px solid var(--warn)}
   .edclip.sel{outline:2px solid var(--warn);z-index:3}
+  /* 트리밍 핸들(F-102) — 블록 양끝 7px. 호버에만 보이되 히트 영역은 상시 */
+  .edclip .hL,.edclip .hR{position:absolute;top:0;bottom:0;width:7px;cursor:ew-resize;
+                          font-style:normal}
+  .edclip .hL{left:0} .edclip .hR{right:0}
+  .edclip:hover .hL,.edclip:hover .hR{background:#ffffff46}
+  /* 출력 타임라인(F-105) — 완성본 순서. 원본 트랙과 달리 줌 없음(≤60초) */
+  .edouttl{position:relative;height:44px;margin-top:3px;border:1px solid var(--line);
+           border-radius:8px;background:var(--surface-2);overflow:hidden}
+  .edoclip{position:absolute;top:6px;bottom:6px;border-radius:5px;background:#5b8def;
+           opacity:.85;cursor:grab;display:flex;align-items:center;justify-content:center;
+           min-width:8px}
+  .edoclip:hover{opacity:1;outline:2px solid var(--ink)}
+  .edoclip.sel{outline:2px solid var(--warn);z-index:3}
+  .edoclip.hook{background:#e2725b} .edoclip.payoff{background:#4a9d6f}
+  .edoclip span{font-size:10px;color:#fff;text-shadow:0 1px 2px #0008;pointer-events:none}
+  .edosub{position:absolute;top:2px;height:4px;width:2px;background:#ffffff88;
+          pointer-events:none;font-style:normal}
+  .edocue{position:absolute;bottom:2px;height:4px;width:5px;border-radius:2px;
+          background:#87CEEB;pointer-events:none;font-style:normal}
+  .edolim{position:absolute;top:0;bottom:0;width:2px;background:var(--warn);
+          pointer-events:none}
+  .edoover{position:absolute;top:0;bottom:0;pointer-events:none;
+           background:repeating-linear-gradient(45deg,#e2725b55 0 6px,transparent 6px 12px)}
   /* 소프트 삭제(F-106) — 지워도 자리에 남아 되살릴 수 있다 */
   .edclip.del{opacity:.22;filter:grayscale(1)}
   .edrow2.del{opacity:.55}
@@ -2200,8 +2223,10 @@ function renderEdit(){
   const blocks = edForm.clips.map((c,i) => `
     <div class="edclip ${esc(c.role)} ${i === edSel ? "sel" : ""} ${c.del ? "del" : ""}"
       style="left:${pct(c.start)}%;width:${Math.max(0.15,((c.end-c.start)/dur*100)).toFixed(4)}%"
-      title="${esc(c.role)} · ${edFmt(c.start)}~${edFmt(c.end)} (${(c.end-c.start).toFixed(1)}초)"
-      onclick="event.stopPropagation();edPick(${i})"><span>${i+1}</span></div>`).join("");
+      title="${esc(edClipTitle(c))}"
+      onmousedown="edClipDown(event,${i})"
+      onclick="edClipClick(event,${i})"><span>${i+1}</span>${
+      canEdit && !c.del ? '<i class="hL"></i><i class="hR"></i>' : ""}</div>`).join("");
   // I/O 마커는 항상 그려두고 표시만 토글한다 — 마킹이 render() 를 타면 재생 중이던
   // video 가 파괴돼 '재생하며 시작·끝 찍기'가 안 된다(edMarksSync 가 무렌더 갱신).
   const marks = `<div class="edmark in" id="edmarkin" style="left:${pct(edForm.in ?? 0)}%;${
@@ -2284,6 +2309,11 @@ function renderEdit(){
           Math.max(0.15,((c.end-c.start)/dur*100)).toFixed(4)}%"></div>`).join("")}
       <div class="vp" id="edmmvp"></div>
     </div>
+    <div class="edcap" style="margin-top:8px">완성본 타임라인 — 순서대로 이어 붙은 결과입니다 ·
+      블록을 끌면 순서가 바뀝니다 <span class="sub">· 빨간 선 = 쇼츠 상한 59.7초 ·
+      흰 눈금 = 자막 · 하늘색 = 내레이션${edClipsChanged()
+        ? " · ⚠ 구간을 고쳐 자막 위치는 재렌더 때 다시 맞춰집니다(눈금은 근사)" : ""}</span></div>
+    <div class="edouttl" id="edouttl">${edOutHtml()}</div>
     <div class="edkb ${edKbHelp ? "on" : ""}" id="edkb"><table>
       <tr><td>Space</td><td>재생 / 정지</td></tr>
       <tr><td>I · O</td><td>구간 시작 · 끝 표시</td></tr>
@@ -2564,7 +2594,7 @@ function edCursorSet(t, moveVideo){
   // 줌 상태에서 커서가 화면 밖으로 나가면 따라간다 — 단, 사용자가 방금(1.5초 내)
   // 일부러 팬했다면 쉰다. 재생 중 timeupdate 가 미니맵 드래그를 되끌어오면 안 된다.
   const tl = document.getElementById("edtl");
-  if (tl && tl.scrollWidth > tl.clientWidth + 1 && Date.now() - edPanAt > 1500){
+  if (tl && !edDrag && tl.scrollWidth > tl.clientWidth + 1 && Date.now() - edPanAt > 1500){
     const x = edCursor / dur * tl.scrollWidth;
     if (x < tl.scrollLeft + 8 || x > tl.scrollLeft + tl.clientWidth - 8){
       edProgScroll = true;
@@ -2630,9 +2660,12 @@ window.edAddClip = () => {
   const a = edForm.in, b = edForm.out;
   if (a == null || b == null || b <= a){ toast("시작과 끝을 먼저 찍으세요", true); return; }
   edSnap();
+  // 소스 시각순 정렬은 목록이 아직 그 순서일 때만 — 출력 트랙 드래그·↑↓로 만든
+  // 커스텀 순서(= 완성본 순서)를 새 구간 추가가 통째로 리셋하면 안 된다.
+  const wasSorted = edForm.clips.every((c, k, arr) => !k || arr[k-1].start <= c.start);
   edForm.clips.push({ start: +a.toFixed(3), end: +b.toFixed(3),
                       role: edClipsEff().length ? "build" : "hook" });
-  edForm.clips.sort((x,y) => x.start - y.start);
+  if (wasSorted) edForm.clips.sort((x,y) => x.start - y.start);
   edForm.in = edForm.out = null;
   edSel = edForm.clips.findIndex(c => c.start === +a.toFixed(3));
   render();
@@ -2785,6 +2818,7 @@ window.edTlOnWheel = ev => {
   // deltaX 를 무시하면 트랙패드 가로 스와이프가 '연속 줌아웃'이 되고, Chromium 은
   // Shift+휠을 deltaX 로 재매핑하므로 deltaY 만 보면 팬이 무동작이 된다.
   ev.preventDefault();
+  if (edDrag) return;   // 드래그 중 배율·팬 변경 금지 — x0/pxPerSec 기준이 무너진다
   const el = document.getElementById("edtl"); if (!el) return;
   const dx = ev.deltaX, dy = ev.deltaY;
   if (ev.shiftKey || Math.abs(dx) > Math.abs(dy)){ el.scrollLeft += (dx || dy); return; }
@@ -2830,6 +2864,186 @@ window.edMmDown = ev => {
   document.addEventListener("mouseup", up);
 };
 
+// ── 클립 드래그 편집 (F-102) ──────────────────────────────────────────
+// 몸통 = 이동, 양끝 핸들 = 트리밍. 드래그 중엔 블록만 제자리 갱신하고 render() 는
+// 드롭에서 한 번 — 재생 중 드래그가 video 를 파괴하면 안 된다.
+let edDrag = null, edDragJust = false;
+
+function edSnapTargets(exceptI){
+  const out = [0, Number((edData.timeline||{}).duration_sec) || 1];
+  edForm.clips.forEach((c, i) => { if (i !== exceptI && !c.del) out.push(c.start, c.end); });
+  edForm.tts.forEach(x => { if (!x.del) out.push(x.src, x.src + x.dur); });
+  edForm.dSubs.forEach(s => { if (s.src != null && !s.del) out.push(s.src); });
+  return out;
+}
+// 화면상 8px 안이면 경계에 붙는다. 정수 초 그리드는 더 가까운 경계가 없을 때만.
+// 반환 null = 스냅 없음 — '스냅 안 됨'을 t 그대로 돌려주면 호출부의 거리 비교에서
+// 거리 0으로 이겨버려 반대쪽 끝의 스냅이 영영 선택되지 않는다.
+function edSnapSec(t, targets, pxPerSec){
+  const thr = 8 / Math.max(1e-6, pxPerSec);
+  let best = null, bd = thr;
+  targets.forEach(x => { const d = Math.abs(x - t); if (d < bd){ bd = d; best = x; } });
+  const g = Math.round(t);
+  if (Math.abs(g - t) < Math.min(bd, thr)) best = g;
+  return best;
+}
+
+function edClipTitle(c){
+  return `${c.role} · ${edFmt(c.start)}~${edFmt(c.end)} (${(c.end - c.start).toFixed(1)}초)`;
+}
+
+window.edClipClick = (ev, i) => {
+  ev.stopPropagation();
+  if (edDragJust){ edDragJust = false; return; }   // 드롭 직후의 click 은 시킹이 아니다
+  edPick(i);
+};
+// 드롭 표시는 다음 틱에 자동 소거 — render() 가 원소를 갈아끼우면 유령 click 이
+// 아예 안 와서, 소거를 click 에만 맡기면 플래그가 새어 다음 정상 클릭을 삼킨다.
+function edDropFlag(){
+  edDragJust = true;
+  setTimeout(() => { edDragJust = false; }, 0);
+}
+
+window.edClipDown = (ev, i) => {
+  if (!edCanEdit() || !edForm.clips[i] || edForm.clips[i].del) return;
+  if (ev.button !== 0) return;
+  ev.preventDefault(); ev.stopPropagation();
+  const tlc = document.getElementById("edtlc"); if (!tlc) return;
+  const dur = Number((edData.timeline||{}).duration_sec) || 1;
+  const c = edForm.clips[i];
+  edSel = i; edSelSync(); edDragJust = false;
+  // 스냅샷은 실제로 움직였을 때 1회 — 클릭만 하고 만 드래그가 무변화 스텝을 남기면
+  // Cmd+Z 가 한 번 씹힌다. pre 에 드래그 전 상태를 들고 있다가 첫 이동에서 push.
+  edDrag = { i, x0: ev.clientX, s0: c.start, e0: c.end, dur,
+             mode: ev.target.classList.contains("hL") ? "L"
+                 : ev.target.classList.contains("hR") ? "R" : "M",
+             pxPerSec: tlc.getBoundingClientRect().width / dur,
+             targets: edSnapTargets(i), pre: edSnapJson(), snapped: false, moved: false };
+  document.addEventListener("mousemove", edClipMove);
+  document.addEventListener("mouseup", edClipUp);
+};
+function edClipMove(ev){
+  const d = edDrag; if (!d) return;
+  if (!ev.buttons){ edClipUp(); return; }          // 창 밖에서 버튼을 놓은 경우
+  if (!d.moved && Math.abs(ev.clientX - d.x0) <= 3) return;
+  if (!d.snapped){                                  // 첫 실이동 — 드래그 전 상태를 push
+    edUndo.push(d.pre); if (edUndo.length > 100) edUndo.shift();
+    edRedo.length = 0; edSnapTag = "";
+    d.snapped = true; d.moved = true;
+  }
+  const c = edForm.clips[d.i];
+  const dt = (ev.clientX - d.x0) / d.pxPerSec;
+  const snap = ev.altKey ? (v => v) : (v => edSnapSec(v, d.targets, d.pxPerSec));
+  if (d.mode === "M"){
+    const len = d.e0 - d.s0;
+    let ns = Math.max(0, Math.min(d.dur - len, d.s0 + dt));
+    const s1 = snap(ns), s2 = snap(ns + len);          // 시작·끝 중 가까운 스냅에
+    const d1 = s1 == null ? Infinity : Math.abs(s1 - ns);
+    const d2 = s2 == null ? Infinity : Math.abs(s2 - (ns + len));
+    if (d1 <= d2 && s1 != null) ns = s1;
+    else if (s2 != null) ns = s2 - len;
+    ns = Math.max(0, Math.min(d.dur - len, ns));
+    c.start = +ns.toFixed(3); c.end = +(ns + len).toFixed(3);
+  } else if (d.mode === "L"){
+    const raw = Math.max(0, Math.min(c.end - 0.2, d.s0 + dt));
+    const ns = snap(raw) ?? raw;
+    c.start = +Math.max(0, Math.min(c.end - 0.2, ns)).toFixed(3);
+  } else {
+    const raw = Math.max(c.start + 0.2, Math.min(d.dur, d.e0 + dt));
+    const ne = snap(raw) ?? raw;
+    c.end = +Math.max(c.start + 0.2, Math.min(d.dur, ne)).toFixed(3);
+  }
+  const el = document.querySelectorAll("#edtlc .edclip")[d.i];
+  if (el){
+    el.style.left = (c.start / d.dur * 100).toFixed(4) + "%";
+    el.style.width = Math.max(0.15, (c.end - c.start) / d.dur * 100).toFixed(4) + "%";
+    el.title = edClipTitle(c);
+  }
+}
+function edClipUp(){
+  const d = edDrag; edDrag = null;
+  document.removeEventListener("mousemove", edClipMove);
+  document.removeEventListener("mouseup", edClipUp);
+  if (d && d.moved){ edDropFlag(); render(); }
+}
+
+// ── 출력 타임라인 (F-105) — 완성본 순서 트랙 ─────────────────────────
+// 좌표계가 다르다: 원본 트랙은 원본 절대초, 여기는 출력 누적초(0~). 내레이션 위치는
+// '담고 있는 구간의 오프셋 + 구간 내 상대시각'으로 환산한다(엔진과 같은 규칙의 근사).
+function edOutHtml(){
+  const eff = []; let off = 0;
+  edForm.clips.forEach((c, i) => {
+    if (!c.del){ eff.push({ i, c, off }); off += Math.max(0, c.end - c.start); } });
+  const total = off, lim = 59.7, span = Math.max(total, lim) || 1;
+  const px = v => (Math.max(0, Math.min(span, v)) / span * 100).toFixed(3) + "%";
+  let h = eff.map(e => `<div class="edoclip ${esc(e.c.role)} ${e.i === edSel ? "sel" : ""}"
+      data-i="${e.i}" style="left:${px(e.off)};width:${
+        Math.max(0.4, (e.c.end - e.c.start) / span * 100).toFixed(3)}%"
+      title="${e.i + 1}번 구간 · 완성본 ${e.off.toFixed(1)}~${
+        (e.off + e.c.end - e.c.start).toFixed(1)}초 — 끌면 순서가 바뀝니다"
+      onmousedown="edOutDown(event,${e.i})"><span>${e.i + 1}</span></div>`).join("");
+  // 자막 눈금도 내레이션과 같은 규약으로 재환산한다(src → 담은 구간 오프셋). s.start
+  // (종전 렌더의 완성본 시각)를 그대로 찍으면 구간을 고친 뒤 낡은 좌표를 그린다.
+  // src 없는 신규 줄만 사용자가 적은 완성본 시각을 쓴다. 어차피 근사 — 정본은 엔진 재매핑.
+  h += edForm.dSubs.filter(s => !s.del && String(s.text).trim()).map(s => {
+    let p;
+    if (s.src != null){
+      const e = eff.find(x => s.src >= x.c.start - 0.5 && s.src <= x.c.end + 0.5);
+      if (!e) return "";                       // 구간에서 빠진 자막은 그리지 않는다
+      p = e.off + Math.max(0, Math.min(e.c.end - e.c.start, s.src - e.c.start));
+    } else p = Number(s.start) || 0;
+    return `<i class="edosub" style="left:${px(p)}"></i>`;
+  }).join("");
+  h += edForm.tts.filter(t => !t.del).map(t => {
+    const e = eff.find(x => t.src >= x.c.start - 0.5 && t.src <= x.c.end + 0.5);
+    if (!e) return "";
+    return `<i class="edocue" style="left:${
+      px(e.off + Math.max(0, Math.min(e.c.end - e.c.start, t.src - e.c.start)))}"></i>`;
+  }).join("");
+  if (total > lim)
+    h += `<div class="edoover" style="left:${px(lim)};width:${
+      ((total - lim) / span * 100).toFixed(3)}%"></div>`;
+  // 상한선은 안쪽으로 2px 클램프 — total≤상한이면 left 가 100% 라 overflow 에 잘린다
+  h += `<div class="edolim" style="left:calc(${px(lim)} - 2px)" title="쇼츠 상한 59.7초"></div>`;
+  return h;
+}
+window.edOutDown = (ev, i) => {
+  if (ev.button !== 0) return;
+  ev.preventDefault();
+  edSel = i; edSelSync(); edDragJust = false;
+  edDrag = { out: true };            // 드래그 중 키·휠·자동추적 동결(위 가드들 공용)
+  const x0 = ev.clientX; let moved = false;
+  const move = e => {
+    if (!e.buttons){ up(e); return; }
+    if (Math.abs(e.clientX - x0) > 4) moved = true;
+  };
+  const up = e => {
+    document.removeEventListener("mousemove", move);
+    document.removeEventListener("mouseup", up);
+    edDrag = null;
+    if (!moved){ const c = edForm.clips[i]; if (c) edSeek(c.start); return; }
+    if (!edCanEdit()) return;
+    // 드롭 x 와 다른 블록들의 중앙 비교로 삽입 슬롯 결정 → 전체 목록 인덱스로 환산
+    let slot = 0; const mids = [];
+    document.querySelectorAll("#edouttl .edoclip").forEach(el => {
+      const j = +el.dataset.i; if (j === i) return;
+      const m = el.getBoundingClientRect();
+      mids.push({ j, mid: m.left + m.width / 2 });
+    });
+    mids.forEach((m, k) => { if (e.clientX > m.mid) slot = k + 1; });
+    edSnap();
+    const list = edForm.clips;
+    const [mv] = list.splice(i, 1);
+    const effIdx = [];
+    list.forEach((c, j) => { if (!c.del) effIdx.push(j); });
+    const at = slot >= effIdx.length ? list.length : effIdx[slot];
+    list.splice(at, 0, mv);
+    edSel = at; edDropFlag(); render();
+  };
+  document.addEventListener("mousemove", move);
+  document.addEventListener("mouseup", up);
+};
+
 // ── 키보드 단축키 (F-103) ─────────────────────────────────────────────
 function edCanEdit(r){
   // '현재 편집 중인 카드' 조회를 한 곳으로 — renderEdit 은 찾아 둔 행을 넘긴다
@@ -2843,6 +3057,8 @@ function edSelSync(){
     el.classList.toggle("sel", i === edSel));
   document.querySelectorAll(".edpane .edrow2").forEach((el, i) =>
     el.classList.toggle("sel", i === edSel));
+  document.querySelectorAll("#edouttl .edoclip").forEach(el =>
+    el.classList.toggle("sel", +el.dataset.i === edSel));   // 두 트랙 상호 하이라이트
 }
 window.edKbToggle = () => {
   edKbHelp = !edKbHelp;
@@ -2853,6 +3069,7 @@ window.edKbToggle = () => {
 // 하면 눌러도 아무 일이 없어 '되돌려졌다'는 오해만 산다.
 document.addEventListener("keydown", e => {
   if (tab !== "edit" || !edForm) return;
+  if (edDrag) return;   // 드래그 중 키 조작 금지 — Cmd+Z 가 스택·드래그 상태를 찢는다
   // Cmd+Z / Shift+Cmd+Z (F-104) — 입력 필드 안에서는 네이티브 undo 에 양보한다
   if ((e.metaKey || e.ctrlKey) && !e.altKey && e.code === "KeyZ"){
     const t0 = e.target;
