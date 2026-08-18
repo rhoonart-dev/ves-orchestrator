@@ -2288,6 +2288,19 @@ def test_scan_cmd_fps_and_budget_follow_source():
     assert f"-b:v {scan_bitrate_kbps(2829, 150)}k" in lo    # 폴백은 낮은 예산으로 역산
 
 
+def test_dashboard_editor_zoom_and_shortcuts():
+    """편집실 타임라인은 줌·팬(F-101)과 키보드 단축키(F-103)를 갖는다 — [ 시작 버튼
+    툴팁의 (I)/(O) 표기는 이제 실제 바인딩이다. 10등분 고정 눈금은 폐지."""
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert 'id="edtlc"' in html and "edZoomSet" in html      # 캔버스 + 줌
+    assert "edDrawTicks" in html and "edTicks(" not in html  # 눈금 동적화(고정 10등분 제거)
+    assert 'id="edmm"' in html and "edMmSync" in html        # 미니맵 + 뷰포트 동기화
+    assert 'e.code === "KeyI"' in html                       # I/O 는 자판 위치 기준(한글 IME)
+    assert 'k === " "' in html                               # Space 재생/정지
+    assert "edSelSync" in html                               # 키보드 내비의 무렌더 하이라이트
+
+
 def test_dashboard_scan_fps_label_reads_meta():
     """전체 훑기 라벨은 재료 메타(scan_fps)를 읽는다 — 구 재료(0048 전)엔 메타가
     없으므로 프록시 산출물은 4fps 로, 마스터 산출물은 fps 미상(숫자 없음)으로 폴백."""
