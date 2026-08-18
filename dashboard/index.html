@@ -2061,7 +2061,7 @@ function edSourceAt(t){
   return med.scan ? { key: med.scan, offset: 0, hq: false } : null;
 }
 
-let edCurSrc = null, edSeeking = false;
+let edCurSrc = null, edSeeking = false, edLoadGen = 0;
 async function edMountVideo(){
   const v = document.getElementById("edvid"); if (!v) return;
   v.ontimeupdate = () => {
@@ -2073,20 +2073,44 @@ async function edMountVideo(){
   await edLoadSource(edCursor, false);
 }
 
+// 시킹은 메타데이터가 온 뒤에만 유효하다 — readyState 0 인 video 에 currentTime 을 넣으면
+// 브라우저가 그 시킹을 조용히 버린다. 종전 코드는 src 대입 직후 edCurSrc 를 기록해서,
+// 로드가 끝나기 전의 재클릭이 "같은 소스"로 판정돼 로드 분기를 건너뛰고 죽은 시킹만 했다
+// (타임라인 클릭 후 화면이 검게 멈추는 '먹통'의 정체). 그래서 ① edCurSrc 는 메타데이터가
+// 실제로 온 뒤에만 기록하고, ② 세대표(edLoadGen)로 낡은 호출을 물러나게 한다 — 연타로
+// 로드 두 개가 겹치면 뒤 클릭이 이기고 앞 클릭은 src 도 시킹도 건드리지 않는다.
 async function edLoadSource(t, play){
   const v = document.getElementById("edvid"); if (!v) return;
   const want = edSourceAt(t);
   if (!want){ return; }
+  const gen = ++edLoadGen;
   const nm = document.getElementById("edsrcname");
-  if (!edCurSrc || edCurSrc.key !== want.key){
+  if (!edCurSrc || edCurSrc.key !== want.key || v.readyState === 0){
     edSeeking = true;
-    try {
-      v.src = await signedUrl("ves-outputs", want.key, 3600);
-      edCurSrc = want;
-    } catch(e){ toast("영상 열기 실패: " + e.message, true); edSeeking = false; return; }
-    await new Promise(res => { v.onloadedmetadata = res; setTimeout(res, 4000); });
+    edCurSrc = null;                     // 로드 완료 전엔 '열린 소스 없음'
+    let url;
+    try { url = await signedUrl("ves-outputs", want.key, 3600); }
+    catch(e){ if (gen === edLoadGen){ toast("영상 열기 실패: " + e.message, true); edSeeking = false; } return; }
+    if (gen !== edLoadGen) return;
+    // 같은 URL 이 이미 로드 중이면 src 재대입 금지 — 대입은 받던 것을 처음부터 다시 받는다.
+    // 단 이전 로드가 에러로 죽었으면(v.error) 같은 URL 이라도 다시 대입해 되살린다.
+    if (v.src !== url || v.error) v.src = url;
+    await new Promise(res => {
+      const done = () => { v.removeEventListener("loadedmetadata", done); res(); };
+      if (v.readyState > 0) return done();
+      v.addEventListener("loadedmetadata", done);
+      setTimeout(done, 15000);           // scan 은 150~400MB — 종전 4초는 모자랐다
+    });
+    if (gen !== edLoadGen) return;
+    if (v.readyState === 0){             // 타임아웃 — 시킹해봐야 버려지니 사실대로 알린다
+      edSeeking = false;
+      toast("영상 로드가 느립니다 — 잠시 후 다시 눌러 주세요", true);
+      return;
+    }
+    edCurSrc = want;
     edSeeking = false;
   }
+  if (gen !== edLoadGen) return;
   if (nm) nm.textContent = want.hq ? "정밀 구간(24fps)" : "전체 훑기(4fps)";
   v.currentTime = Math.max(0, t - want.offset);
   if (play) v.play().catch(()=>{});
