@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """ves-agent 메인 루프 — 6대 전부 이 프로그램 하나를 돌린다 (동질 워커, §6).
 
-루프: heartbeat → (버전 드리프트 확인·갱신) → claim → 실행. 유휴 백오프 3→30초.
-명령 채널은 없다 — 일감은 테이블에 있고, 이 루프가 3초마다 스스로 집어간다(pull 모델).
+루프: heartbeat → (버전 드리프트 확인·갱신) → claim → 실행.
+유휴 백오프는 poll_sec→poll_max_sec (VES_POLL_SEC/VES_POLL_MAX_SEC, 기본 둘 다 180초 — 사실상 고정 180초).
+명령 채널은 없다 — 일감은 테이블에 있고, 이 루프가 폴링 주기마다 스스로 집어간다(pull 모델).
 실행: /opt/ves/orchestrator/.venv/bin/python -m ves.agent.worker  (launchd KeepAlive)
 """
 from __future__ import annotations
