@@ -322,6 +322,41 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .edthumb{flex:none;width:160px;height:90px;border-radius:6px;background:var(--surface-2);
            background-size:cover;border:1px solid var(--line)}
   .edscrubinfo b{font-variant-numeric:tabular-nums;font-size:15px}
+  /* 편집실 내레이션 탭(0047) — 하늘색 = 영상 속 TTS 자막 색 계열 */
+  .edcue{position:absolute;top:16px;height:12px;border-radius:3px;min-width:6px;
+         background:#87CEEB;opacity:.9;cursor:pointer;box-shadow:0 0 0 1px #0006;z-index:2}
+  .edcue:hover,.edcue.sel{outline:2px solid var(--ink);z-index:5}
+  .edcue.orphan{background:repeating-linear-gradient(45deg,#87CEEB 0 4px,transparent 4px 8px);
+                background-color:var(--serious)}
+  .edcue.del{opacity:.25;background:var(--muted)}
+  .edcue.new{outline:1.5px dashed #87CEEB;background:transparent}
+  .ednrows{display:flex;flex-direction:column;gap:6px}
+  .ednrow{border:1px solid var(--line);border-radius:8px;padding:6px 8px}
+  .ednrow.sel{border-color:#87CEEB;background:color-mix(in srgb,#87CEEB 7%,transparent)}
+  .ednrow.deleted{opacity:.55}
+  .ednrow .hd{display:flex;gap:6px;align-items:center;font-size:11.5px;color:var(--muted);
+              flex-wrap:wrap}
+  .ednrow .hd .n{font-weight:700;color:#87CEEB}
+  .ednrow .hd .t{cursor:pointer;font-variant-numeric:tabular-nums;
+                 text-decoration:underline dotted}
+  .ednrow .hd select{font:inherit;font-size:10.5px;padding:0 3px}
+  .ednrow textarea{width:100%;box-sizing:border-box;margin-top:4px;font:inherit;
+    font-size:12.5px;line-height:1.45;padding:4px 6px;border:1px solid transparent;
+    border-radius:6px;background:transparent;color:var(--ink);resize:none}
+  .ednrow textarea:focus{border-color:var(--line);background:var(--surface);outline:none}
+  .ednrow textarea.dirty{border-color:var(--warn);
+    background:color-mix(in srgb,var(--warn) 12%,transparent)}
+  .ednrow textarea.empty{text-decoration:line-through;opacity:.5}
+  .ednrow.deleted textarea{text-decoration:line-through;opacity:.6}
+  .fitrow{display:flex;gap:8px;align-items:center;margin-top:3px;font-size:11px;
+    color:var(--muted);font-variant-numeric:tabular-nums}
+  .fitbar{flex:1;height:4px;border-radius:2px;background:var(--surface-2);overflow:hidden}
+  .fitbar i{display:block;height:100%;background:#87CEEB;border-radius:2px}
+  .fitbar i.over{background:var(--warn)}
+  .fitrow .fitnote{color:var(--warn)}
+  .orphanwarn{font-size:11.5px;line-height:1.5;margin-top:5px;padding:5px 8px;
+    border-radius:6px;background:color-mix(in srgb,var(--serious) 14%,transparent);
+    border:1px solid var(--serious)}
   @media (max-width: 900px){ .edgrid{grid-template-columns:1fr} }
   /* 테이블 공통 */
   table{width:100%;border-collapse:collapse;font-size:13px}
@@ -1577,7 +1612,7 @@ window.submitRerender = rid => {
 // 편집 폼 상태는 edForm 하나로 모은다 — 0038 의 RERENDER_ORIG 처럼 전역 단일 슬롯이지만,
 // 편집실은 카드를 한 번에 하나만 여는 화면이라(탭 전체를 차지) 충돌 지점이 없다.
 let edRid = null, edData = null, edLoading = false, edPoll = null, edCursor = 0;
-let edForm = null, edPane = "clips", edSel = -1;
+let edForm = null, edPane = "clips", edSel = -1, edTtsSel = -1;
 
 function edResetForm(){
   const tl = (edData && edData.timeline) || {};
@@ -1588,6 +1623,14 @@ function edResetForm(){
   const clips = (tl.clips || []).map(c => ({
     start: Number(c.start_sec) || 0, end: Number(c.end_sec) || 0, role: c.role || "build",
   }));
+  // 내레이션(0047) — 좌표이자 신원 = 원본 절대초(src). 자막과 달리 구간을 고쳐도
+  // 좌표가 안 흔들리므로 잠그지 않는다. del 은 화면 상태(보낼 때 걸러냄) — 전량
+  // 교체 규약에서 '삭제 = 목록에서 빠짐'이지만, 되살리기가 있어야 실수를 되돌린다.
+  const tts = (tl.tts || []).map(c => ({
+    src: Number(c.source_sec) || 0, dur: Number(c.duration_sec) || 3,
+    voice: c.voice || "ko_female", text: c.text || "",
+    del: false, isNew: false,
+  }));
   // d* = 사람이 지금 만지고 있는 값. 원본과 따로 들고 있어야 화면이 다시 그려져도
   // (탭 전환·재조회) 고치던 것이 날아가지 않는다. clips 는 편집 자체가 순서·개수를
   // 바꾸므로 원본 스냅샷(clips0)과 비교해 '고쳤는지'를 판정한다.
@@ -1595,8 +1638,9 @@ function edResetForm(){
              dTitle: tl.top_title || "",
              dSubs: subs.map(s => ({ ...s })),
              clips0: clips.map(c => ({ ...c })), clips,
+             tts0: tts.map(t => ({ ...t })), tts,
              design: {}, in: null, out: null };
-  edSel = -1;
+  edSel = -1; edTtsSel = -1;
   // 저장해둔 초안(0044)이 있으면 그 위에서 이어서 고친다. 자막은 전량 교체라 개수가
   // 일치할 때만 덮는다 — 그 사이 재렌더로 자막 구성이 바뀌었으면 엉뚱한 줄에 붙는다.
   const d = (edData && edData.draft) || null;
@@ -1612,6 +1656,26 @@ function edResetForm(){
       edForm.dSubs = ds.map((x, i) => ({ ...subs[i], text: String(x.text ?? subs[i].text) }));
     else if (Array.isArray(ds) && ds.length)
       edForm.draftMismatch = ds.length;      // 화면이 '초안 불일치'로 알린다
+    // 내레이션 초안 — 전량 교체 목록을 편집 상태로 되살린다: 원본 행은 src 매칭으로
+    // 문구·목소리·창을 덮고, 초안에 없는 원본 행은 '삭제됨', 매칭 안 되는 초안 행은 신규.
+    const dt = d.tts;
+    if (Array.isArray(dt)){
+      const used = new Set();
+      edForm.tts = tts.map(t => {
+        const j = dt.findIndex((x, k) => !used.has(k)
+          && Math.abs(Number(x.source_time_sec) - t.src) < 0.01);
+        if (j < 0) return { ...t, del: true };
+        used.add(j);
+        const x = dt[j];
+        return { ...t, text: String(x.text ?? t.text), voice: x.voice || t.voice,
+                 dur: Number(x.duration_sec) || t.dur };
+      });
+      dt.forEach((x, k) => { if (!used.has(k))
+        edForm.tts.push({ src: Number(x.source_time_sec) || 0,
+                          dur: Number(x.duration_sec) || 3,
+                          voice: x.voice || "ko_female", text: String(x.text || ""),
+                          del: false, isNew: true }); });
+    }
   }
 }
 
@@ -1624,6 +1688,29 @@ function edClipsChanged(){
   if (a.length !== b.length) return true;
   return a.some((c, i) => Math.abs(c.start - b[i].start) > 0.001
                        || Math.abs(c.end - b[i].end) > 0.001 || c.role !== b[i].role);
+}
+
+// 내레이션 원본 행 — 좌표(src)가 곧 신원이므로 인덱스가 아니라 src 로 찾는다
+// (새 행이 중간에 끼면 인덱스 비교는 모든 뒷줄을 엉뚱한 원본과 대조하게 된다).
+function edTts0For(t){
+  return edForm.tts0.find(o => Math.abs(o.src - t.src) < 0.0005);
+}
+
+// 내레이션이 원본과 달라졌는가 — 삭제·신규·문구·목소리·창 중 하나라도.
+function edTtsChanged(){
+  if (edForm.tts.length !== edForm.tts0.length) return true;
+  return edForm.tts.some(t => {
+    if (t.del || t.isNew) return true;
+    const o = edTts0For(t);
+    return !o || t.text !== o.text || t.voice !== o.voice
+        || Math.abs(t.dur - o.dur) > 0.001;
+  });
+}
+
+// 내레이션의 원본 장면이 지금 구간 목록에서 빠져 있는가 — 그대로 두면 옆 장면 위에서
+// 재생된다(엔진 스냅 규칙). 화면이 미리 경고할 수 있는 유일한 지점이다.
+function edTtsOrphan(t){
+  return !edForm.clips.some(c => t.src >= c.start - 0.5 && t.src <= c.end + 0.5);
 }
 
 // 화면의 현재 값 → 오버라이드. 고치지 않은 항목은 **키 자체를 뺀다** — 자막을 안 건드렸는데
@@ -1648,6 +1735,13 @@ function edCollect(){
                      end_sec: +Number(s.end).toFixed(3), text: s.text }))
         .filter(x => String(x.text).trim());
   }
+  // 내레이션 — 전량 교체(빈 배열 = 전부 삭제). 자막과 달리 구간과 같이 보내도 된다:
+  // 좌표가 원본 절대초라 구간이 바뀌어도 안 흔들린다(엔진이 최종 타임라인 기준으로 변환).
+  if (edTtsChanged())
+    ov.tts = edForm.tts.filter(t => !t.del && String(t.text).trim())
+      .map(t => ({ source_time_sec: +Number(t.src).toFixed(3),
+                   duration_sec: +Number(t.dur).toFixed(3),
+                   voice: t.voice, text: String(t.text).trim() }));
   if (edForm.design && Object.keys(edForm.design).length) ov.design = { ...edForm.design };
   return ov;
 }
@@ -1672,6 +1766,10 @@ function edQueueSave(){
   }, 1500);
 }
 
+// 한국어 TTS 대략치(자/초) — fit 게이지 표시용. 실제 fit 은 엔진이 mp3 실측으로 한다.
+const ED_TTS_CHARS_PER_SEC = 5.5;
+const edTtsEst = txt => String(txt || "").replace(/\s/g, "").length / ED_TTS_CHARS_PER_SEC;
+
 window.edMark = () => {
   if (!edForm) return;
   const te = edTitleEl();
@@ -1686,9 +1784,26 @@ window.edMark = () => {
     el.classList.toggle("dirty", !orig || el.value !== orig.text);
     el.classList.toggle("empty", !el.value.trim());
   });
+  edForm.tts.forEach((t, i) => {
+    const el = document.getElementById("edtx_" + i); if (!el) return;
+    t.text = el.value;
+    const orig = edTts0For(t);
+    el.classList.toggle("dirty", t.isNew || !orig || el.value !== orig.text);
+    el.classList.toggle("empty", !el.value.trim());
+    // 창 길이 대비 예상 발화 길이 — 넘치면 엔진이 뜻을 지키며 줄여 재합성한다는 예고
+    const e = edTtsEst(t.text), over = e > t.dur;
+    const bar = document.getElementById("edtfb_" + i);
+    if (bar){ bar.style.width = Math.min(100, e / t.dur * 100) + "%";
+              bar.classList.toggle("over", over); }
+    const lab = document.getElementById("edtfl_" + i);
+    if (lab) lab.innerHTML = over
+      ? `예상 ${e.toFixed(1)}s <span class="fitnote">— 창(${t.dur.toFixed(1)}s)보다 길어 AI가 줄여 다시 씁니다</span>`
+      : `예상 ${e.toFixed(1)}s / 창 ${t.dur.toFixed(1)}s`;
+  });
   const ov = edCollect();
   const bits = [ov.title ? "제목" : null, ov.clips ? "구간" : null,
-                ov.subtitles ? "자막" : null, ov.design ? "스타일" : null].filter(Boolean);
+                ov.subtitles ? "자막" : null, ov.tts ? "내레이션" : null,
+                ov.design ? "스타일" : null].filter(Boolean);
   const btn = document.getElementById("edsubmit");
   if (btn){
     btn.disabled = !bits.length;
@@ -1712,6 +1827,10 @@ window.edSubmit = async () => {
   if (ov.subtitles && !ov.subtitles.length){
     toast("자막을 전부 지울 수는 없습니다 — 자막 없이 가려면 검수에서 반려하세요", true); return;
   }
+  // 내레이션은 빈 배열이 유효하다(전부 삭제) — 단 실수일 수 있으니 한 번 확인.
+  if (ov.tts && !ov.tts.length
+      && !window.confirm("내레이션을 전부 삭제한 채 다시 렌더합니다 — 음성도 하늘색 자막도 모두 빠집니다. 계속할까요?"))
+    return;
   if (ov.clips){
     const bad = ov.clips.find(c => c.end <= c.start);
     if (bad){ toast("끝이 시작보다 앞인 구간이 있습니다", true); return; }
@@ -1800,7 +1919,8 @@ function edDraftList(){
     const dr = d.draft || {};
     const bits = [dr.title ? "제목" : null,
                   dr.subtitles ? `자막 ${dr.subtitles.length}줄` : null,
-                  dr.clips ? `구간 ${dr.clips.length}개` : null].filter(Boolean).join(" · ");
+                  dr.clips ? `구간 ${dr.clips.length}개` : null,
+                  dr.tts ? `내레이션 ${dr.tts.length}건` : null].filter(Boolean).join(" · ");
     // 카드가 이미 닫혔으면(재렌더·발행·반려) 그 초안으로는 보낼 수 없다 — 미리 알린다
     const rv = (state.reviews||[]).find(x => x.id === d.review_id);
     const dead = !rv || rv.status !== "waiting";
@@ -1905,17 +2025,21 @@ function renderEdit(){
       <div class="edright">
         <div class="edtabs">
           ${[["clips","구간 "+edForm.clips.length],["subs","자막 "+edForm.dSubs.length],
+             ["tts","내레이션 "+edForm.tts.filter(t=>!t.del).length],
              ["style","스타일"]].map(([k,l]) =>
             `<button class="edtab ${edPane===k?"on":""}" onclick="edPane='${k}';render()">${esc(l)}</button>`).join("")}
         </div>
         <div class="edpane">${
           edPane === "clips" ? edPaneClips(canEdit, dur)
           : edPane === "subs" ? edPaneSubs(canEdit)
+          : edPane === "tts" ? edPaneTts(canEdit)
           : edPaneStyle(canEdit)}</div>
       </div>
     </div>
 
     <div class="edcap" style="margin-top:12px">원본 타임라인 — 색 블록이 이 쇼츠에 쓰인 구간입니다
+      ${edForm.tts.length ? `<span style="color:#87CEEB">· 하늘색 마커가 내레이션</span>
+        <span class="sub">(빗금 = 원본 장면이 구간에서 빠짐)</span>` : ""}
       ${(med.closeups||[]).length ? `<span class="sub">· 진한 부분은 정밀 편집용 고화질이 있는 구간</span>` : ""}</div>
     <div class="edtl" id="edtl" onclick="edClickTl(event)">
       ${sp.assets && sp.assets.wave ? `<img class="edwave" id="edwave">` : ""}
@@ -1923,6 +2047,11 @@ function renderEdit(){
           ((c.end_sec-c.start_sec)/dur*100).toFixed(4)}%"></div>`).join("")}
       <div class="edticks">${edTicks(dur)}</div>
       ${blocks}${marks}
+      ${edForm.tts.map((t,i) => `<div class="edcue ${i===edTtsSel?"sel":""} ${
+          edTtsOrphan(t)?"orphan":""} ${t.del?"del":""} ${t.isNew?"new":""}"
+        style="left:${pct(t.src)}%;width:${Math.max(0.3, t.dur/dur*100).toFixed(4)}%"
+        title="내레이션 ${i+1} · 원본 ${edFmt(t.src)} · ${esc(String(t.text).slice(0,24))}"
+        onclick="event.stopPropagation();edTtsPick(${i})"></div>`).join("")}
       <div class="edcur" id="edcur" style="left:${pct(edCursor)}%"></div>
     </div>
     <div class="edscrub">
@@ -1949,6 +2078,8 @@ function renderEdit(){
   // 값 주입은 프로그래매틱으로(따옴표·줄바꿈이 attribute 를 깨지 않게)
   if (edTitleEl()) edTitleEl().value = edForm.dTitle;
   edForm.dSubs.forEach((s, i) => { const el = edSubEl(i); if (el) el.value = s.text; });
+  edForm.tts.forEach((t, i) => {
+    const el = document.getElementById("edtx_" + i); if (el) el.value = t.text; });
   Object.entries(edForm.design || {}).forEach(([k,v]) => {
     const el = document.getElementById("edd_" + k); if (el) el.value = v ?? "";
   });
@@ -2022,6 +2153,64 @@ function edPaneSubs(canEdit){
       <input id="ednt" placeholder="새 자막 문구">
       <button class="mini" onclick="edAddSub()">＋ 자막 추가</button>
     </div>` : ""}`;
+}
+
+// ── 우측 패널: 내레이션(0047) ──────────────────────────────────────────
+// 문구는 story 단계 LLM 산출물이라 여기가 사람이 고칠 유일한 통로다. 좌표는 원본
+// 절대초(신원 겸용) — 구간을 고쳐도 안 흔들리므로 자막처럼 잠그지 않는다.
+const ED_VOICES = [["ko_female","기본 여성"],["ko_female_high","밝은 여성"],
+                   ["ko_male","기본 남성"],["ko_male_low","낮은 남성"]];
+function edVoiceSel(cur, canEdit, handler){
+  const opts = ED_VOICES.some(([v]) => v === cur)
+    ? ED_VOICES : [[cur, cur], ...ED_VOICES];       // 낯선 프리셋(chat_*)은 현재값 보존
+  return `<select ${canEdit?"":"disabled"} onchange="${handler}"
+    onclick="event.stopPropagation()">${opts.map(([v,l]) =>
+    `<option value="${esc(v)}" ${v===cur?"selected":""}>${esc(l)}</option>`).join("")}</select>`;
+}
+function edPaneTts(canEdit){
+  const orphans = edForm.tts.filter(t => !t.del && edTtsOrphan(t)).length;
+  const rows = edForm.tts.map((t, i) => {
+    const orphan = edTtsOrphan(t) && !t.del;
+    return `
+    <div class="ednrow ${i===edTtsSel?"sel":""} ${t.del?"deleted":""}" onclick="edTtsPick(${i})">
+      <div class="hd">
+        <span class="n">${i+1}</span>
+        <span class="t" title="원본 이 지점으로 이동"
+          onclick="event.stopPropagation();edSeek(${t.src})">원본 ${edFmt(t.src)}</span>
+        <span>창 ${t.dur.toFixed(1)}s</span>
+        ${edVoiceSel(t.voice, canEdit && !t.del, `edTtsVoice(${i},this.value)`)}
+        ${t.isNew ? `<span style="color:#87CEEB">신규</span>` : ""}
+        <span style="margin-left:auto"></span>
+        ${t.del
+          ? `<button class="mini" onclick="event.stopPropagation();edTtsRestore(${i})">되살리기</button>`
+          : `<button class="mini danger" title="이 내레이션 삭제(음성·자막 함께)"
+               onclick="event.stopPropagation();edTtsDel(${i})" ${canEdit?"":"disabled"}>✕</button>`}
+      </div>
+      <textarea id="edtx_${i}" rows="2" oninput="edMark()"
+        onclick="event.stopPropagation()" ${canEdit && !t.del ? "" : "disabled"}></textarea>
+      ${t.del ? `<div class="fitrow">이 내레이션은 빠집니다 — 음성도 하늘색 자막도 함께</div>` : `
+      <div class="fitrow"><span id="edtfl_${i}"></span>
+        <div class="fitbar"><i id="edtfb_${i}"></i></div></div>`}
+      ${orphan ? (t.isNew
+        ? `<div class="orphanwarn">원본 ${edFmt(t.src)} 는 지금 구간 목록에 없는 지점입니다 —
+           새 내레이션은 <b>렌더에서 빠집니다</b>. 구간 안의 시각으로 넣으세요.</div>`
+        : `<div class="orphanwarn">이 내레이션의 원본 장면(${edFmt(t.src)})이 지금 구간
+           목록에 없습니다 — 그대로 두면 <b>옆 장면 위에서 재생됩니다</b>. 문구를 고치거나 ✕로 지우세요.</div>`) : ""}
+    </div>`; }).join("");
+  return `${orphans ? `<div class="edwarn">⚠ 내레이션 <b>${orphans}건</b>의 원본 장면이
+      편집에서 빠져 있습니다 — 아래 표시된 줄을 확인하세요.</div>` : ""}
+    ${edForm.tts.length ? `<div class="ednrows">${rows}</div>`
+      : `<div class="sub">이 편은 내레이션 없이 렌더됐습니다 — 아래에서 추가할 수 있습니다.</div>`}
+    ${canEdit ? `<div class="edaddrow">
+      <input class="tm" id="edntts" placeholder="원본 시각" title="1:23:45.6 또는 초">
+      <input class="tm" id="ednttd" placeholder="길이(초)" value="3.0">
+      <span id="edndvsel">${edVoiceSel("ko_female", true, "")}</span>
+      <input id="edntt" placeholder="새 내레이션 문구 — 그 장면 위에 얹힙니다">
+      <button class="mini" onclick="edTtsAdd()">＋ 내레이션 추가</button>
+    </div>` : ""}
+    <div class="sub" style="margin-top:6px">시각은 <b>원본</b> 기준 — 구간을 옮겨도 내레이션은
+      그 장면을 따라갑니다 · 고쳐 보내면 <b>음성을 새로 합성</b>합니다(재렌더 몇 분) ·
+      비우면 그 줄이 빠집니다</div>`;
 }
 
 // ── 우측 패널: 스타일 ──────────────────────────────────────────────────
@@ -2209,6 +2398,27 @@ window.edAddSub = () => {
   if (!t){ toast("자막 문구를 적으세요", true); return; }
   edForm.dSubs.push({ start: a, end: b, text: t, src: null, added: true });
   edForm.dSubs.sort((x,y) => x.start - y.start);
+  render();
+};
+
+// ── 내레이션 편집(0047) ────────────────────────────────────────────────
+window.edTtsPick = i => { edTtsSel = i; edPane = "tts";
+  const t = edForm.tts[i]; if (t) edSeek(t.src); else render(); };
+window.edTtsDel = i => { edForm.tts[i].del = true; render(); };
+window.edTtsRestore = i => { edForm.tts[i].del = false; render(); };
+window.edTtsVoice = (i, v) => { edForm.tts[i].voice = v; edMark(); };
+window.edTtsAdd = () => {
+  const src = edParseTime(($("#edntts")||{}).value);
+  const dur = parseFloat(($("#ednttd")||{}).value);
+  const voice = (document.querySelector("#edndvsel select")||{}).value || "ko_female";
+  const text = (($("#edntt")||{}).value || "").trim();
+  if (src == null){ toast("원본 시각을 적으세요 (1:23:45.6 또는 초)", true); return; }
+  if (!(dur > 0)){ toast("창 길이(초)가 올바르지 않습니다", true); return; }
+  if (!text){ toast("내레이션 문구를 적으세요", true); return; }
+  edForm.tts.push({ src: +src.toFixed(3), dur: +dur.toFixed(3), voice, text,
+                    del: false, isNew: true });
+  edForm.tts.sort((a, b) => a.src - b.src);
+  edTtsSel = edForm.tts.findIndex(t => Math.abs(t.src - src) < 0.0005 && t.isNew);
   render();
 };
 

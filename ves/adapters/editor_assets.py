@@ -141,6 +141,43 @@ def timeline_from_plan(edit_plan: dict, segments: list | None = None,
             "clips": clips, "subtitles": subs}
 
 
+def tts_from_checkpoints(resources: dict | None, silence_cut: dict | None) -> list:
+    """checkpoint_resources(우선) / checkpoint_silence_cut → 편집실 내레이션 목록. 순수.
+
+    resources 의 tts_cue_files[].cue 가 정본이다 — 실제로 합성·렌더된 cue 라서
+    문구(fit 으로 짧아진 최종본)와 편집본 시각(start/end)이 다 있다. resources 가
+    없으면(구 run·중간 실패) silence_cut 의 앵커 cue 로 폴백 — 문구·원본시각·창은
+    있지만 편집본 시각은 모른다(None). source_time_sec 없는 cue(구 스키마)는
+    신원이 없어 편집 대상이 못 되므로 뺀다 — 화면에 보였다가 수정이 조용히
+    사라지는 것보다 안 보이는 편이 낫다."""
+    cues = []
+    for cf in (resources or {}).get("tts_cue_files") or []:
+        c = cf.get("cue") or {}
+        if c.get("source_time_sec") is None:
+            continue
+        cues.append({"edited_start": c.get("start_sec"), "edited_end": c.get("end_sec"),
+                     **_tts_common(c)})
+    if not cues:
+        variants = (silence_cut or {}).get("variants") or []
+        for c in (variants[0].get("tts_cues") or []) if variants else []:
+            if c.get("source_time_sec") is None:
+                continue
+            cues.append({"edited_start": None, "edited_end": None, **_tts_common(c)})
+    cues.sort(key=lambda x: x["source_sec"])
+    for i, c in enumerate(cues):
+        c["idx"] = i
+    return cues
+
+
+def _tts_common(c: dict) -> dict:
+    """cue → 화면 공통 필드. source_sec 이 좌표이자 신원(edit_overrides/v2 규약)."""
+    return {"source_sec": round(float(c["source_time_sec"]), 3),
+            "duration_sec": round(float(c.get("duration_sec") or 3.0), 3),
+            "voice": c.get("voice") or "ko_female",
+            "speed": c.get("speed") or "normal",
+            "text": str(c.get("text") or "")}
+
+
 def _to_source_sec(edited_sec: float, clips: list):
     """편집본 시각 → 원본 절대초. 클립 밖이면 None. 순수."""
     for c in clips or []:
@@ -307,8 +344,19 @@ def run(cfg, conn, job, deps):
             f"스크럽 원본 없음(프록시·마스터 모두): {run_dir} — 프록시는 재생성 가능하나 "
             f"이 잡은 만들지 않는다(무거운 인코딩은 생성 파이프라인 몫)")
 
+    # 내레이션(TTS) cue — 편집실 내레이션 탭 재료. 로드 실패는 비치명(탭이 비어 보일 뿐).
+    def _ckpt(name):
+        p2 = pathlib.Path(run_dir) / name
+        try:
+            return json.loads(p2.read_text(encoding="utf-8")) if p2.exists() else None
+        except (OSError, ValueError) as e:
+            print(f"[editor] {name} 로드 실패(비치명): {e}")
+            return None
+
     duration = _probe_duration(src)
     tl = timeline_from_plan(edit_plan, segments, duration)
+    tl["tts"] = tts_from_checkpoints(_ckpt("checkpoint_resources.json"),
+                                     _ckpt("checkpoint_silence_cut.json"))
     layout = sprite_layout(duration)
     edges = edge_windows(tl["clips"], duration_sec=duration)
 

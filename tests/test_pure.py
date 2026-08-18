@@ -1929,6 +1929,41 @@ def test_timeline_from_plan_dual_coordinates():
     assert tl["subtitles"][2]["source_sec"] is None        # 클립 밖 = 매핑 없음
 
 
+def test_tts_from_checkpoints_prefers_resources():
+    """resources 의 cue 가 정본 — 실제 합성·렌더된 문구(fit 반영)와 편집본 시각을 가진다."""
+    from ves.adapters.editor_assets import tts_from_checkpoints
+    resources = {"tts_cue_files": [
+        {"cue_index": 0, "cue": {"text": "합성된 문구", "source_time_sec": 743.0,
+                                 "duration_sec": 3.5, "start_sec": 1.2, "end_sec": 4.7,
+                                 "voice": "ko_male", "speed": "fast"}},
+        {"cue_index": 1, "cue": {"text": "구 스키마 cue", "start_sec": 10.0,
+                                 "end_sec": 13.0}},                 # source_time 없음 → 제외
+    ]}
+    silence = {"variants": [{"tts_cues": [
+        {"text": "silence_cut 판", "source_time_sec": 743.0, "duration_sec": 3.5}]}]}
+    got = tts_from_checkpoints(resources, silence)
+    assert len(got) == 1                                    # resources 우선 + 구 스키마 제외
+    assert got[0]["text"] == "합성된 문구" and got[0]["source_sec"] == 743.0
+    assert got[0]["edited_start"] == 1.2 and got[0]["voice"] == "ko_male"
+    assert got[0]["idx"] == 0
+
+
+def test_tts_from_checkpoints_fallback_and_sort():
+    """resources 가 없으면 silence_cut 앵커 cue 로 — 편집본 시각은 모른다(None)."""
+    from ves.adapters.editor_assets import tts_from_checkpoints
+    silence = {"variants": [{"tts_cues": [
+        {"text": "뒤", "source_time_sec": 1195.5, "duration_sec": 4.0},
+        {"text": "앞", "source_time_sec": 743.0, "duration_sec": 3.5,
+         "voice": "ko_female_high"}]}]}
+    got = tts_from_checkpoints(None, silence)
+    assert [c["text"] for c in got] == ["앞", "뒤"]          # source_sec 정렬
+    assert got[0]["edited_start"] is None
+    assert got[0]["voice"] == "ko_female_high" and got[1]["voice"] == "ko_female"
+    assert [c["idx"] for c in got] == [0, 1]
+    assert tts_from_checkpoints(None, None) == []
+    assert tts_from_checkpoints({}, {"variants": []}) == []
+
+
 def test_sprite_and_wave_cmd():
     """긴 소스 탐색을 위해 -ss/-to 는 입력 **앞**에 와야 한다."""
     from ves.adapters.editor_assets import sprite_cmd, sprite_key, wave_cmd
@@ -2003,10 +2038,16 @@ def test_0043_submit_editor_render_contract():
     assert "has_role(auth.uid(),'reviewer')" in sql
     # 대상 카드 — 일본어(localization_qa)는 0038 담당이라 여기서 받으면 안 된다
     assert "rq.kind = 'publish_gate' AND rq.status = 'waiting'" in sql
-    # 스키마 주입: 화면이 빠뜨려도 엔진 계약이 성립해야 한다
-    assert "jsonb_build_object('schema', 'edit_overrides/v1')" in sql
-    # 재개 단계: 구간을 고쳤으면 resources(TTS cue 앵커), 아니면 render
-    assert "CASE WHEN p_overrides ? 'clips' THEN 'resources' ELSE 'render' END" in sql
+    # 스키마 주입: 화면이 빠뜨려도 엔진 계약이 성립해야 한다.
+    # 0047: tts 가 있을 때만 v2 — v1 에 tts 를 얹으면 구 엔진이 조용히 무시한다(fail-loud 위반).
+    assert "CASE WHEN p_overrides ? 'tts' THEN 'edit_overrides/v2'" in sql
+    assert "ELSE 'edit_overrides/v1' END" in sql
+    # 재개 단계: 구간·내레이션을 고쳤으면 resources(cue 앵커·mp3 재합성), 아니면 render
+    assert "p_overrides ? 'clips' OR p_overrides ? 'tts'" in sql
+    assert "THEN 'resources' ELSE 'render' END" in sql
+    # 내레이션 허용 키 + 빈 배열(전부 삭제) 유효
+    assert "p_overrides ? 'tts'" in sql
+    assert "빈 배열 = 내레이션 전부 삭제" in sql
     # 옛 카드를 닫아야 evaluate 가 새 카드를 넣는다(brain.py 의 waiting 중복 방지)
     assert "SET status = 'rejected'" in sql
     # 체인 4잡 + 생성 노드 핀 + 멱등키
@@ -2037,6 +2078,11 @@ def test_dashboard_editor_edit_ui_wired():
     assert "dTitle" in html and "dSubs" in html
     # 자막 전량 삭제 방어
     assert "자막을 전부 지울 수는 없습니다" in html
+    # 내레이션 탭(0047) — src 신원 매칭 · 전량 교체 수집 · 전부 삭제 확인 · orphan 경고
+    assert "edPaneTts" in html and "edTtsChanged" in html
+    assert "source_time_sec" in html
+    assert "내레이션을 전부 삭제한 채 다시 렌더합니다" in html
+    assert "edTtsOrphan" in html
 
 
 # ───────── 0044: 편집 초안 · 발행 전 채널 안내 ─────────
