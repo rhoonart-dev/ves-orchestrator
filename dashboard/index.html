@@ -84,6 +84,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   nav.tabs button.on{color:var(--ink);border-bottom-color:var(--good)}  /* 목업: 탭 인디케이터 = 로고 초록 */
   nav.tabs .badge{background:var(--warn);color:#3d2c04;border-radius:999px;
     font-size:11px;padding:0 6px;margin-left:5px;font-weight:700}
+  nav.tabs .badge.crit{background:var(--crit);color:#fff}   /* 합격 후 발행 실패 */
   .pill{font-size:12px;color:var(--ink-2);border:1px solid var(--line);
         border-radius:999px;padding:3px 10px;background:var(--surface)}
   button{font:inherit;color:var(--ink);background:var(--surface-2);
@@ -427,6 +428,25 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .sub{color:var(--muted);font-size:12px}
   details summary{cursor:pointer;color:var(--muted);font-size:12px}
   .tblwrap{overflow-x:auto}
+  /* 합격 후 미발행 — Gemini 경고줄과 같은 결의 한 줄 배너. 평소엔 접혀 있고 ▶ 로 편다.
+     화면 맨 위를 표가 통째로 차지하면 그 아래 신호등·맥 현황이 밀린다. */
+  .warnbar.fold{align-items:flex-start}
+  /* basis 를 작게 둬야 접힘 상태에서 오른쪽 조치 버튼이 같은 줄에 남는다
+     (auto 면 요약문 길이가 그대로 basis 가 되어 버튼이 아래로 밀린다) */
+  .warnbar.fold>details{flex:1 1 240px;min-width:0}
+  /* 직계만 — 표 안 '오류' 칸의 details 까지 물들면 칸 레이아웃이 흐트러진다 */
+  .warnbar.fold>details>summary{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+    cursor:pointer;list-style:none}
+  .warnbar.fold>details>summary::-webkit-details-marker{display:none}
+  .warnbar.fold>details>summary::before{content:"▶";font-size:10px;color:var(--ink-2);
+    transition:transform .15s ease}
+  .warnbar.fold>details[open]>summary::before{transform:rotate(90deg)}
+  .warnbar.fold>details>.body{margin-top:10px}
+  /* 접히는 경고줄 안의 표 — 좁은 폭에서 채널명·시각·버튼이 세로로 쪼개지면 읽는 속도가
+     급히 떨어진다. 짜부라뜨리는 대신 가로 스크롤로 넘긴다(펼친 오류 본문만 줄바꿈). */
+  .warnbar.fold table{min-width:640px}
+  .warnbar.fold table td{white-space:nowrap}
+  .warnbar.fold table .err{white-space:normal}
   /* v3: 맥별 현재 작업 */
   .nowgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(215px,1fr));gap:10px}
   .now{background:var(--surface-2);border:1px solid var(--ring);border-radius:10px;padding:10px 12px}
@@ -683,7 +703,7 @@ const soft = p => p.then(r => r.error ? { data: [] } : r).catch(() => ({ data: [
 async function refresh(){
   if (!(await sb.auth.getSession()).data.session) return;
   const [nodes, deps, jobs, reviews, events, wos, srcs, chans,
-         arts, metas, judges, clips, snaps, srcCh, ops, drafts] = await Promise.all([
+         arts, metas, judges, clips, snaps, srcCh, ops, drafts, pubs] = await Promise.all([
     sb.from("node_registry").select("*").order("node_id"),
     sb.from("deployments").select("*").order("engine"),
     sb.from("job_queue").select("id,work_order_id,kind,status,attempt,max_attempts,node_id,error,error_class,required_caps,params,run_after,created_at,updated_at,finished_at").order("updated_at",{ascending:false}).limit(150),
@@ -709,6 +729,12 @@ async function refresh(){
     // 0044: 보내지 않은 편집 초안 — 편집실 첫 화면의 '이어서 하기' 목록
     soft(sb.from("editor_assets").select("*").not("draft","is",null)
            .order("draft_at",{ascending:false}).limit(50)),
+    // 발행 잡만 따로 — 위의 잡 150건 창을 벗어난 발행 실패를 놓치지 않기 위해서다.
+    // 8/17 실측: 합격 11건 중 1건(한 입 주막 '가왕쇼')이 dead 인데 화면 어디에도 안 보였고,
+    // 다음날 낮에 사람이 "합격했는데 왜 안 올라갔지"로 직접 발견했다. 창이 좁으면 같은 일이 반복된다.
+    soft(sb.from("job_queue").select("id,work_order_id,kind,status,attempt,max_attempts,node_id,error,error_class,params,run_after,created_at,updated_at,finished_at")
+           .in("kind",["publish","zanmang_decision"])
+           .order("updated_at",{ascending:false}).limit(200)),
   ]);
   const ovr = await soft(sb.from("channel_design_overrides").select("*"));   // 0014 이전엔 빈 배열
   const plans = await soft(sb.from("channel_plan_overrides").select("*"));   // 0016 이전엔 빈 배열
@@ -736,7 +762,7 @@ async function refresh(){
             snaps:snaps.data||[], runToClip, judgeByClip, clipById, artByWo, jobsByWo, reviewByWo,
             srcCh:srcCh.data||[], eps:buildEpMap(srcs.data||[], srcCh.data||[]),
             ops:Object.fromEntries((ops.data||[]).map(o=>[o.key,o])),
-            drafts:drafts.data||[],
+            drafts:drafts.data||[], pubJobs:pubs.data||[],
             wo:Object.fromEntries((wos.data||[]).map(w=>[w.id,w])),
             jobById:Object.fromEntries((jobs.data||[]).map(j=>[j.id,j])),
             legacyOk: !!(metas.data||[]).length || !!(clips.data||[]).length };
@@ -805,6 +831,38 @@ function pubDot(wo){
   return ["wait","발행 대기"];
 }
 
+// ───────── 합격했으나 발행 안 됨 (8/17 사고) ─────────
+// 검수함은 합격시키면 그 카드가 목록에서 사라진다. 그런데 그 뒤 발행이 죽어도 화면에는
+// 아무 신호가 없었다 — 한 입 주막 '가왕쇼'가 23:41 합격 → 토큰 미로드로 3회 재시도를
+// 9분에 소진 → dead 로 묻혔고, 다음날 낮에 사람이 직접 발견했다. 예약 시각(19:00)이
+// 지났으면 그대로 유실이다. 합격과 발행 사이의 이 구간을 여기서 잇는다.
+// 발행 잡을 state.pubJobs(발행만 따로 조회)에서 찾는 이유: state.jobs 는 최근 150건
+// 창이라 하룻밤 지나면 실패한 발행 잡이 창 밖으로 밀려 '없는 것'이 된다.
+function pubJobOf(rv){
+  const js = state.pubJobs || [];
+  return (rv.work_order_id && js.find(j => j.work_order_id === rv.work_order_id))
+      || js.find(j => (j.params||{}).review_id === rv.id)   // 잔망루피: 작업지시 없이 잡만 있다
+      || null;
+}
+function unpublished(){
+  const cut = Date.now() - 14*24*3600*1000;   // 오래된 합격건은 잡 조회 창을 벗어나 오판한다
+  return (state.reviews||[])
+    .filter(r => r.status === "approved" && r.decided_at
+              && new Date(r.decided_at).getTime() > cut)
+    .map(r => ({ rv:r, job:pubJobOf(r) }))
+    .filter(x => !x.job || x.job.status !== "succeeded")
+    .map(x => {
+      const st = x.job ? x.job.status : "none";
+      // 방금 합격시킨 건은 '발행 중'이 정상이다. 20분 넘게 안 끝나면 그때 이상으로 본다
+      // (정상 발행은 15초~3분에 끝난다 — 8/17 실측 10건).
+      const slow = ["pending","running"].includes(st)
+                && Date.now() - new Date(x.job.updated_at || x.job.created_at).getTime() > 20*60*1000;
+      return { ...x, st, slow,
+               bad: st === "none" || slow || ["dead","failed","cancelled"].includes(st) };
+    })
+    .sort((a,b) => (b.bad - a.bad) || (a.rv.decided_at < b.rv.decided_at ? 1 : -1));
+}
+
 // ───────── 탭 셸 ─────────
 const TABS = [["home","홈"],["review","검수함"],["edit","편집실"],["feed","영상 피드"],
               ["sources","소스 창고"],
@@ -818,9 +876,13 @@ function render(){
   document.querySelectorAll('#page .reason, #page select[id^="prv_"], #page input[id^="at_"]')
     .forEach(el => { if (el.id && el.value) keep[el.id] = el.value; });
   const waiting = (state.reviews||[]).filter(r => r.status === "waiting").length;
+  // 홈 배지 = 합격했는데 발행이 안 된 건. 검수 대기 배지와 색을 달리한다 —
+  // 대기는 '사람이 볼 차례'(노랑)지만 이쪽은 '이미 사람 손을 떠난 뒤 깨진 것'(빨강)이다.
+  const stuck = (state.reviews||[]).length ? unpublished().filter(x => x.bad).length : 0;
   $("#tabs").innerHTML = tabsFor().map(([k,l]) =>
     `<button class="${tab===k?"on":""}" onclick="tab='${k}';render()">${l}${
-      k==="review"&&waiting?`<span class="badge">${waiting}</span>`:""}</button>`).join("");
+      k==="review"&&waiting?`<span class="badge">${waiting}</span>`:""}${
+      k==="home"&&stuck?`<span class="badge crit" title="합격했으나 발행 안 됨">${stuck}</span>`:""}</button>`).join("");
   ({home:renderHome, review:renderReview, feed:renderFeed, sources:renderSources,
     edit:renderEdit, channels:renderChannels, jobs:renderJobsTab, infra:renderInfra, perf:renderPerf,
     admin:renderAdmin}[tab] || renderHome)();
@@ -834,6 +896,10 @@ function render(){
 
 // ───────── 홈 ─────────
 let boardOpen = null;
+// 펼친 상태를 기억한다 — 15초 자동 갱신이 render() 로 화면을 다시 그리므로,
+// 기억하지 않으면 표를 읽는 도중 접혀 버린다(검수함 입력 보존과 같은 이유).
+let unpubOpen = false;
+let quotaOpen = false;
 function renderHome(){
   const j = state.jobs||[], today = kstDay();
   const isToday = ts => ts && kstDay(ts) === today;
@@ -843,9 +909,12 @@ function renderHome(){
   const waiting = (state.reviews||[]).filter(r => r.status==="waiting");
   const n = state.nodes||[];
   const stale = n.filter(x => x.last_seen_at && Date.now()-new Date(x.last_seen_at).getTime() > 8*60*1000);
+  const unpub = unpublished(), unpubBad = unpub.filter(x => x.bad);
   const tiles = [
     ["검수 대기", waiting.length], ["오늘 실패", failsToday.length],
-    ["오늘 발행", pubToday.length], ["실행 중", j.filter(x=>x.status==="running").length],
+    ["오늘 발행", pubToday.length],
+    ["합격 후 미발행", unpub.length, unpubBad.length ? `확인 필요 ${unpubBad.length}` : ""],
+    ["실행 중", j.filter(x=>x.status==="running").length],
     ["활성 노드", n.filter(x=>x.status==="active").length + "/" + n.length,
      stale.length ? `무응답 ${stale.length}` : ""],
   ];
@@ -934,8 +1003,52 @@ function renderHome(){
       <td class="num">${k.review_wait ?? "?"}</td><td class="num">${k.failed ?? "?"}</td>
       <td class="sub">${esc(((s.payload||{}).generated_at||"").slice(0,16))}</td></tr>`;
   }).join("");
+  // 합격했는데 발행이 안 된 것 — 화면 맨 위. 조용히 실패하는 성질이라 스크롤 아래에 두면
+  // 없는 것과 같다(8/17 사고). 비어 있으면 통째로 안 그린다.
+  // 접힌 한 줄에서도 '무엇이' 걸렸는지는 보여야 한다 — 채널·작품을 셋까지 이름으로 적는다.
+  const unpubNames = (unpubBad.length ? unpubBad : unpub).slice(0,3).map(x =>
+    (chName(x.rv.channel_slug || (state.wo[x.rv.work_order_id]||{}).channel_slug || "") + " " +
+     ((state.wo[x.rv.work_order_id]||{}).work_title || "")).trim()).join(" · ")
+    + ((unpubBad.length || unpub.length) > 3 ? ` 외 ${(unpubBad.length || unpub.length) - 3}건` : "");
+  const unpubRows = unpub.map(x => {
+    const wo = state.wo[x.rv.work_order_id] || {};
+    const p = (x.job || {}).params || {};
+    const what = wo.work_title || p.work_title || "—";
+    const ep = wo.episode != null ? ` ${wo.episode}화` : "";
+    const [cls,ic,lb] = x.st === "none" ? ["crit","!","발행 잡 없음"]
+                      : x.slow ? ["serious","⏳","발행 지연"]
+                      : (JOB_ST[x.st] || ["mut","?",x.st]);
+    const at = p.publish_at ? new Date(p.publish_at) : null;
+    const past = at && at.getTime() < Date.now();
+    const retry = can("operator") && x.job && ["dead","failed","cancelled"].includes(x.st)
+      ? `<button class="mini" onclick="rpc('retry_job',{p_job:'${x.job.id}'},'재시도 큐잉')">재시도</button>` : "";
+    return `<tr><td>${esc(chName(x.rv.channel_slug || wo.channel_slug || ""))}</td>
+      <td>${esc(what)}${esc(ep)}</td>
+      <td class="num" title="${esc(x.rv.decided_at||"")}">${ago(x.rv.decided_at)}</td>
+      <td>${chip(cls,ic,lb)}${x.job ? ` <span class="sub">${x.job.attempt}/${x.job.max_attempts??3}</span>` : ""}</td>
+      <td class="num">${at ? `<span style="${past?"color:var(--crit)":""}"
+        title="${esc(p.publish_at)}">${esc(at.toLocaleString("ko-KR",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"}))}${
+        past ? " 지남" : ""}</span>` : '<span class="sub">즉시</span>'}</td>
+      <td>${(x.job||{}).error ? `<details><summary>${esc(x.job.error_class||"오류")}</summary>
+        <div class="err">${esc(x.job.error)}</div></details>` : ""}</td>
+      <td>${retry}</td></tr>`;
+  }).join("");
   $("#page").innerHTML = `
     ${geminiBanner()}
+    ${unpub.length ? `<section class="card warnbar fold"><details ${unpubOpen ? "open" : ""}
+      ontoggle="unpubOpen=this.open">
+      <summary>${unpubBad.length
+        ? `<b>⚠ 합격했으나 발행되지 않은 영상이 ${unpubBad.length}건 있습니다</b>
+           <span class="sub">${esc(unpubNames)} · 예약 시각이 지나면 그대로 유실됩니다${
+             unpub.length > unpubBad.length ? ` · 발행 중 ${unpub.length - unpubBad.length}건` : ""}</span>`
+        : `<b>합격한 영상 ${unpub.length}건이 발행 중입니다</b>
+           <span class="sub">${esc(unpubNames)} · 아직 유튜브에 올라가지 않았습니다</span>`}</summary>
+      <div class="body">
+        <div class="sub" style="margin-bottom:8px">합격시키면 검수함에서 그 카드가 사라집니다 —
+          그 뒤 발행이 죽어도 알려주는 곳이 여기뿐입니다.</div>
+        <div class="tblwrap"><table class="unpub"><tr><th>채널</th><th>작품</th><th>합격</th><th>발행</th>
+          <th>예약</th><th>오류</th><th></th></tr>${unpubRows}</table></div>
+      </div></details></section>` : ""}
     <div class="tiles">${tiles.map(([k,v,w]) => `<div class="tile"><div class="v">${v}</div>
       <div class="k">${k}${w?` · <span style="color:var(--serious)">${w}</span>`:""}</div></div>`).join("")}</div>
     <section class="card"><h2>지금 각 맥이 하는 일</h2>
@@ -988,14 +1101,39 @@ function geminiBanner(){
   const stuckTxt = stuck.length
     ? ` · 쿼터로 대기 중인 잡 <b>${stuck.length}건</b>(${
         [...new Set(stuck.map(j => kindKo(j.kind)))].join(", ")})` : "";
-  return slot === "fallback"
-    ? `<section class="card warnbar"><b>⚠ Gemini 예비 키로 돌고 있습니다</b>
-        <span class="sub">${esc(o.note||"")} · ${ago(o.updated_at)}${stuckTxt}</span>
-        <span class="right"></span>${back}</section>`
-    : `<section class="card warnbar"><b>⚠ Gemini 쿼터로 막힌 잡이 있습니다</b>
-        <span class="sub">주 키로 도는 중${stuckTxt}. 지출 상한이면 워커가 자동으로 예비 키로 넘깁니다
-        — 급하면 지금 넘기세요(예비 키가 ves.env 에 있어야 합니다).</span>
-        <span class="right"></span>${go}</section>`;
+  const [title, note, act] = slot === "fallback"
+    ? [`⚠ Gemini 예비 키로 돌고 있습니다`,
+       `${esc(o.note||"")} · ${ago(o.updated_at)}${stuckTxt}`, back]
+    : [`⚠ Gemini 쿼터로 막힌 잡이 있습니다`,
+       `주 키로 도는 중${stuckTxt}. 지출 상한이면 워커가 자동으로 예비 키로 넘깁니다
+        — 급하면 지금 넘기세요(예비 키가 ves.env 에 있어야 합니다).`, go];
+  // 막힌 잡이 없으면(예비 키로 도는 중이기만 하면) 펼칠 내용이 없다 — 종전대로 한 줄.
+  if (!stuck.length)
+    return `<section class="card warnbar"><b>${title}</b><span class="sub">${note}</span>
+      <span class="right"></span>${act}</section>`;
+  // '잡이 있습니다'만 읽고는 무엇이 밀렸는지 알 수 없어 작업 내역 탭을 뒤져야 했다.
+  // 어느 채널의 어느 작품이 언제부터 서 있는지 여기서 바로 편다(합격 후 미발행과 같은 방식).
+  const rows = stuck.map(j => {
+    const wo = state.wo[j.work_order_id] || {}, p = j.params || {};
+    const slug = wo.channel_slug || p.channel_slug || "";
+    const pin = (j.required_caps || []).find(c => String(c).startsWith("node:"));
+    const at = j.run_after ? new Date(j.run_after) : null;
+    return `<tr><td>${esc(kindKo(j.kind))}</td>
+      <td>${esc(wo.work_title || p.work_title || "—")}${wo.episode != null ? ` ${wo.episode}화` : ""}</td>
+      <td>${slug ? esc(chName(slug)) : ""}</td>
+      <td class="mono">${esc(j.node_id || (pin ? pin.slice(5) : ""))}</td>
+      <td class="num" title="${esc(j.updated_at||"")}">${ago(j.updated_at)}</td>
+      <td class="num">${at && at.getTime() > Date.now()
+        ? esc(at.toLocaleTimeString("ko-KR",{hour:"2-digit",minute:"2-digit"}))
+        : '<span class="sub">즉시</span>'}</td></tr>`;
+  }).join("");
+  return `<section class="card warnbar fold">
+    <details ${quotaOpen ? "open" : ""} ontoggle="quotaOpen=this.open">
+      <summary><b>${title}</b><span class="sub">${note}</span></summary>
+      <div class="body"><div class="tblwrap"><table>
+        <tr><th>단계</th><th>작품</th><th>채널</th><th>맥</th><th>대기</th><th>다음 시도</th></tr>
+        ${rows}</table></div></div>
+    </details><span class="right"></span>${act}</section>`;
 }
 
 // ───────── 홈: 채널 즉시 실행 (0024 run_channel_now) ─────────
@@ -1153,7 +1291,18 @@ function renderReview(){
                    && ((state.wo[r.work_order_id]||{}).pipeline === "shorts_jp_localized")));
   const rs = all.filter(r => rvCh === "all" || r.channel_slug === rvCh);
   const chChips = channelChips(all, rvCh, "rvCh");
-  $("#page").innerHTML = `<section class="card"><h2>검수 대기 ${rs.length}건 — 결정은 100% 사람 · 프리뷰는 카드에서 바로 재생</h2>${chChips}<div class="rvgrid">` +
+  // 합격시킨 뒤 깨진 건은 홈에 있다. 검수자가 사는 화면이 여기라 한 줄로 길을 낸다 —
+  // 합격 순간 카드가 사라지므로, 알려주지 않으면 여기서는 영영 안 보인다(8/17 사고).
+  const stuck = unpublished().filter(x => x.bad);
+  $("#page").innerHTML =
+    (stuck.length ? `<section class="card warnbar"><b>⚠ 합격했으나 발행되지 않은 영상이 ${stuck.length}건 있습니다</b>
+      <span class="sub">${esc(stuck.slice(0,3).map(x =>
+        chName(x.rv.channel_slug || "") + " " +
+        ((state.wo[x.rv.work_order_id]||{}).work_title || "")).join(" · "))}${
+        stuck.length > 3 ? ` 외 ${stuck.length - 3}건` : ""} — 홈에서 재시도할 수 있습니다</span>
+      <span class="right"></span>
+      <button class="mini" onclick="tab='home';render()">홈에서 보기</button></section>` : "") +
+    `<section class="card"><h2>검수 대기 ${rs.length}건 — 결정은 100% 사람 · 프리뷰는 카드에서 바로 재생</h2>${chChips}<div class="rvgrid">` +
     (rs.map(r => {
       const wo = state.wo[r.work_order_id] || {};
       const pay = r.payload || {};
@@ -1206,7 +1355,7 @@ function renderReview(){
           ${jg}${form}</div></div>`;
     }).join("") || `<div class="empty">${rvCh==="all" ? "검수 대기 항목 없음 🎉" : esc(chName(rvCh)) + " — 검수 대기가 없습니다"}</div>`) + `</div></section>
     <section class="card"><h2>최근 결정${rvCh==="all" ? "" : ` — ${esc(chName(rvCh))}`}</h2><div class="tblwrap"><table>
-      <tr><th>시각</th><th>채널</th><th>작품</th><th>결정</th><th>결정자</th><th>사유</th></tr>${
+      <tr><th>시각</th><th>채널</th><th>작품</th><th>결정</th><th>발행</th><th>결정자</th><th>사유</th></tr>${
       (state.reviews||[]).filter(r => r.status !== "waiting")
         // 최신 결정이 맨 위(운영 결정 8/13) — 종전엔 무정렬(생성시각 fetch 순)이라 뒤죽박죽
         .sort((a,b) => new Date(b.decided_at || b.created_at) - new Date(a.decided_at || a.created_at))
@@ -1217,12 +1366,21 @@ function renderReview(){
         const slug = wo.channel_slug || r.channel_slug;
         const d = r.status === "approved" ? chip("good","✓","합격")
                 : r.status === "rejected" ? chip("crit","✕","반려") : chip("mut","–",r.status);
+        // '합격'만 찍고 끝내면 발행이 죽어도 초록 체크로 보인다 — 8/17 한 입 주막이 그랬다.
+        // 결정 옆에 그 결정의 결말을 붙인다.
+        const pj = r.status === "approved" ? pubJobOf(r) : null;
+        const p = r.status !== "approved" ? '<span class="sub">—</span>'
+                : !pj ? chip("crit","!","발행 잡 없음")
+                : pj.status === "succeeded"
+                  ? chip("good","✓", (pj.params||{}).publish_at ? "예약됨" : "발행됨")
+                  : chip(...(JOB_ST[pj.status] || ["mut","?",pj.status]));
         return `<tr><td class="num">${ago(r.decided_at || r.created_at)}</td>
           <td style="white-space:nowrap">${chAvatarHtml(slug, 18)} ${esc(chName(slug))}</td>
           <td>${esc(wo.work_title||"")}</td><td>${d}</td>
+          <td style="white-space:nowrap" title="${esc(((pj||{}).error||"").slice(0,200))}">${p}</td>
           <td class="sub">${esc((r.decided_by||"").slice(0,18))}</td>
           <td class="sub">${esc((r.decision_note||"").slice(0,80))}</td></tr>`;
-      }).join("") || '<tr><td colspan="6" class="empty">아직 없음</td></tr>'}</table></div></section>`;
+      }).join("") || '<tr><td colspan="7" class="empty">아직 없음</td></tr>'}</table></div></section>`;
   // v3: 프리뷰 자동 로드 — 버튼 없이 카드에서 바로 본다(서명 URL)
   rs.forEach(async r => {
     const pay = r.payload || {}; if (!pay.preview_key) return;
