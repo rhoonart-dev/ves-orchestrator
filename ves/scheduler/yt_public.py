@@ -36,9 +36,22 @@ def pick_key(*sources):
     return None
 
 
+def backfill_reason(pending: int, filled: int, failed_calls: int) -> str:
+    """상태 사유 판정. 순수 — 테스트 대상.
+
+    ★2026-08-19 실측. 비공개·삭제된 영상은 videos.list 가 **에러 없이 항목만 빼고** 준다.
+    그걸 호출 실패와 같이 묶으면 "API 오류" 붉은 경고가 영영 안 꺼진다(재미쇼츠 1편이 그랬다).
+    호출이 깨진 것(키·쿼터·네트워크)과 받을 게 없는 것을 갈라야 경고 수위가 맞는다."""
+    if failed_calls:
+        return "api_error"
+    if pending == 0 or filled >= pending:
+        return "ok"
+    return "partial" if filled else "unavailable"
+
+
 def status_payload(reason: str, pending: int, filled: int, at: str) -> str:
     """ops_config 에 남길 상태 JSON. 순수.
-    reason: ok | api_key_missing | api_error | partial"""
+    reason: ok | api_key_missing | api_error | partial | unavailable"""
     return json.dumps({"reason": reason, "pending": int(pending), "filled": int(filled),
                        "at": at}, ensure_ascii=False)
 
@@ -121,23 +134,26 @@ def _get(path: str, params: dict, timeout: int = 20) -> dict:
         return json.loads(r.read().decode("utf-8"))
 
 
-def video_stats(key: str, ids) -> list:
-    out = []
+def video_stats(key: str, ids) -> tuple:
+    """(통계 행, 실패한 호출 수). 실패 수를 같이 돌려주는 이유는 backfill_reason 참고."""
+    out, failed = [], 0
     for part in chunk_ids(ids):
         try:
             out += parse_video_stats(_get("videos", {
                 "part": "statistics", "id": ",".join(part), "key": key}))
         except Exception as e:  # noqa: BLE001 — 한 묶음 실패가 전체를 막지 않는다
+            failed += 1
             print(f"[yt_public] videos.list 실패({len(part)}건): {e}")
-    return out
+    return out, failed
 
 
-def channel_avatars(key: str, ids) -> list:
-    out = []
+def channel_avatars(key: str, ids) -> tuple:
+    out, failed = [], 0
     for part in chunk_ids(ids):
         try:
             out += parse_channel_avatars(_get("channels", {
                 "part": "snippet", "id": ",".join(part), "key": key}))
         except Exception as e:  # noqa: BLE001
+            failed += 1
             print(f"[yt_public] channels.list 실패({len(part)}건): {e}")
-    return out
+    return out, failed

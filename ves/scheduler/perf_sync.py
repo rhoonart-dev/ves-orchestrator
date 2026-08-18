@@ -152,7 +152,7 @@ def backfill_missing(conn, cfg) -> int:
         print(f"[perf_sync] 오늘 스냅샷 없는 영상 {len(ids)}건 — YouTube API 키 없어 보완 생략")
         yt_public.note_status(conn, "perf_backfill_status", "api_key_missing", len(ids), 0)
         return 0
-    rows = yt_public.video_stats(key, ids)
+    rows, failed = yt_public.video_stats(key, ids)
     with conn.cursor() as c:
         for cid, views, likes, comments in rows:
             c.execute(
@@ -164,9 +164,7 @@ def backfill_missing(conn, cfg) -> int:
                        comment_count=EXCLUDED.comment_count""",
                 (cid, views, likes, comments))
     print(f"[perf_sync] 직접 보완 {len(rows)}/{len(ids)}건(YouTube API)")
-    # 요청한 만큼 못 받는 건 정상일 수 있다(비공개·삭제 영상은 API 가 항목 자체를 안 준다).
-    # 0건이면 키·쿼터 쪽을 의심해야 하므로 사유를 갈라 남긴다.
     yt_public.note_status(conn, "perf_backfill_status",
-                          "ok" if len(rows) == len(ids) else ("api_error" if not rows else "partial"),
+                          yt_public.backfill_reason(len(ids), len(rows), failed),
                           len(ids), len(rows))
     return len(rows)

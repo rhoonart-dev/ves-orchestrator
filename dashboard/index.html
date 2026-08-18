@@ -3444,14 +3444,18 @@ const PERF_BACKFILL_MSG = {
   api_error: ["YouTube API 호출이 실패해 성과 보완이 되지 않았습니다",
               "키가 만료됐거나 하루 쿼터를 넘겼을 수 있습니다"],
   partial: ["일부 영상만 보완됐습니다", "비공개·삭제된 영상은 API 가 통계를 주지 않습니다 — 그만큼은 정상입니다"],
+  // 호출은 멀쩡한데 받을 게 없는 경우 — 비공개로 돌린 영상이 대개 여기다(붉게 띄우지 않는다)
+  unavailable: ["통계를 받을 수 없는 영상이 있습니다",
+                "비공개로 돌렸거나 삭제된 영상입니다 — YouTube API 가 통계를 주지 않으니 성과에서도 빠집니다"],
 };
+const PERF_BACKFILL_SOFT = ["partial", "unavailable"];
 function perfBackfillNote(){
   const row = (state.ops || {}).perf_backfill_status;
   if (!row || !row.value) return "";
   let d; try { d = JSON.parse(row.value); } catch(e){ return ""; }
   const msg = PERF_BACKFILL_MSG[d.reason];
   if (!msg || !d.pending) return "";
-  const crit = d.reason !== "partial";
+  const crit = !PERF_BACKFILL_SOFT.includes(d.reason);
   return `<section class="card pf-warnbar${crit ? " crit" : ""}">
     <b>${esc(msg[0])} — 미수집 ${fmtN(d.pending)}편${d.filled ? ` · 보완 ${fmtN(d.filled)}편` : ""}.</b>
     ${esc(msg[1])}.${crit ? " 그동안 이 영상들의 조회는 성과에 잡히지 않습니다." : ""}

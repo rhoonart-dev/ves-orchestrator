@@ -333,6 +333,17 @@ def test_yt_key_lookup_order():
     assert pick_key({}, {}, {}) is None
 
 
+def test_yt_backfill_reason():
+    """호출이 깨진 것과 받을 게 없는 것은 다른 사건 — 붉은 경고가 영영 안 꺼지는 걸 막는다."""
+    from ves.scheduler.yt_public import backfill_reason
+    assert backfill_reason(48, 47, 1) == "api_error"     # 한 묶음이라도 실패하면 API 쪽
+    assert backfill_reason(48, 48, 0) == "ok"
+    assert backfill_reason(0, 0, 0) == "ok"              # 채울 게 없으면 정상
+    assert backfill_reason(48, 46, 0) == "partial"
+    # 8/19 실측: 비공개 1편. 호출은 됐고 항목만 안 왔다 — 경고 수위를 낮춰야 한다
+    assert backfill_reason(1, 0, 0) == "unavailable"
+
+
 def test_yt_status_payload():
     """조용한 실패를 막는 기록 — 대시보드가 이 JSON 을 읽어 경고를 띄운다."""
     import json
