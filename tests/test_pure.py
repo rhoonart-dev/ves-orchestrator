@@ -320,6 +320,25 @@ def test_perf_sync_chunks():
     assert max(len(c) for c in chunks(list(range(450)))) == 200
 
 
+def test_perf_sync_copy_window():
+    """복사 창(매시간)과 보존 창(미러 보관)의 분리 — 과거를 매시간 다시 긁지 않는다."""
+    from datetime import date, timedelta
+    from ves.scheduler.perf_sync import copy_since
+    today = date(2026, 8, 18)
+    recent = today - timedelta(days=7)
+
+    # 미러가 원천만큼 거슬러 갖고 있다 → 평시 창(최근 7일)만 다시 읽는다
+    assert copy_since(date(2026, 6, 25), date(2026, 6, 25), today) == recent
+    # 미러가 비었다 → 원천이 가진 시작점부터 한 번에 메운다
+    assert copy_since(None, date(2026, 6, 25), today) == date(2026, 6, 25)
+    # 미러에 과거 구멍(35일만 남기던 시절) → 원천 시작까지 넓힌다
+    assert copy_since(date(2026, 7, 9), date(2026, 6, 25), today) == date(2026, 6, 25)
+    # 원천이 보존 창보다 더 과거를 갖고 있어도 보존 창 경계까지만
+    assert copy_since(None, date(2025, 1, 1), today) == today - timedelta(days=120)
+    # 원천이 비었다(수집 중단) → 평시 창. 없는 과거를 계속 요청하지 않는다
+    assert copy_since(None, None, today) == recent
+
+
 def test_effective_design_precedence():
     """0014: 관제 오버라이드 > 파일 정본 > 없음(엔진 기본). 통째 교체 의미."""
     from ves.adapters.aivideo import effective_design

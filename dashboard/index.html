@@ -596,6 +596,82 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .dform label{font-size:11.5px;color:var(--muted);display:flex;flex-direction:column;gap:3px}
   .dform input,.dform select{width:100%;padding:5px 8px;font-size:12.5px}
   .dacts{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
+  /* ── 성과 대시보드 (v3.3) — 차트는 인라인 SVG, 라이브러리 없음 ── */
+  .pf-ctl{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 12px}
+  .pf-ctl .sp{flex:1}
+  .pf-seg{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden;
+    background:var(--surface-2)}
+  .pf-seg button{border:none;border-radius:0;background:none;padding:6px 14px;
+    color:var(--ink-2);font-weight:600}
+  .pf-seg button+button{border-left:1px solid var(--line)}
+  .pf-seg button.on{background:var(--accent);color:var(--accent-ink)}
+  .pf-kpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(158px,1fr));gap:10px;margin:0 0 14px}
+  .pf-kpi .tile .v{font-size:25px}
+  .pf-kpi .tile .d{font-size:11.5px;color:var(--muted);margin-top:4px;white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis}
+  .pf-kpi .tile .d.up{color:var(--good)}
+  .pf-kpi .tile .d.dn{color:var(--crit)}
+  .pf-chart svg{width:100%;height:auto;display:block;overflow:visible}
+  .pf-chart .gl{stroke:var(--line)}
+  .pf-chart .ax{fill:var(--muted);font-size:11px}
+  .pf-chart .hit:hover{fill:rgba(128,128,128,.16)}
+  .pf-lg{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--ink-2);margin:0 0 8px}
+  .pf-lg i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:6px;
+    vertical-align:-1px}
+  .pf-note{font-size:11.5px;color:var(--muted);margin-top:8px}
+  /* 업로드 히트맵 — 채널 × 날짜 */
+  .pf-heat{display:grid;grid-template-columns:minmax(74px,132px) 1fr;gap:3px 8px;align-items:center;
+    font-size:12px}
+  .pf-heat .nm{color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    cursor:pointer}
+  .pf-heat .nm:hover{color:var(--ink);text-decoration:underline}
+  .pf-heat .nm.sel{color:var(--ink);font-weight:700}
+  .pf-heat .row{display:grid;gap:2px}
+  .pf-heat .c{height:15px;border-radius:3px;background:var(--surface-2);border:1px solid transparent}
+  .pf-heat .c.up{background:var(--info)}
+  .pf-heat .c.today{border-color:var(--muted)}
+  .pf-heat .hd{color:var(--muted);font-size:10.5px;text-align:center;
+    overflow:hidden;white-space:nowrap}
+  /* 지표 카드: 왼쪽 일별 증가, 오른쪽 누적 — 좁아지면 자동으로 한 줄씩 */
+  .pf-duo{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px 16px}
+  .pf-duo.two{grid-template-columns:repeat(2,minmax(0,1fr))}
+  @media (max-width:760px){ .pf-duo.two{grid-template-columns:1fr} }
+  .pf-cap{font-size:11.5px;color:var(--muted);margin:0 0 4px}
+  .pf-cap i.lg{display:inline-block;width:10px;height:10px;border-radius:3px;
+    margin:0 5px 0 8px;vertical-align:-1px}
+  .pf-sum{float:right;font-size:12px;font-weight:700;text-transform:none;letter-spacing:0}
+  /* 구간 직접 지정 */
+  .pf-dates{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);
+    border:1px solid var(--line);border-radius:9px;padding:2px 7px;background:var(--surface-2)}
+  .pf-dates.on{border-color:var(--accent);color:var(--ink-2)}
+  .pf-dates input{padding:3px 6px;font-size:12px;border-radius:6px;color-scheme:inherit}
+  /* 영상 상세 — 표 행 아래로 펼친다 */
+  td.vdcell{background:var(--surface-2);padding:12px 14px}
+  .pf-vd{display:flex;gap:14px;align-items:flex-start;margin-bottom:12px;flex-wrap:wrap}
+  .pf-vd .th{width:160px;border-radius:8px;flex:none;background:var(--surface)}
+  .pf-vd .meta{flex:1 1 320px;min-width:0}
+  .pf-vd .t{font-size:15px;font-weight:700;line-height:1.3}
+  .pf-vd .m{font-size:12px;color:var(--muted);margin:4px 0 9px}
+  .pf-vd .m a{color:var(--info)}
+  .pf-vd .kpis{display:flex;gap:8px;flex-wrap:wrap}
+  .pf-vd .kpis span{background:var(--surface);border:1px solid var(--ring);border-radius:9px;
+    padding:5px 10px;font-size:11.5px;color:var(--muted);white-space:nowrap}
+  .pf-vd .kpis b{display:block;font-size:16px;color:var(--ink);
+    font-variant-numeric:tabular-nums;font-weight:700}
+  /* 채널별 영상 개수 막대 — [예전부터 있던 분][이 기간에 올린 분] 을 이어 붙인다 */
+  .pf-cb{display:grid;grid-template-columns:minmax(74px,140px) 1fr auto;gap:4px 10px;
+    align-items:center;font-size:12px}
+  .pf-cb .nm{color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    cursor:pointer}
+  .pf-cb .nm:hover{color:var(--ink);text-decoration:underline}
+  .pf-cb .nm.sel{color:var(--ink);font-weight:700}
+  .pf-cb .bar{display:flex;height:13px;background:var(--surface-2);border-radius:4px;
+    overflow:hidden}
+  .pf-cb .bar i{background:var(--accent);opacity:.6}
+  .pf-cb .bar b{background:var(--info)}
+  .pf-cb .n{font-variant-numeric:tabular-nums;color:var(--ink-2);white-space:nowrap}
+  .pf-cb .n span{color:var(--info);font-weight:600}
+  .pf-spark{vertical-align:-3px}
 </style>
 </head>
 <body>
@@ -3332,140 +3408,544 @@ window.pinAsk = eng => {
   if (sha) rpc("pin_engine", { p_engine: eng, p_sha: sha.trim(), p_note: "dashboard" }, "핀 설정");
 };
 
-// ───────── 성과 (v3.2: laeebly youtube_*_snapshot 미러 직결 — perf_sync 가 매시간 복사) ─────────
-let perf = null, perfLoading = false, perfSort = { col: "views", dir: -1 };
-// 목업: 영상별 성과 채널 멀티 필터 — null=전체, Set=선택된 채널들(빈 Set=전부 해제)
+// ───────── 성과 (v3.3: 기간 선택 + 그래프 대시보드 — perf_* 미러 직결) ─────────
+// 원본 3종은 perf_sync(스케줄러, 매시간)가 laeebly 에서 복사해 둔 것이다.
+//   perf_video_snapshot   일별 영상 조회/좋아요        perf_video_map  영상↔채널·발행일·내려간 시각
+//   perf_channel_snapshot 일별 구독자·채널 누적 조회
+// 원천 수집에는 공백이 있다(2026-07 중순 실측: 하루 32행 ↔ 231행). 날짜별로 그냥 더하면
+// 그 구멍에서 톱니가 생기므로 — 영상 하나하나의 관측점을 선형 보간해 매일 값을 만든 뒤
+// 차분한다. 결측 뒤로 몰리지 않으면서 구간 총량은 그대로 보존된다.
+let perf = null, perfLoading = false, perfSort = { col: "dper", dir: -1 };
+// 지표 셋을 한 페이지에 나란히 그린다. 영상 스냅샷에서 오는 것(views·likes)과 채널
+// 스냅샷에서 오는 것(subs)이 섞여 있어 시리즈 키를 따로 든다 — subs 는 "누적"이 아니라
+// 그 시점의 구독자 수라 누적 차트의 제목·해석이 다르다(absolute).
+const PERF_METRICS = {
+  views: { key: "cum", label: "조회수", daily: "일별 조회 증가", total: "누적 조회수",
+           unit: "회", color: "var(--accent)" },
+  likes: { key: "lik", label: "좋아요", daily: "일별 좋아요 증가", total: "누적 좋아요",
+           unit: "개", color: "var(--serious)" },
+  subs:  { key: "subs", label: "구독자", daily: "일별 구독자 증가", total: "구독자 수",
+           unit: "명", color: "var(--good)", absolute: true },
+};
+let perfFrom = null, perfTo = null;   // 직접 지정 구간(YYYY-MM-DD). 있으면 프리셋보다 우선
+let perfVid = null;                   // 상세를 펼친 영상(content_id)
+// 채널 멀티 필터 — null=전체, Set=선택된 채널들(빈 Set=전부 해제). 차트·표 전부에 걸린다.
 let perfChSet = null, perfFilterOpen = false;
+let perfDays = 28;   // 기간 프리셋(일) — 0 이면 보유 전체
+let perfLoadedDays = 0;      // 지금 perf 에 담긴 스냅샷 창(일). 더 긴 기간을 고르면 다시 받는다
+const PERF_RANGES = [[7, "7일"], [14, "14일"], [28, "28일"], [90, "90일"], [0, "전체"]];
+const PERF_MAX_DAYS = 120;   // perf_sync KEEP_DAYS 와 짝 — 미러가 보관하는 상한
+// 구간 첫날의 증가분을 내려면 하루 전 값이 있어야 한다 → 고른 기간 + 이틀
+const perfWant = d => d > 0 ? Math.min(d + 2, PERF_MAX_DAYS) : PERF_MAX_DAYS;
+// 지금 화면이 요구하는 로드 창(일). 직접 지정 구간은 그 시작일까지 거슬러 필요하다.
+function perfNeedDays(){
+  if (!perfFrom) return perfWant(perfDays);
+  const back = Math.round((Date.parse(kstDay() + "T00:00:00Z") - Date.parse(perfFrom + "T00:00:00Z")) / DAY_MS);
+  return Math.min(PERF_MAX_DAYS, Math.max(3, back + 2));
+}
 const fmtN = v => v == null ? "—" : Number(v).toLocaleString("ko-KR");
 const fmtD = v => v == null ? "—" : (v > 0 ? "+" : "") + Number(v).toLocaleString("ko-KR");
+// 축·타일용 축약 — 12,345 → 1.2만
+const fmtK = v => { const n = Math.abs(Number(v) || 0);
+  return n >= 10000 ? (v / 10000).toFixed(n >= 100000 ? 0 : 1) + "만"
+       : n >= 1000 ? (v / 1000).toFixed(1) + "천" : String(Math.round(v)); };
 const chNameById = id => { const c = (state.chans||[]).find(x => x.channel_id === id);
   return (c && c.name) || (id || "").slice(0,10); };
-async function loadPerf(){
+const DAY_MS = 86400000;
+const dayAdd = (ds, n) => new Date(Date.parse(ds + "T00:00:00Z") + n * DAY_MS).toISOString().slice(0,10);
+const mmdd = ds => ds.slice(5).replace("-", "/");
+
+async function loadPerf(days){
   if (perfLoading) return; perfLoading = true;
+  const want = perfWant(days);
+  const from = dayAdd(kstDay(), -want);
   try {
-    const md = await sb.from("perf_video_snapshot").select("snapshot_date")
-      .order("snapshot_date",{ascending:false}).limit(1);
-    const maxDate = md.data && md.data[0] && md.data[0].snapshot_date;
-    if (!maxDate){ perf = { empty: true }; return; }
-    const dOf = n => { const t = new Date(maxDate + "T00:00:00Z");
-      t.setUTCDate(t.getUTCDate() - n); return t.toISOString().slice(0,10); };
-    const dates = [maxDate, dOf(1), dOf(28)];
     const [vs, vm, cs] = await Promise.all([
-      sb.from("perf_video_snapshot").select("*").in("snapshot_date", dates).limit(9000),
+      // 고른 기간만큼만 받는다 — 실측 2026-08 은 영상 291 × 40일 ≈ 4.9천 행이지만
+      // 영상이 늘면 (영상 수 × 일수)로 커진다. 한도에 닿으면 서버 집계 RPC 로 옮길 것.
+      sb.from("perf_video_snapshot").select("content_id,snapshot_date,view_count,like_count")
+        .gte("snapshot_date", from).limit(60000),
       sb.from("perf_video_map").select("*").limit(3000),
-      sb.from("perf_channel_snapshot").select("*").gte("snapshot_date", dOf(29)).limit(2000),
+      sb.from("perf_channel_snapshot").select("*").gte("snapshot_date", from).limit(20000),
     ]);
-    if (vs.error || vm.error || cs.error)
-      throw new Error((vs.error||vm.error||cs.error).message);
-    perf = { maxDate, dates, vs: vs.data||[], vm: vm.data||[], cs: cs.data||[] };
+    if (vs.error || vm.error || cs.error) throw new Error((vs.error||vm.error||cs.error).message);
+    perf = (vs.data||[]).length ? { vs: vs.data, vm: vm.data||[], cs: cs.data||[] } : { empty: true };
+    perfLoadedDays = want;
   } catch(e){ perf = { error: String(e.message || e) }; }
   finally { perfLoading = false; render(); }
 }
-function perfRows(){
-  const [d0, d1, d28] = perf.dates;
-  const snap = {};
-  perf.vs.forEach(s => (snap[s.content_id] = snap[s.content_id] || {})[s.snapshot_date] = s);
-  return perf.vm.map(m => {
-    const s = snap[m.content_id] || {};
-    const cur = s[d0] || s[d1], prev = s[d1], old = s[d28];
-    return { title: m.title || m.content_id, work: m.work_title || "",
-      ch: chNameById(m.channel_id), cid: m.content_id, dead: !!m.dead_at,
-      views: cur ? Number(cur.view_count) : null,
-      d1: cur && prev && cur !== prev ? Number(cur.view_count) - Number(prev.view_count) : null,
-      d28: cur && old ? Number(cur.view_count) - Number(old.view_count) : null,
-      likes: cur ? Number(cur.like_count) : null,
-      pub: m.published_at ? kstDay(m.published_at) : "" };
-  }).filter(r => r.views != null);
+
+// 영상 하나의 관측점(o) 을 매일 값으로 편다. ix 는 관측 항목(1=조회, 2=좋아요).
+// 보유 구간 안에서 발행된 영상은 발행일 0 에서 출발한다 — 첫 스냅샷까지의 조회가 발행
+// 이후 날들로 분배된다. 구간 밖 발행분은 첫 관측값이 기준선일 뿐(증가로 세지 않음).
+function perfInterp(o, ix, N, pubI){
+  const arr = new Array(N).fill(null);
+  let pi, pv;
+  if (pubI != null && pubI < o[0][0]) { pi = pubI; pv = 0; }
+  else { pi = o[0][0]; pv = o[0][ix]; }
+  arr[pi] = pv;
+  o.forEach(pt => { const i = pt[0], v = pt[ix];
+    if (i <= pi) { arr[i] = v; return; }
+    const span = i - pi, dv = v - pv;
+    for (let k = 1; k <= span; k++) arr[pi + k] = Math.round(pv + dv * k / span);
+    pi = i; pv = v;
+  });
+  for (let k = pi + 1; k < N; k++) arr[k] = pv;   // 마지막 관측 이후는 값 유지(증가 0)
+  return arr;
 }
+
+// 원본 → 파생. 영상별 일별 시리즈(보간)와 채널별 합계를 만든다 — perf 를 새로 받을 때 한 번만.
+function perfBuild(){
+  if (perf.built) return perf.built;
+  let min = null, max = null;
+  perf.vs.forEach(s => { const d = s.snapshot_date;
+    if (!min || d < min) min = d; if (!max || d > max) max = d; });
+  const dates = []; for (let d = min; d <= max; d = dayAdd(d, 1)) dates.push(d);
+  const N = dates.length, at = new Map(dates.map((d, i) => [d, i]));
+
+  const obs = new Map();   // content_id → [[날짜인덱스, 조회, 좋아요], ...]
+  perf.vs.forEach(s => { const i = at.get(s.snapshot_date); if (i === undefined) return;
+    let a = obs.get(s.content_id); if (!a) obs.set(s.content_id, a = []);
+    a.push([i, Number(s.view_count)||0, Number(s.like_count)||0]); });
+
+  const vids = [];
+  perf.vm.forEach(m => {
+    const o = (obs.get(m.content_id) || []).sort((x, y) => x[0] - y[0]);
+    if (!o.length) return;                       // 스냅샷이 아직 없는 영상 — 표·차트에서 제외
+    const pub = m.published_at ? kstDay(m.published_at) : null;
+    const pubI = pub && at.has(pub) ? at.get(pub) : null;
+    const last = o[o.length - 1];
+    vids.push({ cid: m.content_id, chId: m.channel_id, ch: chNameById(m.channel_id),
+      title: m.title || m.content_id, work: m.work_title || "", dead: !!m.dead_at,
+      pub: pub || "", cum: perfInterp(o, 1, N, pubI), lik: perfInterp(o, 2, N, pubI),
+      views: last[1], likes: last[2] });
+  });
+
+  const chans = new Map();
+  const ensure = (chId) => { const ch = chNameById(chId); let g = chans.get(ch);
+    if (!g) chans.set(ch, g = { ch, chId, cum: new Array(N).fill(0), lik: new Array(N).fill(0),
+      ups: new Array(N).fill(0), subs: new Array(N).fill(null),
+      chViews: new Array(N).fill(null), vids: 0 });
+    return g; };
+  vids.forEach(v => { const g = ensure(v.chId); g.vids++;
+    for (let i = 0; i < N; i++){
+      if (v.cum[i] != null) g.cum[i] += v.cum[i];
+      if (v.lik[i] != null) g.lik[i] += v.lik[i];
+    } });
+  // 업로드 수는 vm 전체에서 센다 — 방금 발행돼 아직 스냅샷이 없는 영상도 올라간 건 올라간 것.
+  perf.vm.forEach(m => { if (!m.published_at) return;
+    const i = at.get(kstDay(m.published_at)); if (i === undefined) return;
+    ensure(m.channel_id).ups[i]++; });
+  // 채널 스냅샷(구독자·채널 누적 조회) — 결측일은 직전 값을 끌고 간다
+  const csAt = new Map();
+  perf.cs.forEach(s => { const i = at.get(s.snapshot_date); if (i === undefined) return;
+    const g = ensure(s.channel_id); let arr = csAt.get(g.ch);
+    if (!arr) csAt.set(g.ch, arr = new Array(N).fill(null));
+    arr[i] = s; });
+  chans.forEach(g => { const arr = csAt.get(g.ch); if (!arr) return;
+    let ls = null, lv = null;
+    for (let i = 0; i < N; i++){ const s = arr[i];
+      if (s){ ls = Number(s.subscriber_count); lv = Number(s.view_count); }
+      g.subs[i] = ls; g.chViews[i] = lv; } });
+
+  perf.built = { dates, N, vids, chans: [...chans.values()], maxDate: max, minDate: min };
+  return perf.built;
+}
+
+// 기간·채널 필터를 적용한 뷰 — 타일·차트·표가 전부 이걸 본다.
+function perfView(){
+  const B = perfBuild(), N = B.N;
+  // 표시 구간 [a..b] — 직접 지정한 날짜는 보유 범위 밖이면 가까운 쪽으로 붙인다
+  let a, b;
+  if (perfFrom || perfTo){
+    const i0 = perfFrom ? B.dates.findIndex(d => d >= perfFrom) : 0;
+    a = i0 < 0 ? N - 1 : i0;
+    b = N - 1;
+    if (perfTo){ let k = -1; B.dates.forEach((d, i) => { if (d <= perfTo) k = i; }); b = k < 0 ? a : k; }
+    if (b < a) b = a;
+  } else {
+    a = N - (perfDays > 0 ? Math.min(perfDays, N) : N); b = N - 1;
+  }
+  const span = b - a + 1;
+  const sel = B.chans.filter(g => !perfChSet || perfChSet.has(g.ch));
+  const dates = B.dates.slice(a, b + 1);
+  const at = (key, i) => sel.reduce((t, g) => t + (g[key][i] || 0), 0);
+  const seriesOf = key => dates.map((_, i) => at(key, a + i));
+  const before = key => a > 0 ? at(key, a - 1) : null;   // 구간 첫날의 증가분을 낼 기준점
+  const dailyOf = (arr, prev) => arr.map((v, i) => i ? v - arr[i-1] : (prev == null ? 0 : v - prev));
+
+  // 지표 셋을 한꺼번에 만든다 — 화면이 셋을 나란히 그린다
+  const metrics = {};
+  Object.keys(PERF_METRICS).forEach(k => { const M = PERF_METRICS[k];
+    const total = seriesOf(M.key), daily = dailyOf(total, before(M.key));
+    metrics[k] = { M, total, daily, end: total[total.length-1],
+                   gain: daily.reduce((t, v) => t + v, 0) }; });
+  const ups = seriesOf("ups"), upTotal = ups.reduce((t, v) => t + v, 0);
+  const cum = metrics.views.total, gain = metrics.views.gain;
+  // 전기(같은 길이의 직전 구간) 조회 증가 — 비교할 데이터가 있을 때만
+  const prevGain = (a - span - 1 >= 0) ? at("cum", a - 1) - at("cum", a - span - 1) : null;
+
+  // 채널별 요약(같은 구간) — 표·막대·스파크라인이 같은 행을 쓴다
+  const rowsCh = sel.map(g => {
+    const take = key => { const arr = g[key].slice(a, b + 1);
+      const prev = a > 0 ? g[key][a-1] : arr[0];
+      return { arr, end: arr[arr.length-1], gain: (arr[arr.length-1] || 0) - (prev || 0) }; };
+    const v = take("cum"), l = take("lik");
+    return { ch: g.ch, chId: g.chId, vids: g.vids,
+      upsArr: g.ups.slice(a, b + 1), ups: g.ups.slice(a, b + 1).reduce((t, x) => t + x, 0),
+      gain: v.gain, cum: v.end, likes: l.end, likeGain: l.gain,
+      subs: g.subs[b], dsubs: (g.subs[b] != null && g.subs[a] != null) ? g.subs[b] - g.subs[a] : null,
+      chViews: g.chViews[b],
+      series: v.arr.map((x, i) => i ? x - v.arr[i-1] : 0) };
+  }).sort((x, y) => (y.gain||0) - (x.gain||0));
+
+  // 영상별 행 — "기간 조회수"는 구간 시작 직전 값 대비, 즉 그 기간에 벌어들인 조회수다
+  const rowsVid = B.vids.filter(v => !perfChSet || perfChSet.has(v.ch)).map(v => {
+    const span2 = arr => { const cb = arr[b], prev = a > 0 ? arr[a-1] : arr[a];
+      return cb == null ? null : cb - (prev == null ? 0 : prev); };
+    return { title: v.title, work: v.work, ch: v.ch, cid: v.cid, dead: v.dead, pub: v.pub,
+      views: v.cum[b] == null ? v.views : v.cum[b],
+      dper: span2(v.cum), likes: v.lik[b] == null ? v.likes : v.lik[b], dlike: span2(v.lik),
+      isNew: !!(v.pub && v.pub >= dates[0]) };
+  });
+  const fresh = rowsVid.filter(r => r.isNew);
+  return { B, a, b, span, dates, metrics, cum, ups, daily: metrics.views.daily, gain, prevGain,
+    likeNow: metrics.likes.end, likeGain: metrics.likes.gain,
+    subsNow: at("subs", b), dsubs: at("subs", b) - at("subs", a), chViewNow: at("chViews", b),
+    upTotal, rowsCh, rowsVid, freshCount: fresh.length,
+    freshAvg: fresh.length ? Math.round(fresh.reduce((t, r) => t + (r.views||0), 0) / fresh.length) : null };
+}
+
+// ── 인라인 SVG 차트 (대시보드는 단일 파일 자급자족 — 차트 라이브러리를 두지 않는다) ──
+// 선택 지표의 일별 증가(라인/영역) + 업로드 수(막대) 콤보. 날짜마다 투명 rect 를 깔아 툴팁.
+function pfCombo(dates, daily, ups, M, W, H){
+  W = W || 560; H = H || 240;
+  const hasUp = ups.some(u => u), L = 52, R = hasUp ? 40 : 12, T = 14, BM = 28;
+  const pw = W - L - R, ph = H - T - BM, n = dates.length;
+  const hi = Math.max(1, ...daily), lo = Math.min(0, ...daily);
+  const maxU = Math.max(1, ...ups);
+  const X = i => n === 1 ? L + pw / 2 : L + pw * i / (n - 1);
+  const Y = v => T + ph - ph * (v - lo) / (hi - lo);
+  const uh = ph * 0.4, bw = Math.max(3, Math.min(20, (pw / Math.max(1, n)) * 0.55));
+  const pts = daily.map((v, i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(" ");
+  const step = Math.max(1, Math.ceil(n / 8));
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="일별 조회 증가와 업로드 수">
+    ${[hi, (hi + lo) / 2, lo].map(v => `<line class="gl" x1="${L}" x2="${L + pw}"
+      y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}" stroke-dasharray="${v === 0 ? "" : "3 4"}"/>
+      <text class="ax" x="${L - 8}" y="${(Y(v) + 4).toFixed(1)}" text-anchor="end">${fmtK(v)}</text>`).join("")}
+    ${!hasUp ? "" : ups.map((u, i) => u ? `<rect x="${(X(i) - bw / 2).toFixed(1)}"
+      y="${(T + ph - uh * u / maxU).toFixed(1)}" width="${bw.toFixed(1)}"
+      height="${(uh * u / maxU).toFixed(1)}" rx="2" fill="var(--info)" opacity=".5"/>` : "").join("")}
+    <polygon points="${X(0).toFixed(1)},${Y(lo).toFixed(1)} ${pts} ${X(n-1).toFixed(1)},${Y(lo).toFixed(1)}"
+      fill="${M.color}" opacity=".09"/>
+    <polyline points="${pts}" fill="none" stroke="${M.color}" stroke-width="2.2"
+      stroke-linejoin="round" stroke-linecap="round"/>
+    ${n <= 45 ? daily.map((v, i) => `<circle cx="${X(i).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="2.6"
+      fill="${M.color}"/>`).join("") : ""}
+    ${hasUp ? `<text class="ax" x="${L + pw + 8}" y="${(T + ph - uh).toFixed(1)}"
+      fill="var(--info)">${maxU}편</text>` : ""}
+    ${dates.map((d, i) => i % step === 0 || i === n - 1
+      ? `<text class="ax" x="${X(i).toFixed(1)}" y="${H - 8}" text-anchor="middle">${mmdd(d)}</text>` : "").join("")}
+    ${dates.map((d, i) => `<rect class="hit" x="${(X(i) - pw / Math.max(1, n) / 2).toFixed(1)}" y="${T}"
+      width="${(pw / Math.max(1, n)).toFixed(1)}" height="${ph}" fill="transparent"
+      ><title>${esc(d)} · ${M.label} ${fmtD(daily[i])}${M.unit}${
+        hasUp ? ` · 업로드 ${ups[i]}편` : ""}</title></rect>`).join("")}
+  </svg>`;
+}
+
+// 선택 지표의 누적(구독자는 그 시점 값) — 세로축을 0 부터 잡으면 변화가 안 보여
+// 데이터 범위에 맞춘다(캡션에 명시).
+function pfArea(dates, cum, M, W, H){
+  W = W || 560; H = H || 240;
+  const L = 52, R = 12, T = 14, BM = 28;
+  const pw = W - L - R, ph = H - T - BM, n = dates.length;
+  const hi = Math.max(...cum), lo = Math.min(...cum);
+  const pad = (hi - lo) * 0.15 || Math.max(1, hi * 0.02);
+  const y0 = Math.max(0, lo - pad), y1 = hi + pad;
+  const X = i => n === 1 ? L + pw / 2 : L + pw * i / (n - 1);
+  const Y = v => T + ph - ph * (v - y0) / (y1 - y0 || 1);
+  const pts = cum.map((v, i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(" ");
+  const step = Math.max(1, Math.ceil(n / 8));
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="누적 조회수 추이">
+    ${[y1, (y0 + y1) / 2, y0].map(v => `<line class="gl" x1="${L}" x2="${L + pw}"
+      y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}" stroke-dasharray="3 4"/>
+      <text class="ax" x="${L - 8}" y="${(Y(v) + 4).toFixed(1)}" text-anchor="end">${fmtK(v)}</text>`).join("")}
+    <polygon points="${X(0).toFixed(1)},${(T + ph).toFixed(1)} ${pts} ${X(n-1).toFixed(1)},${(T + ph).toFixed(1)}"
+      fill="${M.color}" opacity=".14"/>
+    <polyline points="${pts}" fill="none" stroke="${M.color}" stroke-width="2.2"
+      stroke-linejoin="round"/>
+    ${dates.map((d, i) => i % step === 0 || i === n - 1
+      ? `<text class="ax" x="${X(i).toFixed(1)}" y="${H - 8}" text-anchor="middle">${mmdd(d)}</text>` : "").join("")}
+    ${dates.map((d, i) => `<rect class="hit" x="${(X(i) - pw / Math.max(1, n) / 2).toFixed(1)}" y="${T}"
+      width="${(pw / Math.max(1, n)).toFixed(1)}" height="${ph}" fill="transparent"
+      ><title>${esc(d)} · ${esc(M.total)} ${fmtN(cum[i])}${M.unit}</title></rect>`).join("")}
+  </svg>`;
+}
+
+// 채널 표에 들어가는 미니 추이선(선택 지표의 일별 증가)
+function pfSpark(vals, w, h, color){
+  const n = vals.length; if (!n) return "";
+  const hi = Math.max(1, ...vals), lo = Math.min(0, ...vals);
+  const X = i => n === 1 ? w / 2 : w * i / (n - 1);
+  const Y = v => h - 1 - (h - 2) * (v - lo) / (hi - lo || 1);
+  return `<svg class="pf-spark" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}"
+    preserveAspectRatio="none" aria-hidden="true"><polyline fill="none" stroke="${color}"
+    stroke-width="1.6" points="${vals.map((v, i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(" ")}"/></svg>`;
+}
+
+// 채널별 영상 개수 — 기간 안에 올린 분(밝은 파랑)과 그 전부터 있던 분을 이어 붙인 가로 막대.
+function pfChBars(V){
+  const rows = V.rowsCh.slice().sort((x, y) => y.vids - x.vids);
+  const max = Math.max(1, ...rows.map(r => r.vids));
+  return `<div class="pf-cb">${rows.map(r => { const old = Math.max(0, r.vids - r.ups);
+    return `<div class="nm ${perfChSet && perfChSet.has(r.ch) ? "sel" : ""}"
+        title="클릭 — 이 채널만 보기 (다시 클릭하면 전체)" onclick="perfChOnly('${esc(r.ch)}')">${esc(r.ch)}</div>
+      <div class="bar" title="${esc(r.ch)} · 추적 영상 ${r.vids}편 (최근 ${V.span}일 업로드 ${r.ups}편)">
+        <i style="width:${(old / max * 100).toFixed(1)}%"></i>
+        <b style="width:${(Math.min(r.ups, r.vids) / max * 100).toFixed(1)}%"></b></div>
+      <div class="n">${fmtN(r.vids)}<span>${r.ups ? " +" + r.ups : ""}</span></div>`; }).join("")
+    || '<div class="empty">채널 없음</div>'}</div>`;
+}
+
+// 업로드 히트맵 — "어느 채널이 며칠에 몇 편 올렸나" 를 한 판에. 진할수록 그날 편수가 많다.
+function pfHeat(V){
+  const dates = V.dates, n = dates.length, today = kstDay();
+  const rows = V.rowsCh.slice().sort((a, b) => (b.ups||0) - (a.ups||0));
+  const maxU = Math.max(1, ...rows.flatMap(r => r.upsArr));
+  const step = Math.max(1, Math.ceil(n / 10));
+  const cols = `grid-template-columns:repeat(${n},minmax(0,1fr))`;
+  return `<div class="pf-heat">
+    <div></div><div class="row" style="${cols}">${dates.map((d, i) =>
+      `<div class="hd">${i % step === 0 || i === n - 1 ? mmdd(d) : ""}</div>`).join("")}</div>
+    ${rows.map(r => `<div class="nm ${perfChSet && perfChSet.has(r.ch) ? "sel" : ""}"
+        title="클릭 — 이 채널만 보기 (다시 클릭하면 전체)" onclick="perfChOnly('${esc(r.ch)}')">${esc(r.ch)}</div>
+      <div class="row" style="${cols}">${r.upsArr.map((u, i) => `<div
+        class="c ${u ? "up" : ""} ${dates[i] === today ? "today" : ""}"
+        ${u ? `style="opacity:${(0.3 + 0.7 * u / maxU).toFixed(2)}"` : ""}
+        title="${esc(r.ch)} · ${esc(dates[i])} · ${u ? u + "편 업로드" : "업로드 없음"}"></div>`).join("")}</div>`).join("")
+    || '<div class="empty">채널 없음</div>'}
+  </div>`;
+}
+
+// 영상 하나의 상세 — 표에서 행을 누르면 그 아래로 펼친다(대시보드 관행: bdetail).
+// 차트는 표시 구간이 아니라 그 영상이 살아온 전 구간을 그린다 — 발행 직후 급상승이
+// 구간 밖으로 잘려 나가면 영상을 판단할 수 없다.
+function pfVidDetail(V, cid){
+  const v = V.B.vids.find(x => x.cid === cid);
+  if (!v) return '<div class="empty">이 영상의 스냅샷이 없습니다</div>';
+  let s0 = v.cum.findIndex(x => x != null); if (s0 < 0) s0 = 0;
+  const ds = V.B.dates.slice(s0), cum = v.cum.slice(s0), lik = v.lik.slice(s0);
+  const dOf = arr => arr.map((x, i) => i ? (x||0) - (arr[i-1]||0) : 0);
+  const views = cum[cum.length-1] || 0, likes = lik[lik.length-1] || 0;
+  const prevC = V.a > 0 ? v.cum[V.a-1] : v.cum[V.a];
+  const gain = (v.cum[V.b] || 0) - (prevC || 0);
+  const pubI = v.pub ? V.B.dates.indexOf(v.pub) : -1;
+  const age = v.pub ? Math.round((Date.parse(V.B.maxDate + "T00:00:00Z")
+                                - Date.parse(v.pub + "T00:00:00Z")) / DAY_MS) + 1 : null;
+  // 첫날·첫 7일은 그 시기 스냅샷이 있어야 낼 수 있다 — 보유 구간 밖 발행분은 알 수 없다
+  const at = k => pubI >= 0 ? (v.cum[Math.min(pubI + k, V.B.N - 1)] || 0) - (v.cum[pubI] || 0) : null;
+  const d1 = at(1), d7 = at(7);
+  const box = (val, k, tip) => `<span title="${esc(tip||"")}"><b>${val}</b>${k}</span>`;
+  return `<div class="pf-vd">
+    <img class="th" src="https://i.ytimg.com/vi/${esc(cid)}/mqdefault.jpg" alt=""
+      loading="lazy" onerror="this.remove()">
+    <div class="meta">
+      <div class="t">${v.dead ? '<span class="sub" title="내려간 영상">†</span> ' : ""}${esc(v.title)}</div>
+      <div class="m">${esc(v.ch)}${v.work ? " · " + esc(v.work) : ""}${
+        v.pub ? " · " + esc(v.pub) + " 게시" : ""}${age ? ` · ${age}일째` : ""}
+        · <a href="https://youtu.be/${esc(cid)}" target="_blank" rel="noopener">유튜브에서 열기 ↗</a></div>
+      <div class="kpis">
+        ${box(fmtN(views), "누적 조회")}
+        ${box(fmtD(gain), `최근 ${V.span}일 조회`)}
+        ${box(fmtN(likes), "좋아요")}
+        ${box(views ? (likes / views * 100).toFixed(2) + "%" : "—", "좋아요율", "좋아요 ÷ 누적 조회")}
+        ${box(age ? fmtN(Math.round(views / age)) : "—", "하루 평균", "누적 조회 ÷ 게시 후 일수")}
+        ${box(d1 == null ? "—" : fmtN(d1), "첫날",
+          d1 == null ? "미러 보유 구간보다 먼저 올라온 영상 — 그때 스냅샷이 없다" : "게시 다음 날까지의 조회(보간값)")}
+        ${box(d7 == null ? "—" : fmtN(d7), "첫 7일",
+          d7 == null ? "미러 보유 구간보다 먼저 올라온 영상 — 그때 스냅샷이 없다" : "게시 후 7일까지의 조회(보간값)")}
+      </div>
+    </div>
+  </div>
+  <div class="pf-duo two">
+    <div><div class="pf-cap">일별 조회 증가</div>
+      ${pfCombo(ds, dOf(cum), [], PERF_METRICS.views, 520, 200)}</div>
+    <div><div class="pf-cap">누적 조회수</div>
+      ${pfArea(ds, cum, PERF_METRICS.views, 520, 200)}</div>
+    <div><div class="pf-cap">일별 좋아요 증가</div>
+      ${pfCombo(ds, dOf(lik), [], PERF_METRICS.likes, 520, 200)}</div>
+    <div><div class="pf-cap">누적 좋아요</div>
+      ${pfArea(ds, lik, PERF_METRICS.likes, 520, 200)}</div>
+  </div>
+  <div class="pf-note">게시일부터 지금까지 — 위 기간 설정과 무관하게 이 영상의 전 구간을 그린다.</div>`;
+}
+
+// 지표 한 덩어리(일별 증가 + 누적) — 조회수·좋아요·구독자를 같은 판형으로 나란히 놓는다
+function pfMetricCard(V, k, withUps){
+  const m = V.metrics[k], M = m.M;
+  const head = M.absolute
+    ? `지금 ${fmtN(m.end)}${M.unit} · ${V.span}일 ${fmtD(m.gain)}`
+    : `${V.span}일 ${fmtD(m.gain)}${M.unit} · 누적 ${fmtN(m.end)}`;
+  return `<section class="card pf-chart"><h2>${esc(M.label)}
+      <span class="pf-sum" style="color:${M.color}">${head}</span></h2>
+    <div class="pf-duo">
+      <div><div class="pf-cap">${esc(M.daily)}${withUps
+        ? ' <i class="lg" style="background:var(--info);opacity:.6"></i>업로드 편수(오른쪽 눈금)' : ""}</div>
+        ${pfCombo(V.dates, m.daily, withUps ? V.ups : [], M)}</div>
+      <div><div class="pf-cap">${esc(M.total)}</div>${pfArea(V.dates, m.total, M)}</div>
+    </div>
+    <div class="pf-note">${M.absolute
+      ? "구독자는 채널 스냅샷에서 온다 — 채널 단위 값이라 영상 목록 필터와 무관하다. 오른쪽 세로축은 0 부터가 아니다."
+      : `${esc(M.label)} 증가는 영상별 스냅샷을 보간해 계산한다(수집이 하루 빠져도 다음 날로 몰리지 않음). 오른쪽 세로축은 0 부터가 아니다.`}</div>
+  </section>`;
+}
+
 function renderPerf(){
-  if (!perf){ loadPerf();
+  if (!perf){ loadPerf(perfFrom ? perfNeedDays() - 2 : perfDays);
     $("#page").innerHTML = '<section class="card"><div class="empty">성과 불러오는 중…</div></section>'; return; }
   if (perf.error){
     $("#page").innerHTML = `<section class="card"><h2>성과</h2><div class="empty">불러오기 실패: ${esc(perf.error)}
-      <button class="mini" onclick="perf=null;render()">다시 시도</button></div></section>`; return; }
+      <button class="mini" onclick="perfReload()">다시 시도</button></div></section>`; return; }
   if (perf.empty){
     $("#page").innerHTML = `<section class="card"><h2>성과</h2><div class="empty">아직 미러된 성과 데이터가 없습니다 —
       perf_sync(매시간)가 첫 회전을 돌면 여기에 채워집니다.</div></section>`; return; }
-  // 채널 요약 — 구독자(최신·28일 증감) + 영상 28일 조회 증가 합
-  const rows = perfRows();
-  const byCh = {};
-  rows.forEach(r => { const g = byCh[r.ch] = byCh[r.ch] || { ch:r.ch, vids:0, views:0, d28:0 };
-    g.vids++; g.views += r.views||0; g.d28 += r.d28||0; });
-  const csByCh = {};
-  perf.cs.forEach(s => (csByCh[s.channel_id] = csByCh[s.channel_id] || []).push(s));
-  const chSum = Object.keys(csByCh).map(cid => {
-    const arr = csByCh[cid].slice().sort((a,b) => a.snapshot_date < b.snapshot_date ? 1 : -1);
-    const cur = arr[0], old = arr[arr.length-1];
-    const g = byCh[chNameById(cid)] || {};
-    return { ch: chNameById(cid), subs: Number(cur.subscriber_count),
-      dsubs: Number(cur.subscriber_count) - Number(old.subscriber_count),
-      vids: g.vids || 0, d28: g.d28 || 0 };
-  }).sort((a,b) => (b.d28||0) - (a.d28||0));
-  // 영상 표 — 정렬 + 상위 200
-  const COLS = [["title","영상 제목"],["work","작품"],["ch","채널"],["views","조회수"],
-    ["d1","+1일"],["d28","+28일"],["likes","좋아요"],["pub","게시일"]];
+
+  const V = perfView(), B = V.B;
+  const chipChs = B.chans.map(g => g.ch).sort((x, y) => x.localeCompare(y, "ko"));
+  const pct = (V.prevGain != null && V.prevGain > 0)
+    ? Math.round((V.gain - V.prevGain) / V.prevGain * 100) : null;
+  const perDay = V.span ? (V.upTotal / V.span) : 0;
+  const custom = !!(perfFrom || perfTo);
+
+  // 영상 표 — 정렬 후 상위 200
+  const COLS = [["title","영상 제목"],["work","작품"],["ch","채널"],
+    ["dper",`${V.span}일 조회`],["views","전체 누적"],["likes","좋아요"],["pub","게시일"]];
   const c = perfSort.col, dir = perfSort.dir;
-  const allChs = Object.keys(byCh).sort((a,b) => a.localeCompare(b, "ko"));
-  const chipChs = [...new Set([...allChs, ...chSum.map(r => r.ch)])].sort((a,b) => a.localeCompare(b, "ko"));
-  const vrows = perfChSet ? rows.filter(r => perfChSet.has(r.ch)) : rows;
-  vrows.sort((a,b) => { const x = a[c], y = b[c];
-    const cmp = (typeof x === "number" || typeof y === "number")
-      ? (Number(x)||0) - (Number(y)||0) : String(x??"").localeCompare(String(y??""), "ko");
+  const vrows = V.rowsVid.slice().sort((x, y) => { const p = x[c], q = y[c];
+    const cmp = (typeof p === "number" || typeof q === "number")
+      ? (Number(p)||0) - (Number(q)||0) : String(p??"").localeCompare(String(q??""), "ko");
     return dir * cmp; });
-  const top = vrows.slice(0, 200);
+
   $("#page").innerHTML = `
-    <section class="card"><h2>채널 요약 — 기준일 ${esc(perf.maxDate)} (laeebly 수집분 미러, 매시간 갱신)
-      <button class="mini right" onclick="perf=null;render()">새로고침</button></h2>
-    <div class="tblwrap"><table><tr><th>채널</th><th>구독자</th><th>구독 +28일</th>
-      <th>추적 영상</th><th>조회 +28일</th></tr>${
-    chSum.map(r => `<tr class="${perfChSet && perfChSet.has(r.ch) ? "selrow" : ""}" style="cursor:pointer"
-        title="클릭 — 아래 영상 목록을 이 채널만 (다시 클릭하면 전체로)"
-        onclick="perfChOnly('${esc(r.ch)}')"><td>${esc(r.ch)}</td><td class="num">${fmtN(r.subs)}</td>
-      <td class="num">${fmtD(r.dsubs)}</td><td class="num">${fmtN(r.vids)}</td>
-      <td class="num">${fmtD(r.d28)}</td></tr>`).join("")
-    || '<tr><td colspan="5" class="empty">채널 스냅샷 없음</td></tr>'}</table></div></section>
-    <section class="card"><h2>영상별 성과 — 열 제목 클릭으로 정렬${vrows.length > 200 ? ` (상위 200/${vrows.length}개 표시)` : ""}${
-        perfChSet ? ` · <b>${perfChSet.size}개 채널 선택</b> · 영상 ${vrows.length}개` : ""}
-      <button class="mini right ${perfChSet ? "on" : ""}"
-        onclick="perfFilterOpen=!perfFilterOpen;render()">⏷ 채널 필터${perfChSet ? " 적용 중" : ""}</button></h2>
+    <div class="pf-ctl">
+      <span class="pf-seg">${PERF_RANGES.map(([d, l]) =>
+        `<button class="${!custom && perfDays === d ? "on" : ""}" onclick="perfRange(${d})">${l}</button>`).join("")}</span>
+      <span class="pf-dates ${custom ? "on" : ""}" title="구간을 직접 지정한다 — 미러 보유 범위 안에서">
+        <input type="date" value="${esc(perfFrom || V.dates[0])}" min="${esc(B.dates[0])}"
+          max="${esc(B.maxDate)}" onchange="perfSetRange('from', this.value)">
+        <span>~</span>
+        <input type="date" value="${esc(perfTo || B.maxDate)}" min="${esc(B.dates[0])}"
+          max="${esc(B.maxDate)}" onchange="perfSetRange('to', this.value)">
+        ${custom ? '<button class="mini" onclick="perfSetRange(\'clear\')" title="프리셋으로 돌아간다">✕</button>' : ""}
+      </span>
+      <span class="pill" title="미러 보유 구간 — perf_sync 가 매시간 갱신한다">보유 ${esc(B.dates[0])} ~ ${esc(B.maxDate)}</span>
+      ${perfChSet ? `<span class="pill" style="color:var(--accent)">채널 ${perfChSet.size}개만</span>` : ""}
+      <span class="sp"></span>
+      <button class="mini ${perfChSet ? "on" : ""}"
+        onclick="perfFilterOpen=!perfFilterOpen;render()">⏷ 채널 필터${perfChSet ? " 적용 중" : ""}</button>
+      <button class="mini" onclick="perfReload()">새로고침</button>
+    </div>
     ${perfFilterOpen ? `<div class="filters">
       <button class="mini" onclick="perfChSet=null;render()">✓ 전체 선택</button>
       <button class="mini" onclick="perfChSet=new Set();render()">✕ 전체 해제</button>
       <span style="border-left:1px solid var(--line);margin:0 2px"></span>
-      ${chipChs.map(ch => { const n = byCh[ch] ? byCh[ch].vids : 0;
-        return `<button class="mini ${!perfChSet || perfChSet.has(ch) ? "on" : ""}" ${n ? "" : 'style="opacity:.45" title="영상 스냅샷 없음 — 수집 확인 필요"'}
-        onclick="perfChToggle('${esc(ch)}')">${esc(ch)} <span style="opacity:.6">${n}</span></button>`; }).join("")}
+      ${chipChs.map(ch => { const g = B.chans.find(x => x.ch === ch);
+        return `<button class="mini ${!perfChSet || perfChSet.has(ch) ? "on" : ""}"
+        ${g.vids ? "" : 'style="opacity:.45" title="영상 스냅샷 없음 — 수집 확인 필요"'}
+        onclick="perfChToggle('${esc(ch)}')">${esc(ch)} <span style="opacity:.6">${g.vids}</span></button>`; }).join("")}
     </div>` : ""}
-    <div class="tblwrap"><table><tr>${COLS.map(([k,l]) =>
-      `<th class="sortable" onclick="perfSortBy('${k}')">${l}${perfSort.col===k?(dir>0?" ▲":" ▼"):""}</th>`).join("")}</tr>${
-    top.map(r => `<tr><td>${r.dead?'<span class="sub" title="내려간 영상">†</span> ':""}<a href="https://youtu.be/${esc(r.cid)}" target="_blank" rel="noopener" style="color:inherit">${esc(r.title)}</a></td>
+
+    <div class="pf-kpi">
+      <div class="tile"><div class="v">${fmtN(V.gain)}</div><div class="k">${V.span}일 조회수</div>
+        <div class="d ${pct == null ? "" : pct >= 0 ? "up" : "dn"}">${
+          pct == null ? "직전 구간 데이터 없음" : `${pct >= 0 ? "▲" : "▼"} ${Math.abs(pct)}% · 직전 ${V.span}일 ${fmtN(V.prevGain)}`}</div></div>
+      <div class="tile"><div class="v">${fmtN(V.cum[V.cum.length-1])}</div><div class="k">누적 조회수 (관리 영상)</div>
+        <div class="d" title="유튜브 채널 통계의 전체 누적 — 우리가 만들지 않은 영상까지 포함">채널 전체 ${fmtN(V.chViewNow)}</div></div>
+      <div class="tile"><div class="v">${fmtN(V.upTotal)}<span style="font-size:15px">편</span></div>
+        <div class="k">${V.span}일 업로드</div>
+        <div class="d">하루 평균 ${perDay.toFixed(1)}편 · 채널 ${V.rowsCh.length}개</div></div>
+      <div class="tile"><div class="v">${fmtN(V.subsNow)}</div><div class="k">구독자 합계</div>
+        <div class="d ${V.dsubs > 0 ? "up" : V.dsubs < 0 ? "dn" : ""}">${V.span}일 ${fmtD(V.dsubs)}</div></div>
+      <div class="tile"><div class="v">${fmtN(V.likeNow)}</div><div class="k">누적 좋아요</div>
+        <div class="d ${V.likeGain > 0 ? "up" : ""}">${V.span}일 ${fmtD(V.likeGain)}</div></div>
+      <div class="tile"><div class="v">${V.freshAvg == null ? "—" : fmtN(V.freshAvg)}</div>
+        <div class="k">신규 영상 평균 조회</div>
+        <div class="d">이 기간 발행 ${V.freshCount}편 기준</div></div>
+    </div>
+
+    ${pfMetricCard(V, "views", true)}
+    ${pfMetricCard(V, "likes", false)}
+    ${pfMetricCard(V, "subs", false)}
+
+    <section class="card"><h2>채널별 영상 개수</h2>
+      ${pfChBars(V)}
+      <div class="pf-note">막대는 추적 중인 영상 수 — 밝은 칸이 이 기간에 올린 분이다.</div>
+    </section>
+
+    <section class="card"><h2>채널별 업로드 — 며칠에 몇 편</h2>
+      ${pfHeat(V)}
+      <div class="pf-note">칸이 진할수록 그날 업로드가 많다. 채널명을 누르면 그 채널만 본다.</div>
+    </section>
+
+    <section class="card"><h2>채널 요약 — ${V.span}일</h2>
+    <div class="tblwrap"><table><tr><th>채널</th><th>영상</th><th>업로드</th>
+      <th>${V.span}일 조회</th><th>누적 조회</th><th>좋아요</th><th>구독자</th>
+      <th>구독 ${V.span}일</th><th>조회 추이</th></tr>${
+    V.rowsCh.map(r => `<tr class="${perfChSet && perfChSet.has(r.ch) ? "selrow" : ""}" style="cursor:pointer"
+        title="클릭 — 이 채널만 보기 (다시 클릭하면 전체)" onclick="perfChOnly('${esc(r.ch)}')">
+      <td>${esc(r.ch)}</td><td class="num">${fmtN(r.vids)}</td><td class="num">${fmtN(r.ups)}</td>
+      <td class="num">${fmtN(r.gain)}</td><td class="num">${fmtN(r.cum)}</td>
+      <td class="num">${fmtN(r.likes)}</td><td class="num">${fmtN(r.subs)}</td>
+      <td class="num">${fmtD(r.dsubs)}</td>
+      <td>${pfSpark(r.series, 96, 22, PERF_METRICS.views.color)}</td></tr>`).join("")
+    || '<tr><td colspan="9" class="empty">채널 없음</td></tr>'}</table></div></section>
+
+    <section class="card"><h2>영상별 성과 — 행을 누르면 상세${
+        vrows.length > 200 ? ` (상위 200/${vrows.length}편)` : ""}</h2>
+    <div class="tblwrap"><table><tr>${COLS.map(([k, l]) =>
+      `<th class="sortable" onclick="perfSortBy('${k}')">${l}${perfSort.col === k ? (dir > 0 ? " ▲" : " ▼") : ""}</th>`).join("")}</tr>${
+    vrows.slice(0, 200).map(r => `<tr class="${perfVid === r.cid ? "selrow" : ""}" style="cursor:pointer"
+      title="클릭 — 상세 열기" onclick="perfOpenVid('${esc(r.cid)}')">
+      <td>${r.dead ? '<span class="sub" title="내려간 영상">†</span> ' : ""}${esc(r.title)}</td>
       <td>${esc(r.work)}</td><td>${esc(r.ch)}</td>
-      <td class="num">${fmtN(r.views)}</td><td class="num">${fmtD(r.d1)}</td>
-      <td class="num">${fmtD(r.d28)}</td><td class="num">${fmtN(r.likes)}</td>
-      <td class="num">${esc(r.pub)}</td></tr>`).join("")
-    || `<tr><td colspan="8" class="empty">${perfChSet && perfChSet.size === 0
+      <td class="num">${fmtN(r.dper)}</td><td class="num">${fmtN(r.views)}</td>
+      <td class="num">${fmtN(r.likes)}</td>
+      <td class="num">${esc(r.pub)}${r.isNew ? ' <span class="sub" title="이 기간에 발행">신규</span>' : ""}</td></tr>${
+      perfVid === r.cid ? `<tr><td colspan="7" class="vdcell">${pfVidDetail(V, r.cid)}</td></tr>` : ""}`).join("")
+    || `<tr><td colspan="7" class="empty">${perfChSet && perfChSet.size === 0
         ? "선택된 채널이 없습니다 — 필터에서 채널을 켜거나 전체 선택을 누르세요" : "영상 스냅샷 없음"}</td></tr>`}</table></div></section>`;
 }
+// 영상 상세 토글 — 같은 행을 다시 누르면 접힌다
+window.perfOpenVid = cid => { perfVid = perfVid === cid ? null : cid; render(); };
+// 직접 구간 지정 — 로드해 둔 창보다 더 거슬러야 하면 다시 받는다
+window.perfSetRange = (which, val) => {
+  if (which === "clear"){ perfFrom = perfTo = null; render(); return; }
+  if (which === "from") perfFrom = val || null; else perfTo = val || null;
+  if (perfFrom && perfTo && perfFrom > perfTo){ const t = perfFrom; perfFrom = perfTo; perfTo = t; }
+  if (perfNeedDays() > perfLoadedDays) perf = null;
+  render();
+};
+
+
+window.perfRange = d => { perfDays = d; perfFrom = perfTo = null;   // 프리셋이 직접 지정을 대체한다
+  if (perfWant(d) > perfLoadedDays) perf = null;   // 더 긴 창이 필요 — 다시 받는다
+  render(); };
 // 칩 토글 — 전체(null)에서 하나 끄면 "그 채널만 제외" 상태가 된다
 window.perfChToggle = ch => {
-  const all = perfAllChs();
+  const all = perfBuild().chans.map(g => g.ch);
   if (!perfChSet) perfChSet = new Set(all);
   perfChSet.has(ch) ? perfChSet.delete(ch) : perfChSet.add(ch);
   if (perfChSet.size === all.length) perfChSet = null;   // 전부 켜지면 전체 상태로 정규화
   render();
 };
-// 요약 행 클릭 — 이 채널만 보기 (재클릭 시 전체)
+// 요약 행·히트맵 행 클릭 — 이 채널만 보기 (재클릭 시 전체)
 window.perfChOnly = ch => {
   perfChSet = (perfChSet && perfChSet.size === 1 && perfChSet.has(ch)) ? null : new Set([ch]);
   render();
 };
-function perfAllChs(){
-  const set = new Set();
-  perfRows().forEach(r => set.add(r.ch));
-  return [...set];
-}
+window.perfReload = () => { perf = null; perfLoadedDays = 0; render(); };
 window.perfSortBy = c => {
-  perfSort = perfSort.col === c ? { col:c, dir:-perfSort.dir } : { col:c, dir:-1 };
+  perfSort = perfSort.col === c ? { col: c, dir: -perfSort.dir } : { col: c, dir: -1 };
   render();
 };
 
