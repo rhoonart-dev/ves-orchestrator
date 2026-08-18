@@ -2089,8 +2089,13 @@ def test_0043_submit_editor_render_contract():
     """RPC 계약: reviewer 게이트 · publish_gate/waiting 한정 · 체인 4잡 · 생성 노드 핀."""
     sql = _live_mig("CREATE OR REPLACE FUNCTION public.submit_editor_render")
     assert "has_role(auth.uid(),'reviewer')" in sql
-    # 대상 카드 — 일본어(localization_qa)는 0038 담당이라 여기서 받으면 안 된다
-    assert "rq.kind = 'publish_gate' AND rq.status = 'waiting'" in sql
+    # 대상 카드 — 일본어(localization_qa)는 0038 담당이라 여기서 받으면 안 된다.
+    # 0050: rejected 는 재제출 경로(F-302) — 가드(새 waiting 카드 없음 + 보낸 초안)가 있어야 한다.
+    # kind 핀은 계속 필수 — 흘리면 localization_qa(0038 담당)까지 받는다.
+    assert "rq.kind = 'publish_gate'" in sql
+    assert "rq.status IN ('waiting','rejected')" in sql
+    assert "이미 새 검수 카드가 있습니다" in sql
+    assert "보낸 초안이 없습니다" in sql
     # 스키마 주입: 화면이 빠뜨려도 엔진 계약이 성립해야 한다.
     # 0047: tts 가 있을 때만 v2 — v1 에 tts 를 얹으면 구 엔진이 조용히 무시한다(fail-loud 위반).
     assert "CASE WHEN p_overrides ? 'tts' THEN 'edit_overrides/v2'" in sql
@@ -2108,9 +2113,10 @@ def test_0043_submit_editor_render_contract():
         assert k in sql, k
     assert "ARRAY['generate', 'node:' || v_gen.node_id]" in sql
     assert "'editrender:' || p_review_id" in sql
-    # 이중 렌더 방지 + 재료 무효화 + 감사
-    assert "이미 렌더가 대기·진행 중입니다" in sql
-    # 재료 무효화는 0044 부터 초안 정리와 한 문장이다(status='pending', draft=NULL …)
+    # 이중 렌더 방지(0050: generate 만이 아니라 살아있는 editrender 꼬리 전체) + 재료 무효화
+    assert "이미 렌더 체인이 대기·진행 중입니다" in sql
+    assert "idempotency_key LIKE 'editrender:%'" in sql
+    # 재료 무효화 — 0050 부터 초안은 지우지 않고 보낸 표시(draft_sent_at)만 찍는다
     assert "UPDATE public.editor_assets" in sql and "SET status='pending'" in sql
     assert "_audit('editor_render'" in sql
     assert "REVOKE ALL     ON FUNCTION public.submit_editor_render(uuid, jsonb, text) FROM public, anon;" in sql
@@ -2126,7 +2132,10 @@ def test_dashboard_editor_edit_ui_wired():
     assert '"submit_editor_render"' in html
     assert "p_overrides" in html and "p_review_id: edRid" in html
     # 권한·카드 게이트가 화면에도 있어야 한다(서버가 최종 방어선이지만 버튼부터 안 보이게)
-    assert 'can("reviewer") && r.kind === "publish_gate" && r.status === "waiting"' in html
+    # 0050(F-302)부터 edCanEdit 이 waiting + '재제출 가능한 rejected' 를 받는다 —
+    # reviewer·publish_gate 핀과 waiting 허용은 계속 필수
+    assert 'if (!can("reviewer") || r.kind !== "publish_gate") return false;' in html
+    assert 'if (r.status === "waiting") return true;' in html
     # draft 분리 — 화면이 다시 그려져도 고치던 문장이 살아남는다
     assert "dTitle" in html and "dSubs" in html
     # 자막 전량 삭제 방어
@@ -2153,14 +2162,20 @@ def test_0044_draft_rpc_and_geoblock_notice():
     assert "'geoblock_notice'" in sql and "JAEMISHOTS" in sql
 
 
-def test_0044_submit_clears_draft():
-    """재렌더를 보내면 초안을 지운다 — 보낸 것과 안 보낸 것이 구분돼야 목록이 의미를 갖는다."""
+def test_0044_submit_marks_draft_sent():
+    """0050(F-302): 성공하면 지우고 실패하면 남긴다 — 제출은 draft_sent_at 만 찍고
+    초안을 지우지 않는다(지우면 체인 실패 시 복구 재료가 없다). 성공 청소는 새 카드를
+    만드는 brain.post_success 가 한다."""
     sql = _live_mig("CREATE OR REPLACE FUNCTION public.submit_editor_render")
-    assert "SET status='pending', draft=NULL, draft_at=NULL, draft_by=NULL" in sql
+    assert "draft_sent_at=now()" in sql
+    assert "draft=NULL" not in sql                    # 제출 경로는 초안을 지우지 않는다
     # 0043 계약은 그대로 유지돼야 한다(전문 재정의라 빠뜨리기 쉽다)
-    assert "rq.kind = 'publish_gate' AND rq.status = 'waiting'" in sql
     assert "ARRAY['generate', 'node:' || v_gen.node_id]" in sql
-    assert "이미 렌더가 대기·진행 중입니다" in sql
+    assert "이미 렌더 체인이 대기·진행 중입니다" in sql
+    # 성공 청소 짝 — post_success 가 보낸 초안만 지운다
+    import pathlib
+    brain = pathlib.Path("ves/adapters/brain.py").read_text(encoding="utf-8")
+    assert "draft_sent_at IS NOT NULL" in brain
 
 
 # ───────── 0046: 편집 재렌더 앞 소스 재가열 ─────────
@@ -2286,6 +2301,24 @@ def test_scan_cmd_fps_and_budget_follow_source():
     assert f"fps={SCAN_FPS},scale=-2:360" in hq             # fps 먼저 — 스케일 낭비 방지
     assert "fps=" not in lo                                 # 폴백은 소스 fps 그대로
     assert f"-b:v {scan_bitrate_kbps(2829, 150)}k" in lo    # 폴백은 낮은 예산으로 역산
+
+
+def test_editor_draft_recovery_contract():
+    """F-302: 성공하면 지우고 실패하면 남긴다 — 0050 은 제출 시 draft_sent_at 만 찍고,
+    성공 청소는 새 카드를 만드는 post_success 가 한다. 재제출은 rejected 카드 중
+    '보낸 초안 있음 + 새 waiting 카드 없음' 만."""
+    import pathlib
+    sql = pathlib.Path("ves/control/migrations/0050_editor_draft_recovery.sql").read_text(encoding="utf-8")
+    assert "draft_sent_at" in sql and "IN ('waiting','rejected')" in sql
+    assert "draft=NULL" not in sql.replace(" ", "")            # 제출은 초안을 지우지 않는다
+    assert "status = 'waiting'" in sql                         # 카드 닫기는 waiting 만
+    brain = pathlib.Path("ves/adapters/brain.py").read_text(encoding="utf-8")
+    assert "draft_sent_at IS NOT NULL" in brain                # 성공 청소는 post_success
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert "edResubmit" in html and "edRetryChain" in html
+    assert "실패 지점부터 재시도" in html                     # 인프라 실패의 정석 복구
+    assert '"retry_editor_chain"' in html
+    assert "retry_editor_chain" in sql                         # 0050 의 재시도 RPC
 
 
 def test_dashboard_rerender_progress_and_continue():

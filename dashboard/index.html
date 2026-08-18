@@ -2203,13 +2203,14 @@ function edDraftList(){
     const rv = (state.reviews||[]).find(x => x.id === d.review_id);
     const dead = !rv || rv.status !== "waiting";
     return `<div class="edcard" onclick="openEditor('${d.review_id}')">
-      <span class="badge">${esc(bits || "편집 중")}</span>
+      <span class="badge">${esc(d.draft_sent_at ? "보냄" : (bits || "편집 중"))}</span>
       <span class="t">${esc(wo.work_title || d.run_id)}
         ${wo.episode != null ? esc(wo.episode) + "회차" : ""}
         <span class="sub">${esc(chName(wo.channel_slug))} ·
           ${d.draft_at ? new Date(d.draft_at).toLocaleString("ko-KR") : ""}
           ${d.draft_by ? " · " + esc(d.draft_by) : ""}
-          ${dead ? " · ⚠ 검수 카드가 닫혀 보낼 수 없습니다" : ""}</span></span>
+          ${d.draft_sent_at ? " · 재렌더로 보냄 — 실패했으면 열어서 재제출"
+            : dead ? " · ⚠ 검수 카드가 닫혀 보낼 수 없습니다" : ""}</span></span>
       <span class="sub">열기 →</span></div>`;
   }).join("")}</div>`;
 }
@@ -2405,6 +2406,22 @@ function renderEdit(){
     </div>
 
     ${edChain && edChain.rid === edRid ? edChainHtml() : ""}
+    ${(() => {
+      // 재진입 복구(F-302): 편집 재렌더로 닫혔는데 새 카드가 없다 = 체인이 성공 못 함.
+      // 보낸 초안(draft_sent_at)이 남아 있으면 그대로 재제출할 수 있다.
+      if (edChain && edChain.rid === edRid) return "";
+      if (r.status !== "rejected" || !edData.draft_sent_at) return "";
+      const newer = (state.reviews||[]).some(x => x.work_order_id === r.work_order_id
+        && x.kind === "publish_gate" && x.status === "waiting");
+      if (newer) return "";
+      return `<div class="edwarn" style="margin-top:10px">이 카드는 편집 재렌더로 닫혔지만
+        <b>새 카드가 없습니다</b> — 체인이 진행 중이거나 실패했을 수 있습니다. 보낸 초안(${
+        new Date(edData.draft_sent_at).toLocaleString("ko-KR")})이 화면에 복원돼 있습니다.
+        <button class="pri mini" onclick="edRetryChain()"
+          title="멈춘 잡만 되살립니다 — 인프라 실패의 정석 복구">실패 지점부터 재시도</button>
+        <span class="sub">문구·구간을 고쳐 다시 보내려면 아래에서 편집 후 재렌더 버튼 —
+        단, 실패 체인이 재료를 이미 고친 본으로 바꿨을 수 있어 재시도가 더 정확합니다.</span></div>`;
+    })()}
     ${canEdit ? `<div class="edfoot2">
       <button class="pri act" id="edsubmit" onclick="edSubmit()" disabled>
         ✏️ 고친 내용으로 다시 렌더</button>
@@ -2412,8 +2429,10 @@ function renderEdit(){
         ? "초안 이어서 편집 중 — " + new Date(edData.draft_at).toLocaleString("ko-KR") : ""}</span>
       <span>지금 카드는 반려로 닫히고, 고친 본으로 다시 렌더한 새 카드가 올라옵니다</span>
     </div>` : `<div class="sub" style="margin-top:10px">
-      ${r.kind === "publish_gate" ? "reviewer 권한이 있어야 고칠 수 있습니다"
-        : "일본어 카드는 검수함의 ✏️ 수정 재렌더를 쓰세요 — 이 화면은 보기 전용입니다"}
+      ${r.kind !== "publish_gate"
+        ? "일본어 카드는 검수함의 ✏️ 수정 재렌더를 쓰세요 — 이 화면은 보기 전용입니다"
+        : !can("reviewer") ? "reviewer 권한이 있어야 고칠 수 있습니다"
+        : "이 카드는 닫혀 있어 고칠 수 없습니다"}
     </div>`}</section>`;
 
   // 값 주입은 프로그래매틱으로(따옴표·줄바꿈이 attribute 를 깨지 않게)
@@ -3362,7 +3381,8 @@ function edChainHtml(){
     return `<span class="edchip ${cls}" title="${esc(k)} — ${esc(st)}${
       j.error ? " · " + esc(String(j.error).slice(0, 80)) : ""}">${l}</span>`;
   }).join(`<span class="arr">→</span>`);
-  const eta = edChain.kind === "resources"
+  const eta = edChain.kind === "retry" ? "실패 지점부터 재시도 중"
+    : edChain.kind === "resources"
     ? "구간·내레이션 수정 — 리소스부터 다시 만듭니다(몇 분)"
     : "제목·자막·스타일만 — 렌더만 다시 합니다(1분 내)";
   let tail = "";
@@ -3371,7 +3391,11 @@ function edChainHtml(){
       edChain.failed.status === "blocked" ? "대기(사람 개입 필요)" : "실패"} — ${
       esc(edChain.failed.kind)}(${esc(edChain.failed.status)}): ${
       esc(String(edChain.failed.error || "").slice(0, 160))}
-      <span class="sub">관제 화면에서 확인하세요 — 초안 기반 재제출은 다음 업데이트(F-302)에서.</span></div>`;
+      <span class="sub">보낸 초안은 남아 있습니다</span>
+      <button class="pri mini" onclick="edRetryChain()"
+        title="멈춘 잡만 되살립니다 — 인프라 실패(업로드·등록 등)의 정석 복구">실패 지점부터 재시도</button>
+      <button class="mini" onclick="edResubmit()"
+        title="편집 내용을 전량 다시 보냅니다 — 문구·구간을 고쳐서 다시 시도할 때">고쳐서 다시 보내기</button></div>`;
   else if (edChain.newRid)
     tail = `<div class="edchaindone">✅ 새 검수 카드가 올라왔습니다 —
       <button class="pri mini" onclick="edOpenNew('${edChain.newRid}')">방금 렌더 결과 열기</button>
@@ -3417,6 +3441,24 @@ window.edOpenNew = async rid => {
   try { await refresh(); } catch (e){ /* 실패해도 열기는 시도 */ }
   openEditor(rid);
 };
+// 재제출(F-302) — 화면의 현재 편집 상태(= 보낸 초안이 복원된 edForm)를 다시 보낸다.
+// RPC(0050)가 rejected 카드의 재제출 가드를 검증한다. 새 체인은 기존 제출 경로 공용.
+window.edResubmit = () => {
+  edChain = null; clearTimeout(edChainTimer);   // 새 제출이 새 체인을 세운다
+  if (edForm) edForm.sent = false;
+  edSubmit();
+};
+// 실패 지점부터 재시도(F-302) — 인프라 실패의 정석 복구. 재제출(전량 오버라이드)은
+// 실패 체인이 run_dir 을 이미 변형했으면 diff 가 붕괴한다(재료 = 이미 고친 본).
+window.edRetryChain = async () => {
+  const res = await rpc("retry_editor_chain", { p_review_id: edRid },
+                        "실패한 지점부터 체인을 다시 돕니다");
+  if (!res) return;
+  if (edForm) edForm.sent = true;
+  const wo = ((state.reviews||[]).find(x => x.id === edRid) || {}).work_order_id;
+  edChain = { rid: edRid, woId: wo, kind: "retry", jobs: {} };
+  render();
+};
 
 // ── 키보드 단축키 (F-103) ─────────────────────────────────────────────
 function edCanEdit(r){
@@ -3424,7 +3466,15 @@ function edCanEdit(r){
   // 체인 잠금도 여기서 — 전역 핸들러(Delete 키·드래그)가 각자 챙기면 반드시 샌다.
   if (edChain && edChain.rid === edRid) return false;
   r = r || (state.reviews||[]).find(x => x.id === edRid) || {};
-  return can("reviewer") && r.kind === "publish_gate" && r.status === "waiting";
+  if (!can("reviewer") || r.kind !== "publish_gate") return false;
+  if (r.status === "waiting") return true;
+  // 재제출 경로(F-302): 편집 재렌더로 닫혔고 새 카드가 없으면 **고쳐서** 다시 보낼 수
+  // 있어야 한다 — 초안 내용 자체가 실패 원인(엔진 검증)일 수 있다. 서버(0050)가 같은
+  // 조건을 다시 검증한다.
+  if (r.status === "rejected" && edData && edData.draft_sent_at)
+    return !(state.reviews||[]).some(x => x.work_order_id === r.work_order_id
+      && x.kind === "publish_gate" && x.status === "waiting");
+  return false;
 }
 // 선택 하이라이트를 렌더 없이 맞춘다 — 키보드 내비마다 render() 를 돌리면 video 가
 // 다시 로드된다. 블록·행 모두 인덱스 = clips 인덱스라 순서 대응이 성립한다.
