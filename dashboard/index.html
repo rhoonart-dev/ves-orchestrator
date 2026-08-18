@@ -619,6 +619,11 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .pf-lg i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:6px;
     vertical-align:-1px}
   .pf-note{font-size:11.5px;color:var(--muted);margin-top:8px}
+  .pf-note .pf-warn{color:var(--warn);font-weight:600}
+  .pf-ctl .pill.bad{border-color:var(--warn);color:var(--warn)}
+  .pf-warnbar{border-color:var(--serious);background:var(--surface-2);margin-top:0;
+    font-size:12.5px;color:var(--ink-2);line-height:1.6}
+  .pf-warnbar b{color:var(--serious)}
   /* 업로드 히트맵 — 채널 × 날짜 */
   .pf-heat{display:grid;grid-template-columns:minmax(74px,132px) 1fr;gap:3px 8px;align-items:center;
     font-size:12px}
@@ -3427,6 +3432,7 @@ const PERF_METRICS = {
   subs:  { key: "subs", label: "구독자", daily: "일별 구독자 증가", total: "구독자 수",
            unit: "명", color: "var(--good)", absolute: true },
 };
+const PERF_COV_LOW = 0.7;   // 이 아래면 "그날 대부분이 보간 추정" — 차트에 음영으로 표시한다
 let perfFrom = null, perfTo = null;   // 직접 지정 구간(YYYY-MM-DD). 있으면 프리셋보다 우선
 let perfVid = null;                   // 상세를 펼친 영상(content_id)
 // 채널 멀티 필터 — null=전체, Set=선택된 채널들(빈 Set=전부 해제). 차트·표 전부에 걸린다.
@@ -3518,14 +3524,15 @@ function perfBuild(){
     vids.push({ cid: m.content_id, chId: m.channel_id, ch: chNameById(m.channel_id),
       title: m.title || m.content_id, work: m.work_title || "", dead: !!m.dead_at,
       pub: pub || "", cum: perfInterp(o, 1, N, pubI), lik: perfInterp(o, 2, N, pubI),
-      views: last[1], likes: last[2] });
+      obs: new Set(o.map(x => x[0])), views: last[1], likes: last[2] });
   });
 
   const chans = new Map();
   const ensure = (chId) => { const ch = chNameById(chId); let g = chans.get(ch);
     if (!g) chans.set(ch, g = { ch, chId, cum: new Array(N).fill(0), lik: new Array(N).fill(0),
       ups: new Array(N).fill(0), subs: new Array(N).fill(null),
-      chViews: new Array(N).fill(null), vids: 0 });
+      chViews: new Array(N).fill(null), vids: 0,
+      seen: new Array(N).fill(0), live: new Array(N).fill(0) });
     return g; };
   vids.forEach(v => { const g = ensure(v.chId); g.vids++;
     for (let i = 0; i < N; i++){
@@ -3536,6 +3543,23 @@ function perfBuild(){
   perf.vm.forEach(m => { if (!m.published_at) return;
     const i = at.get(kstDay(m.published_at)); if (i === undefined) return;
     ensure(m.channel_id).ups[i]++; });
+  // 일별 수집률 = 그날 스냅샷이 찍힌 영상 ÷ 그날 살아 있던 영상.
+  // 원천 수집이 성겼던 구간(2026-06~07 실측 27~32%)의 증가값은 관측이 아니라 보간 추정이다.
+  const chOf = new Map(perf.vm.map(m => [m.content_id, m.channel_id]));
+  perf.vm.forEach(m => {
+    if (!m.published_at) return;
+    const pd = kstDay(m.published_at);
+    const from = at.has(pd) ? at.get(pd) : (pd < dates[0] ? 0 : -1);
+    if (from < 0) return;                         // 보유 구간 뒤에 올라온 영상
+    let to = N - 1;
+    if (m.dead_at){ const dd = kstDay(m.dead_at);
+      if (at.has(dd)) to = at.get(dd); else if (dd < dates[0]) return; }
+    const g = ensure(m.channel_id);
+    for (let i = from; i <= to; i++) g.live[i]++;
+  });
+  perf.vs.forEach(s => { const i = at.get(s.snapshot_date); if (i === undefined) return;
+    const cid = chOf.get(s.content_id); if (cid === undefined) return;
+    ensure(cid).seen[i]++; });
   // 채널 스냅샷(구독자·채널 누적 조회) — 결측일은 직전 값을 끌고 간다
   const csAt = new Map();
   perf.cs.forEach(s => { const i = at.get(s.snapshot_date); if (i === undefined) return;
@@ -3581,6 +3605,12 @@ function perfView(){
     metrics[k] = { M, total, daily, end: total[total.length-1],
                    gain: daily.reduce((t, v) => t + v, 0) }; });
   const ups = seriesOf("ups"), upTotal = ups.reduce((t, v) => t + v, 0);
+  // 수집률(0~1) — 낮은 날은 차트에 음영으로 표시하고 툴팁에도 적는다
+  const cov = dates.map((_, i) => { const live = at("live", a + i);
+    return live ? Math.min(1, at("seen", a + i) / live) : null; });
+  const covOk = cov.filter(v => v != null);
+  const covAvg = covOk.length ? covOk.reduce((t, v) => t + v, 0) / covOk.length : null;
+  const covLow = cov.filter(v => v != null && v < PERF_COV_LOW).length;
   const cum = metrics.views.total, gain = metrics.views.gain;
   // 전기(같은 길이의 직전 구간) 조회 증가 — 비교할 데이터가 있을 때만
   const prevGain = (a - span - 1 >= 0) ? at("cum", a - 1) - at("cum", a - span - 1) : null;
@@ -3609,7 +3639,8 @@ function perfView(){
       isNew: !!(v.pub && v.pub >= dates[0]) };
   });
   const fresh = rowsVid.filter(r => r.isNew);
-  return { B, a, b, span, dates, metrics, cum, ups, daily: metrics.views.daily, gain, prevGain,
+  return { B, a, b, span, dates, metrics, cum, ups, cov, covAvg, covLow,
+    daily: metrics.views.daily, gain, prevGain,
     likeNow: metrics.likes.end, likeGain: metrics.likes.gain,
     subsNow: at("subs", b), dsubs: at("subs", b) - at("subs", a), chViewNow: at("chViews", b),
     upTotal, rowsCh, rowsVid, freshCount: fresh.length,
@@ -3617,9 +3648,27 @@ function perfView(){
 }
 
 // ── 인라인 SVG 차트 (대시보드는 단일 파일 자급자족 — 차트 라이브러리를 두지 않는다) ──
+// 원천 수집이 성겼던 날은 값이 관측이 아니라 보간 추정이다 — 그 구간에 음영을 깔아
+// "여기는 덜 믿을 값"이라고 화면이 먼저 말하게 한다(연속 구간은 하나로 묶어 그린다).
+function pfCovBand(cov, X, n, pw, T, ph){
+  if (!cov.length) return "";
+  const w = pw / Math.max(1, n), out = [];
+  let from = -1;
+  const flush = to => { if (from < 0) return;
+    const x0 = X(from) - w / 2, x1 = X(to) + w / 2;
+    out.push(`<rect x="${x0.toFixed(1)}" y="${T}" width="${(x1 - x0).toFixed(1)}" height="${ph}"
+      fill="var(--muted)" opacity=".13"/>`); from = -1; };
+  cov.forEach((v, i) => { const low = v != null && v < PERF_COV_LOW;
+    if (low && from < 0) from = i;
+    if (!low) flush(i - 1); });
+  flush(n - 1);
+  return out.join("");
+}
+const pfCovTip = v => v == null ? "" :
+  ` · 수집 ${Math.round(v * 100)}%${v < PERF_COV_LOW ? "(대부분 보간 추정)" : ""}`;
 // 선택 지표의 일별 증가(라인/영역) + 업로드 수(막대) 콤보. 날짜마다 투명 rect 를 깔아 툴팁.
-function pfCombo(dates, daily, ups, M, W, H){
-  W = W || 560; H = H || 240;
+function pfCombo(dates, daily, ups, M, W, H, cov){
+  W = W || 560; H = H || 240; cov = cov || [];
   const hasUp = ups.some(u => u), L = 52, R = hasUp ? 40 : 12, T = 14, BM = 28;
   const pw = W - L - R, ph = H - T - BM, n = dates.length;
   const hi = Math.max(1, ...daily), lo = Math.min(0, ...daily);
@@ -3633,6 +3682,7 @@ function pfCombo(dates, daily, ups, M, W, H){
     ${[hi, (hi + lo) / 2, lo].map(v => `<line class="gl" x1="${L}" x2="${L + pw}"
       y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}" stroke-dasharray="${v === 0 ? "" : "3 4"}"/>
       <text class="ax" x="${L - 8}" y="${(Y(v) + 4).toFixed(1)}" text-anchor="end">${fmtK(v)}</text>`).join("")}
+    ${pfCovBand(cov, X, n, pw, T, ph)}
     ${!hasUp ? "" : ups.map((u, i) => u ? `<rect x="${(X(i) - bw / 2).toFixed(1)}"
       y="${(T + ph - uh * u / maxU).toFixed(1)}" width="${bw.toFixed(1)}"
       height="${(uh * u / maxU).toFixed(1)}" rx="2" fill="var(--info)" opacity=".5"/>` : "").join("")}
@@ -3649,14 +3699,14 @@ function pfCombo(dates, daily, ups, M, W, H){
     ${dates.map((d, i) => `<rect class="hit" x="${(X(i) - pw / Math.max(1, n) / 2).toFixed(1)}" y="${T}"
       width="${(pw / Math.max(1, n)).toFixed(1)}" height="${ph}" fill="transparent"
       ><title>${esc(d)} · ${M.label} ${fmtD(daily[i])}${M.unit}${
-        hasUp ? ` · 업로드 ${ups[i]}편` : ""}</title></rect>`).join("")}
+        hasUp ? ` · 업로드 ${ups[i]}편` : ""}${pfCovTip(cov[i])}</title></rect>`).join("")}
   </svg>`;
 }
 
 // 선택 지표의 누적(구독자는 그 시점 값) — 세로축을 0 부터 잡으면 변화가 안 보여
 // 데이터 범위에 맞춘다(캡션에 명시).
-function pfArea(dates, cum, M, W, H){
-  W = W || 560; H = H || 240;
+function pfArea(dates, cum, M, W, H, cov){
+  W = W || 560; H = H || 240; cov = cov || [];
   const L = 52, R = 12, T = 14, BM = 28;
   const pw = W - L - R, ph = H - T - BM, n = dates.length;
   const hi = Math.max(...cum), lo = Math.min(...cum);
@@ -3670,6 +3720,7 @@ function pfArea(dates, cum, M, W, H){
     ${[y1, (y0 + y1) / 2, y0].map(v => `<line class="gl" x1="${L}" x2="${L + pw}"
       y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}" stroke-dasharray="3 4"/>
       <text class="ax" x="${L - 8}" y="${(Y(v) + 4).toFixed(1)}" text-anchor="end">${fmtK(v)}</text>`).join("")}
+    ${pfCovBand(cov, X, n, pw, T, ph)}
     <polygon points="${X(0).toFixed(1)},${(T + ph).toFixed(1)} ${pts} ${X(n-1).toFixed(1)},${(T + ph).toFixed(1)}"
       fill="${M.color}" opacity=".14"/>
     <polyline points="${pts}" fill="none" stroke="${M.color}" stroke-width="2.2"
@@ -3678,7 +3729,7 @@ function pfArea(dates, cum, M, W, H){
       ? `<text class="ax" x="${X(i).toFixed(1)}" y="${H - 8}" text-anchor="middle">${mmdd(d)}</text>` : "").join("")}
     ${dates.map((d, i) => `<rect class="hit" x="${(X(i) - pw / Math.max(1, n) / 2).toFixed(1)}" y="${T}"
       width="${(pw / Math.max(1, n)).toFixed(1)}" height="${ph}" fill="transparent"
-      ><title>${esc(d)} · ${esc(M.total)} ${fmtN(cum[i])}${M.unit}</title></rect>`).join("")}
+      ><title>${esc(d)} · ${esc(M.total)} ${fmtN(cum[i])}${M.unit}${pfCovTip(cov[i])}</title></rect>`).join("")}
   </svg>`;
 }
 
@@ -3736,6 +3787,9 @@ function pfVidDetail(V, cid){
   let s0 = v.cum.findIndex(x => x != null); if (s0 < 0) s0 = 0;
   const ds = V.B.dates.slice(s0), cum = v.cum.slice(s0), lik = v.lik.slice(s0);
   const dOf = arr => arr.map((x, i) => i ? (x||0) - (arr[i-1]||0) : 0);
+  // 이 영상이 실제로 찍힌 날 = 1, 아니면 0 — 차트가 추정 구간에 음영을 깐다
+  const cov = ds.map((_, i) => v.obs.has(s0 + i) ? 1 : 0);
+  const miss = cov.filter(x => !x).length;
   const views = cum[cum.length-1] || 0, likes = lik[lik.length-1] || 0;
   const prevC = V.a > 0 ? v.cum[V.a-1] : v.cum[V.a];
   const gain = (v.cum[V.b] || 0) - (prevC || 0);
@@ -3769,15 +3823,16 @@ function pfVidDetail(V, cid){
   </div>
   <div class="pf-duo two">
     <div><div class="pf-cap">일별 조회 증가</div>
-      ${pfCombo(ds, dOf(cum), [], PERF_METRICS.views, 520, 200)}</div>
+      ${pfCombo(ds, dOf(cum), [], PERF_METRICS.views, 520, 200, cov)}</div>
     <div><div class="pf-cap">누적 조회수</div>
-      ${pfArea(ds, cum, PERF_METRICS.views, 520, 200)}</div>
+      ${pfArea(ds, cum, PERF_METRICS.views, 520, 200, cov)}</div>
     <div><div class="pf-cap">일별 좋아요 증가</div>
-      ${pfCombo(ds, dOf(lik), [], PERF_METRICS.likes, 520, 200)}</div>
+      ${pfCombo(ds, dOf(lik), [], PERF_METRICS.likes, 520, 200, cov)}</div>
     <div><div class="pf-cap">누적 좋아요</div>
-      ${pfArea(ds, lik, PERF_METRICS.likes, 520, 200)}</div>
+      ${pfArea(ds, lik, PERF_METRICS.likes, 520, 200, cov)}</div>
   </div>
-  <div class="pf-note">게시일부터 지금까지 — 위 기간 설정과 무관하게 이 영상의 전 구간을 그린다.</div>`;
+  <div class="pf-note">게시일부터 지금까지 — 위 기간 설정과 무관하게 이 영상의 전 구간을 그린다.${
+    miss ? ` <b class="pf-warn">회색 띠 ${miss}일</b>은 이 영상의 스냅샷이 없어 앞뒤 관측을 이어 붙인 추정이다.` : ""}</div>`;
 }
 
 // 지표 한 덩어리(일별 증가 + 누적) — 조회수·좋아요·구독자를 같은 판형으로 나란히 놓는다
@@ -3791,12 +3846,13 @@ function pfMetricCard(V, k, withUps){
     <div class="pf-duo">
       <div><div class="pf-cap">${esc(M.daily)}${withUps
         ? ' <i class="lg" style="background:var(--info);opacity:.6"></i>업로드 편수(오른쪽 눈금)' : ""}</div>
-        ${pfCombo(V.dates, m.daily, withUps ? V.ups : [], M)}</div>
-      <div><div class="pf-cap">${esc(M.total)}</div>${pfArea(V.dates, m.total, M)}</div>
+        ${pfCombo(V.dates, m.daily, withUps ? V.ups : [], M, 0, 0, V.cov)}</div>
+      <div><div class="pf-cap">${esc(M.total)}</div>${pfArea(V.dates, m.total, M, 0, 0, V.cov)}</div>
     </div>
     <div class="pf-note">${M.absolute
       ? "구독자는 채널 스냅샷에서 온다 — 채널 단위 값이라 영상 목록 필터와 무관하다. 오른쪽 세로축은 0 부터가 아니다."
-      : `${esc(M.label)} 증가는 영상별 스냅샷을 보간해 계산한다(수집이 하루 빠져도 다음 날로 몰리지 않음). 오른쪽 세로축은 0 부터가 아니다.`}</div>
+      : `${esc(M.label)} 증가는 영상별 스냅샷을 보간해 계산한다(수집이 하루 빠져도 다음 날로 몰리지 않음). 오른쪽 세로축은 0 부터가 아니다.`}${
+      V.covLow ? ` <b class="pf-warn">회색 띠 ${V.covLow}일</b>은 원천 수집이 ${Math.round(PERF_COV_LOW*100)}% 미만이라 그날 값 대부분이 보간 추정이다.` : ""}</div>
   </section>`;
 }
 
@@ -3839,6 +3895,9 @@ function renderPerf(){
         ${custom ? '<button class="mini" onclick="perfSetRange(\'clear\')" title="프리셋으로 돌아간다">✕</button>' : ""}
       </span>
       <span class="pill" title="미러 보유 구간 — perf_sync 가 매시간 갱신한다">보유 ${esc(B.dates[0])} ~ ${esc(B.maxDate)}</span>
+      ${V.covAvg == null ? "" : `<span class="pill ${V.covAvg < PERF_COV_LOW ? "bad" : ""}"
+        title="원천(laeebly)이 그날 실제로 찍어 준 영상 비율의 평균. 낮은 날은 값이 관측이 아니라 앞뒤 관측을 이은 보간 추정이다.">수집률 ${
+        Math.round(V.covAvg * 100)}%${V.covLow ? ` · ${V.covLow}일 성김` : ""}</span>`}
       ${perfChSet ? `<span class="pill" style="color:var(--accent)">채널 ${perfChSet.size}개만</span>` : ""}
       <span class="sp"></span>
       <button class="mini ${perfChSet ? "on" : ""}"
@@ -3855,6 +3914,12 @@ function renderPerf(){
         onclick="perfChToggle('${esc(ch)}')">${esc(ch)} <span style="opacity:.6">${g.vids}</span></button>`; }).join("")}
     </div>` : ""}
 
+    ${V.covLow >= Math.max(3, V.span * 0.25) ? `<section class="card pf-warnbar">
+      <b>이 기간의 ${V.covLow}일은 원천 수집이 ${Math.round(PERF_COV_LOW*100)}% 미만입니다.</b>
+      그 날들의 조회·좋아요 증가는 관측이 아니라 앞뒤 관측을 이어 붙인 추정이라, 하루하루의
+      모양보다 구간 합계를 보는 편이 안전합니다. 차트의 회색 띠가 그 구간입니다.
+      ${B.dates[0] < "2026-07-23" ? "(실측: 2026-06-26~07-22 구간이 27~32%대)" : ""}
+    </section>` : ""}
     <div class="pf-kpi">
       <div class="tile"><div class="v">${fmtN(V.gain)}</div><div class="k">${V.span}일 조회수</div>
         <div class="d ${pct == null ? "" : pct >= 0 ? "up" : "dn"}">${
