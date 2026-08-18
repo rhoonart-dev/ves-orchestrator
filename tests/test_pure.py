@@ -2288,6 +2288,18 @@ def test_scan_cmd_fps_and_budget_follow_source():
     assert f"-b:v {scan_bitrate_kbps(2829, 150)}k" in lo    # 폴백은 낮은 예산으로 역산
 
 
+def test_dashboard_rerender_progress_and_continue():
+    """F-301·F-304: 제출 후 편집실에 남아 체인(editrender:*)을 표적 폴링으로 보여주고,
+    새 카드가 오면 그 자리에서 잇는다 — 전체 refresh 는 video·편집 상태를 파괴한다."""
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert "edChainPoll" in html and '"editrender:" + edChain.rid' in html
+    assert "방금 렌더 결과 열기" in html and "edOpenNew" in html  # F-304 — refresh 후 열기
+    assert "outerHTML = edChainHtml()" in html               # 부분 갱신(무렌더)
+    assert '"dead", "cancelled", "blocked"' in html          # failed 외 종단 상태 인지
+    assert "edForm.sent" in html                             # 제출 후 초안 부활 방지
+
+
 def test_tts_from_checkpoints_carries_audio_file():
     """F-204: cue 에 합성 mp3 경로(file/path)가 있으면 미리듣기용으로 실어 나른다 —
     경로 필드가 없는 구 스키마는 그대로(미리듣기만 빠지고 편집실은 정상)."""
