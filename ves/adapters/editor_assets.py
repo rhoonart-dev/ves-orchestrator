@@ -66,6 +66,9 @@ SCAN_H = 360                   # 전체 훑기 해상도 — '어디쯤'을 보�
 SCAN_FPS = 24                  # 마스터 소스일 때만 적용 — 프록시(4fps) 폴백엔 걸지 않는다
 SCAN_GEN = 2                   # scan 세대 — 캐시 판정(0048)은 fps 가 아니라 이것만 본다:
                                # fps 조건이면 마스터 GC 노드가 열 때마다 무한 재생성이 된다
+TTS_GEN = 1                    # 내레이션 오디오 세대(F-204) — 0049 도 같은 규약: '신 코드가
+                               # 만들었는가'만 본다. mp3 존재를 조건으로 걸면 파일 없는
+                               # 구 run 이 열 때마다 무한 재생성된다
 SCAN_TARGET_MB = 300           # 마스터(24fps) 목표 용량 — fps 상향(F-206)으로 150→300
 SCAN_TARGET_MB_PROXY = 150     # 4fps 폴백 목표 — 4fps 는 낮은 비트레이트에서 포화하므로
                                # 예산을 올려봐야 화질 이득 없이 회선·스토리지만 쓴다
@@ -166,8 +169,14 @@ def tts_from_checkpoints(resources: dict | None, silence_cut: dict | None) -> li
         c = cf.get("cue") or {}
         if c.get("source_time_sec") is None:
             continue
-        cues.append({"edited_start": c.get("start_sec"), "edited_end": c.get("end_sec"),
-                     **_tts_common(c)})
+        cue = {"edited_start": c.get("start_sec"), "edited_end": c.get("end_sec"),
+               **_tts_common(c)}
+        # 합성 mp3 경로(F-204 미리듣기용) — 필드명이 스키마마다 다를 수 있어 둘 다 본다.
+        # 없으면 그냥 없는 것: 미리듣기만 빠지고 편집실은 그대로다(fail-soft).
+        f = cf.get("file") or cf.get("path")
+        if f:
+            cue["file"] = str(f)
+        cues.append(cue)
     if not cues:
         variants = (silence_cut or {}).get("variants") or []
         for c in (variants[0].get("tts_cues") or []) if variants else []:
@@ -395,7 +404,31 @@ def run(cfg, conn, job, deps):
     work = pathlib.Path(cfg.home) / "cache" / "editor" / run_id
     work.mkdir(parents=True, exist_ok=True)
     store = Store(cfg.supabase_url, cfg.supabase_service_key)
-    assets: dict = {"global": [], "edges": [], "wave": None}
+    assets: dict = {"global": [], "edges": [], "wave": None, "tts_gen": TTS_GEN}
+
+    # 내레이션 미리듣기(F-204) — 합성 mp3 가 run_dir 에 있으면 올린다. 경로 필드가 없는
+    # 스키마·유실 파일은 건너뛰되 **건수는 남긴다** — cue 는 있는데 오디오가 0건이면
+    # 필드명 추정(file/path)이 틀렸을 수 있고, 무증상이면 아무도 모른다(6f61ef5 교훈).
+    tts_up = 0
+    for t in tl["tts"]:
+        f = t.pop("file", None)
+        if not f:
+            continue
+        ap = pathlib.Path(f)
+        if not ap.is_absolute():
+            ap = pathlib.Path(run_dir) / f
+        if not ap.exists():
+            continue
+        try:
+            akey = f"{base.storage_key(run_id, 'editor')}/tts{t['idx']}{ap.suffix or '.mp3'}"
+            store.upload("ves-outputs", akey, str(ap))
+            t["key"] = akey
+            tts_up += 1
+        except Exception as e:  # noqa: BLE001 — 미리듣기 실패가 편집실을 막지 않는다
+            print(f"[editor] 내레이션 오디오 업로드 실패(비치명): {e}")
+    if tl["tts"] and not tts_up:
+        print(f"[editor] 내레이션 오디오 0/{len(tl['tts'])}건 — cue 에 파일 경로 필드"
+              f"(file/path)가 없거나 유실. 미리듣기 없이 진행(스키마 확인 필요)")
 
     # 전역 스프라이트
     if layout["count"]:
@@ -449,10 +482,12 @@ def run(cfg, conn, job, deps):
     med = assets.get("media") or {}
     print(f"[editor] 준비 완료 — 길이 {duration:.0f}s · 전역 시트 {len(assets['global'])}장 · "
           f"경계 구간 {len(assets['edges'])}개 · 프리뷰 {med.get('scan_bytes',0)/1e6:.0f}MB · "
-          f"클로즈업 {len(med.get('closeups') or [])}개")
+          f"클로즈업 {len(med.get('closeups') or [])}개 · "
+          f"내레이션 오디오 {tts_up}/{len(tl['tts'])}건")
     return {"run_id": run_id, "duration_sec": duration,
             "sheets": len(assets["global"]), "edge_windows": len(assets["edges"]),
             "wave": bool(assets["wave"]),
+            "tts_audio": f"{tts_up}/{len(tl['tts'])}",
             "scan_mb": round(med.get("scan_bytes", 0) / 1e6, 1),
             "closeups": len(med.get("closeups") or []),
             "closeup_mb": round(sum(c.get("bytes", 0) for c in (med.get("closeups") or [])) / 1e6, 1)}
