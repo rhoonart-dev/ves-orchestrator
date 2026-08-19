@@ -2513,6 +2513,9 @@ def test_dashboard_editor_images_wired():
     # webp 는 업로드부터 막는다(엔진 png/jpg 만) · 자막 위/아래 layer 토글
     assert 'accept="image/png,image/jpeg"' in html and "image/webp" not in html
     assert "edImgLayer" in html
+    # 업로드 키는 안전 문자만 — run_id 의 한글 작품명이 스토리지 "Invalid key" 를 냈다.
+    # 점(.)도 제외 — 제목 "..." 가 키에 ".." 을 만들면 어댑터 경로 탈출 거절에 걸린다
+    assert 'replace(/[^A-Za-z0-9_-]/g, "_")' in html
     # 스냅샷(undo)·초안 복원에 images 포함
     assert "images: edForm.images || []" in html
     assert "if (Array.isArray(d.images))" in html
@@ -2529,6 +2532,12 @@ def test_dashboard_editor_sub_style_wysiwyg():
     # F-409(엔진 dc1060f): 제목 드래그 = title_y + title_y_fixed(고정 배치 전환)
     assert "edTitleDragDown" in html and "title_y_fixed: true" in html
     assert "edTitleAutoY" in html                                   # 자동 배치 복귀
+    # 대상 선택형 도구(제목|자막|TTS) — 크기·색이 각 대상의 design/줄 style 로 간다
+    assert 'id="edovselseg"' in html and "edOvPick" in html
+    assert "edOvSize" in html and "edOvColor" in html and "edOvReset" in html
+    # 가상 시퀀스는 contain — 실제 렌더의 '가운데 밴드 배치'와 맞춘다(cover 확대 오인 수정)
+    assert ".edstage.seqfit video{object-fit:contain}" in html
+    assert 'classList.toggle("seqfit"' in html
     # v3 계약: style.y 는 0=상단, 1=하단(자막 하단 위치) — 화면은 bottom 이라 (1−y).
     # 기본값은 채널 subtitle_y_margin 역산. (첫 판의 '하단 비율' 해석은 상하 반전 버그)
     assert "edSubYDef" in html

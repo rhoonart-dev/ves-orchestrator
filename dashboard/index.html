@@ -300,6 +300,9 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .edstage{position:relative;width:min(270px,100%);aspect-ratio:9/16;margin:0 auto;
            background:#000;border-radius:10px;overflow:hidden;border:1px solid var(--line)}
   .edstage video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+  /* 가상 시퀀스: 원본(16:9)은 cover(중앙 크롭)가 아니라 contain — 실제 렌더가 영상을
+     가운데 밴드로 배치하고 위·아래에 제목·자막을 그리기 때문(cover 는 확대돼 보인다) */
+  .edstage.seqfit video{object-fit:contain}
   .edstage .edphold{position:absolute;inset:0;display:flex;align-items:center;
                     justify-content:center;text-align:center;padding:16px;
                     color:#ffffff99;font-size:12px;line-height:1.6;pointer-events:none}
@@ -318,10 +321,11 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
            color:#87CEEB;text-shadow:0 2px 5px #000c,0 0 2px #000}
   .edovnote{position:absolute;right:6px;top:4px;max-width:60%;text-align:right;
             font-size:10px;line-height:1.3;color:#ffffffaa;text-shadow:0 1px 3px #000}
-  /* 도구는 상단 — 하단은 native controls 시크바와 겹쳐 클릭을 뺏는다 */
-  .edsubtools{position:absolute;left:8px;top:8px;display:flex;
-              gap:4px;align-items:center;pointer-events:auto;background:#000c;
-              padding:4px 7px;border-radius:9px}
+  /* 도구는 스테이지 밖(모드 버튼 아래) — 화면 위에 얹으면 제목·note 를 가리고
+     native controls 와 겹친다(실테스트 스크린샷) */
+  .edsubtools{display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin-bottom:4px;
+              font-size:12px}
+  .edsubtools .mini.on{background:var(--ink);color:var(--surface);border-color:var(--ink)}
   .edsubtools input[type=color]{width:26px;height:22px;padding:0;border:1px solid var(--line);
               border-radius:5px;background:none;cursor:pointer}
   /* 원본 스크럽 스트립 — 원본 타임라인 바로 아래. 구간 찍기(I/O)는 여기서 한다 */
@@ -1859,6 +1863,7 @@ let edStyleTool = false, edStageCur = -1, edStageT = 0;   // WYSIWYG: 화면에 
 let edPrevWarned = false;      // 만료 preview 경고는 카드당 1회 — 렌더마다 토스트 금지
 let edSubColorFor = -1;        // 컬러 피커가 열린 순간의 줄 — 재생이 흘러도 그 줄에 적용
 let edPrevImages = [];         // 이전 라운드 이미지(0057 prev_images) — 시드 원본
+let edOvSel = "sub";           // ✎ 도구의 대상 — title(전체)|sub(그 줄)|tts(전체)
 
 function edResetForm(){
   const tl = (edData && edData.timeline) || {};
@@ -2308,7 +2313,7 @@ window.openEditor = async (rid) => {
   edZoom = 1; edTlScroll = 0; edKbHelp = false;
   edStageMode = "prev"; edSeq = null; edPrevKey = null; edPrevBucket = null; edPrevT = 0;
   edStyleTool = false; edStageCur = -1; edStageT = 0;
-  edPrevWarned = false; edSubColorFor = -1;
+  edPrevWarned = false; edSubColorFor = -1; edOvSel = "sub";
   edTtsStop();
   // 같은 카드 재진입이면 체인 상태를 지키고(스트립·잠금·새 카드 감지), 다른 카드면 버린다
   if (!edChain || edChain.rid !== rid){ edChain = null; clearTimeout(edChainTimer); }
@@ -2491,7 +2496,24 @@ function renderEdit(){
             title="고친 구간 순서대로 이어 재생하며 제목·자막을 겹쳐 봅니다(근사)">▶ 가상 미리보기</button>
           ${edV3() && canEdit ? `<button class="mini ${edStyleTool ? "on" : ""}"
             id="edstylebtn" onclick="edStyleToolToggle()"
-            title="자막을 끌면 그 줄만, 하늘색(내레이션)을 끌면 전체 내레이션의 위치가 바뀝니다. A−·A＋는 그 자막 줄 크기">✎ 자막·TTS 위치</button>` : ""}
+            title="화면의 제목·자막·하늘색(내레이션)을 끌어 위치를 바꾸고, 아래 도구로 크기·색을 바꿉니다. 자막은 그 줄만, 제목·내레이션은 이 편 전체">✎ 위치·크기·색</button>` : ""}
+        </div>
+        <div class="edsubtools" id="edsubtools" style="display:none">
+          <span id="edovselseg">
+            <button class="mini" data-t="title" onclick="edOvPick('title')"
+              title="제목 — 크기·색은 이 편 전체(1줄 기준·1줄 색)">제목</button>
+            <button class="mini on" data-t="sub" onclick="edOvPick('sub')"
+              title="자막 — 화면에 떠 있는 그 줄만">자막</button>
+            <button class="mini" data-t="tts" onclick="edOvPick('tts')"
+              title="내레이션 자막 — 크기·색은 이 편 전체">TTS</button>
+          </span>
+          <button class="mini" onclick="edOvSize(-4)" title="선택 대상 축소">A−</button>
+          <button class="mini" onclick="edOvSize(4)" title="선택 대상 확대">A＋</button>
+          <input type="color" id="edsubcolor" value="#ffffff"
+            onclick="edSubColorArm()" onchange="edOvColor(this.value)"
+            title="선택 대상 색">
+          <button class="mini" onclick="edOvReset()"
+            title="선택 대상의 크기·색(자막은 위치까지)을 채널 기본값으로">원래대로</button>
         </div>
         <div class="edstage" id="edstage">
           <video id="edvid" playsinline preload="metadata" controls></video>
@@ -2501,16 +2523,8 @@ function renderEdit(){
             <div class="edovtts" id="edovtts" onmousedown="edTtsDragDown(event)"></div>
             <div class="edovsub" id="edovsub" onmousedown="edSubDragDown(event)"></div>
             <div class="edovnote" id="edovnote" style="display:none">근사 미리보기 — 글꼴·배치·색이
-              다를 수 있고, 크롭은 중앙 기준(실제는 얼굴 추종으로 움직일 수 있음)</div>
-            <div class="edsubtools" id="edsubtools" style="display:none">
-              <button class="mini" onclick="edSubSize(-4)" title="이 자막 줄 축소">A−</button>
-              <button class="mini" onclick="edSubSize(4)" title="이 자막 줄 확대">A＋</button>
-              <input type="color" id="edsubcolor" value="#ffffff"
-                onclick="edSubColorArm()" onchange="edSubColor(this.value)"
-                title="이 자막 줄 색">
-              <button class="mini" onclick="edSubStyleReset()"
-                title="이 줄의 위치·크기·색을 채널 기본값으로">원래대로</button>
-            </div>
+              다를 수 있고, 영상 배치는 세로 중앙 기준(실제는 video_y·얼굴 추종 크롭에
+              따라 다를 수 있음)</div>
           </div>
           <div class="edphold" id="edphold" ${edStageMode === "prev" && !edPrevKey
             ? "" : 'style="display:none"'}>완성본 영상이 아직
@@ -2675,6 +2689,7 @@ function renderEdit(){
   });
   edMark();
 
+  edOvSelSync();   // 템플릿은 '자막' 하드코딩 — 선택 상태를 렌더 직후 동기(마운트 대기 X)
   edMountStage();
   if (hasVideo) edMountSrc();
   if (sp.assets && sp.assets.wave) signedUrl("ves-outputs", sp.assets.wave, 1800)
@@ -3582,6 +3597,8 @@ function edStageBtnsSync(){
   if (bs) bs.classList.toggle("on", edStageMode === "seq");
   const ph = document.getElementById("edphold");
   if (ph) ph.style.display = edStageMode === "prev" && !edPrevKey ? "" : "none";
+  const st = document.getElementById("edstage");
+  if (st) st.classList.toggle("seqfit", edStageMode === "seq");
 }
 window.edStageSet = m => {
   if (m === edStageMode) return;
@@ -3774,11 +3791,16 @@ function edStagePaint(outT){
     });
   }
   const tools = document.getElementById("edsubtools");
-  if (tools) tools.style.display = editing ? "" : "none";
+  if (tools){
+    tools.style.display = editing ? "" : "none";
+    if (editing) edOvSelSync();
+  }
   const col = document.getElementById("edsubcolor");
-  if (col && sub && document.activeElement !== col){   // 피커 조작 중엔 덮어쓰지 않는다
-    const c = String((sub.style || {}).color || d.subtitle_color || "#FFFFFF");
-    if (/^#[0-9a-fA-F]{6}$/.test(c)) col.value = c.toLowerCase();
+  if (col && document.activeElement !== col){   // 피커 조작 중엔 덮어쓰지 않는다
+    const c = edOvSel === "title" ? String(d.title_color || "#FFFFFF")
+            : edOvSel === "tts" ? String(d.tts_color || "#87CEEB")
+            : sub ? String((sub.style || {}).color || d.subtitle_color || "#FFFFFF") : null;
+    if (c && /^#[0-9a-fA-F]{6}$/.test(c)) col.value = c.toLowerCase();
   }
 }
 
@@ -3792,12 +3814,59 @@ window.edStyleToolToggle = () => {
   if (b) b.classList.toggle("on", edStyleTool);
   edStagePaint(edStageT);      // render() 는 재생 중 스테이지를 파괴한다 — 무렌더 갱신
 };
+// ✎ 도구의 대상 선택 — 세그먼트 버튼 또는 화면 요소를 잡는 순간 바뀐다
+function edOvSelSync(){
+  document.querySelectorAll("#edovselseg .mini").forEach(b =>
+    b.classList.toggle("on", b.dataset.t === edOvSel));
+}
+window.edOvPick = t => { edOvSel = t; edOvSelSync(); edStagePaint(edStageT); };
+window.edOvSize = dd => {
+  if (!edCanEdit()) return;
+  if (edOvSel === "sub"){ edSubSize(dd); return; }
+  edSnap("ovsize" + edOvSel);
+  const d = edDesign();        // 채널+오버라이드 병합 현재값 기준으로 증감
+  const key = edOvSel === "title" ? "title_size" : "tts_size";
+  const cur = edOvSel === "title" ? (+d.title_size || 96) : (+d.tts_size || 70);
+  const nv = Math.max(24, Math.min(200, Math.round(cur + dd)));
+  // 채널 기본값으로 돌아오면 오버라이드를 지운다 — 안 지우면 같은 값인데 영구 dirty
+  const base = edBaseDesign();
+  const bv = edOvSel === "title" ? (+base.title_size || 96) : (+base.tts_size || 70);
+  const d2 = { ...(edForm.design || {}) };
+  if (nv === bv) delete d2[key]; else d2[key] = nv;
+  edForm.design = d2;
+  const el = document.getElementById("edd_" + key);
+  if (el) el.value = d2[key] ?? "";
+  edStagePaint(edStageT); edMark();
+};
+window.edOvColor = v => {
+  if (!edCanEdit()) return;
+  if (edOvSel === "sub"){ edSubColor(v); return; }
+  edSubColorFor = -1;   // 피커 arm 해제 — 잔존하면 다음 자막 색이 엉뚱한 줄에 박힌다
+  edSnap("ovcolor" + edOvSel);
+  const key = edOvSel === "title" ? "title_color" : "tts_color";
+  edForm.design = { ...(edForm.design || {}), [key]: String(v || "").toUpperCase() };
+  const el = document.getElementById("edd_" + key);
+  if (el) el.value = edForm.design[key];
+  edStagePaint(edStageT); edMark();
+};
+window.edOvReset = () => {
+  if (!edCanEdit()) return;
+  if (edOvSel === "sub"){ edSubStyleReset(); return; }
+  edSnap();
+  const d = { ...(edForm.design || {}) };
+  (edOvSel === "title" ? ["title_size", "title_color"] : ["tts_size", "tts_color"])
+    .forEach(k => { delete d[k];
+      const el = document.getElementById("edd_" + k); if (el) el.value = ""; });
+  edForm.design = d;
+  edStagePaint(edStageT); edMark();
+};
 window.edSubDragDown = ev => {
   if (ev.button !== 0 || !edV3() || !edStyleTool || !edCanEdit()) return;
   const i = edStageCur, s = edForm && edForm.dSubs[i];
   const st = document.getElementById("edstage"), se = document.getElementById("edovsub");
   if (!s || !st || !se) return;
   ev.preventDefault(); ev.stopPropagation();
+  edOvSel = "sub"; edOvSelSync();     // 잡은 요소가 곧 도구의 대상
   const H = st.clientHeight || 480;
   const y0 = s.style && s.style.y != null ? +s.style.y : edSubYDef(edDesign());
   const cy = ev.clientY;
@@ -3874,7 +3943,12 @@ window.edImgUpload = async inp => {
   const ext = { "image/png": "png", "image/jpeg": "jpg" }[f.type];
   if (!ext){ toast("png·jpg 만 올릴 수 있습니다(엔진 렌더 제약)", true); return; }
   if (f.size > 5 * 1024 * 1024){ toast("이미지는 5MB 이하만 — 업로드 정책(0056)", true); return; }
-  const key = `editor_uploads/${edData.run_id}/${crypto.randomUUID()}.${ext}`;
+  // 스토리지가 비ASCII 키를 거절한다("Invalid key" — run_id 에 한글 작품명이 들어간다).
+  // 경로는 안전 문자로 치환 — 참조는 항상 명시 key 라 원문 복원이 필요 없다.
+  // 점(.)도 제외: 제목의 "..." 가 run_id 에 남으면 키에 ".." 이 생겨 어댑터의
+  // 경로 탈출 거절에 걸린다 — 업로드는 되고 렌더에서 죽는 최악의 순서(리뷰 F1).
+  const safeRun = String(edData.run_id).replace(/[^A-Za-z0-9_-]/g, "_");
+  const key = `editor_uploads/${safeRun}/${crypto.randomUUID()}.${ext}`;
   toast("이미지 업로드 중…");
   const form0 = edForm;                       // 업로드 수 초 사이 카드가 바뀔 수 있다
   const { error } = await sb.storage.from("ves-outputs")
@@ -3953,6 +4027,7 @@ window.edTitleDragDown = ev => {
   const st = document.getElementById("edstage"), tt = document.getElementById("edovtitle");
   if (!st || !tt || !edForm) return;
   ev.preventDefault(); ev.stopPropagation();
+  edOvSel = "title"; edOvSelSync();   // 잡은 요소가 곧 도구의 대상
   const H = st.clientHeight || 480;
   const y0 = Math.max(0, Math.min(0.85, edTitleYv(edDesign()) / 1920));
   const cy = ev.clientY;
@@ -3995,6 +4070,7 @@ window.edTtsDragDown = ev => {
   const st = document.getElementById("edstage"), te = document.getElementById("edovtts");
   if (!st || !te || !edForm) return;
   ev.preventDefault(); ev.stopPropagation();
+  edOvSel = "tts"; edOvSelSync();     // 잡은 요소가 곧 도구의 대상
   const H = st.clientHeight || 480;
   const b0 = Math.max(0.02, Math.min(0.9, (+edDesign().tts_y_margin || 580) / 1920));
   const cy = ev.clientY;
