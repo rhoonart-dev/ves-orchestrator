@@ -2384,10 +2384,42 @@ def test_dashboard_editor_preview_modes():
     제목·자막·내레이션 오버레이(F-203). 오버레이는 근사임을 화면에 명시한다."""
     import pathlib
     html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
-    assert "edVSet" in html and "edPrevKey" in html          # 원본/완성본 모드 전환
+    assert "edStageSet" in html and "edPrevKey" in html      # 완성본/가상 모드 전환
     assert "edSeqToggle" in html and "edSeqTick" in html     # 가상 시퀀스 재생
-    assert 'id="edov"' in html and "edOvPaint" in html       # 오버레이 레이어
+    assert 'id="edov"' in html and "edStagePaint" in html    # 오버레이 레이어
     assert "근사 미리보기" in html                           # 정직한 라벨
+
+
+def test_dashboard_editor_shorts_stage():
+    """편집실 개편: 좌측은 쇼츠 스테이지(9:16 완성본 화면), 원본 스크럽 플레이어는
+    원본 타임라인 아래로 — 두 플레이어가 분리돼 각자 소스·세대표를 가진다."""
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert 'class="edstage"' in html and 'id="edvid"' in html   # 좌측 9:16 스테이지
+    assert "object-fit:cover" in html                           # 16:9 소스 중앙 크롭
+    assert 'id="edsrcv"' in html and "edsrcstrip" in html       # 원본은 타임라인 아래
+    assert "edMountStage" in html and "edMountSrc" in html      # 플레이어 분리 마운트
+    assert "edStageLoad" in html and "edStageGen" in html       # 스테이지 전용 로더+세대표
+    assert "edStageSeeking" in html                             # 파일 전환 중 틱 오염 방지
+    assert "edStageBtnsSync" in html                            # 모드 전환 무렌더 갱신
+
+
+def test_dashboard_editor_sub_style_wysiwyg():
+    """F-407 화면: 스테이지에서 자막을 끌어 위치(y)·크기(size)·색(color)을 줄 단위로
+    고친다 — 값은 subtitles[].style 로 나가고(v3 계약), 초안에도 왕복 저장된다."""
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert "edSubDragDown" in html and "edStyleToolToggle" in html  # 드래그 + ✎ 토글
+    assert "edSubSize" in html and "edSubColor" in html             # 크기·색
+    assert "edSubStyleReset" in html                                # 채널 기본값 복귀
+    assert "ED_SUB_Y_DEFAULT" in html                               # 하단 비율 기본값
+    # 수집: 아는 키(size·y·color)만 정제해 싣는다 — 플래그 게이트 없음(전량 교체라
+    # 빼면 스타일 있는 카드의 재제출이 스타일을 조용히 벗긴다)
+    assert "if (s.style){" in html
+    assert "st.size = Math.round(+s.style.size)" in html
+    assert "st.y = +(+s.style.y).toFixed(4)" in html
+    # 스타일 변경도 '자막이 달라졌다'로 판정 — 비교는 키 순서 무관 정규화(edStyleSig)
+    assert "edStyleSig(s.style) !== edStyleSig(edForm.subs[i].style)" in html
 
 
 def test_dashboard_editor_drag_and_output_track():
@@ -2581,7 +2613,7 @@ def test_dashboard_editor_v2_wired():
     """구간·자막·스타일 편집이 화면에 배선됐는지 — 특히 '구간을 바꾸면 자막은 안 보낸다'."""
     import pathlib
     html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
-    for fn in ("edSourceAt", "edMountVideo", "edAddClip", "edDelClip", "edMove",
+    for fn in ("edSourceAt", "edMountSrc", "edAddClip", "edDelClip", "edMove",
                "edAddSub", "edDelSub", "edStyleSet", "edParseTime"):
         assert fn in html, fn
     # 0054: v3 플래그가 꺼져 있으면 종전 잠금(구간 변경 시 자막 제외) 유지, 켜지면 앵커로 동시 편집
