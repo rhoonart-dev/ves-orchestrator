@@ -16,6 +16,26 @@ from ves.scheduler.planner import _load_channels
 
 _FOLDER_RE = re.compile(r"drive\.google\.com/drive/folders/([A-Za-z0-9_-]{20,})")
 
+# 작품 카드에 use_limit 이 없을 때 쓰는 종전값. 어댑터가 길이 비례로 다시 정하지 않고
+# 이 값을 그대로 쓰므로(register_drive: params.use_limit 이 있으면 우선) 3 을 유지한다.
+DEFAULT_USE_LIMIT = 3
+
+
+def use_limit_of(cards, work) -> int:
+    """작품 카드(works.json) → 이 작품 소스의 등록 시 편수 한도. 순수 — 테스트 대상.
+
+    길이 비례 기본(base.use_limit_for)은 '30분 이상이면 3편'이라 회차가 긴 경연물처럼
+    한 회차에서 더 뽑아야 하는 작품에 안 맞는다(가왕쇼 47분 · 운영자 요청 2026-08-19).
+    작품별 예외는 brain works.json 카드 use_limit 이 정본이다 — 여기 하드코딩하지 않는다.
+    ⚠️ 이미 등록된 소스에는 소급되지 않는다(register_drive 의 ON CONFLICT 는 길이를 새로
+    알게 된 경우에만 use_limit 을 다시 쓴다). 기존분은 대시보드 소스창고에서 고친다."""
+    v = ((cards or {}).get(work) or {}).get("use_limit")
+    try:
+        v = int(v)
+    except (TypeError, ValueError):
+        return DEFAULT_USE_LIMIT
+    return v if 0 < v <= 20 else DEFAULT_USE_LIMIT     # set_source_limit 과 같은 상한
+
 
 def folder_url_of(download_link: str):
     """laeebly download_link(산문 HTML 섞임) → 정규 폴더 URL. 순수."""
@@ -72,10 +92,14 @@ def run(conn, cfg):
         kv = {r["key"]: r["value"] for r in c.fetchall()}
     nodes = sync_nodes(kv.get("drive_sync_nodes"), kv.get("drive_sync_node"))
 
+    # 작품별 편수 한도(works.json) — 외부폴더 모드는 작품이 없어 기본값을 쓴다.
+    from ves.adapters.aivideo import _brain_json
+    cards = _brain_json(cfg, "works.json")
+
     made = 0
     for i, (label, url, work, mode) in enumerate(targets):
         caps = ["network"] + ([f"node:{nodes[i % len(nodes)]}"] if nodes else [])
-        params = {"folder_url": url, "mode": mode, "use_limit": 3}
+        params = {"folder_url": url, "mode": mode, "use_limit": use_limit_of(cards, work)}
         if work:
             params["work_title"] = work
         with conn.cursor() as c:

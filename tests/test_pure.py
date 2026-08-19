@@ -2707,3 +2707,24 @@ def test_catalog_upsert_extends_ttl():
     assert "ON CONFLICT (sha256, kind) DO UPDATE" in src
     assert "excluded.expires_at" in src
     assert "ON CONFLICT (sha256, kind) DO NOTHING" not in src
+
+
+def test_drive_watch_use_limit_from_work_card():
+    """작품 카드 use_limit 이 드라이브 등록 한도를 정한다 (가왕쇼 10, 2026-08-19).
+
+    길이 비례 기본은 '30분↑ 3편' 이라 47분짜리 경연물도 3편에서 막힌다. 작품별 예외는
+    brain works.json 이 정본 — 스케줄러에 하드코딩하지 않는다.
+    """
+    from ves.scheduler.drive_watch import use_limit_of, DEFAULT_USE_LIMIT
+    cards = {"가왕쇼": {"use_limit": 10}, "도깨비 10주년 여행": {}}
+    assert use_limit_of(cards, "가왕쇼") == 10
+    # 카드에 없으면 종전값 — 다른 작품의 동작이 바뀌면 안 된다
+    assert use_limit_of(cards, "도깨비 10주년 여행") == DEFAULT_USE_LIMIT
+    assert use_limit_of(cards, "없는작품") == DEFAULT_USE_LIMIT
+    # 외부폴더 모드는 작품명이 None 이다
+    assert use_limit_of(cards, None) == DEFAULT_USE_LIMIT
+    # 잘못된 값은 조용히 기본값으로 — set_source_limit 과 같은 0<v<=20 범위
+    for bad in ("열", None, 0, -1, 21):
+        assert use_limit_of({"X": {"use_limit": bad}}, "X") == DEFAULT_USE_LIMIT
+    assert use_limit_of({"X": {"use_limit": "10"}}, "X") == 10   # JSON 문자열도 받아준다
+    assert use_limit_of(None, "가왕쇼") == DEFAULT_USE_LIMIT     # 카드 로드 실패
