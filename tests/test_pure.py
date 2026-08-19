@@ -2595,8 +2595,12 @@ def test_dashboard_editor_sub_style_wysiwyg():
     # 대상 선택형 도구(제목|자막|TTS) — 크기·색이 각 대상의 design/줄 style 로 간다
     assert 'id="edovselseg"' in html and "edOvPick" in html
     assert "edOvSize" in html and "edOvColor" in html and "edOvReset" in html
-    # 가상 시퀀스는 contain — 실제 렌더의 '가운데 밴드 배치'와 맞춘다(cover 확대 오인 수정)
-    assert ".edstage.seqfit video{object-fit:contain}" in html
+    # 가상 시퀀스 영상 밴드(V3-a) — 실제 렌더 수식 그대로: 높이 = 화면비, 위치 = video_y
+    # (없으면 중앙), 밴드 안 cover 크롭. ⇕ 드래그·스타일 탭과 동기.
+    assert "edStageBandGeom" in html and "edStageBandSync" in html
+    assert "(rh / rw) * (1080 / 1920)" in html
+    assert "edBandDragDown" in html
+    assert '"aspect_ratio",     "영상 화면비"' in html
     assert 'classList.toggle("seqfit"' in html
     # v3 계약: style.y 는 0=상단, 1=하단(자막 하단 위치) — 화면은 bottom 이라 (1−y).
     # 기본값은 채널 subtitle_y_margin 역산. (첫 판의 '하단 비율' 해석은 상하 반전 버그)
