@@ -2089,14 +2089,20 @@ def test_0043_submit_editor_render_contract():
     """RPC 계약: reviewer 게이트 · publish_gate/waiting 한정 · 체인 4잡 · 생성 노드 핀."""
     sql = _live_mig("CREATE OR REPLACE FUNCTION public.submit_editor_render")
     assert "has_role(auth.uid(),'reviewer')" in sql
-    # 대상 카드 — 일본어(localization_qa)는 0038 담당이라 여기서 받으면 안 된다
-    assert "rq.kind = 'publish_gate' AND rq.status = 'waiting'" in sql
+    # 대상 카드 — 일본어(localization_qa)는 0038 담당이라 여기서 받으면 안 된다.
+    # 0050: rejected 는 재제출 경로(F-302) — 가드(새 waiting 카드 없음 + 보낸 초안)가 있어야 한다.
+    # kind 핀은 계속 필수 — 흘리면 localization_qa(0038 담당)까지 받는다.
+    assert "rq.kind = 'publish_gate'" in sql
+    assert "rq.status IN ('waiting','rejected')" in sql
+    assert "이미 새 검수 카드가 있습니다" in sql
+    assert "보낸 초안이 없습니다" in sql
     # 스키마 주입: 화면이 빠뜨려도 엔진 계약이 성립해야 한다.
-    # 0047: tts 가 있을 때만 v2 — v1 에 tts 를 얹으면 구 엔진이 조용히 무시한다(fail-loud 위반).
-    assert "CASE WHEN p_overrides ? 'tts' THEN 'edit_overrides/v2'" in sql
+    # 0049: 스탬프·재개 단계 판정 기준은 **병합 결과(v_ov)** — 승계된 clips/tts 도
+    # resources 재개·v2 스탬프를 받아야 한다(새 payload 만 보면 승계분이 빠진다).
+    assert "CASE WHEN v_ov ? 'tts' THEN 'edit_overrides/v2'" in sql
     assert "ELSE 'edit_overrides/v1' END" in sql
-    # 재개 단계: 구간·내레이션을 고쳤으면 resources(cue 앵커·mp3 재합성), 아니면 render
-    assert "p_overrides ? 'clips' OR p_overrides ? 'tts'" in sql
+    # 재개 단계: 구간·내레이션(승계분 포함)이 있으면 resources, 아니면 render
+    assert "v_ov ? 'clips' OR v_ov ? 'tts'" in sql
     assert "THEN 'resources' ELSE 'render' END" in sql
     # 내레이션 허용 키 + 빈 배열(전부 삭제) 유효
     assert "p_overrides ? 'tts'" in sql
@@ -2108,9 +2114,10 @@ def test_0043_submit_editor_render_contract():
         assert k in sql, k
     assert "ARRAY['generate', 'node:' || v_gen.node_id]" in sql
     assert "'editrender:' || p_review_id" in sql
-    # 이중 렌더 방지 + 재료 무효화 + 감사
-    assert "이미 렌더가 대기·진행 중입니다" in sql
-    # 재료 무효화는 0044 부터 초안 정리와 한 문장이다(status='pending', draft=NULL …)
+    # 이중 렌더 방지(0050: generate 만이 아니라 살아있는 editrender 꼬리 전체) + 재료 무효화
+    assert "이미 렌더 체인이 대기·진행 중입니다" in sql
+    assert "idempotency_key LIKE 'editrender:%'" in sql
+    # 재료 무효화 — 0050 부터 초안은 지우지 않고 보낸 표시(draft_sent_at)만 찍는다
     assert "UPDATE public.editor_assets" in sql and "SET status='pending'" in sql
     assert "_audit('editor_render'" in sql
     assert "REVOKE ALL     ON FUNCTION public.submit_editor_render(uuid, jsonb, text) FROM public, anon;" in sql
@@ -2126,7 +2133,10 @@ def test_dashboard_editor_edit_ui_wired():
     assert '"submit_editor_render"' in html
     assert "p_overrides" in html and "p_review_id: edRid" in html
     # 권한·카드 게이트가 화면에도 있어야 한다(서버가 최종 방어선이지만 버튼부터 안 보이게)
-    assert 'can("reviewer") && r.kind === "publish_gate" && r.status === "waiting"' in html
+    # 0050(F-302)부터 edCanEdit 이 waiting + '재제출 가능한 rejected' 를 받는다 —
+    # reviewer·publish_gate 핀과 waiting 허용은 계속 필수
+    assert 'if (!can("reviewer") || r.kind !== "publish_gate") return false;' in html
+    assert 'if (r.status === "waiting") return true;' in html
     # draft 분리 — 화면이 다시 그려져도 고치던 문장이 살아남는다
     assert "dTitle" in html and "dSubs" in html
     # 자막 전량 삭제 방어
@@ -2153,14 +2163,20 @@ def test_0044_draft_rpc_and_geoblock_notice():
     assert "'geoblock_notice'" in sql and "JAEMISHOTS" in sql
 
 
-def test_0044_submit_clears_draft():
-    """재렌더를 보내면 초안을 지운다 — 보낸 것과 안 보낸 것이 구분돼야 목록이 의미를 갖는다."""
+def test_0044_submit_marks_draft_sent():
+    """0050(F-302): 성공하면 지우고 실패하면 남긴다 — 제출은 draft_sent_at 만 찍고
+    초안을 지우지 않는다(지우면 체인 실패 시 복구 재료가 없다). 성공 청소는 새 카드를
+    만드는 brain.post_success 가 한다."""
     sql = _live_mig("CREATE OR REPLACE FUNCTION public.submit_editor_render")
-    assert "SET status='pending', draft=NULL, draft_at=NULL, draft_by=NULL" in sql
+    assert "draft_sent_at=now()" in sql
+    assert "draft=NULL" not in sql                    # 제출 경로는 초안을 지우지 않는다
     # 0043 계약은 그대로 유지돼야 한다(전문 재정의라 빠뜨리기 쉽다)
-    assert "rq.kind = 'publish_gate' AND rq.status = 'waiting'" in sql
     assert "ARRAY['generate', 'node:' || v_gen.node_id]" in sql
-    assert "이미 렌더가 대기·진행 중입니다" in sql
+    assert "이미 렌더 체인이 대기·진행 중입니다" in sql
+    # 성공 청소 짝 — post_success 가 보낸 초안만 지운다
+    import pathlib
+    brain = pathlib.Path("ves/adapters/brain.py").read_text(encoding="utf-8")
+    assert "draft_sent_at IS NOT NULL" in brain
 
 
 # ───────── 0046: 편집 재렌더 앞 소스 재가열 ─────────
@@ -2173,7 +2189,7 @@ def test_0046_editor_render_rewarms_source_on_same_node():
     다른 노드에서 성공하면 acquire.post_success 가 generate 에 두 번째 node: 캡을 붙여
     영원히 못 잡는 잡이 된다(required_caps <@ effective_caps 는 전량 포함 조건)."""
     sql = _live_mig("CREATE OR REPLACE FUNCTION public.submit_editor_render")
-    assert "0046" in sql, "submit_editor_render 의 라이브 정의가 0046 이어야 한다"
+    assert "0053" in sql, "submit_editor_render 의 라이브 정의가 0053 이상이어야 한다"
     assert "'acquire'" in sql, "재렌더 체인 맨 앞에 acquire 가 있어야 한다"
     assert "ARRAY['network', 'node:' || v_gen.node_id]" in sql, "acquire 도 같은 노드에 핀"
     assert "'editrender:' || p_review_id || ':acq'" in sql
@@ -2286,6 +2302,152 @@ def test_scan_cmd_fps_and_budget_follow_source():
     assert f"fps={SCAN_FPS},scale=-2:360" in hq             # fps 먼저 — 스케일 낭비 방지
     assert "fps=" not in lo                                 # 폴백은 소스 fps 그대로
     assert f"-b:v {scan_bitrate_kbps(2829, 150)}k" in lo    # 폴백은 낮은 예산으로 역산
+
+
+def test_editor_draft_recovery_contract():
+    """F-302: 성공하면 지우고 실패하면 남긴다 — 0050 은 제출 시 draft_sent_at 만 찍고,
+    성공 청소는 새 카드를 만드는 post_success 가 한다. 재제출은 rejected 카드 중
+    '보낸 초안 있음 + 새 waiting 카드 없음' 만."""
+    import pathlib
+    sql = pathlib.Path("ves/control/migrations/0050_editor_draft_recovery.sql").read_text(encoding="utf-8")
+    assert "draft_sent_at" in sql and "IN ('waiting','rejected')" in sql
+    assert "draft=NULL" not in sql.replace(" ", "")            # 제출은 초안을 지우지 않는다
+    assert "status = 'waiting'" in sql                         # 카드 닫기는 waiting 만
+    brain = pathlib.Path("ves/adapters/brain.py").read_text(encoding="utf-8")
+    assert "draft_sent_at IS NOT NULL" in brain                # 성공 청소는 post_success
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert "edResubmit" in html and "edRetryChain" in html
+    assert "실패 지점부터 재시도" in html                     # 인프라 실패의 정석 복구
+    assert '"retry_editor_chain"' in html
+    assert "retry_editor_chain" in sql                         # 0050 의 재시도 RPC
+
+
+def test_dashboard_rerender_progress_and_continue():
+    """F-301·F-304: 제출 후 편집실에 남아 체인(editrender:*)을 표적 폴링으로 보여주고,
+    새 카드가 오면 그 자리에서 잇는다 — 전체 refresh 는 video·편집 상태를 파괴한다."""
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert "edChainPoll" in html and '"editrender:" + edChain.rid' in html
+    assert "방금 렌더 결과 열기" in html and "edOpenNew" in html  # F-304 — refresh 후 열기
+    assert "outerHTML = edChainHtml()" in html               # 부분 갱신(무렌더)
+    assert '"dead", "cancelled", "blocked"' in html          # failed 외 종단 상태 인지
+    assert "edForm.sent" in html                             # 제출 후 초안 부활 방지
+
+
+def test_tts_from_checkpoints_carries_audio_file():
+    """F-204: cue 에 합성 mp3 경로(file/path)가 있으면 미리듣기용으로 실어 나른다 —
+    경로 필드가 없는 구 스키마는 그대로(미리듣기만 빠지고 편집실은 정상)."""
+    from ves.adapters.editor_assets import tts_from_checkpoints
+    res = {"tts_cue_files": [
+        {"file": "tts_000.mp3",
+         "cue": {"source_time_sec": 10, "text": "가", "start_sec": 1, "end_sec": 3}},
+        {"cue": {"source_time_sec": 20, "text": "나"}}]}
+    out = tts_from_checkpoints(res, None)
+    assert out[0].get("file") == "tts_000.mp3"
+    assert "file" not in out[1]
+
+
+def test_dashboard_tts_preview_and_conflicts():
+    """F-204 미리듣기(저장된 합성본만 — 새 문구는 재렌더 후) · F-205 충돌 검사(자막↔
+    내레이션 겹침·원본 구간 중복·창 경계 이탈)."""
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert "edTtsPlay" in html and '"key": c.key' not in html  # 키는 timeline.tts 에서
+    assert "edConflicts" in html and "ttsClash" in html
+    assert "재렌더 후 합성" in html                            # 정직한 라벨
+    sql = pathlib.Path("ves/control/migrations/0049_editor_tts_audio.sql").read_text(encoding="utf-8")
+    assert "tts_gen" in sql and ">= 1" in sql                  # 세대 마커 캐시 판정
+
+
+def test_dashboard_editor_preview_modes():
+    """P2-a: 완성본 preview.mp4 재생(F-201, 서버 작업 0)·가상 시퀀스(F-202)·
+    제목·자막·내레이션 오버레이(F-203). 오버레이는 근사임을 화면에 명시한다."""
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert "edVSet" in html and "edPrevKey" in html          # 원본/완성본 모드 전환
+    assert "edSeqToggle" in html and "edSeqTick" in html     # 가상 시퀀스 재생
+    assert 'id="edov"' in html and "edOvPaint" in html       # 오버레이 레이어
+    assert "근사 미리보기" in html                           # 정직한 라벨
+
+
+def test_dashboard_editor_drag_and_output_track():
+    """구간은 드래그로 다듬는다(F-102: 몸통 이동·양끝 트리밍 핸들·스냅·Alt 해제) —
+    출력 타임라인(F-105)이 완성본 순서와 59.7초 상한을 그리고 순서 드래그를 받는다."""
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert "edClipDown" in html and 'class="hL"' in html    # 몸통·핸들 드래그
+    assert "edSnapSec" in html and "altKey" in html         # 스냅 + Alt 해제
+    assert 'id="edouttl"' in html and "edOutDown" in html   # 출력 트랙 + 순서 드래그
+    assert "edolim" in html and "edoover" in html           # 59.7초 상한선·초과 표시
+
+
+def test_dashboard_editor_undo_and_soft_delete():
+    """편집 실수 복구(F-104·F-106): Cmd+Z 스냅샷 스택 + 구간·자막 소프트 삭제.
+    타이핑 스냅샷은 값이 바뀌기 **전**(beforeinput)에 잡아야 한다 — 바뀐 뒤에 잡으면
+    그 타이핑은 영영 못 되돌린다. 제출 검증은 계약 필드명(start_sec/end_sec)으로."""
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert "edUndoOp" in html and "edRedoOp" in html         # Cmd+Z / Shift+Cmd+Z
+    assert 'e.code === "KeyZ"' in html
+    assert "beforeinput" in html                             # 타이핑 스냅샷 시점
+    assert "edRestoreClip" in html and "edRestoreSub" in html  # 소프트 삭제 되살리기
+    assert "c.end_sec <= c.start_sec" in html                # 죽어 있던 제출 검증 소생
+    assert "draftMismatch" not in html                       # 초안 복원은 start 매칭으로
+    assert "edCollect(true)" in html                         # 초안엔 del 마커 포함 저장
+
+
+def test_reuse_assets_partial_regen():
+    """F-303: 재렌더 후 재생성에서 원본 불변 재료(전역 스프라이트·파형·scan)는
+    재사용한다 — 단 길이·시트 수가 정확히 같고 scan 은 신 세대일 때만."""
+    from ves.adapters.editor_assets import (reuse_assets, sprite_layout, scan_over_cap,
+                                            SCAN_GEN, GLOBAL_INTERVAL, GRID, THUMB_W)
+    def sp(dur, media):
+        lay = sprite_layout(dur)
+        return {"duration_sec": dur, "sprites": {
+            "count": lay["count"], "interval": GLOBAL_INTERVAL, "grid": GRID,
+            "thumb_w": THUMB_W,
+            "assets": {"global": ["a/g_0.jpg"], "wave": "a/wave.png", "media": media}}}
+    dur = 3600.0
+    prev = sp(dur, {"scan": "a/scan.mp4", "scan_bytes": 100, "scan_gen": SCAN_GEN})
+    r = reuse_assets(prev, dur)
+    assert r["global"] == ["a/g_0.jpg"] and r["wave"] == "a/wave.png"
+    assert r["scan"]["scan"] == "a/scan.mp4"
+    assert reuse_assets(prev, dur + 5) == {}               # 길이 다르면 전부 재생성
+    prev["sprites"]["grid"] = 8                            # 규격 상수가 다르면 좌표가 깨진다
+    assert reuse_assets(prev, dur) == {}
+    assert "scan" not in reuse_assets(
+        sp(dur, {"scan": "a/scan.mp4", "scan_gen": 1}), dur)  # 구 세대 scan 재사용 금지
+    # over_cap 마커: 길이 예측이 지금도 참일 때만 승계 — 잘못 박힌 마커는 재시도된다
+    long_dur = 30000.0
+    assert scan_over_cap(long_dur) and not scan_over_cap(dur)
+    assert reuse_assets(sp(long_dur, {"scan_skip": "over_cap", "scan_gen": SCAN_GEN}),
+                        long_dur)["scan"]["scan_skip"] == "over_cap"
+    assert "scan" not in reuse_assets(
+        sp(dur, {"scan_skip": "over_cap", "scan_gen": SCAN_GEN}), dur)
+
+
+def test_0051_cache_accepts_scan_attempt():
+    """0051(F-303): 상한 초과 run 은 '시도 마커'로 캐시를 인정한다 — 안 하면 5.7시간+
+    원본이 열 때마다 재생성하고도 영상 없는 무한 루프(0045 의 418MB 실측 패턴)."""
+    sql = _live_mig("CREATE OR REPLACE FUNCTION public.request_editor_assets")
+    assert "scan_skip" in sql and "OR v_ex.scan_skip IS NOT NULL" in sql
+    assert "v_ex.tts_gen >= 1" in sql and "v_ex.scan_gen >= 2" in sql   # 기존 조건 유지
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert "over_cap" in html                              # 상한 초과의 정직한 안내
+
+
+def test_dashboard_editor_zoom_and_shortcuts():
+    """편집실 타임라인은 줌·팬(F-101)과 키보드 단축키(F-103)를 갖는다 — [ 시작 버튼
+    툴팁의 (I)/(O) 표기는 이제 실제 바인딩이다. 10등분 고정 눈금은 폐지."""
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert 'id="edtlc"' in html and "edZoomSet" in html      # 캔버스 + 줌
+    assert "edDrawTicks" in html and "edTicks(" not in html  # 눈금 동적화(고정 10등분 제거)
+    assert 'id="edmm"' in html and "edMmSync" in html        # 미니맵 + 뷰포트 동기화
+    assert 'e.code === "KeyI"' in html                       # I/O 는 자판 위치 기준(한글 IME)
+    assert 'k === " "' in html                               # Space 재생/정지
+    assert "edSelSync" in html                               # 키보드 내비의 무렌더 하이라이트
 
 
 def test_dashboard_scan_fps_label_reads_meta():
@@ -2449,6 +2611,28 @@ def test_0045_cache_requires_editing_video():
     assert "_audit('editor_open'" in sql
 
 
+# ───────── 0053: 편집 라운드 누적 승계 ─────────
+def test_0053_editor_overrides_carryover():
+    """🛑 2026-08-19 실측(커리어데이_ae71b530): 1라운드 제목+구간 편집 후 2라운드에서
+    내레이션만 고쳐 보냈더니 제목·구간이 초기 버전으로 되돌아갔다.
+
+    화면은 '이번에 만진 키만' 보내고(설계), 엔진은 매 라운드 원본 체크포인트에서
+    다시 시작한다. 따라서 RPC 가 직전 generate 의 edit_overrides 를 **키 단위로
+    승계**한 위에 새 오버라이드를 얹어야 라운드가 누적된다. 예외: 새 payload 에
+    clips 가 있는데 subtitles 가 없으면 승계 subtitles 는 버린다 — 자막 좌표는
+    편집본 시간축이라 구간이 바뀌면 통째로 어긋난다."""
+    sql = _live_mig("CREATE OR REPLACE FUNCTION public.submit_editor_render")
+    # 승계 원본: 직전 generate 잡의 edit_overrides (schema 스탬프는 벗겨서)
+    assert "coalesce(v_gen.params->'edit_overrides', '{}'::jsonb) - 'schema'" in sql
+    # 새 값이 이긴다 — 승계분 || 새 payload 순서여야 한다
+    assert "v_ov := v_prev || p_overrides" in sql
+    # 구간이 바뀌면 옛 자막 좌표는 무효
+    assert "p_overrides ? 'clips' AND NOT p_overrides ? 'subtitles'" in sql
+    assert "v_prev := v_prev - 'subtitles'" in sql
+    # 감사에 승계 키가 남아야 한다 — '왜 이 값이 들어갔나'를 추적할 유일한 곳
+    assert "'carried'" in sql
+
+
 # ───────── storage_gc — 편집실 접두사 행의 실물 확장 (2026-08-19) ─────────
 def test_gc_expand_keys_expands_prefix_rows():
     """'/' 로 끝나는 카탈로그 행은 실물 목록으로 확장, 정확한 키는 그대로 —
@@ -2500,5 +2684,5 @@ def test_catalog_upsert_extends_ttl():
     from ves.adapters import editor_assets
     src = inspect.getsource(editor_assets._catalog)
     assert "ON CONFLICT (sha256, kind) DO UPDATE" in src
-    assert "expires_at = excluded.expires_at" in src
+    assert "excluded.expires_at" in src
     assert "ON CONFLICT (sha256, kind) DO NOTHING" not in src
