@@ -2085,6 +2085,25 @@ def test_edit_overrides_require_resume_run():
         raise AssertionError("새 run + edit_overrides 는 반드시 PermanentError 여야 한다")
 
 
+def test_0054_v3_stamp_and_anchor_carryover():
+    """0054(F-401·F-407): 스탬프는 병합 결과 기준 내용 기반 3단 — 자막에 앵커
+    (source_time_sec)나 style 이 있으면 v3. 승계 예외 정교화: 구간이 바뀌어도 앵커
+    있는 승계 자막은 살아남는다(원본 좌표). images 는 엔진 렌더 미구현이라 조기 거절.
+    전환은 ops_config 'editor_v3' 플래그 — 화면이 안 보내는 동안 v1/v2 유지(안전)."""
+    sql = _live_mig("CREATE OR REPLACE FUNCTION public.submit_editor_render")
+    assert "source_time_sec' OR s ? 'style'" in sql          # 내용 기반 v3 판정
+    assert "이미지 오버레이는 아직 렌더 미구현" in sql        # images 조기 거절(엔진 게이트 짝)
+    assert "WHERE s ? 'source_time_sec'" in sql              # 앵커 자막만 승계 생존
+    # 0053 승계·0050 F-302 계약 유지(전문 재정의라 빠뜨리기 쉽다)
+    assert "v_prev || p_overrides" in sql
+    assert "draft_sent_at=now()" in sql
+    assert "FUNCTION public.retry_editor_chain" not in sql   # retry 는 불변(0050) — 재정의 금지
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert "editor_v3" in html and "edV3()" in html          # 플래그 게이트
+    assert "o.source_time_sec" in html                       # 앵커는 받은 src 를 되돌려 보낸다
+
+
 def test_0043_submit_editor_render_contract():
     """RPC 계약: reviewer 게이트 · publish_gate/waiting 한정 · 체인 4잡 · 생성 노드 핀."""
     sql = _live_mig("CREATE OR REPLACE FUNCTION public.submit_editor_render")
@@ -2097,9 +2116,10 @@ def test_0043_submit_editor_render_contract():
     assert "이미 새 검수 카드가 있습니다" in sql
     assert "보낸 초안이 없습니다" in sql
     # 스키마 주입: 화면이 빠뜨려도 엔진 계약이 성립해야 한다.
-    # 0049: 스탬프·재개 단계 판정 기준은 **병합 결과(v_ov)** — 승계된 clips/tts 도
-    # resources 재개·v2 스탬프를 받아야 한다(새 payload 만 보면 승계분이 빠진다).
-    assert "CASE WHEN v_ov ? 'tts' THEN 'edit_overrides/v2'" in sql
+    # 0053: 스탬프·재개 단계 판정 기준은 **병합 결과(v_ov)** — 승계된 clips/tts 도
+    # resources 재개·v2 스탬프를 받아야 한다. 0054: 내용 기반 3단(v3 = 자막 앵커/style·images).
+    assert "WHEN v_v3 THEN 'edit_overrides/v3'" in sql
+    assert "WHEN v_ov ? 'tts' THEN 'edit_overrides/v2'" in sql
     assert "ELSE 'edit_overrides/v1' END" in sql
     # 재개 단계: 구간·내레이션(승계분 포함)이 있으면 resources, 아니면 render
     assert "v_ov ? 'clips' OR v_ov ? 'tts'" in sql
@@ -2564,7 +2584,8 @@ def test_dashboard_editor_v2_wired():
     for fn in ("edSourceAt", "edMountVideo", "edAddClip", "edDelClip", "edMove",
                "edAddSub", "edDelSub", "edStyleSet", "edParseTime"):
         assert fn in html, fn
-    assert "if (!clipsDirty){" in html          # 구간 변경 시 자막 오버라이드 제외
+    # 0054: v3 플래그가 꺼져 있으면 종전 잠금(구간 변경 시 자막 제외) 유지, 켜지면 앵커로 동시 편집
+    assert "if (!clipsDirty || edV3()){" in html
     assert "closeups" in html and "scan" in html   # 두 층 프리뷰를 화면이 안다
 
 

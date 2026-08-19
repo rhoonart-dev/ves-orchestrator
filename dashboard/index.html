@@ -1879,6 +1879,28 @@ const edSubEl = i => document.getElementById("edsx_" + i);
 // 삭제는 소프트(F-106) — del 표시만 하고 목록엔 남긴다. '보내는 목록'은 이 함수로.
 function edClipsEff(){ return edForm.clips.filter(c => !c.del); }
 
+// edit_overrides/v3 전환 플래그 — 켜기 전 조건(0054 적용 + 전 노드 엔진 v3)은 0054
+// 머리말의 체크리스트. 꺼지면 화면이 앵커를 안 보낼 뿐 — 서버 라운드 승계(0053)에
+// 이미 앵커가 남은 작품의 재제출은 계속 v3 로 나간다(내용 기반). 플래그는 롤백이 아니다.
+const edV3 = () => (((state.ops||{}).editor_v3||{}).value === "on");
+
+// v3 에서 주의가 필요한 자막들 — 앵커 없는 줄(구간과 함께 보내면 옛 시간축 그대로)과
+// 앵커 장면이 구간에서 빠진 줄(엔진이 옆 장면에 스냅해 렌더). 둘 다 막지 않고 알린다.
+function edSubAnchorless(){
+  const out = [];
+  edForm.dSubs.forEach((s, i) => {
+    if (!s.del && String(s.text).trim() && s.src == null) out.push(i); });
+  return out;
+}
+function edSubOrphans(){
+  const out = [];
+  edForm.dSubs.forEach((s, i) => {
+    if (s.del || !String(s.text).trim() || s.src == null) return;
+    if (!edForm.clips.some(c => !c.del && s.src >= c.start - 0.5 && s.src <= c.end + 0.5))
+      out.push(i); });
+  return out;
+}
+
 // 구간이 원본과 달라졌는가 — 개수·순서·시각·역할·삭제 중 하나라도 다르면 참.
 function edClipsChanged(){
   const a = edClipsEff(), b = edForm.clips0;
@@ -1975,9 +1997,11 @@ function edCollect(forDraft){
       if (forDraft && c.del) o.del = true;
       return o;
     });
-  // 구간을 바꾸면 자막은 보내지 않는다 — 엔진이 새 구간에 맞춰 대사에서 다시 매핑하는데,
-  // 옛 편집본 시간축으로 만든 자막을 함께 보내면 전량 교체라 시각이 통째로 어긋난다.
-  if (!clipsDirty){
+  // 구간을 바꾸면 자막은 보내지 않는다(v2 까지) — 엔진이 새 구간에 맞춰 대사에서 다시
+  // 매핑하는데, 옛 편집본 시간축 자막을 함께 보내면 전량 교체라 시각이 통째로 어긋난다.
+  // v3 플래그가 켜지면 앵커(source_time_sec — editor_assets 가 내려준 src 그대로)가
+  // 좌표를 지키므로 같이 보낼 수 있다(ai-video docs/edit_overrides_v3.md).
+  if (!clipsDirty || edV3()){
     const dirty = edForm.dSubs.length !== edForm.subs.length
       || edForm.dSubs.some((s, i) => s.del || s.text !== edForm.subs[i].text
                                   || Math.abs(s.start - edForm.subs[i].start) > 0.001);
@@ -1986,7 +2010,10 @@ function edCollect(forDraft){
         .filter(s => forDraft || !s.del)
         .map(s => { const o = { start_sec: +Number(s.start).toFixed(3),
                                 end_sec: +Number(s.end).toFixed(3), text: s.text };
-                    if (forDraft && s.del) o.del = true; return o; })
+                    if (forDraft && s.del) o.del = true;
+                    if (edV3() && s.src != null)
+                      o.source_time_sec = +Number(s.src).toFixed(3);
+                    return o; })
         .filter(x => forDraft || String(x.text).trim());
   }
   // 내레이션 — 전량 교체(빈 배열 = 전부 삭제). 자막과 달리 구간과 같이 보내도 된다:
@@ -2099,6 +2126,13 @@ window.edSubmit = async () => {
     if (total > ED_MAX_TOTAL_SEC){
       toast(`구간 합계 ${total.toFixed(1)}초 — 쇼츠 한계(3분)를 넘으면 쇼츠로 발행되지 않습니다. ${ED_MAX_TOTAL_SEC}초 이하로 줄여주세요`, true);
       return;
+    }
+    // v3 동시 제출의 함정(막지 않고 확인만): 앵커 없는 줄은 옛 시간축 그대로 박힌다
+    if (ov.subtitles){
+      const nA = ov.subtitles.filter(s => s.source_time_sec == null).length;
+      if (nA && !window.confirm(
+        `앵커 없는 자막 ${nA}줄이 구간 변경과 함께 나갑니다 — 이 줄들은 옛 시간축 시각 ` +
+        `그대로 박혀 어긋날 수 있습니다(자막 탭 경고 참고). 이대로 보낼까요?`)) return;
     }
   }
   const btn = document.getElementById("edsubmit");
@@ -2495,17 +2529,28 @@ function edPaneClips(canEdit, dur){
           : `<button class="mini danger" onclick="edDelClip(${i})" ${canEdit?"":"disabled"} title="삭제(되살리기 가능)">✕</button>`}
       </span></div>`).join("")}</div>
     <div class="sub" style="margin-top:6px">순서가 곧 완성본 순서입니다 ·
-      시각은 <b>원본</b> 기준(시:분:초.밀리) · 구간을 바꾸면 자막은 대사에서 다시 맞춰집니다</div>`;
+      시각은 <b>원본</b> 기준(시:분:초.밀리) · ${edV3()
+        ? "구간을 바꿔도 앵커 있는 자막은 장면을 따라갑니다(앵커 없는 줄은 주의 — 자막 탭 경고 참고)"
+        : "구간을 바꾸면 자막은 대사에서 다시 맞춰집니다"}</div>`;
 }
 
 // ── 우측 패널: 자막 ────────────────────────────────────────────────────
 function edPaneSubs(canEdit){
-  const locked = edForm.clips.length && edClipsChanged();
+  // v3(앵커)가 켜지면 구간·자막 동시 편집이 안전해 잠그지 않는다
+  const locked = edForm.clips.length && edClipsChanged() && !edV3();
+  const anchorless = edV3() && edClipsChanged() ? edSubAnchorless() : [];
+  const orphans = edV3() ? edSubOrphans() : [];
   // 지금 대부분의 작품은 대사 자막을 끄고 렌더한다(소스에 자막이 없어서). 그 사실을 숨기면
   // '고쳤는데 영상이 그대로'로 보인다 — 고쳐 보내면 그 편만 켜진다는 것을 미리 알린다.
   const off = !(state.wo[((state.reviews||[]).find(x=>x.id===edRid)||{}).work_order_id]||{}).has_subtitle;
   return `${locked ? `<div class="edwarn">구간을 고쳤기 때문에 자막은 <b>대사에서 다시 맞춰집니다</b> —
       지금 고친 자막 문구는 보내지 않습니다. 구간을 먼저 확정해 렌더한 뒤 자막을 고치세요.</div>` : ""}
+    ${anchorless.length ? `<div class="edwarn">⚠ <b>앵커 없는 자막 ${anchorless.length}줄</b>
+      (${anchorless.map(i => i + 1).join("·")}번) — 구간 변경과 함께 보내면 이 줄들은
+      옛 시간축 시각 그대로 박혀 <b>어긋날 수 있습니다</b>. 비우거나, 렌더 후 고치세요.</div>` : ""}
+    ${orphans.length ? `<div class="edwarn">⚠ 자막 ${orphans.length}줄
+      (${orphans.map(i => i + 1).join("·")}번)의 <b>원본 장면이 구간에서 빠져</b> 있습니다 —
+      그대로 두면 옆 장면 위에 얹혀 렌더될 수 있습니다. 줄을 비우거나 구간을 되살리세요.</div>` : ""}
     ${off && !locked ? `<div class="edwarn">이 영상은 지금 <b>대사 자막을 넣지 않고</b> 렌더됐습니다
       (아래는 전사된 대사 원본). 한 줄이라도 고쳐 보내면 <b>그 편만 자막이 켜집니다</b>.</div>` : ""}
     <div class="edcap">상단 제목 <span class="sub">— 영상 안에 그려지는 글자(줄바꿈 유지)</span></div>
