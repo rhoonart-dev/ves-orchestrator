@@ -2404,6 +2404,90 @@ def test_dashboard_editor_shorts_stage():
     assert "edStageBtnsSync" in html                            # 모드 전환 무렌더 갱신
 
 
+def test_editor_image_upload_policy_0056():
+    """F-408 파트 1: 브라우저→스토리지 쓰기 표면 최초 신설 — reviewer 이상,
+    ves-outputs 의 editor_uploads/ prefix, 이미지 확장자만. INSERT 뿐(불변 업로드)."""
+    import pathlib
+    sql = pathlib.Path("ves/control/migrations/0056_editor_image_upload.sql") \
+        .read_text(encoding="utf-8")
+    assert "FOR INSERT" in sql and "FOR UPDATE" not in sql and "FOR DELETE" not in sql
+    assert "public.has_role(auth.uid(), 'reviewer')" in sql
+    assert "name LIKE 'editor_uploads/%'" in sql
+    assert r"\.(png|jpg|jpeg|webp)$" in sql
+    assert "bucket_id = 'ves-outputs'" in sql
+
+
+def test_aivideo_localize_edit_images(tmp_path):
+    """F-408 어댑터: images[].key(스토리지) → run_dir 상대 file 치환. 엔진은 로컬만
+    받는다(계약) — prefix 밖 키·키 없음은 즉시 실패(fail-loud), 재시도 재진입(file
+    이미 있음)은 재다운로드 없이 통과한다."""
+    import pytest
+    from ves.adapters import aivideo, base
+    calls = []
+    ov = {"title": {"top_title": "t"},
+          "images": [{"key": "editor_uploads/r1/a.png", "source_time_sec": 743.0,
+                      "duration_sec": 3.0, "x": 0.1, "y": 0.2, "w": 0.3}]}
+    out = aivideo.localize_edit_images(ov, tmp_path, lambda k, d: calls.append((k, d)))
+    assert calls and calls[0][0] == "editor_uploads/r1/a.png"
+    assert out["images"][0]["file"] == "editor_images/00_a.png"
+    assert "key" not in out["images"][0]              # 엔진 계약엔 key 가 없다
+    assert "key" in ov["images"][0]                   # 원본 dict 은 불변(사본 반환)
+    assert out["title"] == {"top_title": "t"}         # 다른 키는 그대로
+    # 허용 prefix 밖·경로 탈출·키 없음 → 즉시 실패
+    with pytest.raises(base.PermanentError):
+        aivideo.localize_edit_images(
+            {"images": [{"key": "outputs/r1/x.png"}]}, tmp_path, lambda k, d: None)
+    with pytest.raises(base.PermanentError):
+        aivideo.localize_edit_images(
+            {"images": [{"key": "editor_uploads/../x.png"}]}, tmp_path, lambda k, d: None)
+    with pytest.raises(base.PermanentError):
+        aivideo.localize_edit_images({"images": [{"x": 0.1}]}, tmp_path, lambda k, d: None)
+    # file 은 어댑터 산출물 — 클라이언트가 실어 보내면 prefix 검증 우회라 즉시 거절
+    with pytest.raises(base.PermanentError):
+        aivideo.localize_edit_images(
+            {"images": [{"file": "editor_images/00_a.png"}]}, tmp_path, lambda k, d: None)
+    with pytest.raises(base.PermanentError):
+        aivideo.localize_edit_images(
+            {"images": [{"key": "editor_uploads/r1/a.png", "file": "final/preview.mp4"}]},
+            tmp_path, lambda k, d: None)
+    # run_dir 없음 — mkdir 가 만들어버리면 뒤따르는 fail-loud 가드가 무력화된다
+    with pytest.raises(base.PermanentError):
+        aivideo.localize_edit_images(ov, tmp_path / "없는run", lambda k, d: None)
+    assert not (tmp_path / "없는run").exists()
+    # 404 는 영구 오류(없는 키는 재시도해도 안 생긴다) · 그 외 오류는 재시도 대상 그대로
+    def gone(k, d):
+        raise RuntimeError("storage download 404: not found")
+    with pytest.raises(base.PermanentError):
+        aivideo.localize_edit_images(ov, tmp_path, gone)
+    def flaky(k, d):
+        raise RuntimeError("storage download 503: busy")
+    with pytest.raises(RuntimeError):
+        aivideo.localize_edit_images(ov, tmp_path, flaky)
+    # images 없음 — 원본 그대로(다운로드 주입자도 안 부른다)
+    same = {"title": {"top_title": "t"}}
+    assert aivideo.localize_edit_images(same, tmp_path, gone) is same
+
+
+def test_dashboard_editor_images_wired():
+    """F-408 화면: 업로드(0056 경로 규약)·스테이지 배치·수집·초안 왕복이 배선됐고,
+    전부 editor_images 플래그 뒤에 있다(엔진 E2 배포 전에는 탭 자체가 안 보인다)."""
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert "edImagesOn" in html and "editor_images" in html      # 플래그 게이트
+    assert "edImgUpload" in html and "editor_uploads/" in html   # 0056 경로 규약
+    assert 'id="edovimgs"' in html and "edImgDragDown" in html   # 스테이지 배치
+    assert "edImgResizeDown" in html                             # 모서리 크기
+    # 수집: 제출은 key 만(어댑터가 file 로 치환), name·del 은 초안 전용.
+    # 초안은 플래그와 무관(자동 저장이 이미지를 지우면 안 된다) · 제출의 빈 배열 =
+    # 전량 삭제(키 생략 = 라운드 승계가 이전 이미지를 되살린다)
+    assert "if ((edImagesOn() || forDraft) && (edForm.images || []).length){" in html
+    assert "key: m.key, source_time_sec:" in html
+    assert 'o.name = m.name || ""' in html
+    # 스냅샷(undo)·초안 복원에 images 포함
+    assert "images: edForm.images || []" in html
+    assert "if (Array.isArray(d.images))" in html
+
+
 def test_dashboard_editor_sub_style_wysiwyg():
     """F-407 화면: 스테이지에서 자막을 끌어 위치(y)·크기(size)·색(color)을 줄 단위로
     고친다 — 값은 subtitles[].style 로 나가고(v3 계약), 초안에도 왕복 저장된다."""
