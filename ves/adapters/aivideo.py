@@ -356,6 +356,63 @@ def edit_overrides_argv(base_argv, overrides_path) -> list:
     return argv + ["--edit-overrides", str(overrides_path)] if overrides_path else argv
 
 
+def localize_edit_images(overrides, run_dir, download):
+    """images[].key(스토리지) → run_dir 상대 file 치환. 순수 판정 + 주입된 download 로 IO.
+
+    엔진은 로컬 파일만 받는다(v3 계약: file 은 run_dir 상대 경로, 절대/'..' 거절) —
+    스토리지 자격은 오케스트레이터 소유라는 현행 규율 유지. 실패는 즉시 에러:
+    조용히 빼면 사람이 올린 이미지가 소리 없이 사라진 영상이 나간다(fail-loud).
+    download(key, dest_path) 는 호출자 주입 — 테스트가 IO 없이 계약을 검증한다."""
+    imgs = (overrides or {}).get("images")
+    if not imgs:
+        return overrides
+    d0 = pathlib.Path(run_dir)
+    # run_dir 존재 검사를 여기서도 — 아래 mkdir 가 없는 run_dir 을 만들어버리면
+    # _write_edit_overrides 의 같은 fail-loud 가드가 영영 통과해 빈 가짜 run 이 생긴다.
+    if not d0.exists():
+        raise base.PermanentError(f"run_dir 없음: {d0} — 편집 재렌더는 원본 run 이 있어야 합니다")
+    d = d0 / "editor_images"
+    d.mkdir(exist_ok=True)
+    new_imgs = []
+    for i, im in enumerate(imgs):
+        im = dict(im or {})
+        if "file" in im:
+            # file 은 이 함수의 산출물이다 — 클라이언트가 넣어 보내면 prefix 검증을
+            # 통째로 우회해 run_dir 안 임의 파일을 오버레이 소스로 지정하게 된다.
+            raise base.PermanentError(
+                f"images[{i}]: file 은 어댑터가 만드는 값입니다 — 화면은 key 만 보냅니다")
+        key = im.pop("key", None)
+        if not key:
+            raise base.PermanentError(
+                f"images[{i}]: key 가 없습니다 — 대시보드 수집 계약 확인")
+        if not str(key).startswith("editor_uploads/") or ".." in str(key):
+            raise base.PermanentError(
+                f"images[{i}]: 허용 prefix 밖의 키({key!r}) — editor_uploads/ 만 받습니다(0056)")
+        name = f"{i:02d}_{pathlib.Path(str(key)).name}"
+        try:
+            download(str(key), str(d / name))
+        except Exception as ex:
+            # 없는 키는 재시도해도 안 생긴다(업로드 불변·삭제 정책 없음) — 즉시 실패.
+            # 그 외(네트워크·5xx)는 그대로 전파 = 재시도 대상.
+            if "404" in str(ex):
+                raise base.PermanentError(
+                    f"images[{i}]: 스토리지에 없는 키({key}) — 업로드가 지워졌거나 초안이 낡았습니다"
+                ) from ex
+            raise
+        im["file"] = f"editor_images/{name}"
+        new_imgs.append(im)
+    out = dict(overrides)
+    out["images"] = new_imgs
+    return out
+
+
+def _download_editor_upload(cfg):
+    """스토리지 다운로드 주입자 — 서비스 키는 여기서만 쓴다(어댑터 순수부와 분리)."""
+    from ves.storage.supabase_storage import Store
+    store = Store(cfg.supabase_url, cfg.supabase_service_key)
+    return lambda key, dest: store.download("ves-outputs", key, dest)
+
+
 def _write_edit_overrides(run_dir, overrides) -> pathlib.Path | None:
     """오버라이드 dict → <run_dir>/edit_overrides.json. 없으면 None.
 
@@ -407,8 +464,11 @@ def resume_argv(cfg, job, partial_run_id, default_step=None):
     if step:
         argv += ["--from-step", step]
     # 편집실(0043): 사람이 고친 제목·자막·구간. 파일로 써서 경로만 넘긴다.
-    return edit_overrides_argv(
-        argv, _write_edit_overrides(run_dir, (job["params"] or {}).get("edit_overrides")))
+    # 이미지(F-408)는 스토리지 키 → run_dir 파일로 먼저 바꾼다(엔진은 로컬만 받는다).
+    ov = (job["params"] or {}).get("edit_overrides")
+    if ov and ov.get("images"):
+        ov = localize_edit_images(ov, run_dir, _download_editor_upload(cfg))
+    return edit_overrides_argv(argv, _write_edit_overrides(run_dir, ov))
 
 
 def parse_result(cfg, job, stdout):
