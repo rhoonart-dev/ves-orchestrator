@@ -2288,6 +2288,17 @@ def test_scan_cmd_fps_and_budget_follow_source():
     assert f"-b:v {scan_bitrate_kbps(2829, 150)}k" in lo    # 폴백은 낮은 예산으로 역산
 
 
+def test_dashboard_editor_preview_modes():
+    """P2-a: 완성본 preview.mp4 재생(F-201, 서버 작업 0)·가상 시퀀스(F-202)·
+    제목·자막·내레이션 오버레이(F-203). 오버레이는 근사임을 화면에 명시한다."""
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert "edVSet" in html and "edPrevKey" in html          # 원본/완성본 모드 전환
+    assert "edSeqToggle" in html and "edSeqTick" in html     # 가상 시퀀스 재생
+    assert 'id="edov"' in html and "edOvPaint" in html       # 오버레이 레이어
+    assert "근사 미리보기" in html                           # 정직한 라벨
+
+
 def test_dashboard_editor_drag_and_output_track():
     """구간은 드래그로 다듬는다(F-102: 몸통 이동·양끝 트리밍 핸들·스냅·Alt 해제) —
     출력 타임라인(F-105)이 완성본 순서와 59.7초 상한을 그리고 순서 드래그를 받는다."""
