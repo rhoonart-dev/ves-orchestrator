@@ -2525,6 +2525,12 @@ def test_dashboard_editor_jp_mode():
     assert "if (edJpMode){ renderEditJp(); return; }" in html   # KR 편집실과 분기
     assert 'rpc("reject_and_rerender"' in html                  # 0038 계약 재사용
     assert "p_edits: ed" in html
+    # 편집실 단일화 — 인라인 수정 재렌더 패널은 제거됐다(계약은 edJpSubmit 이 승계)
+    assert "rerenderPanel" not in html and "submitRerender" not in html
+    assert "✏️ 수정 재렌더" not in html
+    # KR 편집실과 같은 탭 구성 + 같은 제출 문구
+    assert "edJpPane" in html and "edJpPaneHtml" in html
+    assert "✏️ 고친 내용으로 다시 렌더" in html
     # 한국어 병기 + dirty diff
     assert ".jprow .ko" in html and "jpko" in html
     assert "edJpCollect" in html and "edJpMark" in html
@@ -2542,8 +2548,8 @@ def test_dashboard_editor_jp_mode():
     assert "edOpenNew('${c.newRid}')" in html
     # 입력은 폼(cur)에 산다 — 재렌더에도 타이핑 보존
     assert "titleCur" in html and "s.cur = v" in html
-    # idx 없는 옛 텔롭 제외(0038 패널과 같은 좌표 안전 규약)
-    assert html.count("filter(x => x.idx != null)") >= 2
+    # idx 없는 옛 텔롭 제외(좌표 안전 규약 — 인라인 패널 제거 후 JP 폼 한 곳)
+    assert html.count("filter(x => x.idx != null)") >= 1
 
 
 def test_dashboard_editor_images_wired():

@@ -198,23 +198,6 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .rjopt .eta{flex:none;color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums}
   .rjfoot{margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;
     font-size:11.5px;color:var(--muted)}
-  /* 수정 재렌더 패널(0038) — 일본어 텍스트를 카드에서 직접 고쳐 반려-재렌더 */
-  .edpanel{margin-top:8px;padding:10px;border:1px solid var(--line);border-radius:10px;
-    background:var(--chip,rgba(127,127,127,.06))}
-  .edpanel .edhd{display:flex;align-items:center;gap:8px;font-size:12.5px;
-    font-weight:600;margin-bottom:6px}
-  .edpanel .edhd .sub{flex:1;font-weight:400}
-  .edpanel .edcap{font-size:11px;color:var(--muted);font-weight:600;margin:8px 0 3px}
-  .edpanel .edwrap{max-height:240px;overflow:auto}
-  .edpanel .edrow{display:flex;gap:8px;align-items:center;margin:2px 0}
-  .edpanel .edrow .ko{flex:1 1 42%;min-width:0;color:var(--muted);font-size:12px;
-    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .edpanel input[type=text],.edpanel textarea{flex:1 1 58%;width:100%;min-width:0;
-    box-sizing:border-box;background:var(--bg);border:1px solid var(--line);
-    border-radius:6px;color:var(--ink);font:inherit;font-size:12.5px;padding:4px 6px}
-  .edpanel textarea{resize:vertical}
-  .edpanel .edfoot{margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;
-    font-size:11.5px;color:var(--muted)}
   /* 편집실(0042) — 원본 타임라인 */
   .edhead{display:flex;align-items:center;gap:10px;margin-bottom:10px;font-size:15px}
   .edhead .right{margin-left:auto}
@@ -1510,12 +1493,9 @@ function loopyCard(r, pay){
       <button class="danger act"
         onclick="armed(this,'✕ 반려',()=>decideLoopy('${r.id}', false))">✕ 반려</button>
       ${(pay.ko_ja_pairs || pay.youtube_title)
-        ? `<button class="act" title="자막·제목을 고쳐서 같은 영상을 다시 렌더(0038)"
-             onclick="rerenderPanel('${r.id}')">✏️ 수정 재렌더</button>
-           <button class="act" title="일본어 편집 화면 — 자막·제목을 한국어 원문과 나란히 놓고 고칩니다"
+        ? `<button class="act" title="일본어 편집 화면 — 자막·제목을 한국어 원문과 나란히 놓고 고칩니다"
              onclick="openEditor('${r.id}')">🎬 편집실</button>` : ""}
-    </div>
-    <div id="edw_${r.id}" style="display:none"></div>` : '<div class="sub">reviewer 권한 필요</div>';
+    </div>` : '<div class="sub">reviewer 권한 필요</div>';
   return `<div class="review rv2">
     <div class="rv2-vid">${pay.preview_key
       ? `<div id="pv_${r.id}"><video id="pvv_${r.id}" controls playsinline preload="metadata"></video></div>`
@@ -1621,14 +1601,12 @@ function renderReview(){
           <input id="at_${r.id}" type="datetime-local" style="display:none">
           <button class="pri act" onclick="approve('${r.id}')">✓ 합격 · 발행</button>
           <button class="danger act" onclick="rejectAsk('${r.id}')">✕ 반려</button>
-          <button class="act" title="이 쇼츠가 원본 어디에서 왔는지 타임라인으로 봅니다"
+          <button class="act" title="${pay.mode === "scene_rerender"
+              ? "일본어 편집 화면 — 자막·제목·TTS 를 한국어 원문과 나란히 놓고 고칩니다"
+              : "이 쇼츠가 원본 어디에서 왔는지 타임라인으로 봅니다"}"
             onclick="openEditor('${r.id}')">🎬 편집실</button>
-          ${pay.mode === "scene_rerender"
-            ? `<button class="act" title="일본어 자막·제목·TTS 를 고쳐서 같은 체크포인트로 다시 렌더(0038)"
-                 onclick="rerenderPanel('${r.id}')">✏️ 수정 재렌더</button>` : ""}
         </div>
-        <div id="rja_${r.id}" style="display:none"></div>
-        <div id="edw_${r.id}" style="display:none"></div>` : '<div class="sub">reviewer 권한 필요</div>';
+        <div id="rja_${r.id}" style="display:none"></div>` : '<div class="sub">reviewer 권한 필요</div>';
       const slug = wo.channel_slug || r.channel_slug;
       return `<div class="review rv2">
         <div class="rv2-vid">${pay.preview_key
@@ -1776,96 +1754,15 @@ window.reject = async (rid, stage, regen) => {
   }
 };
 
-// ───────── 수정 재렌더 (0038, 운영 요청 8/14) ─────────
-// "일본 채널 2개는 자막·제목·TTS 를 고쳐서 재렌더" — 반려의 세 번째 선택지.
-// 좌표는 카드 ko_ja_pairs 의 idx. 고친 항목만 p_edits 로 보낸다(RERENDER_ORIG 대비 diff) —
-// 안 고친 줄은 엔진 번역본이 그대로 남는다. 설명(description)은 여기서 안 받는다:
-// SHOTCONE 설명은 고지·해시태그가 합성된 본문이라 통째 교체가 이중 합성을 만든다.
-let RERENDER_ORIG = null;
-const byId = id => document.getElementById(id);
-window.rerenderPanel = rid => {
-  const r = (state.reviews||[]).find(x => x.id === rid); if (!r) return;
-  const pay = r.payload || {}, pr = pay.ko_ja_pairs || {};
-  const loopy = !!pay.zanmang_video_id;
-  const rjb = byId(`rjb_${rid}`); if (rjb) rjb.style.display = "none";
-  const rja = byId(`rja_${rid}`); if (rja){ rja.style.display = "none"; rja.innerHTML = ""; }
-  // idx 없는 옛 카드의 텔롭은 좌표를 특정할 수 없어 편집에서 뺀다(자막은 순번=idx 로 안전).
-  RERENDER_ORIG = {
-    rid,
-    title:  pay.youtube_title || "",
-    top:    (pr.top_title || {}).ja || "",
-    subs:   (pr.subs   || []).map((x,i) => ({idx: x.idx != null ? x.idx : i, ja: x.ja || "", ko: x.ko || ""})),
-    tts:    (pr.tts    || []).map((x,i) => ({idx: x.idx != null ? x.idx : i, ja: x.ja || "", ko: x.ko || ""})),
-    telops: (pr.telops || []).filter(x => x.idx != null)
-                             .map(x => ({idx: x.idx, ja: x.ja || "", ko: x.ko || ""})),
-  };
-  const o = RERENDER_ORIG;
-  const box = byId(`edw_${rid}`); if (!box) return;
-  const rows = (list, pfx) => `<div class="edwrap">` + list.map(s =>
-    `<div class="edrow"><input type="text" id="${pfx}_${rid}_${s.idx}">
-       <span class="ko" title="한국어 원문(참고)">${esc(s.ko)}</span></div>`).join("") + `</div>`;
-  box.style.display = "";
-  box.innerHTML = `<div class="edpanel">
-    <div class="edhd"><span>✏️ 수정 재렌더</span>
-      <span class="sub">고친 항목만 반영 — 왼쪽 일본어를 고치세요(오른쪽은 한국어 참고)</span>
-      <button class="mini" onclick="rerenderCancel('${rid}')">취소</button></div>
-    <div class="edcap">업로드 제목</div><input type="text" id="edt_${rid}">
-    ${!loopy && o.top ? `<div class="edcap">상단 제목(영상 안 · 줄바꿈 유지)</div>
-      <textarea id="edtt_${rid}" rows="2"></textarea>` : ""}
-    ${o.subs.length ? `<div class="edcap">자막${loopy ? "·대사(TTS)" : ""} ${o.subs.length}건</div>${rows(o.subs, "eds")}` : ""}
-    ${o.tts.length ? `<div class="edcap">내레이션(TTS) ${o.tts.length}건</div>${rows(o.tts, "edn")}` : ""}
-    ${o.telops.length ? `<div class="edcap">방송 텔롭 ${o.telops.length}건</div>${rows(o.telops, "edl")}` : ""}
-    <div class="edfoot">
-      <button class="danger act" onclick="submitRerender('${rid}')">✏️ 반려 · 수정 재렌더</button>
-      <span>반려로 기록되고, 고친 본으로 다시 렌더한 새 검수 카드가 올라옵니다</span>
-    </div></div>`;
-  // 값은 프로그래매틱으로 — 따옴표·줄바꿈이 attribute 를 깨지 않게(esc 우회 아님, DOM 직결)
-  const set = (id, v) => { const el = byId(id); if (el) el.value = v; };
-  set(`edt_${rid}`, o.title); set(`edtt_${rid}`, o.top);
-  o.subs.forEach(s => set(`eds_${rid}_${s.idx}`, s.ja));
-  o.tts.forEach(s => set(`edn_${rid}_${s.idx}`, s.ja));
-  o.telops.forEach(s => set(`edl_${rid}_${s.idx}`, s.ja));
-};
-window.rerenderCancel = rid => {
-  const box = byId(`edw_${rid}`); if (box){ box.style.display = "none"; box.innerHTML = ""; }
-  const rjb = byId(`rjb_${rid}`); if (rjb) rjb.style.display = "";
-  RERENDER_ORIG = null;
-};
-window.submitRerender = rid => {
-  const o = RERENDER_ORIG; if (!o || o.rid !== rid) return;
-  const edits = {};
-  const t = byId(`edt_${rid}`);
-  if (t && t.value.trim() && t.value.trim() !== o.title) edits.youtube_title_ja = t.value.trim();
-  const tt = byId(`edtt_${rid}`);
-  if (tt && tt.value.trim() && tt.value !== o.top) edits.top_title_ja = tt.value;
-  const diff = (list, pfx, asObj) => {
-    const out = {};
-    list.forEach(s => {
-      const el = byId(`${pfx}_${rid}_${s.idx}`);
-      if (el && el.value.trim() && el.value.trim() !== s.ja)
-        out[s.idx] = asObj ? { ja: el.value.trim() } : el.value.trim();
-    });
-    return out;
-  };
-  const subs = diff(o.subs, "eds"), tts = diff(o.tts, "edn"), tel = diff(o.telops, "edl", true);
-  if (Object.keys(subs).length) edits.subs = subs;
-  if (Object.keys(tts).length) edits.tts = tts;
-  if (Object.keys(tel).length) edits.telops = tel;
-  if (!Object.keys(edits).length){
-    toast("고친 내용이 없습니다 — 그대로 반려하려면 ✕ 반려를 쓰세요", true); return;
-  }
-  const note = ((byId(`note_${rid}`)||{}).value || "").trim() || null;
-  rpc("reject_and_rerender", { p_review_id: rid, p_edits: edits, p_note: note },
-      `반려 — 고친 ${Object.keys(edits).length}가지로 다시 렌더합니다 (끝나면 새 검수 카드가 올라옵니다)`);
-  RERENDER_ORIG = null;
-};
+// 수정 재렌더 인라인 패널(0038)은 편집실 일본어 모드(JP-1)로 대체·제거됐다 —
+// 계약(reject_and_rerender·idx diff)은 edJpSubmit 이 그대로 쓴다.
 
 // ═════════ 편집실 (0042 보기 · 0043 고치기) ═════════
 // 1단계: 원본 4시간 어디를 잘라 60초를 만들었는지 보여준다 — 그것만으로 검수 판단이
 //   달라진다(가왕쇼처럼 '경연 결과 스포 금지' 제약이 있는 작품).
 // 2단계: 그 화면에서 제목·자막을 고쳐 다시 렌더한다. 구간(clips)은 3단계.
-// 편집 폼 상태는 edForm 하나로 모은다 — 0038 의 RERENDER_ORIG 처럼 전역 단일 슬롯이지만,
-// 편집실은 카드를 한 번에 하나만 여는 화면이라(탭 전체를 차지) 충돌 지점이 없다.
+// 편집 폼 상태는 edForm 하나로 모은다 — 전역 단일 슬롯이지만, 편집실은 카드를
+// 한 번에 하나만 여는 화면이라(탭 전체를 차지) 충돌 지점이 없다.
 let edRid = null, edData = null, edLoading = false, edPoll = null, edCursor = 0;
 let edForm = null, edPane = "clips", edSel = -1, edTtsSel = -1;
 // 줌·팬(F-101)은 렌더 밖 상태 — 휠마다 render() 를 돌리면 video 가 다시 로드된다.
@@ -1889,6 +1786,7 @@ let edOvSel = "sub";           // ✎ 도구의 대상 — title(전체)|sub(그
 // 일본어 편집 모드(JP-1) — localization_qa 카드는 원본 타임라인 재료가 아니라 카드
 // payload(ko_ja_pairs)가 재료다. 계약은 0038 reject_and_rerender 텍스트 치환 그대로.
 let edJpMode = null, edJpForm = null, edJpChain = null, edJpTimer = null;
+let edJpPane = "subs";   // KR 편집실과 같은 탭 구성 — 자막·대사 | 제목 | 내레이션 | 텔롭
 
 function edResetForm(){
   const tl = (edData && edData.timeline) || {};
@@ -2367,6 +2265,8 @@ window.openEditor = async (rid) => {
     clearTimeout(edPoll);              // KR 재료 폴링 잔존이 5초마다 render 로 입력을 지운다
     if (!edJpChain || edJpChain.rid !== rid) edJpChain = null;   // 같은 카드 재진입만 유지
     edJpResetForm(r0);
+    // 자막 쌍 없이 제목만 있는 카드(LOOPY A 라우트 등)는 제목 탭이 첫 화면
+    edJpPane = edJpForm.subs.length ? "subs" : "title";
     if (edJpChain) edJpForm.sent = true;   // 이미 보낸 카드 — 재진입이 이중 제출 폼을 열면 안 된다
     render();
     if (edJpChain) edJpChainPoll();
@@ -2500,7 +2400,7 @@ function edJpResetForm(r){
     telops: (pr.telops || []).filter(x => x.idx != null)
                              .map(x => ({ idx: x.idx, ja: x.ja || "", ko: x.ko || "",
                                           cur: x.ja || "" })),
-    sent: false,
+    note: "", sent: false,
   };
 }
 
@@ -2515,14 +2415,6 @@ function renderEditJp(){
       <span class="rv2-mac">${esc(chName(r.channel_slug))}</span>
       <span class="sub">일본어 편집 — 문구를 고치면 그 항목만 다시 렌더됩니다</span>
       <span class="right"><button class="mini" onclick="tab='review';render()">← 검수함</button></span></div>`;
-  const rows = (list, pfx, cap) => !list.length ? "" : `
-    <div class="edcap">${cap} ${list.length}건</div>
-    <div class="jprows">${list.map(s => `
-      <div class="jprow"><span class="n">${s.idx + 1}</span>
-        <div class="jpcol">
-          <input type="text" id="${pfx}${s.idx}" oninput="edJpMark()" ${canEdit ? "" : "disabled"}>
-          <div class="ko">${esc(s.ko)}</div>
-        </div></div>`).join("")}</div>`;
   $("#page").innerHTML = `<section class="card">${head}
     <div class="edgrid2">
       <div class="edleft">
@@ -2531,45 +2423,39 @@ function renderEditJp(){
           : `<div class="edphold">완성본 파일이 없는 카드입니다${f.url
               ? `<br><a href="${esc(f.url)}" target="_blank" rel="noopener">원본 링크로 확인</a>` : ""}</div>`}
         </div>
-        <div class="sub" style="margin-top:6px">일본어 완성본 — 자막 위치·타이밍은 여기서
-          확인만 됩니다(고치는 건 JP-2 예정)</div>
+        <div class="sub" style="margin-top:6px">일본어 완성본 — 자막 위치·크기·구간 편집은
+          일본어 렌더 경로의 엔진 확장 후 열립니다(문구는 오른쪽에서)</div>
       </div>
       <div class="edright">
-        <div class="edcap">업로드 제목</div>
-        <input type="text" id="jptitle" oninput="edJpMark()" ${canEdit ? "" : "disabled"}
-          style="width:100%">
-        ${f.titleKo ? `<div class="sub jpko">한국어: ${esc(f.titleKo)}</div>` : ""}
-        ${!f.loopy && f.top ? `
-          <div class="edcap">상단 제목 <span class="sub">— 영상 안 글자(줄바꿈 유지)</span></div>
-          <textarea id="jptop" rows="2" oninput="edJpMark()" ${canEdit ? "" : "disabled"}
-            style="width:100%"></textarea>
-          ${f.topKo ? `<div class="sub jpko">한국어: ${esc(f.topKo)}</div>` : ""}` : ""}
-        <div class="edpane" style="max-height:420px">
-          ${rows(f.subs, "jps_", f.loopy ? "자막·대사(TTS)" : "자막")}
-          ${rows(f.tts, "jpn_", "내레이션(TTS)")}
-          ${rows(f.telops, "jpl_", "방송 텔롭")}
-          ${!f.subs.length && !f.tts.length && !f.telops.length
-            ? '<div class="sub">이 카드에는 편집할 자막 쌍이 없습니다</div>' : ""}
+        <div class="edtabs">
+          ${[["subs", (f.loopy ? "자막·대사 " : "자막 ") + f.subs.length], ["title", "제목"]]
+            .concat(f.tts.length ? [["tts", "내레이션 " + f.tts.length]] : [])
+            .concat(f.telops.length ? [["telops", "텔롭 " + f.telops.length]] : [])
+            .map(([k, l]) => `<button class="edtab ${edJpPane === k ? "on" : ""}"
+              onclick="edJpPane='${k}';render()">${esc(l)}</button>`).join("")}
         </div>
-        <div class="sub" style="margin-top:4px">왼쪽 입력이 일본어(고치는 값), 아래 회색이
+        <div class="edpane" style="max-height:460px">${edJpPaneHtml(canEdit)}</div>
+        <div class="sub" style="margin-top:4px">위 입력이 일본어(고치는 값), 아래 회색이
           한국어 원문입니다 · 비운 칸은 무시됩니다(빈 값 전송 없음)</div>
       </div>
     </div>
     ${edJpChain && edJpChain.rid === edRid ? `<div id="jpchain">${edJpChainHtml()}</div>` : ""}
     ${canEdit ? `<div class="edfoot2">
+      <button class="pri act" id="jpsubmit" onclick="edJpSubmit()" disabled>
+        ✏️ 고친 내용으로 다시 렌더</button>
       <textarea class="reason" id="jpnote" rows="1" placeholder="사유·메모 (선택)"
-        style="flex:1;min-width:200px"></textarea>
-      <button class="danger act" id="jpsubmit" onclick="edJpSubmit()" disabled>
-        ✏️ 반려 · 수정 재렌더</button>
-      <span>이 카드는 반려로 닫히고, 고친 본으로 렌더한 새 카드가 올라옵니다${
+        oninput="edJpForm.note = this.value" style="flex:1;min-width:180px"></textarea>
+      <span>지금 카드는 반려로 닫히고, 고친 본으로 다시 렌더한 새 카드가 올라옵니다${
         f.loopy ? " (잔망루피는 전체 재실행 — 최대 수 시간)" : ""}</span>
     </div>` : f.sent ? "" : `<div class="sub" style="margin-top:10px">${
       !can("reviewer") ? "reviewer 권한이 있어야 고칠 수 있습니다"
       : "이 카드는 닫혀 있어 고칠 수 없습니다"}</div>`}
   </section>`;
-  // 값 주입은 프로그래매틱으로(따옴표·줄바꿈이 attribute 를 깨지 않게 — 0038 패널 규약)
+  // 값 주입은 프로그래매틱으로(따옴표·줄바꿈이 attribute 를 깨지 않게) — 안 보이는
+  // 탭의 값은 폼(cur)에 살아 있고, set() 은 없는 요소를 조용히 넘긴다.
   const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
   set("jptitle", f.titleCur); set("jptop", f.topCur);
+  set("jpnote", f.note || "");
   f.subs.forEach(s => set("jps_" + s.idx, s.cur));
   f.tts.forEach(s => set("jpn_" + s.idx, s.cur));
   f.telops.forEach(s => set("jpl_" + s.idx, s.cur));
@@ -2582,7 +2468,36 @@ function renderEditJp(){
   if (edJpChain && edJpChain.rid === edRid && !edJpChain.newRid) edJpChainPoll();
 }
 
-// 고친 항목만 diff — 0038 패널(submitRerender)과 같은 규약. 빈 값은 무시.
+// 우측 패널(탭) — KR 편집실과 같은 구성. 렌더 내용이 아니라 번역 텍스트가 대상이라
+// 탭 구성만 다르다(자막·대사 | 제목 | 내레이션 | 텔롭).
+function edJpPaneHtml(canEdit){
+  const f = edJpForm;
+  const rows = (list, pfx) => !list.length
+    ? '<div class="sub">항목 없음</div>'
+    : `<div class="jprows">${list.map(s => `
+        <div class="jprow"><span class="n">${s.idx + 1}</span>
+          <div class="jpcol">
+            <input type="text" id="${pfx}${s.idx}" oninput="edJpMark()" ${canEdit ? "" : "disabled"}>
+            <div class="ko">${esc(s.ko)}</div>
+          </div></div>`).join("")}</div>`;
+  if (edJpPane === "title") return `
+    <div class="edcap">업로드 제목 <span class="sub">— YouTube 제목</span></div>
+    <input type="text" id="jptitle" oninput="edJpMark()" ${canEdit ? "" : "disabled"}
+      style="width:100%">
+    ${f.titleKo ? `<div class="sub jpko">한국어: ${esc(f.titleKo)}</div>` : ""}
+    ${!f.loopy && f.top ? `
+      <div class="edcap">상단 제목 <span class="sub">— 영상 안에 그려지는 글자(줄바꿈 유지)</span></div>
+      <textarea id="jptop" rows="2" oninput="edJpMark()" ${canEdit ? "" : "disabled"}
+        style="width:100%"></textarea>
+      ${f.topKo ? `<div class="sub jpko">한국어: ${esc(f.topKo)}</div>` : ""}`
+      : f.loopy ? '<div class="sub" style="margin-top:6px">잔망루피는 영상 안 글자를 여기서 고칠 수 없습니다(업로드 제목만)</div>' : ""}`;
+  if (edJpPane === "tts") return rows(f.tts, "jpn_");
+  if (edJpPane === "telops") return rows(f.telops, "jpl_");
+  return f.subs.length ? rows(f.subs, "jps_")
+    : '<div class="sub">이 카드에는 편집할 자막 쌍이 없습니다</div>';
+}
+
+// 고친 항목만 diff — 0038 계약(reject_and_rerender p_edits) 규약. 빈 값은 무시.
 // DOM 이 아니라 폼(cur)을 읽는다 — 렌더 직후·재그림 뒤에도 값이 산다.
 function edJpCollect(){
   const f = edJpForm, ed = {};
@@ -2622,8 +2537,10 @@ window.edJpMark = () => {
   const n = Object.keys(edJpCollect()).length;
   const btn = document.getElementById("jpsubmit");
   if (btn){
-    btn.disabled = !n;
-    btn.textContent = n ? `✏️ 반려 · 수정 재렌더 (${n}가지)` : "✏️ 반려 · 수정 재렌더";
+    // sending: 제출 왕복 중 탭 전환이 푸터를 새로 그려도 버튼이 부활하면 안 된다
+    btn.disabled = !n || !!f.sending;
+    btn.textContent = f.sending ? "보내는 중…"
+      : n ? `✏️ 고친 내용으로 다시 렌더 (${n}가지)` : "✏️ 고친 내용으로 다시 렌더";
   }
 };
 
@@ -2631,12 +2548,13 @@ window.edJpSubmit = async () => {
   const f = edJpForm; if (!f) return;
   const ed = edJpCollect();
   if (!Object.keys(ed).length){ toast("고친 내용이 없습니다", true); return; }
-  const note = ((document.getElementById("jpnote") || {}).value || "").trim() || null;
-  const btn = document.getElementById("jpsubmit");
-  if (btn){ btn.disabled = true; btn.textContent = "보내는 중…"; }
+  const note = (f.note || "").trim() || null;   // 탭 전환에도 살아 있는 폼 값
+  f.sending = true;
+  edJpMark();                                   // 버튼 잠금 — 렌더를 타도 유지된다
   const res = await rpc("reject_and_rerender",
     { p_review_id: f.rid, p_edits: ed, p_note: note },
     `반려 — 고친 ${Object.keys(ed).length}가지로 다시 렌더합니다`);
+  f.sending = false;
   if (!res){ edJpMark(); return; }
   f.sent = true;
   // 폴 좌표는 체인에 실어 둔다 — 현재 edJpForm 을 읽으면 다른 카드로 옮긴 뒤
@@ -2960,7 +2878,7 @@ function renderEdit(){
       <span>지금 카드는 반려로 닫히고, 고친 본으로 다시 렌더한 새 카드가 올라옵니다</span>
     </div>` : `<div class="sub" style="margin-top:10px">
       ${r.kind !== "publish_gate"
-        ? "일본어 카드는 검수함의 ✏️ 수정 재렌더를 쓰세요 — 이 화면은 보기 전용입니다"
+        ? "편집 짝(ko/ja) 정보가 없는 옛 일본어 카드라 보기 전용입니다 — 새 카드부터는 일본어 편집 화면이 열립니다"
         : !can("reviewer") ? "reviewer 권한이 있어야 고칠 수 있습니다"
         : "이 카드는 닫혀 있어 고칠 수 없습니다"}
     </div>`}</section>`;
