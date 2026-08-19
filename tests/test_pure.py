@@ -2097,11 +2097,12 @@ def test_0043_submit_editor_render_contract():
     assert "이미 새 검수 카드가 있습니다" in sql
     assert "보낸 초안이 없습니다" in sql
     # 스키마 주입: 화면이 빠뜨려도 엔진 계약이 성립해야 한다.
-    # 0047: tts 가 있을 때만 v2 — v1 에 tts 를 얹으면 구 엔진이 조용히 무시한다(fail-loud 위반).
-    assert "CASE WHEN p_overrides ? 'tts' THEN 'edit_overrides/v2'" in sql
+    # 0049: 스탬프·재개 단계 판정 기준은 **병합 결과(v_ov)** — 승계된 clips/tts 도
+    # resources 재개·v2 스탬프를 받아야 한다(새 payload 만 보면 승계분이 빠진다).
+    assert "CASE WHEN v_ov ? 'tts' THEN 'edit_overrides/v2'" in sql
     assert "ELSE 'edit_overrides/v1' END" in sql
-    # 재개 단계: 구간·내레이션을 고쳤으면 resources(cue 앵커·mp3 재합성), 아니면 render
-    assert "p_overrides ? 'clips' OR p_overrides ? 'tts'" in sql
+    # 재개 단계: 구간·내레이션(승계분 포함)이 있으면 resources, 아니면 render
+    assert "v_ov ? 'clips' OR v_ov ? 'tts'" in sql
     assert "THEN 'resources' ELSE 'render' END" in sql
     # 내레이션 허용 키 + 빈 배열(전부 삭제) 유효
     assert "p_overrides ? 'tts'" in sql
@@ -2188,7 +2189,7 @@ def test_0046_editor_render_rewarms_source_on_same_node():
     다른 노드에서 성공하면 acquire.post_success 가 generate 에 두 번째 node: 캡을 붙여
     영원히 못 잡는 잡이 된다(required_caps <@ effective_caps 는 전량 포함 조건)."""
     sql = _live_mig("CREATE OR REPLACE FUNCTION public.submit_editor_render")
-    assert "0046" in sql, "submit_editor_render 의 라이브 정의가 0046 이어야 한다"
+    assert "0049" in sql, "submit_editor_render 의 라이브 정의가 0049 이상이어야 한다"
     assert "'acquire'" in sql, "재렌더 체인 맨 앞에 acquire 가 있어야 한다"
     assert "ARRAY['network', 'node:' || v_gen.node_id]" in sql, "acquire 도 같은 노드에 핀"
     assert "'editrender:' || p_review_id || ':acq'" in sql
@@ -2608,3 +2609,25 @@ def test_0045_cache_requires_editing_video():
     assert "'editor_assets:' || v_gen.run_id" in sql
     assert "ARRAY['generate', 'node:' || v_gen.node_id]" in sql
     assert "_audit('editor_open'" in sql
+
+
+# ───────── 0049: 편집 라운드 누적 승계 ─────────
+def test_0049_editor_overrides_carryover():
+    """🛑 2026-08-19 실측(커리어데이_ae71b530): 1라운드 제목+구간 편집 후 2라운드에서
+    내레이션만 고쳐 보냈더니 제목·구간이 초기 버전으로 되돌아갔다.
+
+    화면은 '이번에 만진 키만' 보내고(설계), 엔진은 매 라운드 원본 체크포인트에서
+    다시 시작한다. 따라서 RPC 가 직전 generate 의 edit_overrides 를 **키 단위로
+    승계**한 위에 새 오버라이드를 얹어야 라운드가 누적된다. 예외: 새 payload 에
+    clips 가 있는데 subtitles 가 없으면 승계 subtitles 는 버린다 — 자막 좌표는
+    편집본 시간축이라 구간이 바뀌면 통째로 어긋난다."""
+    sql = _live_mig("CREATE OR REPLACE FUNCTION public.submit_editor_render")
+    # 승계 원본: 직전 generate 잡의 edit_overrides (schema 스탬프는 벗겨서)
+    assert "coalesce(v_gen.params->'edit_overrides', '{}'::jsonb) - 'schema'" in sql
+    # 새 값이 이긴다 — 승계분 || 새 payload 순서여야 한다
+    assert "v_ov := v_prev || p_overrides" in sql
+    # 구간이 바뀌면 옛 자막 좌표는 무효
+    assert "p_overrides ? 'clips' AND NOT p_overrides ? 'subtitles'" in sql
+    assert "v_prev := v_prev - 'subtitles'" in sql
+    # 감사에 승계 키가 남아야 한다 — '왜 이 값이 들어갔나'를 추적할 유일한 곳
+    assert "'carried'" in sql

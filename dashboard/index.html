@@ -2069,13 +2069,10 @@ window.edMark = () => {
   edQueueSave();
 };
 
-// 60초 초과는 막지 않고 알린다 — 렌더가 역할별로 줄이므로 결과는 나오지만, 사람이
-// 의도한 구간이 잘릴 수 있다는 것을 알고 보내야 한다.
-function confirmOver(total){
-  return window.confirm(
-    `구간 합계가 ${total.toFixed(1)}초입니다(쇼츠 상한 59.7초).\n` +
-    `렌더가 훅 시작·마무리 끝을 지키며 자동으로 줄입니다. 이대로 보낼까요?`);
-}
+// 편집실 구간 상한 = 쇼츠 성립 한계(3분) — 60초는 자동 생성물의 정책이지 사람의
+// 한계가 아니다(엔진도 pinned 구간은 179.7초까지 그대로 렌더한다, 2026-08-19).
+// 이 값을 넘으면 YouTube 가 쇼츠로 분류하지 않으므로 발행 흐름이 깨진다 — 막는다.
+const ED_MAX_TOTAL_SEC = 179.7;
 
 window.edSubmit = async () => {
   // 전 구간 소프트 삭제 상태는 '구간 변경 없음'으로 조용히 무시된다 — 화면(0개)과
@@ -2099,7 +2096,10 @@ window.edSubmit = async () => {
     const bad = ov.clips.find(c => c.end_sec <= c.start_sec);
     if (bad){ toast("끝이 시작보다 앞인 구간이 있습니다", true); return; }
     const total = ov.clips.reduce((a,c) => a + (c.end_sec - c.start_sec), 0);
-    if (total > 59.7 && !confirmOver(total)) return;
+    if (total > ED_MAX_TOTAL_SEC){
+      toast(`구간 합계 ${total.toFixed(1)}초 — 쇼츠 한계(3분)를 넘으면 쇼츠로 발행되지 않습니다. ${ED_MAX_TOTAL_SEC}초 이하로 줄여주세요`, true);
+      return;
+    }
   }
   const btn = document.getElementById("edsubmit");
   if (btn){ btn.disabled = true; btn.textContent = "보내는 중…"; }
@@ -2268,7 +2268,7 @@ function renderEdit(){
 
   // 완성본 순서(편집 결과) — 구간을 만지면 여기 길이가 바로 바뀐다(삭제분 제외)
   const total = edClipsEff().reduce((a,c) => a + Math.max(0, c.end - c.start), 0);
-  const over = total > 59.7;
+  const over = total > ED_MAX_TOTAL_SEC;   // 편집실 상한 = 쇼츠 3분 한계 (60초는 자동 생성 정책)
 
   const blocks = edForm.clips.map((c,i) => `
     <div class="edclip ${esc(c.role)} ${i === edSel ? "sel" : ""} ${c.del ? "del" : ""}"
@@ -2409,7 +2409,7 @@ function renderEdit(){
       <div class="edthumb" id="edthumb"></div>
       <div class="edscrubinfo">
         <b class="${over ? "bad" : ""}">완성본 ${total.toFixed(1)}초 · 구간 ${edClipsEff().length}개</b>
-        <span class="sub">${over ? "⚠ 60초를 넘으면 렌더가 뒤를 잘라냅니다"
+        <span class="sub">${over ? "⚠ 3분(쇼츠 한계)을 넘으면 보낼 수 없습니다"
           : "타임라인: 클릭 이동 · 휠 줌 · Shift+휠 좌우 · ? 단축키"}</span></div>
     </div>
 
@@ -4078,7 +4078,7 @@ window.srcUsed = el => {
 const DESIGN_FIELDS = [   // [키, 라벨, 종류] — brain channel_registry 허용 키와 1:1
   ["title_color","제목 1줄 색","color"], ["title_color2","제목 2줄 색","color"],
   ["title_font","제목 폰트","font"],     ["title_size","제목 크기","num"],
-  ["title_y","제목 위치 Y","num"],
+  ["title_y","제목 위치 Y","num"],  ["video_y","영상 위치 Y","num"],
   ["work_color","작품명 색","color"],    ["work_title_y","작품명 위치 Y","num"],
   ["work_font_size","작품명 크기","num"],
   ["subtitle_font","자막 폰트","font"],  ["subtitle_size","자막 크기","num"],
@@ -4121,7 +4121,7 @@ function paletteColors(){
 // 엔진 기본값 (ai-video config.py DesignConfig 실측) — 빈 칸일 때 placeholder 로 노출
 const DESIGN_DEFAULTS = {
   title_color: "white", title_color2: "#FFFF00", title_font: "여기어때 잘난체",
-  title_size: "70 (2줄째 90)", title_y: "120",
+  title_size: "70 (2줄째 90)", title_y: "120", video_y: "세로 중앙",
   work_color: "#FF69B4", work_title_y: "1400", work_font_size: "40",
   subtitle_font: "여기어때 잘난체", subtitle_size: "65",
   subtitle_color: "프리셋 색 자동", subtitle_y_margin: "380",
@@ -4133,7 +4133,7 @@ const DESIGN_GROUPS = [
   ["작품명", ["work_color","work_title_y","work_font_size"]],
   ["자막", ["subtitle_font","subtitle_size","subtitle_color","subtitle_y_margin","subtitle_style"]],
   ["TTS", ["tts_color","tts_size","tts_y_margin"]],
-  ["기타", ["aspect_ratio"]],
+  ["기타", ["aspect_ratio","video_y"]],
 ];
 let chEdit = null, worksEdit = null;
 function effDesign(ch){
