@@ -131,6 +131,15 @@ class Evaluate:
             if row and row["pipeline"] == "shorts_jp_localized":
                 return
         with conn.cursor() as c:
+            # 편집 재렌더 성공 청소(F-302, 0050) — '성공하면 지우고 실패하면 남긴다'.
+            # waiting 중복 skip **보다 먼저**: skip 경로에서도 이 evaluate 의 편집 체인은
+            # 성공했다(초안 반영 완료). 뒤에 두면 그 경로에서 보낸 초안이 영구 잔존해
+            # 같은 run 의 카드에 낡은 편집이 이중 적용된다. 통상 파이프라인은 0행 — 무해.
+            c.execute(
+                """UPDATE public.editor_assets
+                       SET draft=NULL, draft_at=NULL, draft_by=NULL, draft_sent_at=NULL
+                     WHERE run_id=%s AND draft_sent_at IS NOT NULL""",
+                (p.get("run_id"),))
             c.execute(
                 """SELECT 1 FROM public.review_queue
                     WHERE kind='publish_gate' AND work_order_id=%s AND status='waiting'""",
