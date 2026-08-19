@@ -4131,6 +4131,13 @@ const DESIGN_FIELDS = [   // [키, 라벨, 종류] — brain channel_registry �
   ["subtitle_style","자막 스타일","style"],
   ["tts_color","TTS 자막 색","color"],   ["tts_size","TTS 자막 크기","num"],
   ["tts_y_margin","TTS Y여백","num"],    ["aspect_ratio","화면비","text"],
+  // 플랫폼 표기 — 영상영역 왼쪽 상단 로고/텍스트(0052). 권리사 '영상 내 플랫폼 노출' 요구용.
+  // 이미지는 ai-video assets/logos 의 파일명(예: tving.png) — 파일을 그 폴더에 먼저 넣어야 한다.
+  ["platform_image","플랫폼 로고 파일","text"], ["platform_text","플랫폼 텍스트","text"],
+  ["platform_x","플랫폼 X (영상 기준)","num"],  ["platform_y","플랫폼 Y (영상 기준)","num"],
+  ["platform_image_width","플랫폼 로고 너비","num"], ["platform_image_height","플랫폼 로고 높이","num"],
+  ["platform_font_size","플랫폼 텍스트 크기","num"], ["platform_color","플랫폼 텍스트 색","color"],
+  ["platform_align","플랫폼 위치 (left/right)","text"],
 ];
 // 목업: 엔진(ai-video)이 실제 지원하는 값만 노출 — config.py FONT_NAME_MAP · subtitle_styles.py
 const FONT_OPTIONS = [
@@ -4172,12 +4179,19 @@ const DESIGN_DEFAULTS = {
   subtitle_color: "프리셋 색 자동", subtitle_y_margin: "380",
   tts_color: "#87CEEB 하늘색", tts_size: "70", tts_y_margin: "580",
   aspect_ratio: "1:1",
+  platform_image: "없음 (assets/logos 파일명)", platform_text: "없음 (예: 티빙)",
+  platform_x: "24", platform_y: "24",
+  platform_image_width: "150", platform_image_height: "80",
+  platform_font_size: "40", platform_color: "white",
+  platform_align: "left (왼쪽 상단)",
 };
 const DESIGN_GROUPS = [
   ["제목", ["title_color","title_color2","title_font","title_size","title_y"]],
   ["작품명", ["work_color","work_title_y","work_font_size"]],
   ["자막", ["subtitle_font","subtitle_size","subtitle_color","subtitle_y_margin","subtitle_style"]],
   ["TTS", ["tts_color","tts_size","tts_y_margin"]],
+  ["플랫폼 표기", ["platform_image","platform_text","platform_x","platform_y",
+                 "platform_image_width","platform_image_height","platform_font_size","platform_color","platform_align"]],
   ["기타", ["aspect_ratio","video_y"]],
 ];
 let chEdit = null, worksEdit = null;

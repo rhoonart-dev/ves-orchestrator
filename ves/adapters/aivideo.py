@@ -39,6 +39,7 @@ PIN_DEPENDENT_KINDS = ("upload_artifacts", "ingest", "evaluate", "localize")
 # 템플릿 채널 4곳이 기본 디자인으로 생성됨). 두 층 구분: 템플릿=채널 정체성, 로고=작품 권리물.
 CHANNEL_DESIGN_FLAGS = {
     "title_y": "--design-title-y",
+    "video_y": "--design-video-y",         # 영상영역 상단 Y(미지정=세로 중앙)
     "title_font": "--design-title-font",
     "title_size": "--design-title-size",
     "title_color": "--design-title-color",      # 제목 1번째 줄
@@ -55,6 +56,16 @@ CHANNEL_DESIGN_FLAGS = {
     "work_font_size": "--design-work-font-size",
     "work_color": "--design-work-color",        # 작품명 색
     "aspect_ratio": "--design-aspect-ratio",
+    # 플랫폼 표기 — 영상영역 왼쪽 상단 로고/텍스트(ai-video 2026-08-19). brain 과 1:1 유지.
+    "platform_image": "--design-platform-image",
+    "platform_text": "--design-platform-text",
+    "platform_x": "--design-platform-x",
+    "platform_y": "--design-platform-y",
+    "platform_image_width": "--design-platform-image-width",
+    "platform_image_height": "--design-platform-image-height",
+    "platform_font_size": "--design-platform-font-size",
+    "platform_color": "--design-platform-color",
+    "platform_align": "--design-platform-align",   # left(기본)|right
 }
 CHANNEL_DESIGN_SWITCHES = {
     "face_tracking": ("--no-reframe", False),   # false 면 얼굴 추종 크롭 끔
