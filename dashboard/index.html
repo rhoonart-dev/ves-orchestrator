@@ -377,6 +377,9 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .edovimg.editable{pointer-events:auto;cursor:move;outline:1.5px dashed #ffffff88}
   .edovimg.editable .rz{position:absolute;right:-6px;bottom:-6px;width:12px;height:12px;
           background:var(--warn);border-radius:3px;cursor:nwse-resize;pointer-events:auto}
+  .edovimg.editable .rt{position:absolute;right:-7px;top:-7px;width:15px;height:15px;
+          background:#3b82f6;color:#fff;border-radius:50%;font-size:10px;line-height:15px;
+          text-align:center;cursor:grab;pointer-events:auto;user-select:none;font-style:normal}
   /* 재렌더 진행 스트립(F-301) */
   .edchain{margin-top:10px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;
            background:var(--surface-2);font-size:12.5px}
@@ -1910,7 +1913,7 @@ function edResetForm(){
     key: String(m.key || ""), name: String(m.key || "").split("/").pop(),
     src: Number(m.source_time_sec) || 0, dur: Number(m.duration_sec) || 3,
     x: Number(m.x) || 0, y: Number(m.y) || 0, w: Number(m.w) || 0.3,
-    layer: m.layer, del: false })).filter(m => m.key);
+    layer: m.layer, rotate: m.rotate, del: false })).filter(m => m.key);
   // d* = 사람이 지금 만지고 있는 값. 원본과 따로 들고 있어야 화면이 다시 그려져도
   // (탭 전환·재조회) 고치던 것이 날아가지 않는다. clips 는 편집 자체가 순서·개수를
   // 바꾸므로 원본 스냅샷(clips0)과 비교해 '고쳤는지'를 판정한다.
@@ -1962,7 +1965,7 @@ function edResetForm(){
         key: m.key, name: m.name || "",
         src: Number(m.source_time_sec) || 0, dur: Number(m.duration_sec) || 3,
         x: Number(m.x) || 0, y: Number(m.y) || 0, w: Number(m.w) || 0.3,
-        layer: m.layer, del: !!m.del })).filter(m => m.key);
+        layer: m.layer, rotate: m.rotate, del: !!m.del })).filter(m => m.key);
     // 내레이션 초안 — 전량 교체 목록을 편집 상태로 되살린다: 원본 행은 src 매칭으로
     // 문구·목소리·창을 덮고, 초안에 없는 원본 행은 '삭제됨', 매칭 안 되는 초안 행은 신규.
     const dt = d.tts;
@@ -2001,6 +2004,11 @@ const edV3 = () => (((state.ops||{}).editor_v3||{}).value === "on");
 // (이미지는 v3 스탬프를 유발하고, 스테이지 배치 도구(✎)가 v3 게이트 뒤에 있다).
 // 그 전에 켜면 업로드·배치는 되지만 보내기가 서버에서 거절된다(0054 fail-loud).
 const edImagesOn = () => (((state.ops||{}).editor_images||{}).value === "on");
+// 회전(F-410) 플래그 — 켜기 전 조건: 엔진 69e5c06 전 노드 배포(0058 머리말).
+// dc1060f 는 images 의 rotate 를 조용히 무시한다(회전 없이 나감) — 그래서 게이트.
+// 플래그는 롤백이 아니다(editor_v3 와 동일): 이미 회전이 실린 카드의 재제출·서버
+// 승계는 계속 rotate 를 흘린다 — 끄는 것은 새 회전 편집을 막을 뿐이다.
+const edRotOn = () => (((state.ops||{}).editor_rotate||{}).value === "on");
 
 // v3 에서 주의가 필요한 자막들 — 앵커 없는 줄(구간과 함께 보내면 옛 시간축 그대로)과
 // 앵커 장면이 구간에서 빠진 줄(엔진이 옆 장면에 스냅해 렌더). 둘 다 막지 않고 알린다.
@@ -2024,7 +2032,8 @@ function edSubOrphans(){
 function edImagesChanged(){
   const sig = m => [m.key, +(+m.src).toFixed(3), +(+m.dur).toFixed(3),
                     +(+m.x).toFixed(4), +(+m.y).toFixed(4), +(+m.w).toFixed(4),
-                    Math.trunc(+m.layer) || 0].join("|");   // undefined 와 0 은 같다(기본)
+                    Math.trunc(+m.layer) || 0,              // undefined 와 0 은 같다(기본)
+                    Math.round(+m.rotate) || 0].join("|");
   const a = (edForm.images || []).filter(m => !m.del).map(sig);
   const b = (edForm.images0 || []).map(sig);
   return a.length !== b.length || a.some((v, i) => v !== b[i]);
@@ -2135,7 +2144,9 @@ function edCollect(forDraft){
   if (!clipsDirty || edV3()){
     // 줄 스타일 비교는 키 순서 무관 정규화로 — JSON 직렬화 순서가 다르면(서버 타임라인
     // vs 초안 재조립) 값이 같아도 영구 dirty 가 된다.
-    const edStyleSig = st => !st ? "" : [st.size ?? "", st.y ?? "", st.color ?? ""].join("|");
+    const edStyleSig = st => !st ? ""
+      : [st.size ?? "", st.y ?? "", st.color ?? "",
+         Math.round(+st.rotate) || ""].join("|");   // 0 과 없음은 같다(기본)
     const dirty = edForm.dSubs.length !== edForm.subs.length
       || edForm.dSubs.some((s, i) => s.del || s.text !== edForm.subs[i].text
                                   || Math.abs(s.start - edForm.subs[i].start) > 0.001
@@ -2148,7 +2159,7 @@ function edCollect(forDraft){
                     if (forDraft && s.del) o.del = true;
                     if (edV3() && s.src != null)
                       o.source_time_sec = +Number(s.src).toFixed(3);
-                    // 줄 스타일(F-407) — 아는 키만 정제해 싣는다(v3 계약: size·y·color).
+                    // 줄 스타일(F-407·F-410) — 아는 키만 정제해 싣는다(v3 계약).
                     // 플래그 게이트를 안 건다: 전량 교체 규약이라 여기서 빼면 스타일이
                     // 이미 있는 카드의 재제출이 스타일을 조용히 벗긴다. 새 편집만 UI 게이트.
                     if (s.style){
@@ -2156,6 +2167,10 @@ function edCollect(forDraft){
                       if (s.style.size != null) st.size = Math.round(+s.style.size);
                       if (s.style.y != null) st.y = +(+s.style.y).toFixed(4);
                       if (s.style.color) st.color = String(s.style.color);
+                      // rotate: 있는 값은 그대로 통과(0 은 뺀다 — 기본값) — 새 생성은
+                      // UI 게이트(edRotOn). 구 엔진엔 fail-loud 라 조용한 오render 없음
+                      if (s.style.rotate != null && Math.round(+s.style.rotate))
+                        st.rotate = Math.max(-180, Math.min(180, Math.round(+s.style.rotate)));
                       if (Object.keys(st).length) o.style = st;
                     }
                     return o; })
@@ -2183,6 +2198,8 @@ function edCollect(forDraft){
                     x: +Number(m.x).toFixed(4), y: +Number(m.y).toFixed(4),
                     w: +Number(m.w).toFixed(4) };
         if (m.layer != null && m.layer !== "") o.layer = Math.trunc(+m.layer) || 0;
+        if (m.rotate != null && Math.round(+m.rotate))
+          o.rotate = Math.max(-180, Math.min(180, Math.round(+m.rotate)));
         if (forDraft){ o.name = m.name || ""; if (m.del) o.del = true; }
         return o;
       });
@@ -2772,6 +2789,9 @@ function renderEdit(){
           </span>
           <button class="mini" onclick="edOvSize(-4)" title="선택 대상 축소">A−</button>
           <button class="mini" onclick="edOvSize(4)" title="선택 대상 확대">A＋</button>
+          ${edRotOn() ? `<button class="mini" onclick="edOvRotate(-5)"
+            title="자막 줄 회전 −5° (이미지는 이미지의 ↻ 핸들로)">↺</button>
+          <button class="mini" onclick="edOvRotate(5)" title="자막 줄 회전 +5°">↻</button>` : ""}
           <input type="color" id="edsubcolor" value="#ffffff"
             onclick="edSubColorArm()" onchange="edOvColor(this.value)"
             title="선택 대상 색">
@@ -3993,6 +4013,8 @@ function edStagePaint(outT){
     const yv = Math.max(0.05, Math.min(0.98, sty.y != null ? +sty.y : edSubYDef(d)));
     se.style.bottom = ((1 - yv) * 100) + "%";
     se.textContent = sub ? sub.text : "";
+    se.style.transform = (sub && sub.style && Math.round(+sub.style.rotate))
+      ? `rotate(${Math.round(+sub.style.rotate)}deg)` : "";
     se.classList.toggle("editable", editing && !!sub);
     se.title = editing && sub ? `${si + 1}번 자막 — 끌어서 위치 이동` : "";
   }
@@ -4041,6 +4063,8 @@ function edStagePaint(outT){
           title="${editing ? "끌어서 위치 이동 · 모서리 ◢ 로 크기" : ""}">
           <img draggable="false" alt="">
           ${editing ? `<i class="rz" onmousedown="edImgResizeDown(event,${mi})"></i>` : ""}
+          ${editing && edRotOn() ? `<i class="rt" onmousedown="edImgRotateDown(event,${mi})"
+            ondblclick="edImgRotateReset(${mi})" title="끌어서 회전 · 더블클릭 = 0°">↻</i>` : ""}
         </div>`).join("");
       vis.forEach(([mi, m]) => edImgSrcSet(mi, m));   // 서명 URL 은 비동기 주입
     }
@@ -4051,6 +4075,9 @@ function edStagePaint(outT){
       el.style.width = (Math.max(0.02, Math.min(1, +m.w || 0.3)) * 100) + "%";
       // 엔진 layer 규약 미리보기: ≥1 자막 위(z 5) · ≤0 자막 아래(z 1 — 텍스트는 z 3)
       el.style.zIndex = (Math.trunc(+m.layer) || 0) >= 1 ? 5 : 1;
+      // 회전(F-410) — 원점=이미지 중심(엔진 계약과 동일, CSS 기본값)
+      el.style.transform = (Math.round(+m.rotate) || 0)
+        ? `rotate(${Math.round(+m.rotate)}deg)` : "";
     });
   }
   const tools = document.getElementById("edsubtools");
@@ -4111,6 +4138,25 @@ window.edOvColor = v => {
   const el = document.getElementById("edd_" + key);
   if (el) el.value = edForm.design[key];
   edStagePaint(edStageT); edMark();
+};
+// 자막 줄 회전(F-410) — 계약상 회전은 자막 줄과 이미지뿐(제목·TTS 는 불가)
+window.edOvRotate = dd => {
+  if (!edCanEdit() || !edRotOn()) return;
+  if (edOvSel !== "sub"){
+    toast("회전은 자막 줄과 이미지만 됩니다(엔진 계약 — 제목·TTS 는 불가)", true); return;
+  }
+  const i = edStageCur;
+  if (i < 0){ toast("자막이 화면에 떠 있는 순간에 조절할 수 있습니다", true); return; }
+  edSnap("subrot" + i);
+  const s = edForm.dSubs[i];
+  const nv = Math.max(-180, Math.min(180,
+    ((s.style && Math.round(+s.style.rotate)) || 0) + dd));
+  if (nv === 0 && s.style){
+    // 0 = 기본값 — {rotate:0} 을 남기면 style 없던 줄이 sig 불일치로 영구 dirty(리뷰 F1)
+    const st = { ...s.style }; delete st.rotate;
+    s.style = Object.keys(st).length ? st : undefined;
+    edStagePaint(edStageT); edMark();
+  } else edSubStylePatch(i, { rotate: nv });
 };
 window.edOvReset = () => {
   if (!edCanEdit()) return;
@@ -4260,6 +4306,30 @@ window.edImgDragDown = (ev, mi) => {
     document.removeEventListener("mouseup", up); edMark(); };
   document.addEventListener("mousemove", move);
   document.addEventListener("mouseup", up);
+};
+// 회전(F-410) — ↻ 핸들 가로 드래그 = 1px 당 1°, 시계방향 양수(엔진 계약과 동일 방향)
+window.edImgRotateDown = (ev, mi) => {
+  ev.stopPropagation();   // 가드 탈락(플래그 꺼짐 등)이어도 몸통 드래그로 새면 안 된다
+  if (ev.button !== 0 || !edStyleTool || !edCanEdit() || !edRotOn()) return;
+  const m = edForm.images[mi]; if (!m) return;
+  ev.preventDefault();
+  const r0 = Math.round(+m.rotate) || 0, cx = ev.clientX;
+  edSnap("imgrot" + mi);
+  const move = e => {
+    if (!e.buttons){ up(); return; }
+    m.rotate = Math.max(-180, Math.min(180, r0 + Math.round(e.clientX - cx)));
+    edStagePaint(edStageT);
+  };
+  const up = () => { document.removeEventListener("mousemove", move);
+    document.removeEventListener("mouseup", up); edMark(); };
+  document.addEventListener("mousemove", move);
+  document.addEventListener("mouseup", up);
+};
+window.edImgRotateReset = mi => {
+  const m = edForm.images[mi]; if (!m || !edCanEdit()) return;
+  edSnap();
+  m.rotate = 0;
+  edStagePaint(edStageT); edMark();
 };
 window.edImgResizeDown = (ev, mi) => {
   if (ev.button !== 0 || !edStyleTool || !edCanEdit()) return;

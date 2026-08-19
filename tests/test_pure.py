@@ -2492,6 +2492,28 @@ def test_aivideo_localize_edit_images(tmp_path):
     assert aivideo.localize_edit_images(same, tmp_path, gone) is same
 
 
+def test_0058_rotate_contract():
+    """F-410 오케스트레이터 파트: 0058 이 images[].rotate 를 제출에서 검증(-180~180,
+    숫자)하고, 화면은 editor_rotate 플래그 뒤에서만 회전을 만든다 — dc1060f 엔진은
+    images 의 모르는 키를 조용히 무시하므로(회전 없이 나감) 전 노드 69e5c06 이 선행."""
+    import pathlib
+    sql = _live_mig("CREATE OR REPLACE FUNCTION public.submit_editor_render")
+    assert "images[].rotate 는 -180~180 도(숫자)여야 합니다" in sql
+    # 0057 계약 보존(전문 재정의 회귀 방지 — 빈 배열 규약·file 거절·prefix)
+    assert "빈 배열 = 이미지 전부 삭제" in sql
+    assert "images[].file 은 어댑터가 만드는 값입니다" in sql
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert "edRotOn" in html and "editor_rotate" in html            # 플래그 게이트
+    assert "edImgRotateDown" in html and "edImgRotateReset" in html # 이미지 ↻ 핸들
+    assert "edOvRotate" in html                                     # 자막 줄 ↺↻
+    # 수집: 이미지 rotate 클램프, 자막 style.rotate 정제(0 은 기본값이라 뺀다)
+    assert "o.rotate = Math.max(-180, Math.min(180, Math.round(+m.rotate)))" in html
+    assert "st.rotate = Math.max(-180, Math.min(180, Math.round(+s.style.rotate)))" in html
+    # 미리보기 원점 = 중심(엔진 계약과 동일 — CSS 기본값), 회전 0 은 transform 제거
+    assert 'rotate(${Math.round(+m.rotate)}deg)' in html
+    assert 'rotate(${Math.round(+sub.style.rotate)}deg)' in html
+
+
 def test_dashboard_editor_jp_mode():
     """JP-1: localization_qa 카드(SHOTCONE·잔망루피)의 편집실 — 서버·엔진 무변경.
     카드 payload(ko_ja_pairs)가 재료, 계약은 0038 reject_and_rerender 텍스트 치환
