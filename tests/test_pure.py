@@ -2088,11 +2088,11 @@ def test_edit_overrides_require_resume_run():
 def test_0054_v3_stamp_and_anchor_carryover():
     """0054(F-401·F-407): 스탬프는 병합 결과 기준 내용 기반 3단 — 자막에 앵커
     (source_time_sec)나 style 이 있으면 v3. 승계 예외 정교화: 구간이 바뀌어도 앵커
-    있는 승계 자막은 살아남는다(원본 좌표). images 는 엔진 렌더 미구현이라 조기 거절.
+    있는 승계 자막은 살아남는다(원본 좌표). images 조기 거절은 0057 이 개방(별도 테스트).
     전환은 ops_config 'editor_v3' 플래그 — 화면이 안 보내는 동안 v1/v2 유지(안전)."""
     sql = _live_mig("CREATE OR REPLACE FUNCTION public.submit_editor_render")
     assert "source_time_sec' OR s ? 'style'" in sql          # 내용 기반 v3 판정
-    assert "이미지 오버레이는 아직 렌더 미구현" in sql        # images 조기 거절(엔진 게이트 짝)
+    assert "이미지 오버레이는 아직 렌더 미구현" not in sql    # 0057 개방 — 조기 거절 소멸
     assert "WHERE s ? 'source_time_sec'" in sql              # 앵커 자막만 승계 생존
     # 0053 승계·0050 F-302 계약 유지(전문 재정의라 빠뜨리기 쉽다)
     assert "v_prev || p_overrides" in sql
@@ -2404,6 +2404,30 @@ def test_dashboard_editor_shorts_stage():
     assert "edStageBtnsSync" in html                            # 모드 전환 무렌더 갱신
 
 
+def test_0057_images_open_contract():
+    """0057(F-408 완성): images 개방 — 검증(배열·객체·file 거절·key prefix·png/jpg·
+    범위) + 빈 배열=전량 삭제(병합 후 키 제거) + 편집 항목 목록 포함 + prev_images
+    노출 + 0056 정책 webp 제거. 어댑터엔 F-409 title_y_fixed 스위치."""
+    import pathlib
+    sql = _live_mig("CREATE OR REPLACE FUNCTION public.submit_editor_render")
+    assert "빈 배열 = 이미지 전부 삭제" in sql
+    assert "images[].file 은 어댑터가 만드는 값입니다" in sql      # PR #28 M2 서버측 방어
+    assert "NOT LIKE 'editor_uploads/%'" in sql                    # 0056 prefix 정합
+    assert r"\.(png|jpe?g)$" in sql                                # 엔진 dc1060f 실측
+    assert "v_ov := v_ov - 'images'" in sql                        # 빈 배열 → 병합 후 제거
+    assert "편집 항목(title/subtitles/clips/design/tts/images)" in sql
+    assert "'images', jsonb_array_length" in sql                   # audit 건수
+    req = _live_mig("CREATE OR REPLACE FUNCTION public.request_editor_assets")
+    assert req.count("'prev_images', v_gen.prev_images") == 2      # 캐시·신규 두 반환 모두
+    assert "j.params->'edit_overrides'->'images'" in req
+    mig = pathlib.Path("ves/control/migrations/0057_editor_images_open.sql") \
+        .read_text(encoding="utf-8")
+    assert r"\.(png|jpg|jpeg)$" in mig and "webp" not in \
+        mig.split("ves_reviewer_upload_editor_images ON storage.objects")[-1]
+    from ves.adapters import aivideo
+    assert aivideo.CHANNEL_DESIGN_SWITCHES["title_y_fixed"] == ("--design-title-y-fixed", True)
+
+
 def test_editor_image_upload_policy_0056():
     """F-408 파트 1: 브라우저→스토리지 쓰기 표면 최초 신설 — reviewer 이상,
     ves-outputs 의 editor_uploads/ prefix, 이미지 확장자만. INSERT 뿐(불변 업로드)."""
@@ -2478,11 +2502,17 @@ def test_dashboard_editor_images_wired():
     assert 'id="edovimgs"' in html and "edImgDragDown" in html   # 스테이지 배치
     assert "edImgResizeDown" in html                             # 모서리 크기
     # 수집: 제출은 key 만(어댑터가 file 로 치환), name·del 은 초안 전용.
-    # 초안은 플래그와 무관(자동 저장이 이미지를 지우면 안 된다) · 제출의 빈 배열 =
-    # 전량 삭제(키 생략 = 라운드 승계가 이전 이미지를 되살린다)
-    assert "if ((edImagesOn() || forDraft) && (edForm.images || []).length){" in html
+    # 초안은 플래그와 무관(자동 저장이 이미지를 지우면 안 된다) · 달라졌을 때만 싣고
+    # (그대로면 키 생략 = 승계) · 전량 삭제는 빈 배열(0057 규약)
+    assert "if ((edImagesOn() || forDraft) && edImagesChanged()){" in html
     assert "key: m.key, source_time_sec:" in html
     assert 'o.name = m.name || ""' in html
+    # 이전 라운드 이미지 시드(0057 prev_images) — 보여야 지울 수 있다
+    assert "edPrevImages" in html and "prev_images" in html
+    assert "images0: imgs0" in html
+    # webp 는 업로드부터 막는다(엔진 png/jpg 만) · 자막 위/아래 layer 토글
+    assert 'accept="image/png,image/jpeg"' in html and "image/webp" not in html
+    assert "edImgLayer" in html
     # 스냅샷(undo)·초안 복원에 images 포함
     assert "images: edForm.images || []" in html
     assert "if (Array.isArray(d.images))" in html
@@ -2496,6 +2526,9 @@ def test_dashboard_editor_sub_style_wysiwyg():
     assert "edSubDragDown" in html and "edStyleToolToggle" in html  # 드래그 + ✎ 토글
     assert "edSubSize" in html and "edSubColor" in html             # 크기·색
     assert "edSubStyleReset" in html                                # 채널 기본값 복귀
+    # F-409(엔진 dc1060f): 제목 드래그 = title_y + title_y_fixed(고정 배치 전환)
+    assert "edTitleDragDown" in html and "title_y_fixed: true" in html
+    assert "edTitleAutoY" in html                                   # 자동 배치 복귀
     # v3 계약: style.y 는 0=상단, 1=하단(자막 하단 위치) — 화면은 bottom 이라 (1−y).
     # 기본값은 채널 subtitle_y_margin 역산. (첫 판의 '하단 비율' 해석은 상하 반전 버그)
     assert "edSubYDef" in html

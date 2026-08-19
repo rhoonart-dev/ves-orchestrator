@@ -304,13 +304,16 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
                     justify-content:center;text-align:center;padding:16px;
                     color:#ffffff99;font-size:12px;line-height:1.6;pointer-events:none}
   .edov{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+  /* 텍스트 오버레이 z=3 — 이미지 layer 미리보기(아래 1 / 위 5)의 기준면 */
+  .edovtitle,.edovsub,.edovtts{z-index:3}
   .edovtitle{position:absolute;left:0;right:0;text-align:center;font-weight:900;
              line-height:1.15;text-shadow:0 2px 6px #000c,0 0 2px #000}
   .edovsub{position:absolute;left:4%;right:4%;bottom:13%;text-align:center;font-weight:800;
            text-shadow:0 2px 5px #000c,0 0 2px #000}
-  .edovsub.editable,.edovtts.editable{pointer-events:auto;cursor:grab;
+  .edovsub.editable,.edovtts.editable,.edovtitle.editable{pointer-events:auto;cursor:grab;
                     outline:1.5px dashed #ffffff88;border-radius:4px}
-  .edovsub.editable:active,.edovtts.editable:active{cursor:grabbing;outline-color:var(--warn)}
+  .edovsub.editable:active,.edovtts.editable:active,
+  .edovtitle.editable:active{cursor:grabbing;outline-color:var(--warn)}
   .edovtts{position:absolute;left:4%;right:4%;bottom:25%;text-align:center;font-weight:800;
            color:#87CEEB;text-shadow:0 2px 5px #000c,0 0 2px #000}
   .edovnote{position:absolute;right:6px;top:4px;max-width:60%;text-align:right;
@@ -1855,6 +1858,7 @@ let edStageMode = "prev", edSeq = null, edPrevKey = null, edPrevBucket = null, e
 let edStyleTool = false, edStageCur = -1, edStageT = 0;   // WYSIWYG: 화면에 떠 있는 자막 줄
 let edPrevWarned = false;      // 만료 preview 경고는 카드당 1회 — 렌더마다 토스트 금지
 let edSubColorFor = -1;        // 컬러 피커가 열린 순간의 줄 — 재생이 흘러도 그 줄에 적용
+let edPrevImages = [];         // 이전 라운드 이미지(0057 prev_images) — 시드 원본
 
 function edResetForm(){
   const tl = (edData && edData.timeline) || {};
@@ -1876,6 +1880,13 @@ function edResetForm(){
     key: c.key || null,               // 합성 mp3(F-204 미리듣기) — 구 재료엔 없다
     del: false, isNew: false,
   }));
+  // 이미지(F-408) — 타임라인이 아니라 이전 라운드 오버라이드(prev_images)가 정본.
+  // 화면에 보여야 '지우기'가 성립한다(키 생략 = 승계 규약, 0057 머리말).
+  const imgs0 = (edPrevImages || []).map(m => ({
+    key: String(m.key || ""), name: String(m.key || "").split("/").pop(),
+    src: Number(m.source_time_sec) || 0, dur: Number(m.duration_sec) || 3,
+    x: Number(m.x) || 0, y: Number(m.y) || 0, w: Number(m.w) || 0.3,
+    layer: m.layer, del: false })).filter(m => m.key);
   // d* = 사람이 지금 만지고 있는 값. 원본과 따로 들고 있어야 화면이 다시 그려져도
   // (탭 전환·재조회) 고치던 것이 날아가지 않는다. clips 는 편집 자체가 순서·개수를
   // 바꾸므로 원본 스냅샷(clips0)과 비교해 '고쳤는지'를 판정한다.
@@ -1884,7 +1895,7 @@ function edResetForm(){
              dSubs: subs.map(s => ({ ...s })),
              clips0: clips.map(c => ({ ...c })), clips,
              tts0: tts.map(t => ({ ...t })), tts,
-             images: [],                  // F-408 — 타임라인엔 없다(항상 이 세션의 추가분)
+             images: imgs0.map(m => ({ ...m })), images0: imgs0,
              design: {}, in: null, out: null };
   edSel = -1; edTtsSel = -1;
   edUndo = []; edRedo = []; edSnapTag = "";
@@ -1982,6 +1993,17 @@ function edSubOrphans(){
     if (!edForm.clips.some(c => !c.del && s.src >= c.start - 0.5 && s.src <= c.end + 0.5))
       out.push(i); });
   return out;
+}
+
+// 이미지가 이전 라운드(images0)와 달라졌는가 — 안 달라졌으면 키를 생략해 승계에
+// 맡긴다(불필요한 전량 교체 방지). 전량 삭제는 빈 배열로 표현된다(0057 규약).
+function edImagesChanged(){
+  const sig = m => [m.key, +(+m.src).toFixed(3), +(+m.dur).toFixed(3),
+                    +(+m.x).toFixed(4), +(+m.y).toFixed(4), +(+m.w).toFixed(4),
+                    Math.trunc(+m.layer) || 0].join("|");   // undefined 와 0 은 같다(기본)
+  const a = (edForm.images || []).filter(m => !m.del).map(sig);
+  const b = (edForm.images0 || []).map(sig);
+  return a.length !== b.length || a.some((v, i) => v !== b[i]);
 }
 
 // 구간이 원본과 달라졌는가 — 개수·순서·시각·역할·삭제 중 하나라도 다르면 참.
@@ -2126,10 +2148,11 @@ function edCollect(forDraft){
   // 치환, 엔진 계약의 file 은 거기서 생긴다). name·del 은 화면 상태라 초안에만.
   // 초안(forDraft)은 플래그와 무관하게 싣는다 — 플래그가 꺼진 새로고침 한 번에 자동
   // 저장이 이미지 없는 초안을 덮어쓰면 업로드 기록이 소리 없이 사라진다.
-  // 제출의 빈 배열 = 전량 삭제(tts 규약과 동일) — 키를 생략하면 라운드 승계(0053)가
-  // 이전 이미지를 되살려 삭제가 영영 불가능해진다.
-  if ((edImagesOn() || forDraft) && (edForm.images || []).length){
-    const rows = forDraft ? edForm.images : edForm.images.filter(m => !m.del);
+  // 달라졌을 때만 싣는다(이전 라운드 그대로면 키 생략 = 승계) — 전량 삭제는 빈 배열
+  // (0057 규약. 키 생략이면 승계가 이전 이미지를 되살려 삭제가 영영 불가능해진다).
+  if ((edImagesOn() || forDraft) && edImagesChanged()){
+    const rows = forDraft ? (edForm.images || [])
+                          : (edForm.images || []).filter(m => !m.del);
     ov.images = rows.map(m => {
         const o = { key: m.key, source_time_sec: +Number(m.src).toFixed(3),
                     duration_sec: +Number(m.dur).toFixed(3),
@@ -2140,7 +2163,12 @@ function edCollect(forDraft){
         return o;
       });
   }
-  if (edForm.design && Object.keys(edForm.design).length) ov.design = { ...edForm.design };
+  if (edForm.design && Object.keys(edForm.design).length){
+    ov.design = { ...edForm.design };
+    // 이중 안전(H2): 플래그 전엔 신 키를 절대 내보내지 않는다 — 구 어댑터 즉사 방지
+    if (!edImagesOn()) delete ov.design.title_y_fixed;
+    if (!Object.keys(ov.design).length) delete ov.design;
+  }
   return ov;
 }
 
@@ -2235,6 +2263,10 @@ window.edSubmit = async () => {
   if (ov.tts && !ov.tts.length
       && !window.confirm("내레이션을 전부 삭제한 채 다시 렌더합니다 — 음성도 하늘색 자막도 모두 빠집니다. 계속할까요?"))
     return;
+  // 이미지도 같은 규약(빈 배열 = 전부 삭제, 0057) — 같은 급의 확인
+  if (ov.images && !ov.images.length
+      && !window.confirm("이미지를 전부 삭제한 채 다시 렌더합니다. 계속할까요?"))
+    return;
   if (ov.clips){
     // 필드명은 오버라이드 계약 그대로(start_sec/end_sec) — 종전 c.end/c.start 는
     // undefined 비교·NaN 합계라 이 두 검증이 한 번도 동작한 적이 없었다.
@@ -2272,6 +2304,7 @@ window.edSubmit = async () => {
 
 window.openEditor = async (rid) => {
   edRid = rid; edData = null; edForm = null; tab = "edit";
+  edPrevImages = [];
   edZoom = 1; edTlScroll = 0; edKbHelp = false;
   edStageMode = "prev"; edSeq = null; edPrevKey = null; edPrevBucket = null; edPrevT = 0;
   edStyleTool = false; edStageCur = -1; edStageT = 0;
@@ -2283,6 +2316,9 @@ window.openEditor = async (rid) => {
   try {
     const r = await sb.rpc("request_editor_assets", { p_review_id: rid });
     if (r.error) throw r.error;
+    // 이전 라운드 이미지(0057) — 이 run 의 최신 generate 오버라이드. 화면에 보여야
+    // '지우기'가 성립한다(키 생략 = 승계라, 안 보이면 영영 못 지운다).
+    edPrevImages = Array.isArray((r.data || {}).prev_images) ? r.data.prev_images : [];
     edLoadAssets((r.data || {}).run_id);
   } catch (e){
     edData = { error: e.message || String(e) }; render();
@@ -2461,7 +2497,7 @@ function renderEdit(){
           <video id="edvid" playsinline preload="metadata" controls></video>
           <div class="edov" id="edov">
             <div class="edovimgs" id="edovimgs"></div>
-            <div class="edovtitle" id="edovtitle"></div>
+            <div class="edovtitle" id="edovtitle" onmousedown="edTitleDragDown(event)"></div>
             <div class="edovtts" id="edovtts" onmousedown="edTtsDragDown(event)"></div>
             <div class="edovsub" id="edovsub" onmousedown="edSubDragDown(event)"></div>
             <div class="edovnote" id="edovnote" style="display:none">근사 미리보기 — 글꼴·배치·색이
@@ -2822,6 +2858,10 @@ function edPaneImgs(canEdit){
       <span class="sub" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;
         white-space:nowrap">${esc(m.name || m.key.split("/").pop())}</span>
       <span class="sub">폭 ${Math.round((+m.w || 0) * 100)}%</span>
+      <label class="sub" onclick="event.stopPropagation()"
+        title="켜면 자막 위에 그려집니다(layer 1) — 끄면 자막 아래(기본)"><input
+        type="checkbox" ${(+m.layer || 0) >= 1 ? "checked" : ""}
+        onchange="edImgLayer(${i},this.checked)" ${canEdit && !m.del ? "" : "disabled"}>자막 위</label>
       ${orphan(m) && !m.del ? `<span title="원본 장면이 지금 구간 목록에 없습니다 —
         그대로 두면 렌더에서 빠집니다(내레이션 고아와 같은 규칙)">⚠</span>` : ""}
       ${m.del
@@ -2834,9 +2874,9 @@ function edPaneImgs(canEdit){
       화면에서 <b>✎ 를 켜고</b> 끌어 조절하세요(모서리 ◢ = 크기).</div>
     <div class="edrows">${rows || '<div class="sub">이미지 없음</div>'}</div>
     ${canEdit ? `<div class="edaddrow">
-      <input type="file" accept="image/png,image/jpeg,image/webp"
+      <input type="file" accept="image/png,image/jpeg"
         onchange="edImgUpload(this)">
-      <span class="sub">png·jpg·webp · 5MB 이하 — 현재 커서(${edFmt(edCursor)}) 순간에
+      <span class="sub">png·jpg · 5MB 이하 — 현재 커서(${edFmt(edCursor)}) 순간에
         3초로 추가됩니다</span>
     </div>` : ""}`;
 }
@@ -2844,10 +2884,10 @@ function edPaneImgs(canEdit){
 // ── 우측 패널: 스타일 ──────────────────────────────────────────────────
 // 채널 디자인 위에 이 한 편만 얹는다(빈 칸 = 채널 값 그대로).
 const ED_STYLE_FIELDS = [
-  // ⚠ 제목 크기·위치는 엔진이 아직 안 받는다(실측 2026-08-19: 그리기는 title_sizes
-  // 고정, 위치는 영상 위 동적 배치) — 엔진 개선(E2 부록) 전까지 보내도 변화 없음.
-  ["title_size",       "제목 크기 (엔진 미적용)", "예: 96"],
-  ["title_y",          "제목 세로 (엔진 미적용)", "위에서부터 px"],
+  // 제목 크기·위치 — 엔진 dc1060f(F-409)부터 실효: 크기는 1줄 기준(줄 간 위계 유지
+  // 스케일), 위치는 화면에서 제목을 끌면 고정 배치(title_y_fixed)로 함께 나간다.
+  ["title_size",       "제목 크기(1줄 기준)", "예: 70"],
+  ["title_y",          "제목 세로(위에서 px)", "화면에서 끌면 채워집니다"],
   ["title_color",      "제목 색(1줄)",   "#FFFFFF"],
   ["title_color2",     "제목 색(2줄)",   "#FFE400"],
   ["subtitle_size",    "자막 크기",     "예: 65"],
@@ -2867,6 +2907,10 @@ function edPaneStyle(canEdit){
       <div class="edrow3"><label>${esc(l)}</label>
         <input id="edd_${k}" placeholder="${esc(base[k] != null ? "채널: " + base[k] : ph)}"
           ${canEdit?"":"disabled"} oninput="edStyleSet('${k}',this.value)"></div>`).join("")}</div>
+    ${edDesign().title_y_fixed ? `<div class="sub" style="margin-top:6px">
+      제목이 <b>고정 위치 모드</b>입니다(화면 드래그).
+      <button class="mini" onclick="edTitleAutoY()"
+        title="title_y·title_y_fixed 를 지우고 엔진 자동 배치(영상 위)로">자동 배치로 되돌리기</button></div>` : ""}
     <div class="sub" style="margin-top:8px">자막 줄별 위치·크기·색은 왼쪽 쇼츠 화면의
       ✎ 로 — 여기 값은 이 편 전체 기본값입니다. TTS 세로는 ✎ 드래그와 같은 값
       (하단 px)이고 모든 내레이션에 함께 적용됩니다.</div>`;
@@ -3212,6 +3256,13 @@ window.edStyleSet = (k, v) => {
   // 0.8초 묶음이 깨지고 글자 단위 undo 가 된다(리뷰 실측).
   edForm.design = edForm.design || {};
   if (String(v).trim()) edForm.design[k] = String(v).trim(); else delete edForm.design[k];
+  // 제목 세로는 고정 배치 스위치와 한 몸(F-409) — 값을 적으면 고정 의도, 지우면 해제.
+  // 스위치 없이 title_y 만 나가면 렌더는 자동 배치라 미리보기와 결과가 갈라진다.
+  if (k === "title_y" && edImagesOn()){   // 게이트: 구 어댑터는 title_y_fixed 를 모른다
+    if (String(v).trim()) edForm.design.title_y_fixed = true;
+    else if (edBaseDesign().title_y_fixed) edForm.design.title_y_fixed = false;
+    else delete edForm.design.title_y_fixed;
+  }
   edMark();
 };
 
@@ -3608,22 +3659,31 @@ function edDesign(){
 // MarginV = (1−y)×1920. 화면 CSS 는 bottom 기준이라 (1−y) 로 그린다. 기본값은 채널
 // subtitle_y_margin(하단 px)의 역산 근사 — 정본은 엔진 프리셋.
 const edSubYDef = d => 1 - ((+d.subtitle_y_margin || 380) / 1920);
+// 제목 y — 0(맨 위)이 유효값이라 || 폴백을 쓰면 안 된다(놓는 순간 120 으로 점프)
+const edTitleYv = d => (d.title_y != null && String(d.title_y) !== "" ? +d.title_y : 120);
 function edStagePaint(outT){
   const st = document.getElementById("edstage"); if (!st || !edForm) return;
   edStageT = Number(outT) || 0;
   const seqMode = edStageMode === "seq";
   const H = st.clientHeight || 480, sc = H / 1920, d = edDesign();
+  const editing = edV3() && edStyleTool && edCanEdit();
   const tt = document.getElementById("edovtitle");
   if (tt){
-    tt.style.display = seqMode ? "" : "none";
-    if (seqMode){
+    tt.style.display = (seqMode || editing) ? "" : "none";
+    if (seqMode || editing){
       tt.style.fontSize = ((+d.title_size || 96) * sc) + "px";
-      tt.style.top = ((+d.title_y || 150) * sc) + "px";
+      tt.style.top = (edTitleYv(d) * sc) + "px";
       // 제목은 틱마다 안 바뀐다 — innerHTML 재생성은 내용이 달라졌을 때만(깜빡임 방지)
       const th = String(edForm.dTitle || "").split("\n").map((l, i) =>
         `<div style="color:${esc(i === 0 ? (d.title_color || "#FFFFFF")
                                          : (d.title_color2 || "#FFE400"))}">${esc(l)}</div>`).join("");
       if (tt.dataset.h !== th){ tt.dataset.h = th; tt.innerHTML = th; }
+      // F-409(dc1060f): 끌면 고정 배치(title_y_fixed) — 안 끌면 엔진 자동 배치(영상 위).
+      // edImagesOn 게이트 = 0057·신 어댑터 배포 표식(H2)
+      tt.classList.toggle("editable", editing && edImagesOn());
+      tt.title = !(editing && edImagesOn()) ? "" : (d.title_y_fixed
+        ? "제목 — 끌어서 위치(고정 배치 모드 · 스타일 탭에서 자동 배치로 복귀)"
+        : "제목 — 끌면 자동 배치 대신 고정 위치가 됩니다(여기 표시는 근사 — 실제 자동 위치는 영상 바로 위)");
     }
   }
   // 지금 순간의 자막 줄 — seq 는 재매핑된 출력 시각(edOutPos), prev 는 종전 렌더의
@@ -3644,7 +3704,6 @@ function edStagePaint(outT){
     sub = s; si = i; return true;
   });
   edStageCur = si;
-  const editing = edV3() && edStyleTool && edCanEdit();
   const se = document.getElementById("edovsub");
   if (se){
     const sty = (sub && sub.style) || {};
@@ -3710,6 +3769,8 @@ function edStagePaint(outT){
       el.style.left = (Math.max(0, Math.min(1, +m.x || 0)) * 100) + "%";
       el.style.top = (Math.max(0, Math.min(1, +m.y || 0)) * 100) + "%";
       el.style.width = (Math.max(0.02, Math.min(1, +m.w || 0.3)) * 100) + "%";
+      // 엔진 layer 규약 미리보기: ≥1 자막 위(z 5) · ≤0 자막 아래(z 1 — 텍스트는 z 3)
+      el.style.zIndex = (Math.trunc(+m.layer) || 0) >= 1 ? 5 : 1;
     });
   }
   const tools = document.getElementById("edsubtools");
@@ -3809,8 +3870,9 @@ window.edImgUpload = async inp => {
   if (!f || !edForm) return;
   if (!edCanEdit()){ toast("이 카드는 지금 고칠 수 없습니다", true); return; }
   if (!edData || !edData.run_id){ toast("재료가 아직 없습니다 — 잠시 후 다시", true); return; }
-  const ext = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp" }[f.type];
-  if (!ext){ toast("png·jpg·webp 만 올릴 수 있습니다", true); return; }
+  // webp 제외 — 엔진(dc1060f)이 png/jpg 만 렌더한다(0057 정책·제출 검증과 3중 일치)
+  const ext = { "image/png": "png", "image/jpeg": "jpg" }[f.type];
+  if (!ext){ toast("png·jpg 만 올릴 수 있습니다(엔진 렌더 제약)", true); return; }
   if (f.size > 5 * 1024 * 1024){ toast("이미지는 5MB 이하만 — 업로드 정책(0056)", true); return; }
   const key = `editor_uploads/${edData.run_id}/${crypto.randomUUID()}.${ext}`;
   toast("이미지 업로드 중…");
@@ -3836,6 +3898,12 @@ window.edImgDur = (i, v) => {
   edSnap();
   m.dur = Math.max(0.3, Math.min(60, Number(v) || 3));
   render();
+};
+window.edImgLayer = (i, on) => {
+  const m = edForm.images[i]; if (!m) return;
+  edSnap();
+  m.layer = on ? 1 : 0;      // 엔진: ≤0 자막 아래(기본) · ≥1 자막 위
+  edMark();
 };
 window.edImgDragDown = (ev, mi) => {
   if (ev.button !== 0 || !edStyleTool || !edCanEdit()) return;
@@ -3873,6 +3941,50 @@ window.edImgResizeDown = (ev, mi) => {
     document.removeEventListener("mouseup", up); edMark(); };
   document.addEventListener("mousemove", move);
   document.addEventListener("mouseup", up);
+};
+
+// 제목 위치(F-409, 엔진 dc1060f) — 끌면 design.title_y(위에서 px) + title_y_fixed 가
+// 켜져 엔진의 자동 배치(영상 위) 대신 고정 위치로 그린다. 크기는 스타일 탭 title_size
+// (1줄 기준 — 엔진이 줄 간 위계를 유지하며 스케일).
+window.edTitleDragDown = ev => {
+  // edImagesOn 게이트(H2): title_y_fixed 는 0057 이후 어댑터만 안다 — 플래그 전에
+  // 보내면 구 어댑터가 모르는 design 키로 즉시 실패한다(대시보드는 머지 즉시 배포).
+  if (ev.button !== 0 || !edStyleTool || !edCanEdit() || !edImagesOn()) return;
+  const st = document.getElementById("edstage"), tt = document.getElementById("edovtitle");
+  if (!st || !tt || !edForm) return;
+  ev.preventDefault(); ev.stopPropagation();
+  const H = st.clientHeight || 480;
+  const y0 = Math.max(0, Math.min(0.85, edTitleYv(edDesign()) / 1920));
+  const cy = ev.clientY;
+  edSnap("titledrag");
+  const move = e => {
+    if (!e.buttons){ up(); return; }
+    const ny = Math.max(0, Math.min(0.85, y0 + (e.clientY - cy) / H));
+    edForm.design = { ...(edForm.design || {}),
+                      title_y: Math.round(ny * 1920), title_y_fixed: true };
+    tt.style.top = (ny * 100) + "%";
+  };
+  const up = () => {
+    document.removeEventListener("mousemove", move);
+    document.removeEventListener("mouseup", up);
+    const el = document.getElementById("edd_title_y");   // 스타일 탭 입력칸 동기화
+    if (el) el.value = (edForm.design || {}).title_y ?? "";
+    edMark();
+  };
+  document.addEventListener("mousemove", move);
+  document.addEventListener("mouseup", up);
+};
+window.edTitleAutoY = () => {
+  if (!edForm) return;
+  edSnap();
+  const d = { ...(edForm.design || {}) };
+  delete d.title_y;
+  // 채널 템플릿이 고정 모드를 켜뒀으면 삭제로는 못 끈다 — 명시적 false 로 눌러 끈다
+  // (edit_design 은 false 를 값으로 보존하고, 어댑터 스위치는 true 에만 플래그를 단다)
+  if (edBaseDesign().title_y_fixed) d.title_y_fixed = false;
+  else delete d.title_y_fixed;
+  edForm.design = d;
+  render();
 };
 
 // 내레이션(TTS) 자막 위치 — 줄 단위가 아니라 **이 편 전체 공통**(design.tts_y_margin,

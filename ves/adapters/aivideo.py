@@ -69,7 +69,23 @@ CHANNEL_DESIGN_FLAGS = {
 }
 CHANNEL_DESIGN_SWITCHES = {
     "face_tracking": ("--no-reframe", False),   # false 면 얼굴 추종 크롭 끔
+    # F-409(dc1060f): 참이면 제목 동적 배치 대신 title_y 를 그대로 쓴다 — 편집실
+    # 제목 드래그가 이 키로 나간다. ⚠ 채널 템플릿에 넣으려면 brain
+    # CHANNEL_DESIGN_FLAGS 미러가 선행이다(1:1 규율 — 안 하면 brain 쪽 unknown-key
+    # fail-loud 에 걸린다). 지금은 편집실(edit_overrides.design) 경로 전용.
+    "title_y_fixed": ("--design-title-y-fixed", True),
 }
+
+
+def _switch_value(channel, key, v):
+    """스위치 값 정규화 — JSON 불리언 외에 손 편집 템플릿의 "true"/"false" 도 받되,
+    그 밖의 값은 즉시 실패(registry 원칙: 조용한 무시 = 오타가 기본값으로 발행)."""
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, str) and v.strip().lower() in ("true", "false"):
+        return v.strip().lower() == "true"
+    raise base.PermanentError(
+        f"채널 '{channel}': design 스위치 {key} 는 불리언이어야 합니다({v!r})")
 
 
 def channel_design_flags(design, channel) -> list:
@@ -81,7 +97,7 @@ def channel_design_flags(design, channel) -> list:
             continue
         if k in CHANNEL_DESIGN_SWITCHES:
             flag, on_value = CHANNEL_DESIGN_SWITCHES[k]
-            if v is on_value:
+            if _switch_value(channel, k, v) is on_value:
                 flags.append(flag)
             continue
         flag = CHANNEL_DESIGN_FLAGS.get(k)
