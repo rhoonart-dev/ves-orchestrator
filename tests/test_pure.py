@@ -2524,6 +2524,55 @@ def test_dashboard_editor_v3b_tracks():
     assert html.count("edDrag = { out: true }") >= 2
 
 
+def test_zanmang_review_meta_ja_events(tmp_path):
+    """JP-2(E5): B/BJ 자막 쌍에 ja_events.json 의 타이밍·스타일을 entry_idx 로 합류.
+    없으면(구 산출) 텍스트만 — 카드 등록은 계속돼야 한다."""
+    import json
+    from ves.adapters import zanmang
+    (tmp_path / "translations.json").write_text(json.dumps({
+        "entries": [{"source": "가", "target": "ア"}, {"source": "나", "target": "イ"}]
+    }), encoding="utf-8")
+    (tmp_path / "ja_events.json").write_text(json.dumps({
+        "events": [{"entry_idx": 1, "start": 2.0, "end": 5.5,
+                    "style": {"size": 52}, "end_fixed": False},
+                   {"entry_idx": None, "start": 9.0, "end": 10.0}]   # 미매칭은 버린다
+    }), encoding="utf-8")
+    meta = zanmang.review_meta(tmp_path)
+    subs = meta["ko_ja_pairs"]["subs"]
+    assert subs[0] == {"idx": 0, "ko": "가", "ja": "ア"}              # 이벤트 없음 = 텍스트만
+    assert subs[1]["start"] == 2.0 and subs[1]["end"] == 5.5
+    assert subs[1]["style"] == {"size": 52}
+    # ja_events 가 깨져도 조용히 텍스트만 — 카드 등록이 죽으면 안 된다.
+    # 문법 오류뿐 아니라 **형태 오염**(최상위 배열, entry_idx 비정수)도 못 죽인다(리뷰 3)
+    for bad in ("{broken", '[{"entry_idx": 1}]', '{"events": [{"entry_idx": [1]}]}'):
+        (tmp_path / "ja_events.json").write_text(bad, encoding="utf-8")
+        meta2 = zanmang.review_meta(tmp_path)
+        assert meta2["ko_ja_pairs"]["subs"][1] == {"idx": 1, "ko": "나", "ja": "イ"}, bad
+    assert "ja_events.json" in zanmang.LOOPY_TEXT_FILES               # 지속화 목록 합류
+
+
+def test_dashboard_editor_jp2_style_timing():
+    """JP-2 화면: 유령 자막(타이밍 동기) 드래그·크기·색·회전 + 행 시각 입력.
+    수집 값은 문자열(텍스트만) 또는 dict {ja?, style?, start_sec?, end_sec?} —
+    전부 editor_jp_style 게이트(구 엔진은 ja 외 키를 조용히 무시)."""
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert "edJpStyleOn" in html and "editor_jp_style" in html        # 플래그 게이트
+    assert "edJpPaint" in html and "edJpSubDragDown" in html          # 유령 자막
+    assert "edJpSize" in html and "edJpColor" in html and "edJpRotate" in html
+    assert "edJpTime" in html and 'id="${pfx}ts_${s.idx}"' in html    # 행 시각 입력
+    # 수집: 텍스트만이면 종전 문자열(하위호환), 그 외 dict — 게이트 확인
+    assert "o.start_sec = +(+s.startCur).toFixed(3)" in html
+    assert "if (edJpStyleOn()){" in html
+    assert '(Object.keys(o).length === 1 && o.ja && !alwaysObj) ? o.ja : o' in html
+    # y 시맨틱은 v3 와 동일(0=상단, 1=하단) — JP 기본값 0.87(하단 근사)과 (1−y) 환산
+    assert "sty.y != null ? +sty.y : 0.87" in html
+    # 리뷰 반영: 피커 arm(잘못된 줄 오염 방지), 편집 판정 단일화, diff 스타일의
+    # 명시값 전송(rotate 0 유실 방지), 오염 ja_events 무해화
+    assert "edJpColorArm" in html and "edJpEditable" in html
+    assert "const has = k => sc[k] != null || base[k] != null;" in html
+
+
 def test_dashboard_editor_v3c_frames():
     """V3-c: 프레임 단위 정밀 — 스냅 1/24s(edQF), 선택 블록 ←→ 프레임 이동(무렌더 —
     render 는 스테이지 video 를 파괴한다), 트랙 바닥 클릭 = 그 순간부터 가상 미리보기,

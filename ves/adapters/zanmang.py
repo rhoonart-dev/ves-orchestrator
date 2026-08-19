@@ -174,7 +174,7 @@ def _mirror_ledger(conn, repo: pathlib.Path) -> int:
 
 
 LOOPY_TEXT_FILES = ("metadata_draft.json", "translations.json", "ko_ja_pairs.json",
-                    "ja.srt", "ja_dub.srt")
+                    "ja.srt", "ja_dub.srt", "ja_events.json")
 
 
 def loopy_store_key(vid: str, name: str) -> str:
@@ -214,10 +214,34 @@ def review_meta(out_dir) -> dict:
     if not subs:
         try:
             tj = _json.loads((d / "translations.json").read_text(encoding="utf-8"))
+            # E5(vlp 72d4cd5): B/BJ 타이밍·현재 스타일은 ja_events.json 이 정본 —
+            # translations 순번(entry_idx)으로 합류한다. 없으면(구 산출) 텍스트만.
+            ev = {}
+            try:
+                ej = _json.loads((d / "ja_events.json").read_text(encoding="utf-8"))
+                # 형태를 못 믿는다 — 오염된 한 편이 daily 카드 등록 루프 전체를 죽이면
+                # 안 된다(docstring 계약). isinstance 게이트로 TypeError 경로를 막는다.
+                events = ej.get("events") if isinstance(ej, dict) else None
+                for e2 in (events or []):
+                    if isinstance(e2, dict) and isinstance(e2.get("entry_idx"), (int, float)) \
+                            and not isinstance(e2.get("entry_idx"), bool):
+                        ev.setdefault(int(e2["entry_idx"]), e2)
+            except (OSError, ValueError):
+                pass
             # idx(8/14 반려-수정): entries 순번 — '수정 재렌더' overrides 의 좌표.
             # 필터 전에 매기므로 화면에서 빠진 항목이 있어도 좌표가 어긋나지 않는다.
-            subs = [{"idx": i, "ko": e.get("source"), "ja": e.get("target")}
-                    for i, e in enumerate(tj.get("entries") or []) if e.get("source")][:40]
+            subs = []
+            for i, e in enumerate(tj.get("entries") or []):
+                if not e.get("source"):
+                    continue
+                row = {"idx": i, "ko": e.get("source"), "ja": e.get("target")}
+                m = ev.get(i)
+                if m:
+                    for k in ("start", "end", "style", "end_fixed"):
+                        if m.get(k) is not None:
+                            row[k] = m[k]
+                subs.append(row)
+            subs = subs[:40]
         except (OSError, ValueError):
             pass
     if subs:
