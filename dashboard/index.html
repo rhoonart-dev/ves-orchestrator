@@ -897,6 +897,13 @@ const kindKo = k => KIND_KO[k] || k || "?";
 /* v3: 채널 한글명 — channels_mirror 기준, 없으면 코드 그대로 */
 const chName = slug => { const c = (state.chans||[]).find(x => x.token_slug === slug);
   return (c && c.name) || slug || "?"; };
+/* 채널명을 유튜브 채널 링크로 — channels_mirror 에 channel_id 없으면 그냥 글자 */
+const chLinkHtml = slug => { const c = (state.chans||[]).find(x => x.token_slug === slug);
+  const nm = esc((c && c.name) || slug || "?");
+  return c && c.channel_id
+    ? `<a class="rv2-chn" href="https://youtube.com/channel/${esc(c.channel_id)}" target="_blank"
+         rel="noopener" title="YouTube 채널 열기">${nm} ↗</a>`
+    : `<span class="rv2-chn">${nm}</span>`; };
 const JP_SLUGS = new Set(["SHOTCONE"]);   // 일본 채널(가동 스위치 별도)
 /* 전용 파이프라인 채널(§10-①): 작업지시 체인이 아니라 일일 자동화 잡으로 도는 채널 */
 const EXT_PIPE = { LOOPY: "잔망루피 자동화 — 더빙 현지화·일 1편·19시 JST 예약" };
@@ -1276,7 +1283,7 @@ function renderHome(){
         <div class="dcol${pc === "none" ? " dim" : ""}"><span class="dcap">공개</span><span class="chdot ${pc}" title="${esc(pt || pl)}"></span><span class="dlab">${esc(pl)}</span></div>
       </div></div>` +
       (open ? `<div class="bdetail">${cur ? chainHtml(cur)
-              : '<span class="sub">최근 작업지시 없음</span>'}${runBox(ch.token_slug)}</div>` : "");
+              : `<span class="sub">${chLinkHtml(ch.token_slug)} · 최근 작업지시 없음</span>`}${runBox(ch.token_slug)}</div>` : "");
   }).join("");
   const snaps = (state.snaps||[]).map(s => {
     const k = (s.payload||{}).kpis || {};
@@ -1357,7 +1364,7 @@ function renderHome(){
 }
 function chainHtml(wo){
   const js = (state.jobsByWo[wo.id]||[]).slice().sort((a,b)=>a.created_at<b.created_at?-1:1);
-  return `<b>${esc(wo.work_title)}</b> <span class="sub">${esc(chName(wo.channel_slug))} · ${esc(kstDay(wo.created_at))}</span>
+  return `<b>${esc(wo.work_title)}</b> <span class="sub">${chLinkHtml(wo.channel_slug)} · ${esc(kstDay(wo.created_at))}</span>
     <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">${
     js.map(x => { const [c,i,l] = JOB_ST[x.status]||["mut","?",x.status];
       return `<span class="chip st-${c}" title="${esc((x.error||"").slice(0,200))}">
@@ -1512,7 +1519,7 @@ function loopyCard(r, pay){
       : `<div class="sub" style="padding:18px 6px;text-align:center">현지화 산출물 없음${
           pay.url ? `<br><a href="${esc(pay.url)}" target="_blank" rel="noopener">원본 보기 ↗</a>` : ""}</div>`}</div>
     <div class="rv2-body">
-      <div class="rh">${chAvatarHtml("LOOPY", 28)}<span class="rv2-chn">${esc(chName("LOOPY"))}</span>
+      <div class="rh">${chAvatarHtml("LOOPY", 28)}${chLinkHtml("LOOPY")}
         <span class="right sub">${ago(r.created_at)}</span></div>
       <div class="rv2-work"><b>영상</b>${esc(pay.title || vid)}
         <span class="rv2-mac">${esc(LOOPY_ROUTE[pay.route] || pay.route || "?")}</span>
@@ -1625,11 +1632,7 @@ function renderReview(){
           ? `<div id="pv_${r.id}"><video id="pvv_${r.id}" controls playsinline preload="metadata" poster=""></video></div>`
           : '<div class="sub" style="padding:24px 6px;text-align:center">프리뷰 파일 없음</div>'}</div>
         <div class="rv2-body">
-          <div class="rh">${chAvatarHtml(slug, 28)}${(() => {
-              const cid = ((state.chans||[]).find(c => c.token_slug === slug)||{}).channel_id;
-              return cid
-                ? `<a class="rv2-chn" href="https://youtube.com/channel/${esc(cid)}" target="_blank" rel="noopener" title="YouTube 채널 열기">${esc(chName(slug))} ↗</a>`
-                : `<span class="rv2-chn">${esc(chName(slug))}</span>`; })()}
+          <div class="rh">${chAvatarHtml(slug, 28)}${chLinkHtml(slug)}
             <span class="right sub">${ago(r.created_at)}</span></div>
           ${jpMetaHtml(pay)}
           <div class="rv2-work"><b>작품</b>${esc(wo.work_title || run || r.id.slice(0,8))}${
