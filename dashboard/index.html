@@ -328,6 +328,20 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .edsubtools .mini.on{background:var(--ink);color:var(--surface);border-color:var(--ink)}
   .edsubtools input[type=color]{width:26px;height:22px;padding:0;border:1px solid var(--line);
               border-radius:5px;background:none;cursor:pointer}
+  /* 일본어 편집 모드(JP-1) — 한국어 원문 병기 행 */
+  .jprows{border:1px solid var(--line);border-radius:8px;padding:2px 8px}
+  .jprow{display:flex;gap:6px;padding:4px 0;border-bottom:1px dotted var(--line)}
+  .jprow:last-child{border-bottom:none}
+  .jprow .n{flex:none;width:24px;text-align:right;color:var(--muted);font-size:11px;
+            padding-top:5px}
+  .jpcol{flex:1;min-width:0}
+  .jprow input,#jptitle,#jptop{font:inherit;font-size:13px;padding:4px 7px;
+            border:1px solid var(--line);border-radius:6px;background:var(--surface);
+            color:var(--ink)}
+  .jprow input{width:100%;padding:3px 6px;border-radius:5px}
+  .jprow .ko,.jpko{font-size:11.5px;color:var(--muted);margin-top:2px;line-height:1.4}
+  .jprow input.dirty,#jptitle.dirty,#jptop.dirty{border-color:var(--warn);
+            background:color-mix(in srgb,var(--warn) 12%,transparent)}
   /* 원본 스크럽 스트립 — 원본 타임라인 바로 아래. 구간 찍기(I/O)는 여기서 한다 */
   .edsrcstrip{display:flex;gap:12px;margin-top:8px;align-items:flex-start;flex-wrap:wrap}
   .edsrcstrip video{width:min(420px,46vw);aspect-ratio:16/9;background:#000;border-radius:8px}
@@ -1487,7 +1501,9 @@ function loopyCard(r, pay){
         onclick="armed(this,'✕ 반려',()=>decideLoopy('${r.id}', false))">✕ 반려</button>
       ${(pay.ko_ja_pairs || pay.youtube_title)
         ? `<button class="act" title="자막·제목을 고쳐서 같은 영상을 다시 렌더(0038)"
-             onclick="rerenderPanel('${r.id}')">✏️ 수정 재렌더</button>` : ""}
+             onclick="rerenderPanel('${r.id}')">✏️ 수정 재렌더</button>
+           <button class="act" title="일본어 편집 화면 — 자막·제목을 한국어 원문과 나란히 놓고 고칩니다"
+             onclick="openEditor('${r.id}')">🎬 편집실</button>` : ""}
     </div>
     <div id="edw_${r.id}" style="display:none"></div>` : '<div class="sub">reviewer 권한 필요</div>';
   return `<div class="review rv2">
@@ -1864,6 +1880,9 @@ let edPrevWarned = false;      // 만료 preview 경고는 카드당 1회 — �
 let edSubColorFor = -1;        // 컬러 피커가 열린 순간의 줄 — 재생이 흘러도 그 줄에 적용
 let edPrevImages = [];         // 이전 라운드 이미지(0057 prev_images) — 시드 원본
 let edOvSel = "sub";           // ✎ 도구의 대상 — title(전체)|sub(그 줄)|tts(전체)
+// 일본어 편집 모드(JP-1) — localization_qa 카드는 원본 타임라인 재료가 아니라 카드
+// payload(ko_ja_pairs)가 재료다. 계약은 0038 reject_and_rerender 텍스트 치환 그대로.
+let edJpMode = null, edJpForm = null, edJpChain = null, edJpTimer = null;
 
 function edResetForm(){
   const tl = (edData && edData.timeline) || {};
@@ -2307,9 +2326,33 @@ window.edSubmit = async () => {
   else if (btn) edMark();
 };
 
+// 일본어 편집 대상 판정 — SHOTCONE(scene_rerender 카드)·잔망루피(LOOPY)
+function edJpKind(r){
+  const pay = (r || {}).payload || {};
+  if (pay.zanmang_video_id) return "loopy";
+  if ((r || {}).kind === "localization_qa" && pay.mode === "scene_rerender") return "shotcone";
+  return null;
+}
+
 window.openEditor = async (rid) => {
   edRid = rid; edData = null; edForm = null; tab = "edit";
   edPrevImages = [];
+  // 일본어 카드(JP-1) — 재료 RPC(request_editor_assets)를 부르지 않는다: LOOPY 는
+  // 작업지시가 없어 거절되고, SHOTCONE 도 텍스트 편집에는 카드 payload 로 충분하다.
+  clearTimeout(edJpTimer);
+  const r0 = (state.reviews || []).find(x => x.id === rid);
+  edJpMode = edJpKind(r0);
+  if (edJpMode){
+    edTtsStop();                       // KR 미리듣기 오디오가 JP 화면 위로 남지 않게
+    clearTimeout(edPoll);              // KR 재료 폴링 잔존이 5초마다 render 로 입력을 지운다
+    if (!edJpChain || edJpChain.rid !== rid) edJpChain = null;   // 같은 카드 재진입만 유지
+    edJpResetForm(r0);
+    if (edJpChain) edJpForm.sent = true;   // 이미 보낸 카드 — 재진입이 이중 제출 폼을 열면 안 된다
+    render();
+    if (edJpChain) edJpChainPoll();
+    return;
+  }
+  edJpForm = null;
   edZoom = 1; edTlScroll = 0; edKbHelp = false;
   edStageMode = "prev"; edSeq = null; edPrevKey = null; edPrevBucket = null; edPrevT = 0;
   edStyleTool = false; edStageCur = -1; edStageT = 0;
@@ -2331,6 +2374,7 @@ window.openEditor = async (rid) => {
 };
 
 async function edLoadAssets(runId){
+  if (edJpMode) return;              // JP 화면 진입 후 도착한 잔존 폴 — render 오염 금지
   if (!runId || edLoading) return;
   edLoading = true;
   try {
@@ -2410,6 +2454,224 @@ function edDraftList(){
   }).join("")}</div>`;
 }
 
+// ───────── 일본어 편집 모드 (JP-1) — localization_qa 카드 전용 ─────────
+// 검수함 인라인 패널(0038)의 승격판: 좌측에 일본어 완성본 스테이지, 우측에 한국어
+// 원문 병기 번역 편집. 계약은 reject_and_rerender p_edits(idx 좌표 텍스트 치환,
+// diff 만 전송) 그대로 — 서버·엔진 무변경. 타이밍·스타일·구간 편집은 JP-2(엔진이
+// idx↔타임라인 매핑을 내보낸 뒤)의 몫이라 여기선 문구만 받는다.
+function edJpResetForm(r){
+  const pay = (r || {}).payload || {}, pr = pay.ko_ja_pairs || {};
+  edJpForm = {
+    rid: r.id, loopy: edJpMode === "loopy",
+    woId: r.work_order_id || null, vid: pay.zanmang_video_id || null,
+    prevKey: pay.preview_key || null, prevBucket: pay.bucket || "ves-localized",
+    url: pay.url || null,                        // LOOPY A 라우트 — 파일 없이 원본 링크 검수
+    // cur = 사람이 지금 만지는 값 — DOM 에만 두면 render() 한 번에 타이핑이 전량
+    // 증발한다(KR 의 edForm 과 같은 이유). 원본(ja)과 따로 들어야 diff 도 성립한다.
+    title: pay.youtube_title || "", titleKo: pay.youtube_title_ko || "",
+    titleCur: pay.youtube_title || "",
+    top: (pr.top_title || {}).ja || "", topKo: (pr.top_title || {}).ko || "",
+    topCur: (pr.top_title || {}).ja || "",
+    subs: (pr.subs || []).map((x, i) => ({ idx: x.idx != null ? x.idx : i,
+                                           ja: x.ja || "", ko: x.ko || "", cur: x.ja || "" })),
+    tts: (pr.tts || []).map((x, i) => ({ idx: x.idx != null ? x.idx : i,
+                                         ja: x.ja || "", ko: x.ko || "", cur: x.ja || "" })),
+    // idx 없는 옛 텔롭은 좌표 특정 불가 — 0038 패널과 같은 이유로 편집에서 뺀다
+    telops: (pr.telops || []).filter(x => x.idx != null)
+                             .map(x => ({ idx: x.idx, ja: x.ja || "", ko: x.ko || "",
+                                          cur: x.ja || "" })),
+    sent: false,
+  };
+}
+
+function renderEditJp(){
+  const r = (state.reviews || []).find(x => x.id === edRid) || {};
+  const f = edJpForm;
+  if (!f){ $("#page").innerHTML = `<section class="card"><div class="empty">카드를 찾을 수
+    없습니다 <button class="mini" onclick="tab='review';render()">검수함으로</button></div></section>`; return; }
+  const wo = state.wo[r.work_order_id] || {};
+  const canEdit = can("reviewer") && r.status === "waiting" && !f.sent;
+  const head = `<div class="edhead"><b>${esc(wo.work_title || (r.payload || {}).title || "일본어 편집")}</b>
+      <span class="rv2-mac">${esc(chName(r.channel_slug))}</span>
+      <span class="sub">일본어 편집 — 문구를 고치면 그 항목만 다시 렌더됩니다</span>
+      <span class="right"><button class="mini" onclick="tab='review';render()">← 검수함</button></span></div>`;
+  const rows = (list, pfx, cap) => !list.length ? "" : `
+    <div class="edcap">${cap} ${list.length}건</div>
+    <div class="jprows">${list.map(s => `
+      <div class="jprow"><span class="n">${s.idx + 1}</span>
+        <div class="jpcol">
+          <input type="text" id="${pfx}${s.idx}" oninput="edJpMark()" ${canEdit ? "" : "disabled"}>
+          <div class="ko">${esc(s.ko)}</div>
+        </div></div>`).join("")}</div>`;
+  $("#page").innerHTML = `<section class="card">${head}
+    <div class="edgrid2">
+      <div class="edleft">
+        <div class="edstage" id="edstage">${f.prevKey
+          ? `<video id="jpvid" playsinline preload="metadata" controls></video>`
+          : `<div class="edphold">완성본 파일이 없는 카드입니다${f.url
+              ? `<br><a href="${esc(f.url)}" target="_blank" rel="noopener">원본 링크로 확인</a>` : ""}</div>`}
+        </div>
+        <div class="sub" style="margin-top:6px">일본어 완성본 — 자막 위치·타이밍은 여기서
+          확인만 됩니다(고치는 건 JP-2 예정)</div>
+      </div>
+      <div class="edright">
+        <div class="edcap">업로드 제목</div>
+        <input type="text" id="jptitle" oninput="edJpMark()" ${canEdit ? "" : "disabled"}
+          style="width:100%">
+        ${f.titleKo ? `<div class="sub jpko">한국어: ${esc(f.titleKo)}</div>` : ""}
+        ${!f.loopy && f.top ? `
+          <div class="edcap">상단 제목 <span class="sub">— 영상 안 글자(줄바꿈 유지)</span></div>
+          <textarea id="jptop" rows="2" oninput="edJpMark()" ${canEdit ? "" : "disabled"}
+            style="width:100%"></textarea>
+          ${f.topKo ? `<div class="sub jpko">한국어: ${esc(f.topKo)}</div>` : ""}` : ""}
+        <div class="edpane" style="max-height:420px">
+          ${rows(f.subs, "jps_", f.loopy ? "자막·대사(TTS)" : "자막")}
+          ${rows(f.tts, "jpn_", "내레이션(TTS)")}
+          ${rows(f.telops, "jpl_", "방송 텔롭")}
+          ${!f.subs.length && !f.tts.length && !f.telops.length
+            ? '<div class="sub">이 카드에는 편집할 자막 쌍이 없습니다</div>' : ""}
+        </div>
+        <div class="sub" style="margin-top:4px">왼쪽 입력이 일본어(고치는 값), 아래 회색이
+          한국어 원문입니다 · 비운 칸은 무시됩니다(빈 값 전송 없음)</div>
+      </div>
+    </div>
+    ${edJpChain && edJpChain.rid === edRid ? `<div id="jpchain">${edJpChainHtml()}</div>` : ""}
+    ${canEdit ? `<div class="edfoot2">
+      <textarea class="reason" id="jpnote" rows="1" placeholder="사유·메모 (선택)"
+        style="flex:1;min-width:200px"></textarea>
+      <button class="danger act" id="jpsubmit" onclick="edJpSubmit()" disabled>
+        ✏️ 반려 · 수정 재렌더</button>
+      <span>이 카드는 반려로 닫히고, 고친 본으로 렌더한 새 카드가 올라옵니다${
+        f.loopy ? " (잔망루피는 전체 재실행 — 최대 수 시간)" : ""}</span>
+    </div>` : f.sent ? "" : `<div class="sub" style="margin-top:10px">${
+      !can("reviewer") ? "reviewer 권한이 있어야 고칠 수 있습니다"
+      : "이 카드는 닫혀 있어 고칠 수 없습니다"}</div>`}
+  </section>`;
+  // 값 주입은 프로그래매틱으로(따옴표·줄바꿈이 attribute 를 깨지 않게 — 0038 패널 규약)
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+  set("jptitle", f.titleCur); set("jptop", f.topCur);
+  f.subs.forEach(s => set("jps_" + s.idx, s.cur));
+  f.tts.forEach(s => set("jpn_" + s.idx, s.cur));
+  f.telops.forEach(s => set("jpl_" + s.idx, s.cur));
+  edJpMark();
+  if (f.prevKey)
+    signedUrl(f.prevBucket, f.prevKey, 1800).then(u => {
+      const v = document.getElementById("jpvid");
+      if (v && v.src !== u) v.src = u;
+    }).catch(() => toast("완성본을 열 수 없습니다(보존 만료일 수 있음)", true));
+  if (edJpChain && edJpChain.rid === edRid && !edJpChain.newRid) edJpChainPoll();
+}
+
+// 고친 항목만 diff — 0038 패널(submitRerender)과 같은 규약. 빈 값은 무시.
+// DOM 이 아니라 폼(cur)을 읽는다 — 렌더 직후·재그림 뒤에도 값이 산다.
+function edJpCollect(){
+  const f = edJpForm, ed = {};
+  if ((f.titleCur || "").trim() && f.titleCur.trim() !== f.title)
+    ed.youtube_title_ja = f.titleCur.trim();
+  if ((f.topCur || "").trim() && f.topCur !== f.top) ed.top_title_ja = f.topCur;
+  const diff = (list, asObj) => {
+    const out = {};
+    list.forEach(s => {
+      const v = (s.cur || "").trim();
+      if (v && v !== s.ja) out[s.idx] = asObj ? { ja: v } : v;
+    });
+    return out;
+  };
+  const subs = diff(f.subs), tts = diff(f.tts), tel = diff(f.telops, true);
+  if (Object.keys(subs).length) ed.subs = subs;
+  if (Object.keys(tts).length) ed.tts = tts;
+  if (Object.keys(tel).length) ed.telops = tel;
+  return ed;
+}
+
+window.edJpMark = () => {
+  const f = edJpForm; if (!f) return;
+  // 입력 → 폼 즉시 저장 + dirty 표시. 저장 없이 DOM 에만 두면 탭 전환·재렌더 한 번에
+  // 고친 번역이 전부 사라진다.
+  const grab = (id, orig, save, keepNl) => {
+    const el = document.getElementById(id); if (!el) return;
+    save(el.value);
+    const same = keepNl ? el.value === orig : el.value.trim() === orig;
+    el.classList.toggle("dirty", !same && !!el.value.trim());
+  };
+  grab("jptitle", f.title, v => f.titleCur = v);
+  grab("jptop", f.top, v => f.topCur = v, true);
+  f.subs.forEach(s => grab("jps_" + s.idx, s.ja, v => s.cur = v));
+  f.tts.forEach(s => grab("jpn_" + s.idx, s.ja, v => s.cur = v));
+  f.telops.forEach(s => grab("jpl_" + s.idx, s.ja, v => s.cur = v));
+  const n = Object.keys(edJpCollect()).length;
+  const btn = document.getElementById("jpsubmit");
+  if (btn){
+    btn.disabled = !n;
+    btn.textContent = n ? `✏️ 반려 · 수정 재렌더 (${n}가지)` : "✏️ 반려 · 수정 재렌더";
+  }
+};
+
+window.edJpSubmit = async () => {
+  const f = edJpForm; if (!f) return;
+  const ed = edJpCollect();
+  if (!Object.keys(ed).length){ toast("고친 내용이 없습니다", true); return; }
+  const note = ((document.getElementById("jpnote") || {}).value || "").trim() || null;
+  const btn = document.getElementById("jpsubmit");
+  if (btn){ btn.disabled = true; btn.textContent = "보내는 중…"; }
+  const res = await rpc("reject_and_rerender",
+    { p_review_id: f.rid, p_edits: ed, p_note: note },
+    `반려 — 고친 ${Object.keys(ed).length}가지로 다시 렌더합니다`);
+  if (!res){ edJpMark(); return; }
+  f.sent = true;
+  // 폴 좌표는 체인에 실어 둔다 — 현재 edJpForm 을 읽으면 다른 카드로 옮긴 뒤
+  // in-flight 폴이 오염된 쿼리로 영구 폴링한다(리뷰 5). 멱등키는 0038 SQL 이 정본:
+  // LOOPY = 'zanmang_rerender:'||vid||':'||review_id, SHOTCONE = 'rerender:'||review_id.
+  edJpChain = { rid: f.rid, vid: f.vid, woId: f.woId,
+                startedAt: Date.now(), sinceIso: new Date().toISOString(),
+                newRid: null, failed: false, job: null,
+                key: f.loopy ? `zanmang_rerender:${f.vid}:${f.rid}` : `rerender:${f.rid}` };
+  render();
+};
+
+function edJpChainHtml(){
+  const c = edJpChain;
+  const j = c.job || {};
+  const st = c.newRid ? "새 카드 도착"
+    : c.failed ? "실패 — 잡 탭에서 오류를 확인하세요"
+    : j.status === "running" ? "렌더 중…"
+    : j.status === "succeeded" ? "렌더 완료 — 새 카드 등록 대기"
+    : "대기 중…";
+  return `<div class="edwarn" style="margin-top:10px">수정 재렌더 진행: <b>${esc(st)}</b>
+    <span class="sub">(${Math.round((Date.now() - c.startedAt) / 60000)}분 경과${
+      edJpForm && edJpForm.loopy ? " — 잔망루피는 전체 재실행이라 오래 걸립니다" : ""})</span>
+    ${c.newRid ? `<button class="pri mini" onclick="edOpenNew('${c.newRid}')">새 카드 열기</button>` : ""}
+  </div>`;
+}
+
+// 표적 폴링(무렌더) — render() 는 재생 중인 완성본 video 를 파괴한다(KR 체인과 같은 이유).
+// 화면을 떠나면 쉬고(renderEditJp 꼬리가 복귀 시 재개), 좌표는 체인 자신의 것만 읽는다.
+async function edJpChainPoll(){
+  const c = edJpChain; if (!c || c.newRid || c.failed) return;
+  clearTimeout(edJpTimer);
+  if (tab !== "edit" || edRid !== c.rid) return;
+  try {
+    const { data: jobs } = await sb.from("job_queue").select("status,error")
+      .eq("idempotency_key", c.key).order("created_at", { ascending: false }).limit(1);
+    if (edJpChain !== c) return;             // 그 사이 다른 카드·제출로 교체됨
+    c.job = (jobs || [])[0] || null;
+    if (c.job && ["failed", "dead", "cancelled", "blocked"].includes(c.job.status))
+      c.failed = true;                       // KR 체인과 같은 종결 어휘(blocked = 사람 개입)
+    let q = sb.from("review_queue").select("id").eq("kind", "localization_qa")
+      .eq("status", "waiting").neq("id", c.rid)
+      .gt("created_at", c.sinceIso)          // 제출 이전부터 있던 카드를 새 카드로 오인 금지
+      .order("created_at", { ascending: false }).limit(3);
+    q = c.vid ? q.contains("payload", { zanmang_video_id: c.vid })
+              : q.eq("work_order_id", c.woId);
+    const { data: cards } = await q;
+    if (edJpChain !== c) return;
+    if ((cards || []).length) c.newRid = cards[0].id;
+  } catch (e){ /* 폴링 실패는 다음 틱에 재시도 */ }
+  const el = document.getElementById("jpchain");
+  if (el) el.innerHTML = edJpChainHtml();
+  if (!c.newRid && !c.failed) edJpTimer = setTimeout(edJpChainPoll, 8000);
+}
+
 function renderEdit(){
   if (!edRid){
     $("#page").innerHTML = `<section class="card">
@@ -2418,6 +2680,7 @@ function renderEdit(){
       ${edDraftList()}</section>`;
     return;
   }
+  if (edJpMode){ renderEditJp(); return; }
   const r = (state.reviews||[]).find(x => x.id === edRid) || {};
   const wo = state.wo[r.work_order_id] || {};
   const head = `<div class="edhead"><b>${esc(wo.work_title || "")}</b>

@@ -2492,6 +2492,38 @@ def test_aivideo_localize_edit_images(tmp_path):
     assert aivideo.localize_edit_images(same, tmp_path, gone) is same
 
 
+def test_dashboard_editor_jp_mode():
+    """JP-1: localization_qa 카드(SHOTCONE·잔망루피)의 편집실 — 서버·엔진 무변경.
+    카드 payload(ko_ja_pairs)가 재료, 계약은 0038 reject_and_rerender 텍스트 치환
+    (idx 좌표, diff 만 전송), 한국어 원문 병기. 재료 RPC 는 부르지 않는다(LOOPY 는
+    작업지시가 없어 거절되는 카드)."""
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert "edJpKind" in html and "renderEditJp" in html and "edJpResetForm" in html
+    assert "if (edJpMode){ renderEditJp(); return; }" in html   # KR 편집실과 분기
+    assert 'rpc("reject_and_rerender"' in html                  # 0038 계약 재사용
+    assert "p_edits: ed" in html
+    # 한국어 병기 + dirty diff
+    assert ".jprow .ko" in html and "jpko" in html
+    assert "edJpCollect" in html and "edJpMark" in html
+    # 잔망루피 카드에서 편집실 진입 가능 + 체인 폴링(잡 멱등키·새 카드 감지).
+    # 멱등키는 0038 SQL 이 정본 — LOOPY 는 zanmang_rerender:<vid>:<review_id>
+    assert "🎬 편집실" in html
+    assert "edJpChainPoll" in html
+    assert "zanmang_rerender:${f.vid}:${f.rid}" in html
+    assert "zanmang_decide:" not in html.split("edJpChain = {")[1][:400]
+    assert "rerender:${f.rid}" in html
+    assert 'contains("payload", { zanmang_video_id: c.vid })' in html
+    assert '.gt("created_at", c.sinceIso)' in html          # 옛 카드 오인 방지
+    assert '"failed", "dead", "cancelled", "blocked"' in html  # KR 과 같은 종결 어휘
+    # 새 카드 열기는 refresh 선행(edOpenNew) — stale state 로 KR 경로 추락 금지
+    assert "edOpenNew('${c.newRid}')" in html
+    # 입력은 폼(cur)에 산다 — 재렌더에도 타이핑 보존
+    assert "titleCur" in html and "s.cur = v" in html
+    # idx 없는 옛 텔롭 제외(0038 패널과 같은 좌표 안전 규약)
+    assert html.count("filter(x => x.idx != null)") >= 2
+
+
 def test_dashboard_editor_images_wired():
     """F-408 화면: 업로드(0056 경로 규약)·스테이지 배치·수집·초안 왕복이 배선됐고,
     전부 editor_images 플래그 뒤에 있다(엔진 E2 배포 전에는 탭 자체가 안 보인다)."""
