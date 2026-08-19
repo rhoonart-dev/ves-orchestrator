@@ -283,9 +283,12 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .edstage{position:relative;width:min(270px,100%);aspect-ratio:9/16;margin:0 auto;
            background:#000;border-radius:10px;overflow:hidden;border:1px solid var(--line)}
   .edstage video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
-  /* 가상 시퀀스: 원본(16:9)은 cover(중앙 크롭)가 아니라 contain — 실제 렌더가 영상을
-     가운데 밴드로 배치하고 위·아래에 제목·자막을 그리기 때문(cover 는 확대돼 보인다) */
-  .edstage.seqfit video{object-fit:contain}
+  /* 가상 시퀀스: 영상은 실제 렌더처럼 '밴드'로 배치된다 — 폭 100%, 높이 = 채널
+     화면비(aspect_ratio), 위치 = video_y(없으면 중앙), 밴드 안 cover 크롭.
+     크기·위치는 edStageBandSync 가 인라인으로 준다(.seqfit 는 훅 클래스) */
+  .edbandh{position:absolute;left:6px;width:22px;height:22px;background:#000c;color:#fff;
+           border-radius:6px;text-align:center;line-height:22px;font-size:13px;
+           cursor:ns-resize;pointer-events:auto;user-select:none;z-index:6;display:none}
   .edstage .edphold{position:absolute;inset:0;display:flex;align-items:center;
                     justify-content:center;text-align:center;padding:16px;
                     color:#ffffff99;font-size:12px;line-height:1.6;pointer-events:none}
@@ -2726,9 +2729,11 @@ function renderEdit(){
             <div class="edovtitle" id="edovtitle" onmousedown="edTitleDragDown(event)"></div>
             <div class="edovtts" id="edovtts" onmousedown="edTtsDragDown(event)"></div>
             <div class="edovsub" id="edovsub" onmousedown="edSubDragDown(event)"></div>
-            <div class="edovnote" id="edovnote" style="display:none">근사 미리보기 — 글꼴·배치·색이
-              다를 수 있고, 영상 배치는 세로 중앙 기준(실제는 video_y·얼굴 추종 크롭에
-              따라 다를 수 있음)</div>
+            <i class="edbandh" id="edbandh" onmousedown="edBandDragDown(event)"
+              title="영상 밴드 위치(video_y) — 끌어서 위·아래로">⇕</i>
+            <div class="edovnote" id="edovnote" style="display:none">근사 미리보기 — 글꼴·색이
+              다를 수 있고, 영상 밴드는 채널 화면비·위치 그대로(밴드 안 크롭만 중앙 기준 —
+              실제는 얼굴 추종)</div>
           </div>
           <div class="edphold" id="edphold" ${edStageMode === "prev" && !edPrevKey
             ? "" : 'style="display:none"'}>완성본 영상이 아직
@@ -3117,6 +3122,9 @@ const ED_STYLE_FIELDS = [
   ["tts_size",         "TTS 자막 크기",  "예: 70"],
   ["tts_color",        "TTS 자막 색",    "#87CEEB"],
   ["tts_y_margin",     "TTS 세로(하단px)", "예: 580"],
+  // 영상 밴드(V3-a) — 렌더가 이미 받는 키. 위치는 ✎ 켠 가상 미리보기의 ⇕ 드래그와 동기
+  ["aspect_ratio",     "영상 화면비",    "예: 16:9 · 1:1 · 4:3"],
+  ["video_y",          "영상 세로(위에서 px)", "비우면 중앙 · ⇕ 드래그로도"],
 ];
 function edPaneStyle(canEdit){
   const base = edBaseDesign();
@@ -3482,6 +3490,7 @@ window.edStyleSet = (k, v) => {
     else if (edBaseDesign().title_y_fixed) edForm.design.title_y_fixed = false;
     else delete edForm.design.title_y_fixed;
   }
+  if (k === "aspect_ratio" || k === "video_y") edStageBandSync();   // 밴드 즉시 반영
   edMark();
 };
 
@@ -3803,7 +3812,62 @@ function edStageBtnsSync(){
   if (ph) ph.style.display = edStageMode === "prev" && !edPrevKey ? "" : "none";
   const st = document.getElementById("edstage");
   if (st) st.classList.toggle("seqfit", edStageMode === "seq");
+  edStageBandSync();
 }
+
+// 영상 밴드(V3-a) — 실제 렌더 수식 그대로: 폭 1080 고정, 높이 = 1080×(세로비/가로비),
+// 위치 = design.video_y(캔버스 px, 없으면 세로 중앙), 밴드 안 cover 크롭(얼굴 추종은 근사).
+function edStageBandGeom(d){
+  let rw = 16, rh = 9;
+  const m = String(d.aspect_ratio || "16:9").trim().match(/^(\d+)\s*:\s*(\d+)$/);
+  if (m && +m[1] > 0){ rw = +m[1]; rh = +m[2]; }
+  const bandH = Math.min(1, (rh / rw) * (1080 / 1920));   // 캔버스 세로 대비 밴드 비율
+  const vy = (d.video_y != null && String(d.video_y).trim() !== "")
+    ? Math.max(0, Math.min(1 - bandH, (+d.video_y || 0) / 1920))
+    : (1 - bandH) / 2;
+  return { bandH, vy };
+}
+function edStageBandSync(){
+  const v = document.getElementById("edvid"); if (!v) return;
+  if (edStageMode !== "seq"){          // 완성본은 이미 렌더된 레이아웃 — 기본(전체 cover)
+    v.style.top = ""; v.style.height = "";
+  } else {
+    const g = edStageBandGeom(edDesign());
+    v.style.top = (g.vy * 100) + "%";
+    v.style.height = (g.bandH * 100) + "%";
+  }
+  const h = document.getElementById("edbandh");
+  if (h){
+    const editing = edV3() && edStyleTool && edCanEdit() && edStageMode === "seq";
+    h.style.display = editing ? "" : "none";
+    if (editing) h.style.top = (edStageBandGeom(edDesign()).vy * 100) + "%";
+  }
+}
+// 밴드 세로 드래그 → design.video_y (엔진과 같은 캔버스 px — 클램프도 렌더와 동일)
+window.edBandDragDown = ev => {
+  if (ev.button !== 0 || !edStyleTool || !edCanEdit() || edStageMode !== "seq") return;
+  const st = document.getElementById("edstage"); if (!st || !edForm) return;
+  ev.preventDefault(); ev.stopPropagation();
+  const H = st.clientHeight || 480;
+  const g0 = edStageBandGeom(edDesign());
+  const cy = ev.clientY;
+  edSnap("banddrag");
+  const move = e => {
+    if (!e.buttons){ up(); return; }
+    const ny = Math.max(0, Math.min(1 - g0.bandH, g0.vy + (e.clientY - cy) / H));
+    edForm.design = { ...(edForm.design || {}), video_y: Math.round(ny * 1920) };
+    edStageBandSync();
+  };
+  const up = () => {
+    document.removeEventListener("mousemove", move);
+    document.removeEventListener("mouseup", up);
+    const el = document.getElementById("edd_video_y");
+    if (el) el.value = (edForm.design || {}).video_y ?? "";
+    edMark();
+  };
+  document.addEventListener("mousemove", move);
+  document.addEventListener("mouseup", up);
+};
 window.edStageSet = m => {
   if (m === edStageMode) return;
   edSeqStop();
