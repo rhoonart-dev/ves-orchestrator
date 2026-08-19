@@ -2631,3 +2631,58 @@ def test_0053_editor_overrides_carryover():
     assert "v_prev := v_prev - 'subtitles'" in sql
     # 감사에 승계 키가 남아야 한다 — '왜 이 값이 들어갔나'를 추적할 유일한 곳
     assert "'carried'" in sql
+
+
+# ───────── storage_gc — 편집실 접두사 행의 실물 확장 (2026-08-19) ─────────
+def test_gc_expand_keys_expands_prefix_rows():
+    """'/' 로 끝나는 카탈로그 행은 실물 목록으로 확장, 정확한 키는 그대로 —
+    Storage delete 가 이름 정확 일치만 지우기 때문(접두사 그대로면 조용한 무동작)."""
+    from ves.scheduler.storage_gc import expand_keys
+    listed = {"ab12/editor/": ["ab12/editor/g_000.jpg", "ab12/editor/scan.mp4"]}
+    calls = []
+
+    def lister(p):
+        calls.append(p)
+        return listed.get(p, [])
+
+    items = [{"object_key": "cd34/shorts.mp4"},
+             {"object_key": "ab12/editor/"},
+             {"object_key": "ef56/editor/"}]           # 이미 비어 있는 접두사
+    keys = expand_keys(items, lister)
+    assert keys == ["cd34/shorts.mp4", "ab12/editor/g_000.jpg", "ab12/editor/scan.mp4"]
+    assert calls == ["ab12/editor/", "ef56/editor/"]   # 정확한 키는 조회하지 않는다
+
+
+def test_storage_page_keys_joins_prefix_and_finds_folders():
+    """list 응답의 name 은 잎 이름뿐 — prefix 를 붙여 완전한 키로. id 가 null 인 행은
+    가상 폴더라 하위 접두사로 돌려준다(재귀 조회 대상)."""
+    from ves.storage.supabase_storage import page_keys
+    batch = [{"name": "g_000.jpg", "id": "u1"},
+             {"name": "tts0.mp3", "id": "u2"},
+             {"name": "sub", "id": None},
+             {"name": "", "id": "u3"}]                 # 방어: 이름 없는 행은 버린다
+    keys, subdirs = page_keys("ab12/editor/", batch)
+    assert keys == ["ab12/editor/g_000.jpg", "ab12/editor/tts0.mp3"]
+    assert subdirs == ["ab12/editor/sub/"]
+    assert page_keys("ab12/editor", batch)[0] == keys  # 슬래시 유무 무관
+
+
+def test_gc_run_expands_lists_and_batches():
+    """run 배선 검사 — 접두사 확장(list_keys) 없이 delete 로 직행하면 0042 무동작이
+    재발한다. 확장 결과는 DELETE_BATCH 로 나눠 보낸다."""
+    import inspect
+    from ves.scheduler import storage_gc
+    src = inspect.getsource(storage_gc.run)
+    assert "expand_keys" in src and "list_keys" in src
+    assert "DELETE_BATCH" in src
+
+
+def test_catalog_upsert_extends_ttl():
+    """재워밍(0045/0048)이 화면 TTL 을 다시 밀 때 카탈로그 TTL 도 같이 밀려야 한다 —
+    DO NOTHING 이면 GC(수선 후 실동작)가 화면이 아직 쓰는 재료를 지운다."""
+    import inspect
+    from ves.adapters import editor_assets
+    src = inspect.getsource(editor_assets._catalog)
+    assert "ON CONFLICT (sha256, kind) DO UPDATE" in src
+    assert "excluded.expires_at" in src
+    assert "ON CONFLICT (sha256, kind) DO NOTHING" not in src
