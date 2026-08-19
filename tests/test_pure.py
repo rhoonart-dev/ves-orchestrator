@@ -2524,6 +2524,40 @@ def test_dashboard_editor_v3b_tracks():
     assert html.count("edDrag = { out: true }") >= 2
 
 
+def test_0060_editor_templates_contract():
+    """F-508: 쇼츠 템플릿 — 읽기는 authenticated RLS, 쓰기는 reviewer RPC 만.
+    저장 = 유효 디자인 스냅샷, 적용 = 편당 오버라이드 통째 교체(화면). 리뷰 반영:
+    목록은 state 밖(refresh 의 state 재구성이 지우던 H1), 선택 유지, 저장·적용
+    양쪽 화이트리스트(채널 정체성 키가 타 채널로 새던 M2), 서버 크기 상한."""
+    import pathlib
+    sql = pathlib.Path("ves/control/migrations/0060_editor_templates.sql") \
+        .read_text(encoding="utf-8")
+    assert "CREATE TABLE IF NOT EXISTS public.editor_templates" in sql
+    assert "ENABLE ROW LEVEL SECURITY" in sql
+    assert "FOR SELECT TO authenticated" in sql
+    assert sql.count("has_role(auth.uid(),'reviewer')") == 2   # save·delete 둘 다
+    assert "템플릿 이름은 1~40자" in sql
+    assert "pg_column_size(p_design) > 16384" in sql
+    assert "ON CONFLICT (name) DO UPDATE" in sql               # 같은 이름 = 덮어쓰기
+    assert "_audit('template_save'" in sql and "_audit('template_delete'" in sql
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert "edTplApply" in html and "edTplSave" in html and "edTplDelete" in html
+    assert 'rpc("save_editor_template"' in html and 'rpc("delete_editor_template"' in html
+    # H1: 목록은 state 가 아니라 모듈 변수 — refresh() 의 state 통재구성에 안 지워진다
+    assert "let edTpls = [], edTplLoaded = false, edTplSel = " in html
+    assert "state.edTemplates" not in html
+    # M2: 저장·적용 모두 화이트리스트 경유(edTplPick) — 통째 교체는 그 안에서
+    assert "edForm.design = edTplPick(t.design);" in html
+    assert "p_design: edTplPick(edDesign())" in html
+    assert 'concat(["title_y_fixed"])' in html                 # 드래그 산물도 템플릿 대상
+    # M1: 선택이 render 마다 첫 항목으로 리셋되지 않는다
+    assert 'onchange="edTplSel=this.value"' in html
+    assert 't.name === edTplSel ? " selected" : ""' in html
+    # 목록 로드 실패는 알리되(무음 금지) 재시도 루프는 안 만든다
+    assert "템플릿 목록을 못 불러왔습니다" in html
+    assert "edTplLoaded = true;" in html
+
+
 def test_zanmang_review_meta_ja_events(tmp_path):
     """JP-2(E5): B/BJ 자막 쌍에 ja_events.json 의 타이밍·스타일을 entry_idx 로 합류.
     없으면(구 산출) 텍스트만 — 카드 등록은 계속돼야 한다."""

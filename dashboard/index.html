@@ -3385,9 +3385,75 @@ const ED_STYLE_FIELDS = [
   ["aspect_ratio",     "영상 화면비",    "예: 16:9 · 1:1 · 4:3"],
   ["video_y",          "영상 세로(위에서 px)", "비우면 중앙 · ⇕ 드래그로도"],
 ];
+// 쇼츠 템플릿(F-508) — 화면이 편집하는 스타일 키 묶음. 적용 = 이 편 오버라이드 통째
+// 교체(채널 위에), 저장 = 지금 화면의 유효 디자인(채널+이 편) 스냅샷. 목록은 세션당
+// 1회 + 저장·삭제 후. state 에 넣지 않는다 — refresh() 의 state 통재구성에 지워진다.
+let edTpls = [], edTplLoaded = false, edTplSel = "";
+// 저장·적용 공통 화이트리스트: 스타일 탭 입력칸 + title_y_fixed(탭에 표시·해제 버튼
+// 있음). platform_*·work_* 같은 채널 정체성 키는 화면에 안 보여 지울 수도 없으므로
+// 템플릿에 싣지 않는다 — 다른 채널에 적용해도 로고·표기는 그 채널 것이 유지된다.
+function edTplPick(design){
+  const ok = new Set(ED_STYLE_FIELDS.map(f => f[0]).concat(["title_y_fixed"]));
+  const d = {};
+  for (const k of Object.keys(design || {})) if (ok.has(k)) d[k] = design[k];
+  return d;
+}
+async function edTplLoad(force){
+  if (edTplLoaded && !force) return;
+  try {
+    const { data, error } = await sb.from("editor_templates")
+      .select("name,design").order("name");
+    if (error) throw error;
+    edTpls = data || [];
+  } catch (e){ toast("템플릿 목록을 못 불러왔습니다 — 저장·삭제하면 다시 시도합니다", true); }
+  if (!edTpls.some(t => t.name === edTplSel)) edTplSel = "";
+  edTplLoaded = true;              // 실패해도 재시도 루프 금지 — 저장·삭제가 force 갱신
+}
+window.edTplApply = () => {
+  const name = (document.getElementById("edtplsel") || {}).value;
+  const t = edTpls.find(x => x.name === name);
+  if (!t){ toast("적용할 템플릿을 선택하세요", true); return; }
+  if (!edCanEdit()){ toast("이 카드는 지금 고칠 수 없습니다", true); return; }
+  edSnap();
+  edForm.design = edTplPick(t.design);
+  render();
+  toast(`템플릿 '${t.name}' 적용 — 이 편의 스타일이 통째로 바뀌었습니다 (Cmd+Z 가능)`);
+};
+window.edTplSave = async () => {
+  if (!can("reviewer")) return;
+  const name = (window.prompt("템플릿 이름 — 기존 이름이면 덮어씁니다 (1~40자)") || "").trim();
+  if (!name) return;
+  const r = await rpc("save_editor_template", { p_name: name, p_design: edTplPick(edDesign()) },
+    `템플릿 '${name}' 저장됨 — 다른 편·채널에서도 적용할 수 있습니다`);
+  if (r){ edTplSel = name; await edTplLoad(true); render(); }
+};
+window.edTplDelete = async () => {
+  const name = (document.getElementById("edtplsel") || {}).value;
+  if (!name){ toast("삭제할 템플릿을 선택하세요", true); return; }
+  if (!window.confirm(`템플릿 '${name}' 을 삭제할까요? (적용해 둔 편들은 영향 없음)`)) return;
+  const r = await rpc("delete_editor_template", { p_name: name }, `템플릿 '${name}' 삭제됨`);
+  if (r){ await edTplLoad(true); render(); }
+};
+
 function edPaneStyle(canEdit){
   const base = edBaseDesign();
-  return `<div class="sub" style="margin-bottom:6px">비워두면 채널 기본값을 그대로 씁니다 —
+  if (!edTplLoaded) edTplLoad().then(() => { if (edPane === "style") render(); });
+  return `<div class="edcap">쇼츠 템플릿 <span class="sub">— 영상 비율·위치, 제목·자막·TTS
+      스타일 묶음을 저장해 두고 편마다 골라 씁니다</span></div>
+    <div class="edaddrow" style="margin:0 0 10px">
+      <select id="edtplsel" style="flex:1;font:inherit;font-size:12px"
+        onchange="edTplSel=this.value">${
+        edTpls.map(t => `<option value="${esc(t.name)}"${
+          t.name === edTplSel ? " selected" : ""}>${esc(t.name)}</option>`).join("")
+        || '<option value="">저장된 템플릿 없음</option>'}</select>
+      <button class="mini" onclick="edTplApply()" ${canEdit ? "" : "disabled"}
+        title="이 편의 스타일을 템플릿 값으로 통째 교체합니다(되돌리기 가능)">적용</button>
+      <button class="mini" onclick="edTplSave()" ${can("reviewer") ? "" : "disabled"}
+        title="지금 화면의 유효 디자인(채널 기본 + 이 편)을 이름 붙여 저장">현재 값 저장</button>
+      <button class="mini danger" onclick="edTplDelete()" ${can("reviewer") ? "" : "disabled"}
+        title="선택한 템플릿 삭제 — 이미 적용한 편들은 영향 없음">삭제</button>
+    </div>
+    <div class="sub" style="margin-bottom:6px">비워두면 채널 기본값을 그대로 씁니다 —
       이 편에만 적용됩니다.</div>
     <div class="edrows">${ED_STYLE_FIELDS.map(([k,l,ph]) => `
       <div class="edrow3"><label>${esc(l)}</label>
