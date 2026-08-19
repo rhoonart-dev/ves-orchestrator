@@ -2093,7 +2093,10 @@ def test_0054_v3_stamp_and_anchor_carryover():
     sql = _live_mig("CREATE OR REPLACE FUNCTION public.submit_editor_render")
     assert "source_time_sec' OR s ? 'style'" in sql          # 내용 기반 v3 판정
     assert "이미지 오버레이는 아직 렌더 미구현" not in sql    # 0057 개방 — 조기 거절 소멸
-    assert "WHERE s ? 'source_time_sec'" in sql              # 앵커 자막만 승계 생존
+    # 0059: 앵커 없는 승계 자막(신규·시각 고정)은 사람 값이라 **버리지 않는다** —
+    # 0054 의 생존 필터(jsonb_set 재조립)는 제거됐다(구간만 재제출 시 고정 줄 소실 방지)
+    assert "jsonb_set(v_prev, '{subtitles}', v_subs)" not in sql
+    assert "사람이 의도한 고정 시각" in sql
     # 0053 승계·0050 F-302 계약 유지(전문 재정의라 빠뜨리기 쉽다)
     assert "v_prev || p_overrides" in sql
     assert "draft_sent_at=now()" in sql
@@ -2492,6 +2495,35 @@ def test_aivideo_localize_edit_images(tmp_path):
     assert aivideo.localize_edit_images(same, tmp_path, gone) is same
 
 
+def test_dashboard_editor_v3b_tracks():
+    """V3-b: 완성본 타임라인 멀티트랙(V·자막·내레이션·이미지) — 블록 이동·트리밍·
+    인스펙터. 자막 타이밍을 손대면 그 줄은 시각 고정(pin — 앵커를 빼고 보냄, 계약 내),
+    내레이션·이미지는 출력→원본 절대초 역산(edSrcAtOut — 출력은 간극 없는 결합)."""
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert 'class="edlane v"' in html and 'class="edlane s"' in html   # 4레인
+    assert "edOutElDown" in html and "edOutElApply" in html            # 이동·트리밍
+    assert "edSrcAtOut" in html                                        # 출력→원본 역산
+    assert "edSubOutPos" in html                                       # 자막 출력좌표 단일 규약
+    assert "edInspHtml" in html and "edInspSet" in html                # 인스펙터
+    assert "edInspRepin" in html                                       # 앵커 복원
+    # pin 규약: 앵커를 빼고 보낸다 + 초안 왕복 + 경고 목록 합류 + 고아 검사 제외
+    assert "s.src != null && !s.pin" in html
+    assert "if (forDraft && s.pin) o.pin = true;" in html
+    assert "(s.src == null || s.pin)" in html
+    assert "s.src == null || s.pin) return;" in html
+    # 길이(끝)만 고친 편집도 dirty — end 비교가 있어야 인스펙터 길이 편집이 나간다
+    assert "Math.abs(s.end - edForm.subs[i].end) > 0.001" in html
+    # 리뷰 반영(V3-b 2차): 초안 신원(i0 — 시각 매칭은 타이밍 편집에 깨짐), 트랙 삭제
+    # 라우팅(Delete = 보이는 선택 우선), v2 잠금 게이트, 길이 밖 고정 줄 가시화
+    assert "o.i0 = i" in html and "x.i0 === i" in html
+    assert "if (edOutSel && edOutSelObj()){" in html
+    assert "edSubsTimingLocked" in html
+    assert '"oob"' in html and ".edoel.oob" in html
+    # 드래그 동결 가드 — V 구간 드래그와 같은 규약
+    assert html.count("edDrag = { out: true }") >= 2
+
+
 def test_0058_rotate_contract():
     """F-410 오케스트레이터 파트: 0058 이 images[].rotate 를 제출에서 검증(-180~180,
     숫자)하고, 화면은 editor_rotate 플래그 뒤에서만 회전을 만든다 — dc1060f 엔진은
@@ -2877,9 +2909,11 @@ def test_0053_editor_overrides_carryover():
     assert "coalesce(v_gen.params->'edit_overrides', '{}'::jsonb) - 'schema'" in sql
     # 새 값이 이긴다 — 승계분 || 새 payload 순서여야 한다
     assert "v_ov := v_prev || p_overrides" in sql
-    # 구간이 바뀌면 옛 자막 좌표는 무효
-    assert "p_overrides ? 'clips' AND NOT p_overrides ? 'subtitles'" in sql
-    assert "v_prev := v_prev - 'subtitles'" in sql
+    # 0059 개정: 구간이 바뀌어도 승계 자막을 버리지 않는다 — 앵커 줄은 재매핑되고,
+    # 앵커 없는 줄(신규·시각 고정)은 사람이 정한 값이다(V3-b). 0054 의 '앵커만 생존'
+    # 필터는 고정 줄을 소리 없이 지우는 구멍이라 제거됐다.
+    assert "사람이 의도한 고정 시각" in sql
+    assert "p_overrides ? 'clips' AND NOT p_overrides ? 'subtitles'" not in sql
     # 감사에 승계 키가 남아야 한다 — '왜 이 값이 들어갔나'를 추적할 유일한 곳
     assert "'carried'" in sql
 
