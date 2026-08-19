@@ -2524,6 +2524,20 @@ def test_dashboard_editor_v3b_tracks():
     assert html.count("edDrag = { out: true }") >= 2
 
 
+def test_dashboard_editor_v3c_frames():
+    """V3-c: 프레임 단위 정밀 — 스냅 1/24s(edQF), 선택 블록 ←→ 프레임 이동(무렌더 —
+    render 는 스테이지 video 를 파괴한다), 트랙 바닥 클릭 = 그 순간부터 가상 미리보기,
+    인스펙터 프레임 번호, Esc 선택 해제."""
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert "const ED_FPS = 24" in html and "edQF" in html
+    assert "edQ20" not in html                       # 0.05s 스냅은 프레임 스냅으로 대체
+    assert "edOutNudge" in html and "edOutClickTl" in html and "edOutSeek" in html
+    assert 'ev.target.closest(".edoclip,.edoel")' in html   # 블록 클릭과 바닥 클릭 분리
+    assert "Math.round(st.p * ED_FPS)" in html              # 인스펙터 프레임 표시
+    assert "else if (edOutSel){ edOutSel = null; edOutSync(); }" in html
+
+
 def test_0058_rotate_contract():
     """F-410 오케스트레이터 파트: 0058 이 images[].rotate 를 제출에서 검증(-180~180,
     숫자)하고, 화면은 editor_rotate 플래그 뒤에서만 회전을 만든다 — dc1060f 엔진은
