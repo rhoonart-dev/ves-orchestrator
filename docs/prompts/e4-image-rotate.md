@@ -1,4 +1,10 @@
-# images[].rotate — 이미지 오버레이 회전 (F-410 엔진 파트)
+# images[].rotate + subtitles[].style.rotate — 회전 (F-410 엔진 파트)
+
+> 2026-08-19 범위 추가(세션 시작 후 사용자 전달): **자막 줄 단위 회전**도 같은 세션에서.
+> `subtitles[].style.rotate`(선택, 도 단위 숫자, 시계방향 양수, -180~180, 기본 0) —
+> ASS 인라인 `\frz`(ASS 는 반시계 양수 — 부호 변환은 엔진 책임, 문서에 명시).
+> validate 의 style 허용 키에 rotate 추가 + 타입·범위 검증, 계약 문서 style 표 갱신,
+> 실측에 회전 자막 1줄 포함. 이미지 rotate 와 방향·범위 규약 동일 유지.
 
 (편집실 v2 · 엔진 세션 E4 · ai-video 레포 — E2(dc1060f) 머지 후에 열 것)
 
