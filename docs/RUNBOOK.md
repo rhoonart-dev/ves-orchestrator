@@ -45,3 +45,26 @@ generate(TTL 300s)는 최대 ~75초 안에 멈춘다.
 "엔진 X 가 마이그레이션 NNNN 적용 대기" → SQL 검토 → 적용(사용자 확인 규율) →
 `INSERT INTO applied_migrations(engine,version,applied_by) VALUES('X','NNNN','<이름>')`
 → 다음 claim 경계에서 노드들이 알아서 갱신.
+
+## 8. 컨트롤 플레인 커넥션 슬롯 고갈 (FATAL 53300)
+
+증상: 워커 claim·대시보드 REST 가 일시 실패, Postgres 로그에
+`FATAL: remaining connection slots are reserved for roles with the SUPERUSER attribute`.
+부하가 지나가면 자가 회복 — 워커는 §5 와 같이 대기만 하므로 잡은 안전.
+
+확인:
+- 재발 빈도: 대시보드 Logs > Postgres 에서 `remaining connection slots` 검색
+- 추이: Observability > Database 의 Database Connections 차트 (Max connections 점선 대비)
+- 실시간: `select usename, state, count(*) from pg_stat_activity group by 1,2 order by 3 desc;`
+
+구조: 상시 풀(PostgREST authenticator ~19 + storage_admin ~15 + 워커 claim 6 + pgbouncer
+~9 + 시스템)만으로 베이스라인 ~45 — 편집실 v2 배포(서명 URL·재료 업로드·대시보드 REST
+증가) 이후 피크에 한도까지 닿는다. Micro(한도 60) 시절 실측: 2026-08-18 17:29~17:33 ×7건,
+08-19 14:26 ×2건 — 매회 수 분 내 자가 회복. → **2026-08-19 Small 상향(한도 90) 적용됨.**
+
+대응:
+- 단기: 자가 회복 확인만. 워커 재시작 불필요(§5).
+- 재발 시(한도 90 도달): 위 확인 절차로 어느 풀이 늘었는지 특정 → Small→Medium(120직결/600풀러,
+  ~$60/월) 추가 상향 검토. 컴퓨트 변경은 수 분 재시작 수반 — 사용자 확인 후 실행.
+- 보조: PostgREST 풀은 Management API `PATCH /v1/projects/{ref}/postgrest` 의 `db_pool`
+  로 축소 가능하나 REST 동시성 저하 트레이드오프. storage_admin 풀은 사용자 설정 불가.
