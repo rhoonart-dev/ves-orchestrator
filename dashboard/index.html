@@ -3974,6 +3974,7 @@ function edDropFlag(){
 window.edClipDown = (ev, i) => {
   if (!edCanEdit() || !edForm.clips[i] || edForm.clips[i].del) return;
   if (ev.button !== 0) return;
+  edInspFlush();  // 소스 구간 드래그도 마지막에 render() 로 인스펙터를 파괴한다(L3)
   ev.preventDefault(); ev.stopPropagation();
   edSeqStop();   // 재생 틱이 드래그 중 변이값으로 점프·정지를 일으키면 안 된다
   const tlc = document.getElementById("edtlc"); if (!tlc) return;
@@ -4305,25 +4306,46 @@ function edOutSync(){
       !!edOutSel && el.dataset.t === edOutSel.t && +el.dataset.i === edOutSel.i));
   edInspSync();
 }
-window.edInspSet = (k, v) => {
+// 미커밋 플러시(JP-1 L3): 인스펙터 입력은 onchange 커밋인데, 트랙 블록 mousedown 은
+// preventDefault + 동기 innerHTML 교체로 blur/change 가 발화할 기회 자체를 없애
+// 타이핑이 무경고 소실된다. 그래서 선택을 갈아치우는 세 제스처(완성본 블록·V 블록·
+// 소스 구간)의 첫머리에서 포커스된 값을 조용히 먼저 커밋한다 — 커밋이 옛 선택에
+// 붙도록 반드시 edOutSel 교체 **전**이어야 한다. render 는 진행 중 mousedown
+// 제스처를 끊으므로 제스처가 끝난 다음 틱으로 미룬다 — OOB 특수 배치·충돌색·프레임
+// 라벨은 전체 재그림만이 진실이라 부분 패치로 흉내내지 않는다.
+function edInspFlush(){
+  const a = document.activeElement;
+  if (!a || !/^edin_[sed]$/.test(a.id)) return;
+  if (!edInspSet(a.id.slice(-1), a.value, true)) return;
+  document.addEventListener("mouseup",
+    () => setTimeout(() => { if (!edDrag) render(); }, 0), { once: true });
+}
+window.edInspSet = (k, v, quiet) => {
   const sel = edOutSel, obj = edOutSelObj();
   if (!sel || !obj || !edCanEdit()){ edInspSync(); return; }
+  // 빈 입력은 무행동 — Number("") 은 0 이라 지운 채 blur/플러시하면 0 이 커밋된다
+  const num = Number(v);
+  if (String(v).trim() === "" || !isFinite(num)){ edInspSync(); return; }
+  const { total } = edEffList();
+  const st = edOutElState(sel.t, obj);
+  // 무변화 커밋은 무시 — 앵커 줄이 이유 없이 pin 되면 안 된다. 표시값은 toFixed(2)
+  // 라 실값과 정확히 0.005 차이일 수 있고 그 경계는 부동소수로 < 가드를 뚫는다
+  // (예: 10.375 → "10.38") — 표시 표현 그대로면(포커스만 얹은 플러시) 무변화다.
+  const cur = k === "s" ? st.p : k === "d" ? st.len : st.p + st.len;
+  if (Math.abs(num - cur) < 0.005 || num === +cur.toFixed(2)){ edInspSync(); return; }
+  // 잠금 안내는 실제 변경 시도에만 — 무변화 가드 뒤라야 포커스만 얹은 플러시가
+  // 모든 mousedown 마다 토스트를 띄우지 않는다
   if (sel.t === "sub" && edSubsTimingLocked()){
     toast("구간을 고쳐 자막은 이번 렌더에서 다시 맞춰집니다 — 자막 시각은 렌더 후 고치세요", true);
     edInspSync(); return;
   }
-  const num = Number(v);
-  if (!isFinite(num)){ edInspSync(); return; }
-  const { total } = edEffList();
-  const st = edOutElState(sel.t, obj);
-  // 무변화 커밋(표기만 바꾼 onchange)은 무시 — 앵커 줄이 이유 없이 pin 되면 안 된다
-  const cur = k === "s" ? st.p : k === "d" ? st.len : st.p + st.len;
-  if (Math.abs(num - cur) < 0.005){ edInspSync(); return; }
   edSnap();
   if (k === "s") edOutElApply(sel.t, obj, st, "M", num - st.p, total);
   else if (k === "d") edOutElApply(sel.t, obj, st, "R", num - st.len, total);
   else edOutElApply(sel.t, obj, st, "R", (num - st.p) - st.len, total);  // 끝 = 시작 고정 길이 조정
-  edMark(); render();
+  edMark();
+  if (!quiet) render();            // quiet = 플러시 — render 는 edInspFlush 가 제스처 뒤로 미룬다
+  return true;
 };
 window.edInspRepin = () => {
   const obj = edOutSelObj();
@@ -4335,6 +4357,7 @@ window.edInspRepin = () => {
 
 window.edOutElDown = (ev, t, i, hd) => {
   if (ev.button !== 0) return;
+  edInspFlush();                   // 선택 교체 전 — preventDefault 가 blur 를 막는다(L3)
   ev.preventDefault(); ev.stopPropagation();
   edSeqStop();
   edOutElAt = Date.now();          // 이 제스처의 잔여 click 이 바닥 시킹으로 새지 않게(M1)
@@ -4379,6 +4402,7 @@ window.edOutElDown = (ev, t, i, hd) => {
 
 window.edOutDown = (ev, i) => {
   if (ev.button !== 0) return;
+  edInspFlush();                   // 선택 교체 전 — preventDefault 가 blur 를 막는다(L3)
   ev.preventDefault();
   edOutElAt = Date.now();          // V 블록 제스처도 바닥 클릭으로 새지 않게(M1)
   edSeqStop();

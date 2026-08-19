@@ -16,9 +16,9 @@ import traceback
 from ves import config as cfgmod
 from ves import db
 from ves.config import get_config
-from ves.scheduler import (channels_sync, drive_balance, drive_watch, perf_sync, planner,
-                           reaper, reconcile, source_watch, storage_gc, version_watch,
-                           zanmang_daily)
+from ves.scheduler import (channels_sync, drive_balance, drive_watch, editor_uploads_gc,
+                           perf_sync, planner, reaper, reconcile, source_watch,
+                           storage_gc, version_watch, zanmang_daily)
 
 KST = dt.timezone(dt.timedelta(hours=9))
 TICK_SEC = 30
@@ -111,6 +111,7 @@ def main():
                     ("perf_sync",     lambda: perf_sync.run(conn, cfg),     _due_interval(last.get("perf_sync"), now, 60)),
                     ("zanmang_daily", lambda: zanmang_daily.run(conn, cfg), _due_daily(last.get("zanmang_daily"), now, 10)),
                     ("storage_gc",    lambda: storage_gc.run(conn, cfg),    _due_daily(last.get("storage_gc"), now, 6)),
+                    ("editor_uploads_gc", lambda: editor_uploads_gc.run(conn, cfg), _due_daily(last.get("editor_uploads_gc"), now, 6)),
                 ]
                 for name, fn, due in tasks:
                     if not due:
