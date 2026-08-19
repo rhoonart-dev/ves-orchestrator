@@ -1040,13 +1040,41 @@ function woStatus(wo){
 const GEN_DOT = { failed:["bad","실패"], review:["wait","검수 대기"], rejected:["rej","반려"],
   published:["ok","합격·발행"], scheduled:["ok","합격·예약"], approved:["ok","합격"],
   running:["run","진행 중"], pending:["wait","대기"], none:["none","없음"] };
-function pubDot(wo){
-  const pub = (state.jobsByWo[wo.id]||[]).find(j => j.kind === "publish");
-  if (!pub) return ["none","없음"];
-  if (["failed","dead"].includes(pub.status)) return ["bad","발행 실패"];
-  if (pub.status === "succeeded")
-    return (pub.params && pub.params.publish_at) ? ["wait","예약됨"] : ["ok","발행됨"];
-  return ["wait","발행 대기"];
+// 공개 신호등은 '공개된 날짜' 기준(운영 요청 8/19). 종전에는 생성일로 고른 작업지시의
+// 발행 잡을 읽어서 — 17일에 만든 영상을 19일에 발행하면, 발행 당일엔 오늘 작업지시에
+// 발행이 없다며 꺼져 있고, 옛 작업분 배지 모드에선 초록이 17일 것처럼 붙었다.
+// 잡의 공개 날짜: 성공한 예약 업로드는 publish_at(시청자에게 열리는 시각), 즉시 발행은
+// 끝난 시각. 실패·진행은 그 일이 벌어진 시각 — 실패는 예약일이 아니라 실패한 날 보여야 한다.
+// 발행 잡은 state.pubJobs(발행만 200건 창)에서 찾는다 — jobs 150건 창은 하룻밤이면 좁다.
+// 신호등 공개 칸과 '오늘 발행' 타일이 같은 규칙을 쓴다 — 두 숫자가 어긋나면 못 믿는다.
+const pubDayOf = j => kstDay(j.status === "succeeded"
+  ? ((j.params||{}).publish_at || j.finished_at || j.updated_at)
+  : (j.finished_at || j.updated_at || j.created_at));
+function chPubDot(slug){
+  const today = kstDay();
+  const mine = (state.pubJobs||[]).filter(j => j.kind === "publish"
+    && (state.wo[j.work_order_id]||{}).channel_slug === slug);
+  const todays = mine.filter(j => pubDayOf(j) === today);
+  if (todays.some(j => ["failed","dead"].includes(j.status) && !isResolved(j, mine)))
+    return ["bad","발행 실패"];
+  if (todays.some(j => ["pending","running"].includes(j.status))) return ["wait","발행 대기"];
+  const done = todays.filter(j => j.status === "succeeded");
+  if (done.length){
+    // 오늘 예약분이라도 시각 전이면 노랑, 열렸으면 초록 — 점은 실제 공개 시각에 켜진다.
+    const opened = done.filter(j => { const at = (j.params||{}).publish_at;
+      return !at || new Date(at).getTime() <= Date.now(); });
+    return opened.length
+      ? ["ok","발행됨", opened.length > 1 ? `오늘 ${opened.length}건 공개` : ""]
+      : ["wait","예약됨", "오늘 " + new Date(done[0].params.publish_at)
+          .toLocaleTimeString("ko-KR",{timeZone:"Asia/Seoul",hour12:false,hour:"2-digit",minute:"2-digit"}) + " 공개"];
+  }
+  // 오늘 공개분이 없다 — 다가오는 예약만 알려준다(초록은 공개 당일에만 켜진다).
+  const next = mine.filter(j => j.status === "succeeded" && (j.params||{}).publish_at
+      && new Date(j.params.publish_at).getTime() > Date.now())
+    .sort((a,b) => a.params.publish_at < b.params.publish_at ? -1 : 1)[0];
+  if (next) return ["wait",
+    kstDay(next.params.publish_at).slice(5).replace("-","/") + " 예약", next.params.publish_at];
+  return ["none","없음"];
 }
 
 // ───────── 합격했으나 발행 안 됨 (8/17 사고) ─────────
@@ -1123,7 +1151,11 @@ function renderHome(){
   const isToday = ts => ts && kstDay(ts) === today;
   const failsToday = j.filter(x => ["failed","dead"].includes(x.status) && isToday(x.updated_at))
                       .filter(x => !isResolved(x, j));
-  const pubToday = j.filter(x => x.kind==="publish" && x.status==="succeeded" && isToday(x.finished_at||x.updated_at));
+  // '오늘 발행' = 오늘 공개되는 편수(공개 날짜 기준, 신호등 공개 칸과 동일 규칙 8/19).
+  // 잡이 끝난 날이 아니라 publish_at 이 기준이라, 어제 올린 오늘 19시 예약분도 오늘로 센다.
+  // jobs(150건 창)가 아니라 발행 전용 pubJobs(200건 창)에서 센다 — 창 밖 유실 방지.
+  const pubToday = (state.pubJobs||[]).filter(x =>
+    x.kind==="publish" && x.status==="succeeded" && pubDayOf(x) === today);
   const waiting = (state.reviews||[]).filter(r => r.status==="waiting");
   const n = state.nodes||[];
   const stale = n.filter(x => x.last_seen_at && Date.now()-new Date(x.last_seen_at).getTime() > 8*60*1000);
@@ -1193,7 +1225,8 @@ function renderHome(){
     const cur = ws.length ? ws[0] : woRecent(ch);
     const st = cur ? woStatus(cur) : "none";
     const [gc, gl] = GEN_DOT[st] || GEN_DOT.none;
-    const [pc, pl] = cur ? pubDot(cur) : ["none","없음"];
+    // 공개 칸은 작업지시가 아니라 발행 날짜로 판정한다 — cur(생성일 기준)와 무관.
+    const [pc, pl, pt] = chPubDot(ch.token_slug);
     const dateBadge = cur && !ws.length
       ? `<span class="fpill fp-mut" title="오늘 작업은 없음 — 마지막 작업분 표시">${
           esc(kstDay(cur.service_date||cur.created_at).slice(5).replace("-","/"))} 작업분</span>` : "";
@@ -1210,7 +1243,7 @@ function renderHome(){
       </div>
       <div class="dots">
         <div class="dcol${gc === "none" ? " dim" : ""}"><span class="dcap">생성</span><span class="chdot ${gc}" title="${esc(gl)}"></span><span class="dlab">${esc(gl)}</span></div>
-        <div class="dcol${pc === "none" ? " dim" : ""}"><span class="dcap">공개</span><span class="chdot ${pc}" title="${esc(pl)}"></span><span class="dlab">${esc(pl)}</span></div>
+        <div class="dcol${pc === "none" ? " dim" : ""}"><span class="dcap">공개</span><span class="chdot ${pc}" title="${esc(pt || pl)}"></span><span class="dlab">${esc(pl)}</span></div>
       </div></div>` +
       (open ? `<div class="bdetail">${cur ? chainHtml(cur)
               : '<span class="sub">최근 작업지시 없음</span>'}${runBox(ch.token_slug)}</div>` : "");
@@ -1279,7 +1312,8 @@ function renderHome(){
         <span class="lg"><span class="chdot rej"></span>반려</span>
         <span class="lg"><span class="chdot bad"></span>실패</span>
         <span class="lg"><span class="chdot none"></span>없음</span>
-        <span class="sub">오늘(KST) 기준 · 오늘 작업이 없으면 마지막 작업분을 날짜 배지와 함께 표시</span></div>
+        <span class="sub">오늘(KST) 기준 · 오늘 작업이 없으면 마지막 작업분을 날짜 배지와 함께 표시
+          · 공개 점은 만든 날이 아니라 실제 공개된 날(발행·예약 시각)에 켜짐</span></div>
       <div class="board">${board || '<div class="empty">channels_mirror 비어 있음</div>'}</div></section>
     ${failsToday.length ? `<section class="card"><h2>오늘 실패 상세</h2><div class="tblwrap">
       <table><tr><th>단계</th><th>작품</th><th>분류</th><th>오류</th></tr>${
