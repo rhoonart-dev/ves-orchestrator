@@ -2288,6 +2288,17 @@ def test_scan_cmd_fps_and_budget_follow_source():
     assert f"-b:v {scan_bitrate_kbps(2829, 150)}k" in lo    # 폴백은 낮은 예산으로 역산
 
 
+def test_dashboard_editor_drag_and_output_track():
+    """구간은 드래그로 다듬는다(F-102: 몸통 이동·양끝 트리밍 핸들·스냅·Alt 해제) —
+    출력 타임라인(F-105)이 완성본 순서와 59.7초 상한을 그리고 순서 드래그를 받는다."""
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert "edClipDown" in html and 'class="hL"' in html    # 몸통·핸들 드래그
+    assert "edSnapSec" in html and "altKey" in html         # 스냅 + Alt 해제
+    assert 'id="edouttl"' in html and "edOutDown" in html   # 출력 트랙 + 순서 드래그
+    assert "edolim" in html and "edoover" in html           # 59.7초 상한선·초과 표시
+
+
 def test_dashboard_editor_undo_and_soft_delete():
     """편집 실수 복구(F-104·F-106): Cmd+Z 스냅샷 스택 + 구간·자막 소프트 삭제.
     타이핑 스냅샷은 값이 바뀌기 **전**(beforeinput)에 잡아야 한다 — 바뀐 뒤에 잡으면
