@@ -2189,7 +2189,7 @@ def test_0046_editor_render_rewarms_source_on_same_node():
     다른 노드에서 성공하면 acquire.post_success 가 generate 에 두 번째 node: 캡을 붙여
     영원히 못 잡는 잡이 된다(required_caps <@ effective_caps 는 전량 포함 조건)."""
     sql = _live_mig("CREATE OR REPLACE FUNCTION public.submit_editor_render")
-    assert "0049" in sql, "submit_editor_render 의 라이브 정의가 0049 이상이어야 한다"
+    assert "0053" in sql, "submit_editor_render 의 라이브 정의가 0053 이상이어야 한다"
     assert "'acquire'" in sql, "재렌더 체인 맨 앞에 acquire 가 있어야 한다"
     assert "ARRAY['network', 'node:' || v_gen.node_id]" in sql, "acquire 도 같은 노드에 핀"
     assert "'editrender:' || p_review_id || ':acq'" in sql
@@ -2611,8 +2611,8 @@ def test_0045_cache_requires_editing_video():
     assert "_audit('editor_open'" in sql
 
 
-# ───────── 0049: 편집 라운드 누적 승계 ─────────
-def test_0049_editor_overrides_carryover():
+# ───────── 0053: 편집 라운드 누적 승계 ─────────
+def test_0053_editor_overrides_carryover():
     """🛑 2026-08-19 실측(커리어데이_ae71b530): 1라운드 제목+구간 편집 후 2라운드에서
     내레이션만 고쳐 보냈더니 제목·구간이 초기 버전으로 되돌아갔다.
 
