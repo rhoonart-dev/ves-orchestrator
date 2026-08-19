@@ -2383,7 +2383,33 @@ def test_closeup_cmd_seeks_before_input_and_uses_duration():
     assert a.index("-t") > i_in and a[a.index("-t") + 1] == "60.000"
     s = " ".join(a)
     assert "fps=24" in s and "scale=-2:480" in s and "+faststart" in s
-    assert "-g 48" in s                                     # 2초 GOP — 스크럽 seek
+    assert "expr:gte(t,n_forced*2)" in s                    # 2초 키프레임 — 스크럽 seek
+
+
+def test_closeup_cmd_fps_follows_source():
+    """fps 필터는 마스터 소스일 때만 — 4fps 프록시에 fps=24 를 걸면 같은 그림을 여섯 번
+    복제해 '정밀 구간(24fps)'을 사칭한다(scan 의 F-206 과 같은 결). fps 는 scale 보다
+    앞 — 버릴 프레임까지 스케일하지 않는다. 키프레임은 프레임(-g)이 아니라 시간 기준 —
+    폴백에선 소스 fps 를 모르는데 -g 48 이면 4fps 에서 GOP 12초가 된다."""
+    from ves.adapters.editor_assets import closeup_cmd, CLOSEUP_FPS
+    hq = " ".join(closeup_cmd("/m.mp4", "/tmp/c0.mp4", 100.0, 160.0))
+    lo = " ".join(closeup_cmd("/runs/x/작품_480.mp4", "/tmp/c0.mp4", 100.0, 160.0,
+                              fps=None))
+    assert f"fps={CLOSEUP_FPS},scale=-2:480" in hq          # fps 먼저 — 스케일 낭비 방지
+    assert "fps=" not in lo                                 # 폴백은 소스 fps 그대로
+    assert "expr:gte(t,n_forced*2)" in lo and "-g " not in lo
+
+
+def test_dashboard_closeup_fps_label_reads_meta():
+    """클로즈업 라벨은 재료 메타(closeup_fps)를 읽는다 — 구 재료엔 메타가 없고, 폴백은
+    scan 과 반대다: 마스터 산출물의 24 는 사실이지만 프록시 산출물의 24 는 거짓
+    (4fps 프레임 복제)이라 closeup_source 로 갈라 4fps 로 바로잡는다."""
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert "closeup_fps" in html
+    assert "정밀 구간(4fps)" in html                        # 구 프록시 재료 폴백
+    assert "정밀 구간(24fps)" in html                       # 구 마스터 재료 폴백
+    assert "closeup_source" in html                         # 폴백 판정 재료
 
 
 def test_closeup_windows_merge_and_cap():

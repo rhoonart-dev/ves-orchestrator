@@ -2326,7 +2326,9 @@ function renderEdit(){
       <span>원본 타임라인 — 색 블록이 이 쇼츠에 쓰인 구간입니다
       ${edForm.tts.length ? `<span style="color:#87CEEB">· 하늘색 마커가 내레이션</span>
         <span class="sub">(빗금 = 원본 장면이 구간에서 빠짐)</span>` : ""}
-      ${(med.closeups||[]).length ? `<span class="sub">· 진한 부분은 정밀 편집용 고화질이 있는 구간</span>` : ""}</span>
+      ${(med.closeups||[]).length ? `<span class="sub">· 진한 부분은 ${
+        med.closeup_source === "proxy" ? "구간 클로즈업이 있는 구간(마스터 없음 — 프록시 화질)"
+        : "정밀 편집용 고화질이 있는 구간"}</span>` : ""}</span>
       <span class="edzoombar">
         <button class="mini" onclick="edZoomBy(1/1.5)" title="축소 (-)">−</button>
         <b id="edzoomlab"></b>
@@ -2665,10 +2667,15 @@ async function edLoadSource(t, play){
     edSeeking = false;
   }
   if (gen !== edLoadGen) return;
-  // 전체 훑기 fps 는 재료 메타에서 — 구 재료(0048 전)엔 scan_fps 가 없다: 프록시로 뜬
-  // 것은 4fps 가 사실이지만, 마스터로 뜬 것(source="master")은 fps 미상이라 숫자를 뺀다.
+  // fps 라벨은 재료 메타에서 — 구 재료엔 메타가 없다(scan_fps 는 0048 전, closeup_fps 는
+  // 그 이전 전부). 폴백은 소스별: 프록시 scan 은 4fps 가 사실이고, 마스터 scan 은 fps
+  // 미상이라 숫자를 뺀다. 클로즈업은 반대로 마스터 산출물의 24 가 사실이고, 구 프록시
+  // 산출물은 기록된 24 가 거짓(4fps 프레임 복제)이라 4fps 로 바로잡는다.
   const med2 = (((edData.sprites||{}).assets||{}).media||{});
-  if (nm) nm.textContent = want.hq ? "정밀 구간(24fps)"
+  if (nm) nm.textContent = want.hq
+    ? (med2.closeup_fps ? `정밀 구간(${med2.closeup_fps}fps)`
+       : med2.closeup_source === "proxy" ? "정밀 구간(4fps)"
+       : "정밀 구간(24fps)")
     : med2.scan_fps ? `전체 훑기(${med2.scan_fps}fps)`
     : med2.source === "master" ? "전체 훑기"
     : "전체 훑기(4fps)";
