@@ -331,6 +331,18 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .edocue{position:absolute;bottom:2px;height:4px;width:5px;border-radius:2px;
           background:#87CEEB;pointer-events:none;font-style:normal}
   .edosub.clash,.edocue.clash{background:#ffb14e;height:6px}  /* 겹침(F-205) */
+  /* 재렌더 진행 스트립(F-301) */
+  .edchain{margin-top:10px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;
+           background:var(--surface-2);font-size:12.5px}
+  .edchainrow{display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap}
+  .edchain .arr{color:var(--muted)}
+  .edchip{padding:2px 10px;border-radius:99px;border:1px solid var(--line);
+          background:var(--surface);color:var(--muted)}
+  .edchip.run{border-color:#5b8def;color:#5b8def;font-weight:700}
+  .edchip.ok{background:#4a9d6f;border-color:#4a9d6f;color:#fff}
+  .edchip.bad{background:var(--serious,#b3403a);border-color:transparent;color:#fff}
+  .edchip.hold{border-color:var(--warn);color:var(--warn);font-weight:700}
+  .edchaindone{margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
   .edolim{position:absolute;top:0;bottom:0;width:2px;background:var(--warn);
           pointer-events:none}
   .edoover{position:absolute;top:0;bottom:0;pointer-events:none;
@@ -1994,7 +2006,9 @@ function edCollect(forDraft){
 // 1.5초 쉬면 한 번 보낸다. 저장 성공 시각을 화면에 적어 '남았는지'를 눈으로 확인시킨다.
 let edSaveTimer = null, edSavedAt = null;
 function edQueueSave(){
-  if (!edForm || !edData || !edData.run_id) return;
+  // sent: 제출 성공 후 잔류 화면 — 0047 이 방금 지운 초안을 자동 저장이 1.5초 뒤
+  // 되살리면, 같은 run_id 를 재사용하는 새 카드에 낡은 편집이 이중 적용된다.
+  if (!edForm || edForm.sent || !edData || !edData.run_id) return;
   clearTimeout(edSaveTimer);
   edSaveTimer = setTimeout(async () => {
     const ov = edCollect(true);
@@ -2092,7 +2106,15 @@ window.edSubmit = async () => {
   const r = await rpc("submit_editor_render",
     { p_review_id: edRid, p_overrides: ov, p_note: null },
     "다시 렌더합니다 — 끝나면 새 검수 카드가 올라옵니다(수십 초~수 분)");
-  if (r){ edTtsStop(); edRid = null; edData = null; edForm = null; tab = "review"; render(); }
+  if (r){
+    // 편집실에 남는다(F-301) — 진행 스트립이 이 화면에 뜨고, 새 카드가 오면 바로 잇는다
+    edTtsStop();
+    edForm.sent = true;                      // 자동 저장 차단 — 초안 부활 방지
+    const wo = ((state.reviews||[]).find(x => x.id === edRid) || {}).work_order_id;
+    edChain = { rid: edRid, woId: wo,
+                kind: (ov.clips || ov.tts) ? "resources" : "render", jobs: {} };
+    render();                                // 렌더 꼬리가 폴링을 시작한다
+  }
   else if (btn) edMark();
 };
 
@@ -2101,6 +2123,8 @@ window.openEditor = async (rid) => {
   edZoom = 1; edTlScroll = 0; edKbHelp = false;
   edVMode = "src"; edSeq = null; edPrevKey = null; edPrevBucket = null; edPrevT = 0;
   edTtsStop();
+  // 같은 카드 재진입이면 체인 상태를 지키고(스트립·잠금·새 카드 감지), 다른 카드면 버린다
+  if (!edChain || edChain.rid !== rid){ edChain = null; clearTimeout(edChainTimer); }
   render();
   try {
     const r = await sb.rpc("request_editor_assets", { p_review_id: rid });
@@ -2236,7 +2260,7 @@ function renderEdit(){
   const pct = t => (Math.max(0, Math.min(dur, Number(t)||0)) / dur * 100).toFixed(4);
   const pay = r.payload || {};
   edPrevKey = pay.preview_key || null; edPrevBucket = pay.bucket || null;
-  const canEdit = edCanEdit(r);
+  const canEdit = edCanEdit(r);   // 체인 잠금 포함(edCanEdit 내부)
   if (!edForm || edForm.rid !== edRid) edResetForm();
   const med = (sp.assets || {}).media || {};
   const hasVideo = !!(med.scan || (med.closeups||[]).length);
@@ -2382,6 +2406,7 @@ function renderEdit(){
           : "타임라인: 클릭 이동 · 휠 줌 · Shift+휠 좌우 · ? 단축키"}</span></div>
     </div>
 
+    ${edChain && edChain.rid === edRid ? edChainHtml() : ""}
     ${canEdit ? `<div class="edfoot2">
       <button class="pri act" id="edsubmit" onclick="edSubmit()" disabled>
         ✏️ 고친 내용으로 다시 렌더</button>
@@ -2407,6 +2432,8 @@ function renderEdit(){
   if (sp.assets && sp.assets.wave) signedUrl("ves-outputs", sp.assets.wave, 1800)
     .then(u => { const w = document.getElementById("edwave"); if (w) w.src = u; }).catch(()=>{});
   edTlAfterRender();
+  // 다른 탭에 갔다 오면 폴링 타이머가 죽어 있다 — 진행 중 체인이 있으면 재개
+  if (edChain && edChain.rid === edRid && !edChain.newRid && !edChain.failed) edChainPoll();
   edPaintThumb(document.getElementById("edthumb"), sp, edCursor);
 }
 
@@ -2758,6 +2785,7 @@ window.edMarkIn  = () => { if (!edForm) return; edForm.in = edCursor;
 window.edMarkOut = () => { if (!edForm) return; edForm.out = edCursor;
   if (edForm.in != null && edForm.in >= edCursor) edForm.in = null; edMarksSync(); };
 window.edAddClip = () => {
+  if (!edCanEdit()){ toast("이 카드는 지금 고칠 수 없습니다", true); return; }
   const a = edForm.in, b = edForm.out;
   if (a == null || b == null || b <= a){ toast("시작과 끝을 먼저 찍으세요", true); return; }
   edSnap();
@@ -3322,9 +3350,86 @@ function edConflicts(){
   return { subClash, ttsClash, ttsCut: new Set(cues.filter(c => c.cut).map(c => c.i)), dup };
 }
 
+// ── 재렌더 진행 표시 (F-301) + 연속 편집 (F-304) ─────────────────────
+// 제출 후 편집실을 떠나지 않는다 — 체인 잡(editrender:*)만 5초 표적 폴링해 스트립을
+// 부분 갱신한다. 전체 refresh/render 는 재생 중 video 와 편집 상태를 파괴한다.
+let edChain = null, edChainTimer = null;
+const ED_CHAIN_STEPS = [["acquire","소스"],["generate","렌더"],
+                        ["upload_artifacts","업로드"],["ingest","등록"],
+                        ["evaluate","검수 준비"]];
+function edChainHtml(){
+  if (!edChain) return "";
+  const jobs = edChain.jobs || {};
+  const chips = ED_CHAIN_STEPS.map(([k, l]) => {
+    const j = jobs[k] || {};
+    const st = j.status || "pending";
+    const cls = st === "succeeded" ? "ok"
+              : ["failed", "dead", "cancelled"].includes(st) ? "bad"
+              : st === "blocked" ? "hold" : st === "running" ? "run" : "";
+    return `<span class="edchip ${cls}" title="${esc(k)} — ${esc(st)}${
+      j.error ? " · " + esc(String(j.error).slice(0, 80)) : ""}">${l}</span>`;
+  }).join(`<span class="arr">→</span>`);
+  const eta = edChain.kind === "resources"
+    ? "구간·내레이션 수정 — 리소스부터 다시 만듭니다(몇 분)"
+    : "제목·자막·스타일만 — 렌더만 다시 합니다(1분 내)";
+  let tail = "";
+  if (edChain.failed)
+    tail = `<div class="edwarn" style="margin-top:8px">⚠ 렌더 체인 ${
+      edChain.failed.status === "blocked" ? "대기(사람 개입 필요)" : "실패"} — ${
+      esc(edChain.failed.kind)}(${esc(edChain.failed.status)}): ${
+      esc(String(edChain.failed.error || "").slice(0, 160))}
+      <span class="sub">관제 화면에서 확인하세요 — 초안 기반 재제출은 다음 업데이트(F-302)에서.</span></div>`;
+  else if (edChain.newRid)
+    tail = `<div class="edchaindone">✅ 새 검수 카드가 올라왔습니다 —
+      <button class="pri mini" onclick="edOpenNew('${edChain.newRid}')">방금 렌더 결과 열기</button>
+      <span class="sub">새 편집실의 '현재 완성본'이 방금 렌더입니다 — 이전 판과 비교하려면
+      지금 이 화면의 완성본을 먼저 봐두세요.</span></div>`;
+  return `<div class="edchain" id="edchain">
+    <b>재렌더 진행</b> <span class="sub">${eta} · 이 카드는 반려로 닫혔고 끝나면 새 카드가 올라옵니다</span>
+    <div class="edchainrow">${chips}</div>${tail}</div>`;
+}
+async function edChainPoll(){
+  // 목록 화면(edRid=null)·다른 카드에선 멈춘다 — 스트립도 없는데 fetch 만 돈다
+  if (!edChain || tab !== "edit" || edRid !== edChain.rid) return;
+  try {
+    const { data } = await sb.from("job_queue")
+      .select("kind,status,error")
+      .like("idempotency_key", "editrender:" + edChain.rid + "%");
+    if (edChain){
+      const jobs = {};
+      (data || []).forEach(j => { jobs[j.kind] = j; });
+      edChain.jobs = jobs;
+      // failed 만이 아니다 — transient 소진은 dead, 사람 개입은 blocked, 취소는 cancelled.
+      // 이걸 모르면 회색 칩인 채 5초 폴이 영원히 돈다.
+      edChain.failed = (data || []).find(j =>
+        ["failed", "dead", "cancelled", "blocked"].includes(j.status)) || null;
+      if ((jobs.evaluate || {}).status === "succeeded" && !edChain.newRid){
+        const { data: rv } = await sb.from("review_queue")
+          .select("id").eq("work_order_id", edChain.woId)
+          .eq("kind", "publish_gate").eq("status", "waiting")
+          .order("created_at", { ascending: false }).limit(1);
+        if (rv && rv.length) edChain.newRid = rv[0].id;
+      }
+      const el = document.getElementById("edchain");
+      if (el) el.outerHTML = edChainHtml();   // 부분 갱신 — render() 는 video 를 죽인다
+    }
+  } catch (e){ /* 폴링 실패는 다음 틱에 다시 */ }
+  clearTimeout(edChainTimer);
+  if (edChain && !edChain.newRid && !edChain.failed)
+    edChainTimer = setTimeout(edChainPoll, 5000);
+}
+// 새 카드는 편집실이 자동 갱신에서 빠져 state.reviews 에 없다 — 먼저 채우고 연다.
+// 안 채우면 헤더 공란 + '일본어 카드 보기 전용' 오안내 화면이 뜬다.
+window.edOpenNew = async rid => {
+  try { await refresh(); } catch (e){ /* 실패해도 열기는 시도 */ }
+  openEditor(rid);
+};
+
 // ── 키보드 단축키 (F-103) ─────────────────────────────────────────────
 function edCanEdit(r){
-  // '현재 편집 중인 카드' 조회를 한 곳으로 — renderEdit 은 찾아 둔 행을 넘긴다
+  // '현재 편집 중인 카드' 조회를 한 곳으로 — renderEdit 은 찾아 둔 행을 넘긴다.
+  // 체인 잠금도 여기서 — 전역 핸들러(Delete 키·드래그)가 각자 챙기면 반드시 샌다.
+  if (edChain && edChain.rid === edRid) return false;
   r = r || (state.reviews||[]).find(x => x.id === edRid) || {};
   return can("reviewer") && r.kind === "publish_gate" && r.status === "waiting";
 }
