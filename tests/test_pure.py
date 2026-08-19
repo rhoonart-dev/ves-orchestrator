@@ -2412,7 +2412,15 @@ def test_dashboard_editor_sub_style_wysiwyg():
     assert "edSubDragDown" in html and "edStyleToolToggle" in html  # 드래그 + ✎ 토글
     assert "edSubSize" in html and "edSubColor" in html             # 크기·색
     assert "edSubStyleReset" in html                                # 채널 기본값 복귀
-    assert "ED_SUB_Y_DEFAULT" in html                               # 하단 비율 기본값
+    # v3 계약: style.y 는 0=상단, 1=하단(자막 하단 위치) — 화면은 bottom 이라 (1−y).
+    # 기본값은 채널 subtitle_y_margin 역산. (첫 판의 '하단 비율' 해석은 상하 반전 버그)
+    assert "edSubYDef" in html
+    assert "1 - ((+d.subtitle_y_margin || 380) / 1920)" in html
+    assert "(1 - yv) * 100" in html
+    # TTS(내레이션) 자막 — 위치는 이 편 전체 공통(design.tts_y_margin, 하단 px 드래그)
+    assert "edTtsDragDown" in html
+    assert "tts_y_margin: Math.round(nb * 1920)" in html
+    assert '"tts_y_margin"' in html or "'tts_y_margin'" in html or "edd_tts_y_margin" in html
     # 수집: 아는 키(size·y·color)만 정제해 싣는다 — 플래그 게이트 없음(전량 교체라
     # 빼면 스타일 있는 카드의 재제출이 스타일을 조용히 벗긴다)
     assert "if (s.style){" in html

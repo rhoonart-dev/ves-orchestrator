@@ -308,9 +308,9 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
              line-height:1.15;text-shadow:0 2px 6px #000c,0 0 2px #000}
   .edovsub{position:absolute;left:4%;right:4%;bottom:13%;text-align:center;font-weight:800;
            text-shadow:0 2px 5px #000c,0 0 2px #000}
-  .edovsub.editable{pointer-events:auto;cursor:grab;outline:1.5px dashed #ffffff88;
-                    border-radius:4px}
-  .edovsub.editable:active{cursor:grabbing;outline-color:var(--warn)}
+  .edovsub.editable,.edovtts.editable{pointer-events:auto;cursor:grab;
+                    outline:1.5px dashed #ffffff88;border-radius:4px}
+  .edovsub.editable:active,.edovtts.editable:active{cursor:grabbing;outline-color:var(--warn)}
   .edovtts{position:absolute;left:4%;right:4%;bottom:25%;text-align:center;font-weight:800;
            color:#87CEEB;text-shadow:0 2px 5px #000c,0 0 2px #000}
   .edovnote{position:absolute;right:6px;top:4px;max-width:60%;text-align:right;
@@ -2412,13 +2412,13 @@ function renderEdit(){
             title="고친 구간 순서대로 이어 재생하며 제목·자막을 겹쳐 봅니다(근사)">▶ 가상 미리보기</button>
           ${edV3() && canEdit ? `<button class="mini ${edStyleTool ? "on" : ""}"
             id="edstylebtn" onclick="edStyleToolToggle()"
-            title="화면의 자막을 끌어 위치를, A−·A＋로 크기를 그 줄만 바꿉니다">✎ 자막 위치·크기</button>` : ""}
+            title="자막을 끌면 그 줄만, 하늘색(내레이션)을 끌면 전체 내레이션의 위치가 바뀝니다. A−·A＋는 그 자막 줄 크기">✎ 자막·TTS 위치</button>` : ""}
         </div>
         <div class="edstage" id="edstage">
           <video id="edvid" playsinline preload="metadata" controls></video>
           <div class="edov" id="edov">
             <div class="edovtitle" id="edovtitle"></div>
-            <div class="edovtts" id="edovtts"></div>
+            <div class="edovtts" id="edovtts" onmousedown="edTtsDragDown(event)"></div>
             <div class="edovsub" id="edovsub" onmousedown="edSubDragDown(event)"></div>
             <div class="edovnote" id="edovnote" style="display:none">근사 미리보기 — 글꼴·배치·색이
               다를 수 있고, 크롭은 중앙 기준(실제는 얼굴 추종으로 움직일 수 있음)</div>
@@ -2662,7 +2662,8 @@ function edPaneSubs(canEdit){
     <div class="edcap">상단 제목 <span class="sub">— 영상 안에 그려지는 글자(줄바꿈 유지)</span></div>
     <textarea id="edtitle" rows="2" oninput="edMark()" ${canEdit ? "" : "disabled"}></textarea>
     <div class="edcap">자막 ${edForm.dSubs.filter(s=>!s.del).length}건
-      <span class="sub">— 시각(완성본 기준)을 누르면 원본 위치로 · 비우면 그 줄이 빠집니다</span></div>
+      <span class="sub">— 시각(완성본 기준)을 누르면 원본 위치로 · 비우면 그 줄이 빠집니다${
+      edV3() && canEdit ? " · ✎ 스타일(위치·크기·색)은 줄마다 따로 저장됩니다" : ""}</span></div>
     <div class="edsubs">${edForm.dSubs.map((s, i) => `
       <div class="edsub ${s.del ? "del" : ""}">
         <span class="t" onclick="edSeek(${s.src ?? 0})"
@@ -2763,14 +2764,20 @@ function edPaneTts(canEdit){
 // ── 우측 패널: 스타일 ──────────────────────────────────────────────────
 // 채널 디자인 위에 이 한 편만 얹는다(빈 칸 = 채널 값 그대로).
 const ED_STYLE_FIELDS = [
-  ["title_size",       "제목 크기",     "예: 96"],
-  ["title_y",          "제목 세로 위치", "위에서부터 px"],
+  // ⚠ 제목 크기·위치는 엔진이 아직 안 받는다(실측 2026-08-19: 그리기는 title_sizes
+  // 고정, 위치는 영상 위 동적 배치) — 엔진 개선(E2 부록) 전까지 보내도 변화 없음.
+  ["title_size",       "제목 크기 (엔진 미적용)", "예: 96"],
+  ["title_y",          "제목 세로 (엔진 미적용)", "위에서부터 px"],
   ["title_color",      "제목 색(1줄)",   "#FFFFFF"],
   ["title_color2",     "제목 색(2줄)",   "#FFE400"],
   ["subtitle_size",    "자막 크기",     "예: 65"],
   ["subtitle_color",   "자막 색",       "#FFFFFF"],
   ["subtitle_style",   "자막 스타일",   "kvar_yellow 등"],
   ["subtitle_font",    "자막 폰트",     "여기어때 잘난체 2 TTF"],
+  // TTS(내레이션) 자막 — 엔진 tts_line_*. 세로는 하단에서 px(스테이지 드래그와 동기)
+  ["tts_size",         "TTS 자막 크기",  "예: 70"],
+  ["tts_color",        "TTS 자막 색",    "#87CEEB"],
+  ["tts_y_margin",     "TTS 세로(하단px)", "예: 580"],
 ];
 function edPaneStyle(canEdit){
   const base = edBaseDesign();
@@ -2780,8 +2787,9 @@ function edPaneStyle(canEdit){
       <div class="edrow3"><label>${esc(l)}</label>
         <input id="edd_${k}" placeholder="${esc(base[k] != null ? "채널: " + base[k] : ph)}"
           ${canEdit?"":"disabled"} oninput="edStyleSet('${k}',this.value)"></div>`).join("")}</div>
-    <div class="sub" style="margin-top:8px">자막 세로 위치는 화면 비율에 맞춰 엔진이 계산합니다 —
-      지금은 바꿀 수 없습니다.</div>`;
+    <div class="sub" style="margin-top:8px">자막 줄별 위치·크기·색은 왼쪽 쇼츠 화면의
+      ✎ 로 — 여기 값은 이 편 전체 기본값입니다. TTS 세로는 ✎ 드래그와 같은 값
+      (하단 px)이고 모든 내레이션에 함께 적용됩니다.</div>`;
 }
 
 // ── 플레이어 ───────────────────────────────────────────────────────────
@@ -3511,7 +3519,10 @@ function edDesign(){
 // 근사가 목적: 렌더 정본은 엔진. seq 모드는 제목·자막·내레이션 전부, prev 모드는
 // 자막이 이미 구워져 있으므로 ✎(스타일 편집)이 켜졌을 때만 '유령 자막'을 겹친다 —
 // 위치·크기를 끌어 만질 대상이 화면에 있어야 해서다.
-const ED_SUB_Y_DEFAULT = 0.13;   // 엔진 기본 자막 하단 여백의 근사 — 정본은 엔진 MarginV
+// v3 style.y = 자막 **하단**이 놓일 캔버스 세로 위치(0=상단, 1=하단) — ai-video 계약:
+// MarginV = (1−y)×1920. 화면 CSS 는 bottom 기준이라 (1−y) 로 그린다. 기본값은 채널
+// subtitle_y_margin(하단 px)의 역산 근사 — 정본은 엔진 프리셋.
+const edSubYDef = d => 1 - ((+d.subtitle_y_margin || 380) / 1920);
 function edStagePaint(outT){
   const st = document.getElementById("edstage"); if (!st || !edForm) return;
   edStageT = Number(outT) || 0;
@@ -3551,25 +3562,38 @@ function edStagePaint(outT){
     se.style.display = (seqMode || editing) ? "" : "none";
     se.style.fontSize = ((+sty.size || +d.subtitle_size || 65) * sc) + "px";
     se.style.color = sty.color || d.subtitle_color || "#FFFFFF";
-    se.style.bottom = (Math.max(0, Math.min(0.92,
-      sty.y != null ? +sty.y : ED_SUB_Y_DEFAULT)) * 100) + "%";
+    const yv = Math.max(0.05, Math.min(0.98, sty.y != null ? +sty.y : edSubYDef(d)));
+    se.style.bottom = ((1 - yv) * 100) + "%";
     se.textContent = sub ? sub.text : "";
     se.classList.toggle("editable", editing && !!sub);
     se.title = editing && sub ? `${si + 1}번 자막 — 끌어서 위치 이동` : "";
   }
   const te = document.getElementById("edovtts");
   if (te){
-    te.style.display = seqMode ? "" : "none";
-    if (seqMode){
-      const cue = edForm.tts.find(t => {
-        if (t.del) return false;
-        const r = edOutPos(eff, t.src);
-        return r && outT >= r.p && outT < r.p + t.dur;
-      });
-      // 엔진 전용 키(tts_size·tts_color)가 있으면 그대로 — 없을 때만 근사 기본값
-      te.style.fontSize = ((+d.tts_size || (+d.subtitle_size || 65) * 0.9) * sc) + "px";
+    te.style.display = (seqMode || editing) ? "" : "none";
+    if (seqMode || editing){
+      let cue = null;
+      if (seqMode){
+        cue = edForm.tts.find(t => { if (t.del) return false;
+          const r = edOutPos(eff, t.src); return r && outT >= r.p && outT < r.p + t.dur; });
+      } else {
+        // prev = 종전 렌더의 완성본 시간축 — 지금 고친 구간(eff)이 아니라 그 렌더의
+        // 구간(clips0)으로 환산해야 preview.mp4 화면과 겹치는 순간이 맞는다
+        let off0 = 0;
+        const eff0 = edForm.clips0.map(c => {
+          const e = { c, off: off0 }; off0 += Math.max(0, c.end - c.start); return e; });
+        cue = edForm.tts.find(t => { if (t.del) return false;
+          const r = edOutPos(eff0, t.src); return r && outT >= r.p && outT < r.p + t.dur; });
+      }
+      // 엔진 전용 키(tts_size·tts_color·tts_y_margin=하단 px)가 있으면 그대로 —
+      // 없을 때만 근사 기본값(엔진 tts_line_* 기본과 동치)
+      te.style.fontSize = ((+d.tts_size || 70) * sc) + "px";
       te.style.color = d.tts_color || "#87CEEB";
+      te.style.bottom = (Math.max(0.02, Math.min(0.9,
+        (+d.tts_y_margin || 580) / 1920)) * 100) + "%";
       te.textContent = cue ? cue.text : "";
+      te.classList.toggle("editable", editing && !!cue);
+      te.title = editing && cue ? "내레이션 자막 — 끌어서 세로 위치(모든 내레이션 공통)" : "";
     }
   }
   const tools = document.getElementById("edsubtools");
@@ -3598,14 +3622,15 @@ window.edSubDragDown = ev => {
   if (!s || !st || !se) return;
   ev.preventDefault(); ev.stopPropagation();
   const H = st.clientHeight || 480;
-  const y0 = s.style && s.style.y != null ? +s.style.y : ED_SUB_Y_DEFAULT;
+  const y0 = s.style && s.style.y != null ? +s.style.y : edSubYDef(edDesign());
   const cy = ev.clientY;
   edSnap("subdrag" + i);
   const move = e => {
     if (!e.buttons){ up(); return; }
-    const ny = Math.max(0.02, Math.min(0.92, y0 + (cy - e.clientY) / H));
+    // 아래로 끌면 y(상단 기준 비율)가 커진다 — 화면 bottom 은 (1−y)
+    const ny = Math.max(0.05, Math.min(0.98, y0 + (e.clientY - cy) / H));
     s.style = { ...(s.style || {}), y: +ny.toFixed(4) };
-    se.style.bottom = (ny * 100) + "%";
+    se.style.bottom = ((1 - ny) * 100) + "%";
   };
   const up = () => {
     document.removeEventListener("mousemove", move);
@@ -3646,6 +3671,34 @@ window.edSubStyleReset = () => {
   edSnap();
   delete edForm.dSubs[i].style;
   edStagePaint(edStageT); edMark();
+};
+// 내레이션(TTS) 자막 위치 — 줄 단위가 아니라 **이 편 전체 공통**(design.tts_y_margin,
+// 엔진 tts_line_y_margin = ASS MarginV, 하단에서 px). 끌면 모든 내레이션이 함께 움직인다.
+// 크기·색은 스타일 탭(tts_size·tts_color). v3 필요 없음 — design 은 v1 계약부터 있었다.
+window.edTtsDragDown = ev => {
+  if (ev.button !== 0 || !edStyleTool || !edCanEdit()) return;
+  const st = document.getElementById("edstage"), te = document.getElementById("edovtts");
+  if (!st || !te || !edForm) return;
+  ev.preventDefault(); ev.stopPropagation();
+  const H = st.clientHeight || 480;
+  const b0 = Math.max(0.02, Math.min(0.9, (+edDesign().tts_y_margin || 580) / 1920));
+  const cy = ev.clientY;
+  edSnap("ttsdrag");
+  const move = e => {
+    if (!e.buttons){ up(); return; }
+    const nb = Math.max(0.02, Math.min(0.9, b0 + (cy - e.clientY) / H));  // 위로 끌면 여백↑
+    edForm.design = { ...(edForm.design || {}), tts_y_margin: Math.round(nb * 1920) };
+    te.style.bottom = (nb * 100) + "%";
+  };
+  const up = () => {
+    document.removeEventListener("mousemove", move);
+    document.removeEventListener("mouseup", up);
+    const el = document.getElementById("edd_tts_y_margin");   // 스타일 탭 입력칸 동기화
+    if (el) el.value = (edForm.design || {}).tts_y_margin ?? "";
+    edMark();
+  };
+  document.addEventListener("mousemove", move);
+  document.addEventListener("mouseup", up);
 };
 // 자막 탭의 ✎ — 스테이지를 그 줄이 보이는 순간으로 옮겨 바로 조절하게 한다
 window.edSubStage = i => {

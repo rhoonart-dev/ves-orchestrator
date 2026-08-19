@@ -23,6 +23,22 @@ key→run_dir 파일로 변환해 넘긴다(엔진이 스토리지 자격을 갖
 ## 검증
 실측 1회: resume 렌더에 이미지 2개(자막과 겹치는 창 1개 포함) — 위치·크기·시간·레이어 확인.
 
+## 부록 — 제목 위치·크기 오버라이드 실효화 (F-409, 같은 세션에서)
+
+편집실이 제목도 화면에서 끌어 고치게 하려는데, 오케스트레이터 실측(2026-08-19) 결과
+엔진이 지금 못 받는다:
+- `--design-title-size` 는 `title_size` 만 바꾸는데 **실제 그리기는 `title_sizes`
+  ([70,90] 기본)를 쓴다**(renderer `title_sizes = getattr(d,'title_sizes',[d.title_size])`
+  — DesignConfig 에 필드가 있어 폴백이 안 탄다). title_size 는 줄바꿈 계산에만 영향.
+  → cli 에서 title_color→title_colors 조립과 **같은 패턴**으로 title_size 지정 시
+  title_sizes 를 조립해라(기본 리스트에서 시작해 지정 값으로 치환 — 두 줄 비율을
+  유지할지 동일 크기로 할지 결정해 계약 문서에 기록).
+- `title_y` 는 동적 배치(영상 위 20px)가 항상 이기고 여백 부족 시 폴백으로만 쓰인다.
+  → `--design-title-y-fixed`(불리언, 기본 false) 신설: 참이면 동적 배치 대신 title_y 를
+  그대로 쓴다. 기본 false 라 기존 채널 전부 무영향. 편집실 제목 드래그(오케스트레이터
+  후속)가 `design.title_y_fixed` 로 나간다 — 오케스트레이터 어댑터의
+  CHANNEL_DESIGN_FLAGS 에도 키를 추가해야 하므로 완료 시 보고에 명시해라.
+
 ## 멈춤 시점
 - overlay 합성으로 render 단계 소요가 눈에 띄게 늘면(기준: 편집 재렌더 재개 6초급이
   30초를 넘기면) 멈추고 수치와 함께 보고 — 편집 루프 속도가 이 기능의 존재 이유보다 우선이다.
