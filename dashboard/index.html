@@ -2308,6 +2308,10 @@ function renderEdit(){
                <div class="edovnote">근사 미리보기 — 글꼴·배치·색이 다를 수 있고,
                  크롭은 중앙 기준(실제는 얼굴 추종으로 움직일 수 있음)</div>
              </div>`
+          : med.scan_skip === "over_cap"
+          ? `<div class="sub" style="padding:20px;text-align:center">
+               원본이 너무 길어 전체 훑기 영상을 용량 상한 안에 만들 수 없습니다 —
+               타임라인의 썸네일 스크럽으로 위치를 잡고 구간을 찍으세요</div>`
           : `<div class="sub" style="padding:20px;text-align:center">
                편집용 영상이 아직 없습니다 — 재료를 다시 만들면 생깁니다
                <div><button class="mini" onclick="edRebuild()">재료 다시 만들기</button></div></div>`}</div>
@@ -2353,7 +2357,9 @@ function renderEdit(){
         <span class="sub">(빗금 = 원본 장면이 구간에서 빠짐)</span>` : ""}
       ${(med.closeups||[]).length ? `<span class="sub">· 진한 부분은 ${
         med.closeup_source === "proxy" ? "구간 클로즈업이 있는 구간(마스터 없음 — 프록시 화질)"
-        : "정밀 편집용 고화질이 있는 구간"}</span>` : ""}</span>
+        : "정밀 편집용 고화질이 있는 구간"}</span>` : ""}
+      ${med.scan_skip && (med.closeups||[]).length ? `<span class="sub">· ⚠ 원본이 길어
+        전체 훑기 영상이 없습니다 — 재생은 진한 구간에서만 됩니다</span>` : ""}</span>
       <span class="edzoombar">
         <button class="mini" onclick="edZoomBy(1/1.5)" title="축소 (-)">−</button>
         <b id="edzoomlab"></b>

@@ -2395,6 +2395,47 @@ def test_dashboard_editor_undo_and_soft_delete():
     assert "edCollect(true)" in html                         # 초안엔 del 마커 포함 저장
 
 
+def test_reuse_assets_partial_regen():
+    """F-303: 재렌더 후 재생성에서 원본 불변 재료(전역 스프라이트·파형·scan)는
+    재사용한다 — 단 길이·시트 수가 정확히 같고 scan 은 신 세대일 때만."""
+    from ves.adapters.editor_assets import (reuse_assets, sprite_layout, scan_over_cap,
+                                            SCAN_GEN, GLOBAL_INTERVAL, GRID, THUMB_W)
+    def sp(dur, media):
+        lay = sprite_layout(dur)
+        return {"duration_sec": dur, "sprites": {
+            "count": lay["count"], "interval": GLOBAL_INTERVAL, "grid": GRID,
+            "thumb_w": THUMB_W,
+            "assets": {"global": ["a/g_0.jpg"], "wave": "a/wave.png", "media": media}}}
+    dur = 3600.0
+    prev = sp(dur, {"scan": "a/scan.mp4", "scan_bytes": 100, "scan_gen": SCAN_GEN})
+    r = reuse_assets(prev, dur)
+    assert r["global"] == ["a/g_0.jpg"] and r["wave"] == "a/wave.png"
+    assert r["scan"]["scan"] == "a/scan.mp4"
+    assert reuse_assets(prev, dur + 5) == {}               # 길이 다르면 전부 재생성
+    prev["sprites"]["grid"] = 8                            # 규격 상수가 다르면 좌표가 깨진다
+    assert reuse_assets(prev, dur) == {}
+    assert "scan" not in reuse_assets(
+        sp(dur, {"scan": "a/scan.mp4", "scan_gen": 1}), dur)  # 구 세대 scan 재사용 금지
+    # over_cap 마커: 길이 예측이 지금도 참일 때만 승계 — 잘못 박힌 마커는 재시도된다
+    long_dur = 30000.0
+    assert scan_over_cap(long_dur) and not scan_over_cap(dur)
+    assert reuse_assets(sp(long_dur, {"scan_skip": "over_cap", "scan_gen": SCAN_GEN}),
+                        long_dur)["scan"]["scan_skip"] == "over_cap"
+    assert "scan" not in reuse_assets(
+        sp(dur, {"scan_skip": "over_cap", "scan_gen": SCAN_GEN}), dur)
+
+
+def test_0051_cache_accepts_scan_attempt():
+    """0051(F-303): 상한 초과 run 은 '시도 마커'로 캐시를 인정한다 — 안 하면 5.7시간+
+    원본이 열 때마다 재생성하고도 영상 없는 무한 루프(0045 의 418MB 실측 패턴)."""
+    sql = _live_mig("CREATE OR REPLACE FUNCTION public.request_editor_assets")
+    assert "scan_skip" in sql and "OR v_ex.scan_skip IS NOT NULL" in sql
+    assert "v_ex.tts_gen >= 1" in sql and "v_ex.scan_gen >= 2" in sql   # 기존 조건 유지
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert "over_cap" in html                              # 상한 초과의 정직한 안내
+
+
 def test_dashboard_editor_zoom_and_shortcuts():
     """편집실 타임라인은 줌·팬(F-101)과 키보드 단축키(F-103)를 갖는다 — [ 시작 버튼
     툴팁의 (I)/(O) 표기는 이제 실제 바인딩이다. 10등분 고정 눈금은 폐지."""

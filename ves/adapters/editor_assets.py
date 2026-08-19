@@ -78,6 +78,8 @@ SCAN_TIMEOUT_SEC = 60 * 60     # scan 전용 ffmpeg 상한 — 마스터(4~5GB) 
 SCAN_AUDIO_KBPS = 40           # 대사가 들려야 구간을 잡는다 — 화질보다 이쪽이 중요
 SCAN_VMIN_KBPS, SCAN_VMAX_KBPS = 120, 900
 SCAN_MAX_BYTES = 400 * 1024 * 1024   # 그래도 이보다 크면 올리지 않는다(회선 보호)
+                                     # ⚠ 상한·목표를 바꾸면 SCAN_GEN 을 함께 올려라 —
+                                     # over_cap 마커·캐시(0051)가 세대에 묶여 있다
 
 
 # ───────── 순수 (테스트 대상) ─────────
@@ -340,6 +342,51 @@ def pick_scrub_source(run_dir: str, master_path: str | None = None) -> str | Non
     return master_path if master_path and os.path.exists(master_path) else None
 
 
+def scan_over_cap(duration_sec: float) -> bool:
+    """하한 비트레이트(비디오 120 + 오디오 40kbps)로도 상한(400MiB)을 넘는 길이 —
+    **인코딩 전에** duration 만으로 안다(≈5.7시간). 순수. 예측 없이 인코딩부터 하면
+    버릴 파일에 최대 1시간을 쓰고, 타임아웃이 먼저 오면 마커도 못 남긴다(F-303)."""
+    floor_mb = float(duration_sec or 0) * (SCAN_VMIN_KBPS + SCAN_AUDIO_KBPS) / 8192.0
+    return floor_mb > SCAN_MAX_BYTES / (1024 * 1024)
+
+
+def reuse_assets(prev: dict | None, duration_sec: float) -> dict:
+    """재렌더 후 재생성에서 재사용할 이전 재료(전역 스프라이트·파형·scan). 순수.
+
+    구간 편집은 원본을 바꾸지 않는다 — 원본에서 뜬 이 셋을 매번 다시 만들면
+    재진입 대기 2~5분이 전부 여기서 나온다(F-303). 재사용 조건: 길이가 같고
+    (±1초), 스프라이트 좌표 규약(시트 수)이 정확히 같고, scan 은 신 세대일 때만
+    — 어긋난 재사용은 재생성보다 나쁘다(엉뚱한 썸네일·낡은 4fps scan)."""
+    out: dict = {}
+    if not prev:
+        return out
+    sp = prev.get("sprites") or {}
+    pa = sp.get("assets") or {}
+    pm = pa.get("media") or {}
+    if abs(float(prev.get("duration_sec") or 0) - float(duration_sec or 0)) >= 1.0:
+        return out
+    # 좌표 규약 전부 대조 — count(간격 파생)만 보면 grid·thumb_w 상수 변경이 통과해
+    # 구판 규격 시트에 신판 좌표(edTile 은 sp.grid/thumb_w 로 계산)를 대는 사고가 난다
+    if (sp.get("count") != sprite_layout(duration_sec)["count"]
+            or sp.get("interval") != GLOBAL_INTERVAL
+            or sp.get("grid") != GRID or sp.get("thumb_w") != THUMB_W):
+        return out
+    if pa.get("global"):
+        out["global"] = pa["global"]
+    if pa.get("wave"):
+        out["wave"] = pa["wave"]
+    if pm.get("scan") and int(pm.get("scan_gen") or 0) >= SCAN_GEN:
+        out["scan"] = {k: pm[k] for k in
+                       ("scan", "scan_bytes", "source", "scan_fps", "scan_gen", "scan_kbps")
+                       if k in pm}
+    elif (pm.get("scan_skip") and int(pm.get("scan_gen") or 0) >= SCAN_GEN
+          and scan_over_cap(duration_sec)):
+        # 마커는 길이 예측이 지금도 참일 때만 승계 — 프로브 오류 등으로 잘못 박힌
+        # 마커가 영구화되지 않게, 예측과 어긋나면 재생성에서 다시 시도한다
+        out["scan"] = {"scan_skip": pm["scan_skip"], "scan_gen": pm["scan_gen"]}
+    return out
+
+
 def pick_scan_source(master: str | None, scrub_src: str | None):
     """전체 훑기(scan)를 뜰 소스 — 마스터 우선. 순수(존재 확인은 호출자 몫).
 
@@ -401,6 +448,20 @@ def run(cfg, conn, job, deps):
     layout = sprite_layout(duration)
     edges = edge_windows(tl["clips"], duration_sec=duration)
 
+    # 부분 재생성(F-303) — 재렌더 후 pending 강등돼도 원본 불변 재료는 다시 안 뜬다.
+    # 경계 스프라이트·클로즈업·timeline 은 구간을 따라가므로 항상 새로 만든다.
+    prev_row = None
+    with conn.cursor() as c:
+        c.execute("""SELECT duration_sec, sprites, (expires_at > now()) AS alive
+                       FROM public.editor_assets WHERE run_id=%s""", (run_id,))
+        prev_row = c.fetchone()
+    if prev_row and not prev_row["alive"]:
+        prev_row = None                       # 만료된 재료의 키는 GC 대상 — 재사용 금지
+    reuse = reuse_assets(dict(prev_row) if prev_row else None, duration)
+    if reuse:
+        print(f"[editor] 재사용 — " + " · ".join(
+            k for k in ("global", "wave", "scan") if k in reuse))
+
     work = pathlib.Path(cfg.home) / "cache" / "editor" / run_id
     work.mkdir(parents=True, exist_ok=True)
     store = Store(cfg.supabase_url, cfg.supabase_service_key)
@@ -431,7 +492,9 @@ def run(cfg, conn, job, deps):
               f"(file/path)가 없거나 유실. 미리듣기 없이 진행(스키마 확인 필요)")
 
     # 전역 스프라이트
-    if layout["count"]:
+    if "global" in reuse:
+        assets["global"] = reuse["global"]
+    elif layout["count"]:
         pat = str(work / "g_%03d.jpg")
         _ffmpeg(sprite_cmd(src, pat, GLOBAL_INTERVAL))
         assets["global"] = _upload_seq(store, run_id, "g", sorted(work.glob("g_*.jpg")))
@@ -447,19 +510,23 @@ def run(cfg, conn, job, deps):
                                     "thumb_w": THUMB_W, "keys": keys})
 
     # 파형
-    wav_out = work / "wave.png"
-    try:
-        _ffmpeg(wave_cmd(src, str(wav_out)))
-        if wav_out.exists():
-            wkey = f"{base.storage_key(run_id, 'editor')}/wave.png"
-            store.upload("ves-outputs", wkey, str(wav_out))
-            assets["wave"] = wkey
-    except RuntimeError as e:      # 무음 트랙이면 실패할 수 있다 — 파형 없이 진행
-        print(f"[editor] 파형 생성 실패(비치명): {e}")
+    if "wave" in reuse:
+        assets["wave"] = reuse["wave"]
+    else:
+        wav_out = work / "wave.png"
+        try:
+            _ffmpeg(wave_cmd(src, str(wav_out)))
+            if wav_out.exists():
+                wkey = f"{base.storage_key(run_id, 'editor')}/wave.png"
+                store.upload("ves-outputs", wkey, str(wav_out))
+                assets["wave"] = wkey
+        except RuntimeError as e:  # 무음 트랙이면 실패할 수 있다 — 파형 없이 진행
+            print(f"[editor] 파형 생성 실패(비치명): {e}")
 
     # 편집 프리뷰 — 실패해도 편집실은 열려야 한다(스프라이트로 보기는 된다)
     assets["media"] = _build_media(cfg, store, run_id, run_dir, src,
-                                   pick_master(edit_plan, run_dir), tl, duration, work)
+                                   pick_master(edit_plan, run_dir), tl, duration, work,
+                                   reuse.get("scan"))
 
     with conn.cursor() as c:
         c.execute(
@@ -493,41 +560,57 @@ def run(cfg, conn, job, deps):
             "closeup_mb": round(sum(c.get("bytes", 0) for c in (med.get("closeups") or [])) / 1e6, 1)}
 
 
-def _build_media(cfg, store, run_id, run_dir, scrub_src, master, tl, duration, work) -> dict:
+def _build_media(cfg, store, run_id, run_dir, scrub_src, master, tl, duration, work,
+                 reuse_scan: dict | None = None) -> dict:
     """편집 프리뷰(전체 + 구간 클로즈업) 생성·업로드. 실패는 비치명 — 보기는 스프라이트로
-    되므로 편집실 자체를 막지 않는다. 반환값이 그대로 sprites.assets.media 에 들어간다."""
+    되므로 편집실 자체를 막지 않는다. 반환값이 그대로 sprites.assets.media 에 들어간다.
+    reuse_scan(F-303): 이전 재료의 scan 메타 — 원본 불변이라 재인코딩을 건너뛴다."""
     media: dict = {"scan": None, "scan_bytes": 0, "closeups": [], "source": None}
     prefix = base.storage_key(run_id, "editor")
 
+    if reuse_scan:
+        media.update(reuse_scan)
+        print(f"[editor] 전체 프리뷰 재사용 — {media.get('scan_bytes', 0)/1e6:.0f}MB")
     # ① 전체 프리뷰 — 목표 용량에 맞춰 360p 로 다시 뜬다(리먹스는 2GB 가 된다).
     #    소스는 마스터 우선(F-206) — 프록시로 뜨면 4fps 를 물려받아 재생이 끊긴다.
-    try:
-        scan_src, scan_hq = pick_scan_source(master, scrub_src)
-        # 비트레이트 역산은 **인코딩 소스의 길이** 기준 — 프록시가 부분 인코딩된 run 이면
-        # 프록시 길이로 역산한 비트레이트가 마스터 전체 길이에서 목표 용량을 넘긴다.
-        scan_dur = _probe_duration(scan_src) if scan_hq else duration
-        target = SCAN_TARGET_MB if scan_hq else SCAN_TARGET_MB_PROXY
-        kbps = scan_bitrate_kbps(scan_dur, target)
-        scan_out = work / "scan.mp4"
-        _ffmpeg(scan_cmd(scan_src, str(scan_out), scan_dur,
-                         fps=SCAN_FPS if scan_hq else None, target_mb=target),
-                timeout=SCAN_TIMEOUT_SEC)
-        size = scan_out.stat().st_size
-        if size > SCAN_MAX_BYTES:
-            print(f"[editor] 전체 프리뷰 {size/1e6:.0f}MB — 상한 초과, 올리지 않음")
-            scan_out.unlink(missing_ok=True)
-        else:
-            key = f"{prefix}/scan.mp4"
-            store.upload("ves-outputs", key, str(scan_out))
-            media.update(scan=key, scan_bytes=size,
-                         source="master" if scan_hq else "proxy",
-                         scan_fps=SCAN_FPS if scan_hq else _probe_fps(scan_src),
-                         scan_gen=SCAN_GEN, scan_kbps=kbps)
-            print(f"[editor] 전체 프리뷰 {size/1e6:.1f}MB ({kbps}kbps · "
-                  f"{'master ' + str(SCAN_FPS) + 'fps' if scan_hq else 'proxy'}) 업로드")
-            scan_out.unlink(missing_ok=True)
-    except Exception as e:  # noqa: BLE001
-        print(f"[editor] 전체 프리뷰 실패(비치명): {e}")
+    elif scan_over_cap(duration):
+        # 인코딩 전에 안다(길이×하한 비트레이트) — 버릴 파일을 1시간 인코딩하거나
+        # 타임아웃으로 마커조차 못 남기는 두 경로를 함께 막는다.
+        print(f"[editor] 전체 프리뷰 생략 — {duration/3600:.1f}시간은 하한 비트레이트로도 "
+              f"상한(400MB) 초과. 스프라이트·클로즈업으로 편집")
+        media.update(scan_skip="over_cap", scan_gen=SCAN_GEN)
+    else:
+        try:
+            scan_src, scan_hq = pick_scan_source(master, scrub_src)
+            # 비트레이트 역산은 **인코딩 소스의 길이** 기준 — 프록시가 부분 인코딩된
+            # run 이면 프록시 길이 역산 비트레이트가 마스터 전체에서 목표를 넘긴다.
+            scan_dur = _probe_duration(scan_src) if scan_hq else duration
+            target = SCAN_TARGET_MB if scan_hq else SCAN_TARGET_MB_PROXY
+            kbps = scan_bitrate_kbps(scan_dur, target)
+            scan_out = work / "scan.mp4"
+            _ffmpeg(scan_cmd(scan_src, str(scan_out), scan_dur,
+                             fps=SCAN_FPS if scan_hq else None, target_mb=target),
+                    timeout=SCAN_TIMEOUT_SEC)
+            size = scan_out.stat().st_size
+            if size > SCAN_MAX_BYTES:
+                print(f"[editor] 전체 프리뷰 {size/1e6:.0f}MB — 상한 초과, 올리지 않음")
+                scan_out.unlink(missing_ok=True)
+                # 시도 마커(F-303) — 안 남기면 상한 초과 run(약 5.7시간+)은 열 때마다
+                # 재생성하고도 영상이 없는 무한 루프가 된다(0045 의 418MB 실측 패턴).
+                # 캐시 판정(0051)이 '신 세대가 시도했음'으로 인정한다.
+                media.update(scan_skip="over_cap", scan_gen=SCAN_GEN)
+            else:
+                key = f"{prefix}/scan.mp4"
+                store.upload("ves-outputs", key, str(scan_out))
+                media.update(scan=key, scan_bytes=size,
+                             source="master" if scan_hq else "proxy",
+                             scan_fps=SCAN_FPS if scan_hq else _probe_fps(scan_src),
+                             scan_gen=SCAN_GEN, scan_kbps=kbps)
+                print(f"[editor] 전체 프리뷰 {size/1e6:.1f}MB ({kbps}kbps · "
+                      f"{'master ' + str(SCAN_FPS) + 'fps' if scan_hq else 'proxy'}) 업로드")
+                scan_out.unlink(missing_ok=True)
+        except Exception as e:  # noqa: BLE001
+            print(f"[editor] 전체 프리뷰 실패(비치명): {e}")
 
     # ② 구간 클로즈업 — 마스터가 있으면 마스터에서(움직임이 살아 있다), 없으면 프록시에서.
     #    fps=24 는 scan 과 같은 규칙(F-206) — 프록시 폴백에 걸면 4fps 를 여섯 배 복제해
@@ -569,7 +652,7 @@ def _catalog(conn, job, run_id, assets):
                        (job_id, work_order_id, kind, sha256, bytes, bucket, object_key,
                         expires_at)
                    VALUES (%s,%s,'editor_assets',%s,0,'ves-outputs',%s, now() + %s::interval)
-                   ON CONFLICT (sha256, kind) DO NOTHING""",
+                   ON CONFLICT (sha256, kind) DO UPDATE SET expires_at=excluded.expires_at""",
                 (job["id"], job.get("work_order_id"), f"editor:{run_id}",
                  f"{base.storage_key(run_id, 'editor')}/", ASSET_TTL))
     except Exception as e:  # noqa: BLE001 — 카탈로그 실패가 편집실을 막지 않는다
