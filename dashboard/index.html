@@ -2880,12 +2880,14 @@ function renderEdit(){
       <span class="sub">· 빨간 선 = 쇼츠 상한 59.7초 · 자막을 손대면 그 줄은
       <b>시각 고정</b>(호박색 — 구간 변경을 안 따라감, 아래에서 앵커 복원 가능)${edClipsChanged()
         ? " · ⚠ 구간을 고친 상태 — 고정 안 된 자막은 재렌더 때 다시 맞춰집니다(근사)" : ""}</span></div>
-    <div class="edouttl" id="edouttl">${edOutHtml()}</div>
+    <div class="edouttl" id="edouttl" onclick="edOutClickTl(event)"
+      title="빈 곳을 누르면 그 순간부터 가상 미리보기">${edOutHtml()}</div>
     <div class="edinsp" id="edinsp">${edInspHtml()}</div>
     <div class="edkb ${edKbHelp ? "on" : ""}" id="edkb"><table>
       <tr><td>Space</td><td>재생 / 정지</td></tr>
       <tr><td>I · O</td><td>구간 시작 · 끝 표시</td></tr>
-      <tr><td>← →</td><td>1프레임 이동 (Shift = 1초)</td></tr>
+      <tr><td>← →</td><td>1프레임 이동 (Shift = 1초) — 트랙 블록을 선택했으면 그 블록</td></tr>
+      <tr><td>Esc</td><td>트랙 선택 해제</td></tr>
       <tr><td>↑ ↓</td><td>구간 선택</td></tr>
       <tr><td>Delete</td><td>선택한 구간 삭제</td></tr>
       <tr><td>휠</td><td>타임라인 줌 (가로 스와이프·Shift+휠 = 좌우)</td></tr>
@@ -3875,36 +3877,105 @@ function edOutElState(t, obj){
   return { p: r ? r.p : 0, len: Number(obj.dur) || 0 };
 }
 
-// 이동·트리밍 적용 — 스냅은 0.05초(프레임 스냅은 V3-c). 자막은 손대는 순간 시각 고정
+// 이동·트리밍 적용 — 스냅은 프레임(1/24s, V3-c). 자막은 손대는 순간 시각 고정
 // (앵커 해제 — 계약: 앵커 없는 줄은 start_sec 그대로 박힌다. src 는 화면 참조용으로 남긴다).
-const edQ20 = v => Math.round(v * 20) / 20;
+// 스냅은 프레임 단위(V3-c) — 재료·렌더가 24fps 라 1/24s 가 실제 최소 단위다
+const ED_FPS = 24;
+const edQF = v => Math.round(v * ED_FPS) / ED_FPS;
 function edOutElApply(t, obj, st0, mode, d, total){
   const maxP = Math.max(0, total - 0.1);
-  // 반올림(edQ20)을 클램프 **앞**에 — 뒤에 두면 경계를 0.025s 넘는다(리뷰 L2)
+  // 반올림(edQF)을 클램프 **앞**에 — 뒤에 두면 경계를 반프레임 넘는다(리뷰 L2)
   if (t === "sub"){
     let p = st0.p, len = st0.len;
-    if (mode === "M") p = Math.max(0, Math.min(maxP, edQ20(st0.p + d)));
+    if (mode === "M") p = Math.max(0, Math.min(maxP, edQF(st0.p + d)));
     else if (mode === "L"){
-      const np = Math.max(0, Math.min(st0.p + st0.len - 0.3, edQ20(st0.p + d)));
+      const np = Math.max(0, Math.min(st0.p + st0.len - 0.3, edQF(st0.p + d)));
       len = st0.len - (np - st0.p); p = np;
-    } else len = Math.max(0.3, edQ20(st0.len + d));
+    } else len = Math.max(0.3, edQF(st0.len + d));
     if (obj.src != null) obj.pin = true;
     obj.start = +p.toFixed(3); obj.end = +(p + len).toFixed(3);
     return;
   }
   // 내레이션·이미지 — 좌표는 원본 절대초: 출력 위치를 역산해 옮긴다(장면이 바뀐다)
   if (mode === "R"){
-    obj.dur = +Math.max(0.3, Math.min(60, edQ20(st0.len + d))).toFixed(2);
+    obj.dur = +Math.max(0.3, Math.min(60, edQF(st0.len + d))).toFixed(3);
   } else if (mode === "L" && t === "img"){
-    const np = Math.max(0, Math.min(st0.p + st0.len - 0.3, edQ20(st0.p + d)));
+    const np = Math.max(0, Math.min(st0.p + st0.len - 0.3, edQF(st0.p + d)));
     const hit = edSrcAtOut(np); if (!hit) return;
-    obj.dur = +Math.min(60, st0.len - (np - st0.p)).toFixed(2);   // L 쪽도 60 상한(리뷰 L4)
+    obj.dur = +Math.min(60, st0.len - (np - st0.p)).toFixed(3);   // L 쪽도 60 상한(리뷰 L4)
     obj.src = +hit.src.toFixed(3);
   } else {
-    const np = Math.max(0, Math.min(maxP, edQ20(st0.p + d)));
+    const np = Math.max(0, Math.min(maxP, edQF(st0.p + d)));
     const hit = edSrcAtOut(np); if (!hit) return;
     obj.src = +hit.src.toFixed(3);
   }
+}
+
+// 선택 블록 프레임 이동(← → · Shift=1초) — render() 는 스테이지 video 를 파괴하므로
+// 무렌더 갱신(드래그와 같은 패턴). 다른 표시(원본 타임라인 마커)는 다음 render 에서.
+function edOutNudge(d){
+  const sel = edOutSel, obj = edOutSelObj();
+  if (!sel || !obj || !edCanEdit()) return;
+  if (sel.t === "sub" && edSubsTimingLocked()){
+    toast("구간을 고쳐 자막은 이번 렌더에서 다시 맞춰집니다 — 자막 시각은 렌더 후 고치세요", true);
+    return;
+  }
+  const { total } = edEffList();
+  const st = edOutElState(sel.t, obj);
+  const wasOob = sel.t === "sub" && total > 0 && st.p > total - 0.05;
+  edSnap("outnudge" + sel.t + sel.i);
+  edOutElApply(sel.t, obj, st, "M", d, total);
+  if (wasOob){ edMark(); render(); return; }   // 길이 밖 특수 배치는 재그림이 정직하다(L2)
+  const wrap = document.getElementById("edouttl");
+  const el = wrap && wrap.querySelector(`.edoel[data-t="${sel.t}"][data-i="${sel.i}"]`);
+  if (el){
+    const span = Math.max(total, 59.7) || 1;
+    const p2 = edOutElState(sel.t, obj);
+    el.style.left = (Math.max(0, Math.min(span, p2.p)) / span * 100) + "%";
+    el.style.width = Math.max(0.35, p2.len / span * 100) + "%";
+    if (sel.t === "sub" && obj.pin) el.classList.add("pin");
+  }
+  edInspSync(); edMark();
+}
+
+// 트랙 바닥 클릭 = 그 순간부터 가상 미리보기(V3-c) — 블록 클릭은 각자 처리.
+// click 은 mousedown·mouseup 의 **공통 조상**에서 발화한다 — 블록을 누르고 밖에서
+// 놓으면 target 이 컨테이너라 closest 가드가 못 잡는다(리뷰 M1, 실측). 블록
+// mousedown 시각을 기록해 그 제스처의 잔여 click 을 삼킨다.
+let edOutElAt = 0;
+window.edOutClickTl = ev => {
+  if (ev.target.closest(".edoclip,.edoel")) return;
+  if (edDrag || Date.now() - edOutElAt < 500) return;   // 블록 제스처의 슬립-클릭
+  const wrap = document.getElementById("edouttl"); if (!wrap || !edForm) return;
+  const { eff, total } = edEffList(); if (!eff.length) return;
+  const rect = wrap.getBoundingClientRect();
+  const span = Math.max(total, 59.7) || 1;
+  // 끝 0.2s 안쪽으로 클램프 — 끝-0.05 안에 떨어지면 틱이 즉시 정지시켜 '무반응'이 된다(M3)
+  const p = Math.max(0, Math.min(Math.max(total - 0.2, 0),
+    (ev.clientX - rect.left) / Math.max(1, rect.width) * span));
+  edOutSeek(p, !!edSeq);                     // 재생 중이었으면 이어서 재생
+};
+function edOutSeek(p, play){
+  const hit = edSrcAtOut(p); if (!hit) return;
+  // 구간 경계 직전(끝 0.15s 안)이면 안쪽으로 — 정지 클릭이 틱의 '다음 구간 자동재생'
+  // 창(끝-0.05)에 떨어지면 요청 없는 재생이 시작된다(M3 경계 변형)
+  hit.src = Math.max(hit.e.c.start, Math.min(hit.src, hit.e.c.end - 0.15));
+  const { eff, total } = edEffList();
+  const k = eff.findIndex(e => e.i === hit.e.i);
+  if (k < 0) return;
+  edTtsStop();
+  const sv = document.getElementById("edsrcv"); if (sv) sv.pause();   // edSeqStart 와 동일(L1)
+  if (edStageMode !== "seq"){
+    edStageMode = "seq"; edStageSrcCur = null; ++edStageGen;
+    edStageBtnsSync();
+  }
+  edSeq = { k };
+  const b = document.getElementById("edseqbtn"); if (b) b.textContent = "⏹ 미리보기 중";
+  const nt = document.getElementById("edovnote"); if (nt) nt.style.display = "";
+  edStageLoad(hit.src, !!play);
+  const oc = document.getElementById("edocur");
+  if (oc){ oc.style.display = "";
+    oc.style.left = (p / (Math.max(total, 59.7) || 1) * 100).toFixed(3) + "%"; }
 }
 
 // 자막 타이밍 편집 잠금 — 자막 패널의 locked 와 같은 조건: v2(플래그 off)에서 구간을
@@ -3938,6 +4009,8 @@ function edInspHtml(){
       ${ce ? "" : "disabled"} onchange="edInspSet('e',this.value)">
     <span class="sub">길이</span><input id="edin_d" value="${st.len.toFixed(2)}"
       ${ce ? "" : "disabled"} onchange="edInspSet('d',this.value)">
+    <span class="sub" title="24fps 프레임 번호">${Math.round(st.p * ED_FPS)}f ~ ${
+      Math.round((st.p + st.len) * ED_FPS)}f</span>
     ${pinned ? `<span class="sub" style="color:#b45309" title="구간을 바꿔도 이 줄은
         완성본 시각 그대로 박힙니다(앵커를 빼고 보냄)">📌 시각 고정</span>
       ${obj.src != null && ce ? `<button class="mini" onclick="edInspRepin()"
@@ -3986,6 +4059,7 @@ window.edOutElDown = (ev, t, i, hd) => {
   if (ev.button !== 0) return;
   ev.preventDefault(); ev.stopPropagation();
   edSeqStop();
+  edOutElAt = Date.now();          // 이 제스처의 잔여 click 이 바닥 시킹으로 새지 않게(M1)
   edOutSel = { t, i };
   edOutSync();
   if (!edCanEdit()) return;
@@ -4028,6 +4102,7 @@ window.edOutElDown = (ev, t, i, hd) => {
 window.edOutDown = (ev, i) => {
   if (ev.button !== 0) return;
   ev.preventDefault();
+  edOutElAt = Date.now();          // V 블록 제스처도 바닥 클릭으로 새지 않게(M1)
   edSeqStop();
   edSel = i; edSelSync(); edDragJust = false;
   edDrag = { out: true };            // 드래그 중 키·휠·자동추적 동결(위 가드들 공용)
@@ -4901,8 +4976,13 @@ document.addEventListener("keydown", e => {
   // 문자 비교가 영영 안 맞는다. 검수자 대부분이 한글 자판이다.
   else if (e.code === "KeyI"){ e.preventDefault(); edMarkIn(); }
   else if (e.code === "KeyO"){ e.preventDefault(); edMarkOut(); }
-  else if (k === "ArrowLeft"){ e.preventDefault(); edNudge(e.shiftKey ? -1 : -1/24); }
-  else if (k === "ArrowRight"){ e.preventDefault(); edNudge(e.shiftKey ? 1 : 1/24); }
+  else if (k === "ArrowLeft"){ e.preventDefault();
+    // 읽기 전용 카드에선 트랙 선택이 있어도 소스 이동으로 — 무음으로 죽으면 안 된다(M2)
+    if (edOutSel && edOutSelObj() && edCanEdit()) edOutNudge(e.shiftKey ? -1 : -1 / ED_FPS);
+    else edNudge(e.shiftKey ? -1 : -1/24); }
+  else if (k === "ArrowRight"){ e.preventDefault();
+    if (edOutSel && edOutSelObj() && edCanEdit()) edOutNudge(e.shiftKey ? 1 : 1 / ED_FPS);
+    else edNudge(e.shiftKey ? 1 : 1/24); }
   else if (k === "ArrowUp" || k === "ArrowDown"){
     if (!edForm.clips.length) return;
     e.preventDefault();
@@ -4930,7 +5010,10 @@ document.addEventListener("keydown", e => {
   else if (k === "-"){ e.preventDefault(); edZoomBy(1/1.5); }
   else if (k === "0"){ e.preventDefault(); edZoomFit(); }
   else if (k === "?"){ e.preventDefault(); edKbToggle(); }
-  else if (k === "Escape" && edKbHelp){ edKbToggle(); }
+  else if (k === "Escape"){
+    if (edKbHelp) edKbToggle();
+    else if (edOutSel){ edOutSel = null; edOutSync(); }
+  }
 });
 // 타이핑 스냅샷(F-104) — 값이 **바뀌기 전**(beforeinput)에 잡는다. 바뀐 뒤에 잡으면
 // 그 타이핑은 영영 못 되돌린다. 필드 단위 0.8초 묶음은 edSnap 이 처리.
