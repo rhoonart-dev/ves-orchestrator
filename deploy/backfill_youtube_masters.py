@@ -31,7 +31,9 @@ register_playlist 가 내린 것)은 대상에서 뺀다: 다운로드가 성공
 멱등 · 이어달리기: Ctrl-C 로 아무 때나 멈춰도 안전하다 — 대상 조건이 sha256 IS NULL 이라
 다음 실행이 이미 된 것은 건너뛰고 이어받는다. 실패한 편(사멸 등)은 sha256 이 안 채워지니
 계속 대상에 남는다 — 사람이 확인할 때까지 조용히 계속 재시도되는 게 아니라, 실행할 때마다
-로그에 실패로 다시 찍혀 눈에 띈다.
+로그에 실패로 다시 찍혀 눈에 띈다. 다만 "받아보니 다른 행과 바이트가 같더라"(같은 영상의
+재업로드 URL 등, sources.sha256 UNIQUE 위반)는 `x 실패`가 아니라 `= ` 로 따로 표시한다 —
+그 회차는 이미 다른 행이 커버하고 있어 재시도해도 매번 같은 결과가 나오는, 무해한 중복이다.
 
 deploy/register_source.py 와 같은 이유로 이 파일도 단위 테스트가 없다 — 표준 라이브러리
 + ves.config/ves.db 만 쓰는 사람 실행 도구(§ deploy/ 관례).
@@ -181,14 +183,32 @@ def process_one(cfg, conn, row) -> None:
         skey = None
         if subtitle_path and pathlib.Path(subtitle_path).is_file():
             skey = upload_subtitle(cfg.supabase_url, cfg.supabase_service_key, sha, subtitle_path)
-        with conn.cursor() as c:
-            c.execute("""UPDATE public.sources
-                            SET sha256=%s, object_key=%s, bytes=%s,
-                                subtitle_key=COALESCE(%s, subtitle_key),
-                                has_subtitle = has_subtitle OR %s,
-                                is_active=true
-                          WHERE id=%s""",
-                      (sha, okey, size, skey, bool(skey), row["id"]))
+        try:
+            with conn.cursor() as c:
+                c.execute("""UPDATE public.sources
+                                SET sha256=%s, object_key=%s, bytes=%s,
+                                    subtitle_key=COALESCE(%s, subtitle_key),
+                                    has_subtitle = has_subtitle OR %s,
+                                    is_active=true
+                              WHERE id=%s""",
+                          (sha, okey, size, skey, bool(skey), row["id"]))
+        except Exception as e:  # noqa: BLE001
+            from psycopg.errors import UniqueViolation
+            if not isinstance(e, UniqueViolation):
+                raise
+            # 이 URL 이 받아온 내용이 다른 행과 바이트가 같다(같은 영상의 재업로드 URL,
+            # 혹은 이미 손으로 구제해둔 파일과 동일) — sources.sha256 은 UNIQUE 라 이 행에
+            # 또 채울 수 없다. 그 다른 행이 이미 이 회차를 커버하므로 실패가 아니라 중복
+            # 발견이다 — 이 행은 그대로 두고(재시도해도 매번 같은 결과) 다르게 알린다.
+            with conn.cursor() as c:
+                c.execute("SELECT work_title, episode, is_active FROM public.sources "
+                          "WHERE sha256=%s", (sha,))
+                owner = c.fetchone() or {}
+            print(f"  = 다른 행과 내용 동일(sha 일치) — {owner.get('work_title')} "
+                  f"{owner.get('episode')}화(is_active={owner.get('is_active')})가 이미 이 영상을 "
+                  f"갖고 있음. 이 행은 그대로 둠(정상 — 재시도 대상에서 빠지지 않으니 "
+                  f"매번 다시 받겠지만 무해함)")
+            return
         print(f"  -> 등록 완료 sha={sha[:16]}... ({size >> 20}MB)" + (" +자막" if skey else ""))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -221,7 +241,11 @@ def main(argv=None):
             process_one(cfg, conn, r)
             ok += 1
         except Exception as e:  # noqa: BLE001 — 한 편 실패가 배치를 죽이지 않는다
-            print(f"  x 실패(건너뜀, 다음 실행에 재시도됨): {type(e).__name__} {str(e)[:300]}")
+            # 메시지의 뒤쪽(진짜 오류가 있는 곳)을 보여준다 — download_one 이 이미 stderr
+            # 뒤 800자로 잘라 담아오므로, 여기서 또 앞 300자를 자르면 트레이스백 중간(코드
+            # 컨텍스트 줄)만 보이고 정작 원인 줄은 잘려나간다(8/19 실측: UniqueViolation·
+            # 403 모두 원인이 안 보였다).
+            print(f"  x 실패(건너뜀, 다음 실행에 재시도됨): {type(e).__name__} {str(e)[-300:]}")
             fail += 1
         if i < len(rows):
             time.sleep(a.sleep)
