@@ -47,8 +47,9 @@ TIMEOUT_SEC = 60 * 20
 #      · 전체 프리뷰(scan)  — 원본 전체 길이. 360p 로 **목표 용량에 맞춰** 다시 뜬다.
 #        소스는 **마스터 우선**(F-206) — 프록시로 뜨면 4fps 를 물려받아 재생이 끊긴다.
 #        마스터가 이 노드에 없으면 종전대로 프록시 폴백(화면이 fps 라벨로 알린다).
-#      · 구간 클로즈업(closeup) — 쓰인 클립 앞뒤 CLOSEUP_PAD 초를 24fps 로 다시 뜬다.
-#        실제로 경계를 잡는 곳은 여기뿐이라, 전체를 고품질로 뜨는 낭비를 피한다.
+#      · 구간 클로즈업(closeup) — 쓰인 클립 앞뒤 CLOSEUP_PAD 초를 다시 뜬다. 실제로
+#        경계를 잡는 곳은 여기뿐이라, 전체를 고품질로 뜨는 낭비를 피한다. fps=24 는
+#        scan 과 같은 규칙으로 **마스터일 때만** — 프록시 폴백은 실제 fps 를 메타에 남긴다.
 #    브라우저는 서명 URL + Range 로 필요한 구간만 받는다 — faststart 가 그래서 필수다.
 #
 #    🛑 리먹스(-c copy)로 시작했다가 실측에서 갈아엎었다(가왕쇼 47분 = 418MB).
@@ -57,7 +58,7 @@ TIMEOUT_SEC = 60 * 20
 #    비트레이트**를 쓴다. 길이에 상관없이 크기가 예측되고(길수록 자동으로 낮은 화질),
 #    브라우저 seek 응답은 총 크기가 아니라 비트레이트가 좌우하므로 체감도 나쁘지 않다.
 PREVIEW_H = 480
-CLOSEUP_FPS = 24
+CLOSEUP_FPS = 24               # 마스터 소스일 때만 적용 — 프록시(4fps) 폴백엔 걸지 않는다
 CLOSEUP_CRF = 26
 CLOSEUP_PAD = 90.0             # 클립 앞뒤 여유(초) — 이 밖은 전체 프리뷰로 본다
 CLOSEUP_MAX_TOTAL = 40 * 60    # 클로즈업 총합 상한(초). 넘으면 긴 것부터 버린다
@@ -272,18 +273,23 @@ def scan_cmd(src: str, out: str, duration_sec: float, height: int = SCAN_H,
 
 
 def closeup_cmd(src: str, out: str, start: float, end: float,
-                height: int = PREVIEW_H, fps: int = CLOSEUP_FPS,
+                height: int = PREVIEW_H, fps: int | None = CLOSEUP_FPS,
                 crf: int = CLOSEUP_CRF) -> list:
     """구간 클로즈업 인코딩 argv. 순수 — 테스트 대상.
 
     -ss 는 입력 앞(빠른 탐색), -to 는 입력 뒤에 **구간 길이**로 준다 — 앞에 두면
-    -ss 와 같은 기준이라 잘리는 지점이 달라진다. GOP 2초로 스크럽 seek 을 촘촘히."""
+    -ss 와 같은 기준이라 잘리는 지점이 달라진다. fps 는 마스터 소스일 때만
+    (scan 과 같은 이유, F-206) — 4fps 프록시에 fps=24 를 걸면 같은 그림을 여섯 번
+    복제해 '정밀'을 사칭한다. 필터는 fps 가 scale 보다 앞 — 버릴 프레임까지
+    스케일하지 않는다. 키프레임은 2초마다, 프레임(-g)이 아니라 **시간**으로 —
+    폴백에선 소스 fps 를 모른다(scan_cmd 와 같은 이유)."""
     return ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
             "-ss", f"{max(0.0, start):.3f}", "-i", src,
             "-t", f"{max(0.0, end - start):.3f}",
-            "-vf", f"scale=-2:{height},fps={fps}",
+            "-vf", (f"fps={fps}," if fps else "") + f"scale=-2:{height}",
             "-c:v", "libx264", "-preset", "veryfast", "-crf", str(crf),
-            "-g", str(fps * 2), "-c:a", "aac", "-b:a", "96k",
+            "-force_key_frames", "expr:gte(t,n_forced*2)",
+            "-c:a", "aac", "-b:a", "96k",
             "-movflags", "+faststart", out]
 
 
@@ -388,7 +394,8 @@ def pick_scan_source(master: str | None, scrub_src: str | None):
     **재생**하는 영상이라 프록시로 뜨면 4fps 를 물려받아 끊긴다(F-206). 마스터가
     이 노드에 없으면(캐시 GC 뒤) 종전대로 프록시 — 화면이 fps 라벨로 사실을 알린다.
     반환은 **항상** (경로, 마스터 여부) — 호출부가 언팩하므로 None 을 돌려주지
-    않는다. scrub_src 존재는 호출자(run)가 보장한다."""
+    않는다. scrub_src 존재는 호출자(run)가 보장한다. 클로즈업도 같은 규칙을 쓴다
+    (재생 영상은 마스터 우선, 폴백이면 fps 필터 없이 사실대로 기록)."""
     return (master, True) if master else (scrub_src, False)
 
 
@@ -605,17 +612,23 @@ def _build_media(cfg, store, run_id, run_dir, scrub_src, master, tl, duration, w
         except Exception as e:  # noqa: BLE001
             print(f"[editor] 전체 프리뷰 실패(비치명): {e}")
 
-    # ② 구간 클로즈업 — 마스터가 있으면 마스터에서(움직임이 살아 있다), 없으면 프록시에서
-    csrc = master or scrub_src
-    media["closeup_source"] = "master" if master else "proxy"
+    # ② 구간 클로즈업 — 마스터가 있으면 마스터에서(움직임이 살아 있다), 없으면 프록시에서.
+    #    fps=24 는 scan 과 같은 규칙(F-206) — 프록시 폴백에 걸면 4fps 를 여섯 배 복제해
+    #    메타·라벨이 '정밀 구간(24fps)'을 사칭한다(사용자가 F-206 증상을 새 버그로 오인).
+    #    폴백은 소스 fps 그대로 뜨고 실제 값을 기록해 화면 라벨이 사실을 말하게 한다.
+    csrc, chq = pick_scan_source(master, scrub_src)
+    media["closeup_source"] = "master" if chq else "proxy"
+    cfps = CLOSEUP_FPS if chq else _probe_fps(csrc)
+    media["closeup_fps"] = cfps
     for wi, w in enumerate(closeup_windows(tl.get("clips"), duration_sec=duration)):
         out = work / f"c{wi}.mp4"
         try:
-            _ffmpeg(closeup_cmd(csrc, str(out), w["start_sec"], w["end_sec"]))
+            _ffmpeg(closeup_cmd(csrc, str(out), w["start_sec"], w["end_sec"],
+                                fps=CLOSEUP_FPS if chq else None))
             key = f"{prefix}/c{wi}.mp4"
             store.upload("ves-outputs", key, str(out))
             media["closeups"].append({**w, "key": key, "bytes": out.stat().st_size,
-                                      "fps": CLOSEUP_FPS})
+                                      "fps": cfps})
             out.unlink(missing_ok=True)
         except Exception as e:  # noqa: BLE001
             print(f"[editor] 클로즈업 {wi} 실패(비치명): {e}")
@@ -623,7 +636,7 @@ def _build_media(cfg, store, run_id, run_dir, scrub_src, master, tl, duration, w
     if media["closeups"]:
         mb = sum(c["bytes"] for c in media["closeups"]) / 1e6
         print(f"[editor] 클로즈업 {len(media['closeups'])}개 {mb:.1f}MB "
-              f"({media['closeup_source']} 기준)")
+              f"({media['closeup_source']} · {cfps or '?'}fps)")
     return media
 
 
