@@ -528,13 +528,19 @@ def _catalog(conn, job, run_id, assets):
     if not total:
         return
     try:
+        # DO UPDATE 인 이유: 재워밍(만료 하루 전 재생성, 0045/0048 RPC)이 화면 TTL
+        # (editor_assets.expires_at)을 +7일로 다시 미는데, 카탈로그가 DO NOTHING 으로
+        # 최초 시각에 머물면 GC 가 화면이 아직 서명 URL 로 쓰는 재료를 지운다.
+        # 두 TTL 은 항상 같이 민다.
         with conn.cursor() as c:
             c.execute(
                 """INSERT INTO public.artifacts
                        (job_id, work_order_id, kind, sha256, bytes, bucket, object_key,
                         expires_at)
                    VALUES (%s,%s,'editor_assets',%s,0,'ves-outputs',%s, now() + %s::interval)
-                   ON CONFLICT (sha256, kind) DO NOTHING""",
+                   ON CONFLICT (sha256, kind) DO UPDATE SET
+                       expires_at = excluded.expires_at, job_id = excluded.job_id,
+                       work_order_id = excluded.work_order_id""",
                 (job["id"], job.get("work_order_id"), f"editor:{run_id}",
                  f"{base.storage_key(run_id, 'editor')}/", ASSET_TTL))
     except Exception as e:  # noqa: BLE001 — 카탈로그 실패가 편집실을 막지 않는다

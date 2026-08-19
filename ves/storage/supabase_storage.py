@@ -44,6 +44,22 @@ def tus_metadata(bucket: str, key: str, content_type: str = "application/octet-s
                      f"upsert {b64('true')}"])
 
 
+def page_keys(prefix: str, batch: list) -> tuple:
+    """list 응답 한 페이지 → (실물 키 목록, 더 내려갈 하위 접두사 목록). 순수 — 테스트
+    대상. 응답의 name 은 그 단계의 잎 이름뿐이라 prefix 를 붙여 완전한 키로 만든다."""
+    root = prefix.rstrip("/")
+    keys, subdirs = [], []
+    for it in batch or []:
+        name = it.get("name")
+        if not name:
+            continue
+        if it.get("id") is None:                 # 가상 폴더 행
+            subdirs.append(f"{root}/{name}/")
+        else:
+            keys.append(f"{root}/{name}")
+    return keys, subdirs
+
+
 class Store:
     def __init__(self, url: str | None, service_key: str | None):
         if not (url and service_key):
@@ -143,8 +159,39 @@ class Store:
         return self.base.rsplit("/storage/v1", 1)[0] + "/storage/v1" + r.json()["signedURL"]
 
     def delete(self, bucket: str, keys: list) -> None:
+        """정확한 오브젝트 이름 목록 삭제. ⚠ body 필드명(prefixes)과 달리 접두사/폴더
+        재귀 삭제가 **아니다** — 서버(storage-api deleteObjects)가 name 정확 일치로만
+        지우고, 일치 0건이어도 200 을 준다(2026-08-19 확인: supabase-js remove() 와
+        같은 계약, 폴더 삭제는 미지원 — supabase/storage#207). 접두사를 그대로 넘기면
+        조용한 무동작이 되므로 반드시 list_keys 로 실물 이름을 얻어 넘길 것."""
         import requests
         r = requests.delete(f"{self.base}/object/{bucket}",
                             headers=self.headers, json={"prefixes": keys}, timeout=60)
         if r.status_code != 200:
             raise RuntimeError(f"storage delete {r.status_code}: {r.text[:200]}")
+
+    def list_keys(self, bucket: str, prefix: str, page: int = 1000) -> list:
+        """prefix 아래 실물 오브젝트 키 전량 — 페이지네이션·하위 폴더 재귀 포함.
+
+        delete 가 정확한 이름만 받으므로(위 참조) 접두사 삭제는 이 목록을 거친다.
+        폴더는 가상이라 list 응답에 id 가 null 인 행으로만 나타난다 — 그 행은 한
+        단계 내려가 다시 조회한다. 페이지 분해는 page_keys(순수)가 한다."""
+        import requests
+        keys, offset = [], 0
+        while True:
+            r = requests.post(f"{self.base}/object/list/{bucket}",
+                              headers=self.headers,
+                              json={"prefix": prefix.rstrip("/"), "limit": page,
+                                    "offset": offset,
+                                    "sortBy": {"column": "name", "order": "asc"}},
+                              timeout=60)
+            if r.status_code != 200:
+                raise RuntimeError(f"storage list {r.status_code}: {r.text[:200]}")
+            batch = r.json() or []
+            got, subdirs = page_keys(prefix, batch)
+            keys += got
+            for sub in subdirs:
+                keys += self.list_keys(bucket, sub, page)
+            if len(batch) < page:
+                return keys
+            offset += page
