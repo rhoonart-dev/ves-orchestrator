@@ -17,15 +17,22 @@
 """
 from __future__ import annotations
 
+import json
+import os
 import pathlib
 import re
 import subprocess
+import urllib.error
+import urllib.parse
+import urllib.request
 
+from ves import config as cfgmod
 from ves.adapters import base
 from ves.adapters import zanmang
 
 TIMEOUT_SEC = 60 * 30          # 패키지 생성 + 업로드. 현지화(수십 분)는 이미 끝난 뒤다.
 TIMEOUT_PROCESS = 3600 * 3     # rerender 의 process 는 현지화 전체(다운로드·demucs·더빙 포함)
+GATE_TIMEOUT = 20              # 오채널 게이트 HTTP 호출당(초)
 _URL_RE = re.compile(r"https://youtu\.be/([A-Za-z0-9_-]{6,})")
 
 
@@ -66,6 +73,113 @@ def parse_youtube_url(stdout: str):
     """upload 로그에서 게시 URL 추출. 순수 — 테스트 대상."""
     m = _URL_RE.search(stdout or "")
     return m.group(0) if m else None
+
+
+# ───────── 오채널 게이트 (8/20 사고 재발 방지) ─────────
+# 경위: LOOPY 토큰이 같은 구글 계정의 다른 브랜드 채널(ジャンマンルピーの日常)로 발급돼
+# 발행이 오채널로 나갔다. brain 경로는 publish_youtube.py 가 최종 방어선인데 vlp 경로에는
+# 그게 없어서 뚫렸다 — upload 직전에 토큰의 실채널을 channels_mirror 와 대조한다.
+
+def client_pairs(env: dict) -> list:
+    """env 에서 (client_id, client_secret) 후보 목록. 순수 — 테스트 대상.
+
+    vlp 토큰 파일(outputs/yt_oauth_token.json)에는 클라이언트가 없어서, ves.env 의
+    YT_CLIENT_ID*/SECRET* 쌍을 전부 시도한다 — 어느 gcp_project 로 발급했는지 몰라도 된다."""
+    out = []
+    for k in sorted(env):
+        if k.startswith("YT_CLIENT_ID"):
+            sec = (env.get(k.replace("YT_CLIENT_ID", "YT_CLIENT_SECRET")) or "").strip()
+            if (env[k] or "").strip() and sec:
+                out.append((env[k].strip(), sec))
+    return out
+
+
+def find_token_file(repo):
+    """vlp 레포의 refresh_token JSON 경로(실측 8/21: outputs/yt_oauth_token.json).
+    이동을 대비해 outputs/·config/ 의 *.json 도 훑는다. 없으면 None. 순수 — 테스트 대상."""
+    root = pathlib.Path(repo)
+    cands = [root / "outputs" / "yt_oauth_token.json"]
+    for pat in ("outputs/*.json", "config/*.json"):
+        cands += sorted(root.glob(pat))
+    for p in cands:
+        if not p.is_file():
+            continue
+        try:
+            d = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(d, dict) and d.get("refresh_token"):
+            return p
+    return None
+
+
+def _bound_channel(refresh_token: str, pairs: list):
+    """토큰이 실제 바인딩된 (channel_id, title). 어떤 후보로도 확인 못 하면 None.
+
+    invalid_grant(그 클라이언트로 발급된 토큰이 아님 — 영구)와 네트워크 장애(일시)를
+    가른다: 전 후보가 네트워크로만 실패하면 RuntimeError 로 올려 재시도에 태운다."""
+    net_fail = 0
+    for cid, sec in pairs:
+        body = urllib.parse.urlencode({
+            "client_id": cid, "client_secret": sec,
+            "refresh_token": refresh_token, "grant_type": "refresh_token"}).encode()
+        try:
+            r = urllib.request.urlopen(urllib.request.Request(
+                "https://oauth2.googleapis.com/token", data=body), timeout=GATE_TIMEOUT)
+            access = json.loads(r.read())["access_token"]
+        except urllib.error.HTTPError:
+            continue                       # invalid_grant 등 — 다음 클라이언트
+        except (OSError, ValueError):
+            net_fail += 1
+            continue
+        try:
+            req = urllib.request.Request(
+                "https://www.googleapis.com/youtube/v3/channels?part=id,snippet&mine=true",
+                headers={"Authorization": f"Bearer {access}"})
+            items = json.loads(urllib.request.urlopen(req, timeout=GATE_TIMEOUT).read()) \
+                .get("items") or []
+        except (OSError, ValueError) as e:
+            raise RuntimeError(f"오채널 게이트: 채널 조회 실패(일시로 간주) — {e}")
+        if items:
+            return items[0]["id"], items[0]["snippet"]["title"]
+        return None                        # 토큰은 유효한데 채널이 없다 — 검증 불가로 차단
+    if pairs and net_fail == len(pairs):
+        raise RuntimeError("오채널 게이트: 전 클라이언트 네트워크 장애 — 재시도")
+    return None
+
+
+def assert_upload_channel(conn, repo) -> str:
+    """upload 직전 게이트: 불일치·검증불가는 PermanentError(발행 차단), 장애는 재시도.
+
+    미발급이 발행 하드실패(R10)이듯 '어느 채널인지 모르는 토큰'도 하드실패다 —
+    조용히 통과시키면 오채널 발행이 성공으로 남는다."""
+    with conn.cursor() as c:
+        c.execute("SELECT channel_id, name FROM public.channels_mirror WHERE token_slug=%s",
+                  (zanmang.CHANNEL,))
+        row = c.fetchone()
+    if not row or not row["channel_id"]:
+        raise base.PermanentError(
+            "오채널 게이트: channels_mirror 에 LOOPY channel_id 없음 — channels.json 확인")
+    tf = find_token_file(repo)
+    if tf is None:
+        raise base.PermanentError(f"오채널 게이트: vlp 토큰 파일 못 찾음({repo}) — 업로드 차단")
+    refresh = str(json.loads(tf.read_text(encoding="utf-8")).get("refresh_token") or "")
+    env = dict(os.environ)                 # job_env 와 같은 우선순위 — 파일은 지금 다시
+    for k, v in cfgmod.file_env().items():  # 읽는다(08-18 함정: 기동 때 값이 낡는다)
+        env.setdefault(k, v)
+    pairs = client_pairs(env)
+    if not pairs:
+        raise base.PermanentError("오채널 게이트: ves.env 에 YT_CLIENT_ID*/SECRET* 쌍 없음 — 검증 불가")
+    got = _bound_channel(refresh, pairs)
+    if got is None:
+        raise base.PermanentError(
+            "오채널 게이트: 어떤 클라이언트로도 토큰 검증 실패(invalid_grant) — 토큰 재발급/클라이언트 확인")
+    cid, title = got
+    if cid != row["channel_id"]:
+        raise base.PermanentError(
+            f"오채널 게이트: 토큰이 다른 채널에 바인딩됨 — 실채널 {cid}({title}) ≠ "
+            f"기대 {row['channel_id']}({row['name']}). 업로드 차단, 토큰 재발급 필요")
+    return f"{cid} {title}"
 
 
 # ───────── 실행부 ─────────
@@ -132,6 +246,10 @@ def run(cfg, conn, job, deps):
                 "note": f"원장 상태 '{state}' — 할 일 없음(이미 반영됨)"}
 
     out = {"video_id": vid, "action": action, "from_state": state, "ran": []}
+    if "upload" in tasks:
+        # 오채널 게이트 — approve(패키지 생성, 수 분)보다 먼저 확인해 헛일을 막는다.
+        out["channel_gate"] = assert_upload_channel(conn, repo)
+        print(f"[zanmang_decision] 오채널 게이트 통과: {out['channel_gate']}")
     for task in tasks:
         argv = _task_argv(repo, task, vid, p)
         r = subprocess.run(argv, cwd=repo, capture_output=True, text=True,
