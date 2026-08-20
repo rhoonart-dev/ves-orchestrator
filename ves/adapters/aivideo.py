@@ -177,6 +177,28 @@ def branding_flags(card, policy) -> list:
     return flags
 
 
+# 작품 카드 editorial 허용 키 — ai-video app/modules/editorial.py 계약의 미러(1:1 규율,
+# brain channel_registry.EDITORIAL_KEYS 와 동일). 셋이 어긋나면 ai-video 쪽 fail-loud 에 걸린다.
+EDITORIAL_KEYS = frozenset({"avoid", "prefer", "tone"})
+
+
+def editorial_flags(card, work) -> list:
+    """작품 카드 editorial → --editorial-json (편집 지침 자동화 2026-08-20). 순수 — 테스트 대상.
+    규약 정본은 brain channel_registry.editorial_flags — 여기와 그쪽이 같은 works.json 을
+    읽으므로 scene_loop 과 신규 파이프라인의 지침이 항상 일치한다. '_' 키(_note)는 문서용.
+    모르는 키는 즉시 실패 — 조용히 무시하면 권리 지침 없이 발행된다(registry 원칙)."""
+    ed = {k: v for k, v in ((card or {}).get("editorial") or {}).items()
+          if not k.startswith("_")}
+    if not ed:
+        return []
+    unknown = set(ed) - EDITORIAL_KEYS
+    if unknown:
+        raise base.PermanentError(
+            f"작품 '{work}': 알 수 없는 editorial 키 {sorted(unknown)} — "
+            f"허용: {sorted(EDITORIAL_KEYS)}")
+    return ["--editorial-json", json.dumps(ed, ensure_ascii=False, sort_keys=True)]
+
+
 def _brain_json(cfg, name):
     p = pathlib.Path(cfgmod.engine_dir(cfg, "brain")) / "config" / name
     try:
@@ -464,8 +486,11 @@ def _build_argv_fresh(cfg, job):
     design = edit_design(design, (p.get("edit_overrides") or {}).get("design"))
     argv += channel_design_flags(design, p.get("channel_name"))
     # 로고(가이드 자동화): 작품 카드에 branding.logo 가 있으면 scene_loop 과 같은 플래그
-    argv += branding_flags(_brain_json(cfg, "works.json").get(p.get("work_title")),
-                           _brain_json(cfg, "loop_policy.json"))
+    card = _brain_json(cfg, "works.json").get(p.get("work_title"))
+    argv += branding_flags(card, _brain_json(cfg, "loop_policy.json"))
+    # 편집 지침(권리 가이드 자동화 2026-08-20): 카드 editorial → 프롬프트 1차 필터.
+    # 검수함 사람 확인은 그대로 — 반려 사유(--reject-note)가 실행 단위 지시 통로를 겸한다.
+    argv += editorial_flags(card, p.get("work_title"))
     return argv
 
 

@@ -690,6 +690,23 @@ def test_branding_flags():
     assert "100" in f2 and "50" in f2 and "top" in f2                    # 카드 예외가 정책보다 우선
 
 
+def test_editorial_flags():
+    """가이드 자동화(편집 지침): works.json editorial 규약 — channel_registry 와 동일 플래그.
+    카드에 채운 지침이 argv 에 실리는지 고정 — 경로가 버리면 지침 없이 밤새 발행된다."""
+    import json as _json
+    from ves.adapters.aivideo import editorial_flags
+    assert editorial_flags(None, "작품") == []                            # 카드 없음 → 종전 동일
+    assert editorial_flags({"editorial": {"_note": "문서만"}}, "작품") == []
+    f = editorial_flags({"editorial": {"avoid": ["경연 결과"], "prefer": ["무대"],
+                                       "_note": "문서용"}}, "가왕쇼")
+    assert f[0] == "--editorial-json"
+    assert _json.loads(f[1]) == {"avoid": ["경연 결과"], "prefer": ["무대"]}  # '_' 키 제외
+    import pytest as _pytest
+    from ves.adapters import base as _base
+    with _pytest.raises(_base.PermanentError):                            # 오타 즉시 실패
+        editorial_flags({"editorial": {"avoids": ["x"]}}, "작품")
+
+
 def test_jp_pipeline_wiring():
     """JP 현지화 배선: 채널→파이프라인, localize argv, 체인 마지막에 localize."""
     from ves.scheduler.planner import job_chain, pipeline_for
