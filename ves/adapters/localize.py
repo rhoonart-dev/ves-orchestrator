@@ -296,6 +296,15 @@ def _run_scene_rerender(cfg, conn, job, deps):
     out_key = base.storage_key(run_id, "localized.mp4")
     store.upload("ves-localized", out_key, str(out))
 
+    # 편집 재렌더 성공 청소(F-302, 0066) — KR 은 brain(evaluate)이 하지만 JP 는
+    # brain 이 pipeline 조기 반환이라 여기가 체인의 끝이다. '성공하면 지우고 실패하면
+    # 남긴다' — 남으면 같은 run 의 다음 카드에 낡은 편집이 이중 적용된다.
+    # 통상 1라운드(보낸 초안 없음)는 0행 — 무해.
+    with conn.cursor() as c:
+        c.execute("""UPDATE public.editor_assets
+                        SET draft=NULL, draft_at=NULL, draft_by=NULL, draft_sent_at=NULL
+                      WHERE run_id=%s AND draft_sent_at IS NOT NULL""", (run_id,))
+
     _enqueue_qa(conn, job, {"run_id": run_id, "preview_key": out_key,
                             "bucket": "ves-localized", "mode": "scene_rerender",
                             "youtube_title": meta.get("youtube_title"),

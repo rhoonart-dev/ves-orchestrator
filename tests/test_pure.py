@@ -2288,8 +2288,10 @@ def test_0043_submit_editor_render_contract():
     assert "has_role(auth.uid(),'reviewer')" in sql
     # 대상 카드 — 일본어(localization_qa)는 0038 담당이라 여기서 받으면 안 된다.
     # 0050: rejected 는 재제출 경로(F-302) — 가드(새 waiting 카드 없음 + 보낸 초안)가 있어야 한다.
-    # kind 핀은 계속 필수 — 흘리면 localization_qa(0038 담당)까지 받는다.
-    assert "rq.kind = 'publish_gate'" in sql
+    # kind 핀(0066 개정): publish_gate + 작업지시 있는 localization_qa(SHOTCONE) —
+    # 작업지시 없는 카드(LOOPY)는 여전히 거절(0038 담당 유지).
+    assert "rq.kind IN ('publish_gate','localization_qa')" in sql
+    assert "작업지시 없는 카드는 편집실 대상이 아닙니다" in sql
     assert "rq.status IN ('waiting','rejected')" in sql
     assert "이미 새 검수 카드가 있습니다" in sql
     assert "보낸 초안이 없습니다" in sql
@@ -2333,7 +2335,8 @@ def test_dashboard_editor_edit_ui_wired():
     # 권한·카드 게이트가 화면에도 있어야 한다(서버가 최종 방어선이지만 버튼부터 안 보이게)
     # 0050(F-302)부터 edCanEdit 이 waiting + '재제출 가능한 rejected' 를 받는다 —
     # reviewer·publish_gate 핀과 waiting 허용은 계속 필수
-    assert 'if (!can("reviewer") || r.kind !== "publish_gate") return false;' in html
+    # 0066 개정: publish_gate + 작업지시 있는 localization_qa(SHOTCONE) — 판정은 edKindOk 한 곳
+    assert 'if (!can("reviewer") || !edKindOk(r)) return false;' in html
     assert 'if (r.status === "waiting") return true;' in html
     # draft 분리 — 화면이 다시 그려져도 고치던 문장이 살아남는다
     assert "dTitle" in html and "dSubs" in html
@@ -3494,3 +3497,32 @@ def test_dashboard_editor_0820_round2():
     # 겹침 행 스택 — 행 배정 함수 하나를 KR 3레인·JP 3레인이 공용
     assert "function edLaneRows(items)" in html
     assert html.count("edLaneRows(") >= 5
+
+
+def test_0066_editor_jp_full_chain():
+    """SHOTCONE 카드에 KR 편집실 전체 개방(사용자 8/20: 'ai-video 에서 편집하고
+    현지화가 재번역·재렌더') — submit_editor_render 가 localization_qa(작업지시
+    있는 카드)를 받고, JP 작업지시면 체인 꼬리에 localize(scene_rerender)를 단다."""
+    import pathlib
+    sql = _live_mig("CREATE OR REPLACE FUNCTION public.submit_editor_render")
+    # ① 카드 수용 — LOOPY(작업지시 없음)는 종전 메시지로 거절
+    assert "rq.kind IN ('publish_gate','localization_qa')" in sql
+    assert "작업지시 없는 카드는 편집실 대상이 아닙니다" in sql
+    # ③ JP 꼬리 — planner 정상 체인과 같은 mode·캡·노드 핀, 멱등키 ':loc'
+    assert "'shorts_jp_localized'" in sql and "v_jp" in sql
+    assert "'editrender:' || p_review_id || ':loc'" in sql
+    assert "jsonb_build_object('mode', 'scene_rerender'" in sql
+    # ② 재제출 가드 — 새 카드 판정은 같은 kind
+    assert "w.kind = v_rq.kind AND w.status = 'waiting'" in sql
+    # 어댑터: JP 는 brain 이 조기 반환이라 초안 청소(F-302)는 localize 가 맡는다
+    src = pathlib.Path("ves/adapters/localize.py").read_text(encoding="utf-8")
+    assert "SET draft=NULL, draft_at=NULL, draft_by=NULL, draft_sent_at=NULL" in src
+    # 대시보드: KR 편집실 개방(kr 파라미터)·양방향 전환·체인 폴 kind 인식
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert "window.openEditor = async (rid, kr)" in html
+    assert "edJpMode = kr ? null : edJpKind(r0);" in html
+    assert "🎬 원본(한국어) 편집실" in html and "일본어 편집으로" in html
+    assert "const edKindOk = r =>" in html
+    assert 'edChain.jp ? jobs.localize : jobs.evaluate' in html
+    assert '"localization_qa" : "publish_gate"' in html
+    assert '[["localize", "재번역"]]' in html                  # 체인 스트립 칩
