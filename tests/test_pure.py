@@ -1055,6 +1055,30 @@ def test_pick_from_rows_publish_quota_and_retry_slack():
     assert pick_from_rows([dict(lg)], [{"episode": 9, "used": 2}]) is None
 
 
+def test_review_card_helpers_use_existing_columns():
+    """🛑 검수 카드 부가 정보(칩·배지) 조회가 검수 등록을 막으면 안 된다.
+
+    8/20 사고: _regen_info 가 rejected_takes 를 없는 컬럼(created_at, 실제는
+    rejected_at)으로 정렬해 post_success 가 통째로 죽었다. executor 는 훅 예외를
+    삼키고 잡은 succeeded 로 남아 — 생성은 되는데 검수함에 카드가 한 장도 안 올라오는
+    상태가 두 시간 이어졌고 화면에는 아무 신호도 없었다(커리어데이·국대 2건 유실).
+    ① SQL 이 실재 컬럼만 쓰는지 ② 부가 정보 수집이 예외로부터 감싸였는지 둘 다 본다."""
+    import inspect, re
+    from ves.adapters import brain
+    ddl = _mig("0019_reject_regenerate.sql") \
+        .split("CREATE TABLE IF NOT EXISTS public.rejected_takes", 1)[1].split(");", 1)[0]
+    cols = set(re.findall(r"^\s+(\w+)\s+\w", ddl, re.M))
+    assert "rejected_at" in cols and "created_at" not in cols     # 표본이 맞는지
+    sql = re.search(r'"""(SELECT.*?)"""', inspect.getsource(brain._regen_info), re.S).group(1)
+    used = set(re.findall(r"\b([a-z_]+)\b", sql)) & (cols | {"created_at", "updated_at"})
+    assert used <= cols, f"rejected_takes 에 없는 컬럼을 쓴다: {used - cols}"
+    # 부가 정보 수집 전체가 try 로 감싸여 있고, 실패해도 INSERT 로 내려간다
+    post = inspect.getsource(brain.Evaluate.post_success)
+    body = post.split("extra = {}", 1)[1].split("INSERT INTO public.review_queue", 1)[0]
+    assert "try:" in body and "except Exception" in body, \
+        "칩·배지 조회가 감싸이지 않았다 — 부가 정보 실패가 검수 카드를 통째로 막는다"
+
+
 def test_storage_4xx_permanent_except_429():
     from ves.adapters.upload_artifacts import _is_permanent_storage_error
     assert _is_permanent_storage_error('storage upload 400: {"error":"InvalidKey"}')

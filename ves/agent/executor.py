@@ -128,7 +128,13 @@ def run_job(cfg, conn, job) -> None:
                 try:
                     hook(cfg, conn, job, result)
                 except Exception as e:  # noqa: BLE001 — 훅 실패가 성공을 뒤집지 않는다
+                    # 8/20 사고: evaluate 의 훅이 죽으면 검수 카드가 안 생기는데, 잡은
+                    # succeeded 라 화면 어디에도 신호가 없었다(두 시간 뒤 사람이 "생성이
+                    # 된 건지 확인이 안 된다"로 발견). 잡을 실패로 뒤집지는 않되(산출물은
+                    # 실제로 나왔다) 흔적은 남긴다 — 작업 내역 이벤트에서 보인다.
                     print(f"[executor] post_success 오류: {e}")
+                    db.job_event(conn, job["id"], cfg.node_id, "succeeded", "succeeded",
+                                 {"post_success_error": f"{type(e).__name__}: {e}"[:300]})
         else:
             _record_orphan(conn, job, result)        # 소유권 상실분 기록(지표16)
     except base.QuotaError as e:

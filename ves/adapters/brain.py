@@ -147,16 +147,29 @@ class Evaluate:
             if c.fetchone():
                 return
             import json
-            # 편집 지침 칩·재생성 배지(8/20) — 부가 정보라 조회 실패가 검수 등록을 막지 않는다
+            # 편집 지침 칩·재생성 배지(8/20) — 부가 정보라 조회 실패가 검수 등록을 막지 않는다.
+            # ★말로만 그랬고 실제로는 막았다(8/20 사고): _regen_info 가 rejected_takes 에
+            #   없는 컬럼(created_at)으로 정렬해 post_success 가 통째로 죽었다. executor 는
+            #   훅 예외를 삼키고 잡은 succeeded 로 남아, 생성은 됐는데 검수함에 카드가 한 장도
+            #   안 올라오는 상태가 두 시간 이어졌다(커리어데이·국대 2건). 화면에는 아무 신호도
+            #   없었다 — 그래서 지금은 **부가 정보 수집 전체를 감싼다**. 칩이 빠질지언정
+            #   카드는 반드시 만든다.
             extra = {}
-            ed, ed_run = _run_log_editorial(cfg, p)
-            if ed:
-                extra["editorial"] = ed
-            if ed_run:
-                extra["editorial_run"] = ed_run   # '추가 생성된 영상' 배지의 기획 방향 원문
-            rg = _regen_info(conn, job["work_order_id"])
-            if rg:
-                extra["regen"] = rg
+            try:
+                ed, ed_run = _run_log_editorial(cfg, p)
+                if ed:
+                    extra["editorial"] = ed
+                if ed_run:
+                    extra["editorial_run"] = ed_run   # '추가 생성된 영상' 배지의 기획 방향 원문
+                rg = _regen_info(conn, job["work_order_id"])
+                if rg:
+                    extra["regen"] = rg
+            except Exception as e:  # noqa: BLE001 — 칩·배지는 없어도 검수는 돌아야 한다
+                print(f"[evaluate] 검수 카드 부가 정보 수집 실패(카드는 만든다): "
+                      f"{type(e).__name__} {e}")
+                extra = {}
+                # 연결은 autocommit(db.connect) 이라 실패한 조회가 다음 INSERT 를
+                # 막지 않는다 — 여기서 트랜잭션을 되돌릴 것도 없다.
             c.execute(
                 """INSERT INTO public.review_queue
                        (kind, work_order_id, job_id, channel_slug, clip_id, payload)
@@ -285,7 +298,7 @@ def _regen_info(conn, work_order_id):
     반려 기록이 없으면 None(첫 생성 카드에는 배지가 안 뜬다)."""
     with conn.cursor() as c:
         c.execute("""SELECT stage, note FROM public.rejected_takes
-                      WHERE work_order_id=%s ORDER BY created_at DESC""",
+                      WHERE work_order_id=%s ORDER BY rejected_at DESC""",
                   (work_order_id,))
         rows = c.fetchall()
     if not rows:
