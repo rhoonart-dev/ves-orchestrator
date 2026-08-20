@@ -132,6 +132,12 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .bch .dots{border-left:1px solid var(--line);padding-left:10px;align-self:stretch;align-items:center;gap:8px}
   .dcol{display:flex;flex-direction:column;gap:3px;align-items:center;width:52px;flex:none}
   .dcol.dim{opacity:.4}
+  /* 지난 작업분(오늘 작업지시 없음)은 한 단계 뒤로 물린다 — 8/20 운영 피드백: 엔딩순삭이
+     8/18 작업분의 '합격' 초록을 오늘 것과 같은 채도로 달고 있어 오늘 잘 굴러간 것처럼 읽혔다.
+     회색으로 죽이지 않는 이유는 f0f6de1(8/9)에서 '없음' 이 잡·검수함과 어긋나 보였던 것과 같다 —
+     상태는 남기되 오늘 것과 구분만 시킨다. 옆의 날짜 배지가 흐린 이유를 말해준다(그래서 배지는 원래 밝기). */
+  .bch.past .dcol{opacity:.6}
+  .bch.past .dcol.dim{opacity:.32}
   .bch:hover{border-color:var(--muted)}
   .bchL{flex:1;min-width:0}
   .bchName{font-weight:700;font-size:13.5px;display:flex;align-items:center;gap:7px;min-width:0}
@@ -1082,7 +1088,12 @@ function woStatus(wo){
   // 우선순위: 실패 > 검수대기 > 반려 > 발행/예약 > 합격 > 진행 > 대기
   const js = state.jobsByWo[wo.id] || [];
   const rv = state.reviewByWo[wo.id];
-  const pub = js.find(j => j.kind === "publish");
+  // 발행 잡은 전체 잡 창(150건)에서 못 찾으면 발행 전용 창(200건)에서 한 번 더 찾는다.
+  // 하룻밤 지나면 발행 잡이 150건 밖으로 밀려 '발행됐다'가 안 보이고 그 앞 단계인 검수
+  // 합격에서 멈춘다 — 8/20 실측: 엔딩순삭 8/18 작업분이 8/19 19:00 에 발행까지 끝났는데
+  // 신호등 생성 칸은 '합격' 이었다. 공개 칸(chPubDot)이 이미 쓰는 그 목록이다.
+  const pub = js.find(j => j.kind === "publish")
+    || (state.pubJobs||[]).find(j => j.kind === "publish" && j.work_order_id === wo.id);
   if (js.some(j => ["failed","dead"].includes(j.status))) return "failed";
   if (rv && rv.status === "waiting") return "review";
   if (rv && rv.status === "rejected") return "rejected";
@@ -1106,6 +1117,19 @@ const GEN_DOT = { failed:["bad","실패"], review:["wait","검수 대기"], reje
 const pubDayOf = j => kstDay(j.status === "succeeded"
   ? ((j.params||{}).publish_at || j.finished_at || j.updated_at)
   : (j.finished_at || j.updated_at || j.created_at));
+// 공개 판정의 한계 — 우리가 아는 건 '승인 때 잡아둔 예약 시각'이지 유튜브의 실제 공개
+// 시각이 아니다. 예약을 Studio 에서 옮기면 화면은 계속 계획을 말한다.
+// 8/20 실측: 한 입 주막이 오늘 아무것도 안 올렸는데 공개 칸이 초록이었다 — 8/19 17:22
+// 승인분(ZyaJAJMhCe8)이 '8/20 10:00 공개' 로 예약돼 있었고 실제로는 8/19 19:20 에
+// 공개됐다. 계획대로면 10시에 열렸을 것이므로 화면은 초록을 켰다.
+// 실제 공개 시각을 유튜브에서 받아오기 전까지(그게 근본 해결), 최소한 '이 초록은 계획에
+// 근거한 것'이라고 말하게 한다. 트리거는 **날짜를 넘긴 예약**만 — 같은 날 승인·공개분까지
+// 표시하면 대부분의 초록에 배지가 붙어 신호가 죽는다.
+const plannedOpen = j => {
+  const at = (j.params||{}).publish_at;
+  return !!(j.status === "succeeded" && at
+            && kstDay(at) !== kstDay(j.finished_at || j.updated_at));
+};
 function chPubDot(slug){
   const today = kstDay();
   const mine = (state.pubJobs||[]).filter(j => j.kind === "publish"
@@ -1119,8 +1143,15 @@ function chPubDot(slug){
     // 오늘 예약분이라도 시각 전이면 노랑, 열렸으면 초록 — 점은 실제 공개 시각에 켜진다.
     const opened = done.filter(j => { const at = (j.params||{}).publish_at;
       return !at || new Date(at).getTime() <= Date.now(); });
+    const planned = opened.filter(plannedOpen);
+    const unverified = opened.length && planned.length === opened.length
+      ? `${kstDay(planned[0].finished_at || planned[0].updated_at).slice(5).replace("-","/")} 승인분의 예약 시각(${
+          new Date(planned[0].params.publish_at).toLocaleTimeString("ko-KR",
+            {timeZone:"Asia/Seoul",hour12:false,hour:"2-digit",minute:"2-digit"})
+        })으로 판정한 초록입니다. 유튜브에서 일정을 옮겼다면 실제 공개는 이와 다릅니다 — 채널에서 확인하세요.`
+      : "";
     return opened.length
-      ? ["ok","발행됨", opened.length > 1 ? `오늘 ${opened.length}건 공개` : ""]
+      ? ["ok","발행됨", opened.length > 1 ? `오늘 ${opened.length}건 공개` : "", unverified]
       : ["wait","예약됨", "오늘 " + new Date(done[0].params.publish_at)
           .toLocaleTimeString("ko-KR",{timeZone:"Asia/Seoul",hour12:false,hour:"2-digit",minute:"2-digit"}) + " 공개"];
   }
@@ -1218,7 +1249,9 @@ function renderHome(){
   const unpub = unpublished(), unpubBad = unpub.filter(x => x.bad);
   const tiles = [
     ["검수 대기", waiting.length], ["오늘 실패", failsToday.length],
-    ["오늘 발행", pubToday.length],
+    // 오늘 몫 가운데 몇 건이 '계획 근거'인지 같이 말한다 — 신호등 배지와 같은 규칙(8/20).
+    ["오늘 발행", pubToday.length,
+     pubToday.filter(plannedOpen).length ? `예약 기준 ${pubToday.filter(plannedOpen).length}` : ""],
     ["합격 후 미발행", unpub.length, unpubBad.length ? `확인 필요 ${unpubBad.length}` : ""],
     ["실행 중", j.filter(x=>x.status==="running").length],
     ["활성 노드", n.filter(x=>x.status==="active").length + "/" + n.length,
@@ -1282,7 +1315,7 @@ function renderHome(){
     const st = cur ? woStatus(cur) : "none";
     const [gc, gl] = GEN_DOT[st] || GEN_DOT.none;
     // 공개 칸은 작업지시가 아니라 발행 날짜로 판정한다 — cur(생성일 기준)와 무관.
-    const [pc, pl, pt] = chPubDot(ch.token_slug);
+    const [pc, pl, pt, punv] = chPubDot(ch.token_slug);
     const dateBadge = cur && !ws.length
       ? `<span class="fpill fp-mut" title="오늘 작업은 없음 — 마지막 작업분 표시">${
           esc(kstDay(cur.service_date||cur.created_at).slice(5).replace("-","/"))} 작업분</span>` : "";
@@ -1291,15 +1324,15 @@ function renderHome(){
     const noWo = JP_SLUGS.has(ch.token_slug) ? "일본 채널 · 가동 대기"
       : ((state.srcs||[]).some(s => (ch.works||[]).includes(s.work_title) && s.is_active !== false)
          ? "소스 준비됨 · 다음 회차 합류" : "소스 인입 대기 중");
-    return `<div class="bch" onclick="boardOpen=boardOpen==='${esc(ch.token_slug)}'?null:'${esc(ch.token_slug)}';render()">
+    return `<div class="bch${dateBadge ? " past" : ""}" onclick="boardOpen=boardOpen==='${esc(ch.token_slug)}'?null:'${esc(ch.token_slug)}';render()">
       <div class="bchL">
         <div class="bchName">${chAvatarHtml(ch.token_slug, 18)}<span title="${esc(ch.name || ch.token_slug)}">${esc(ch.name || ch.token_slug)}</span></div>
         <div class="bchWork" title="${cur ? esc(cur.work_title) : noWo}">${cur ? esc(cur.work_title) : noWo}</div>
-        ${dateBadge}
+        ${dateBadge}${punv ? `<span class="fpill fp-wait" title="${esc(punv)}">예약 기준</span>` : ""}
       </div>
       <div class="dots">
         <div class="dcol${gc === "none" ? " dim" : ""}"><span class="dcap">생성</span><span class="chdot ${gc}" title="${esc(gl)}"></span><span class="dlab">${esc(gl)}</span></div>
-        <div class="dcol${pc === "none" ? " dim" : ""}"><span class="dcap">공개</span><span class="chdot ${pc}" title="${esc(pt || pl)}"></span><span class="dlab">${esc(pl)}</span></div>
+        <div class="dcol${pc === "none" ? " dim" : ""}"><span class="dcap">공개</span><span class="chdot ${pc}" title="${esc(punv || pt || pl)}"></span><span class="dlab">${esc(pl)}</span></div>
       </div></div>` +
       (open ? `<div class="bdetail">${cur ? chainHtml(cur)
               : `<span class="sub">${chLinkHtml(ch.token_slug)} · 최근 작업지시 없음</span>`}${runBox(ch.token_slug)}</div>` : "");
