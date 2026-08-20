@@ -3736,9 +3736,14 @@ function edPaneSubs(canEdit){
   const locked = edForm.clips.length && edClipsChanged() && !edV3();
   const anchorless = edV3() && edClipsChanged() ? edSubAnchorless() : [];
   const orphans = edV3() ? edSubOrphans() : [];
-  // 지금 대부분의 작품은 대사 자막을 끄고 렌더한다(소스에 자막이 없어서). 그 사실을 숨기면
-  // '고쳤는데 영상이 그대로'로 보인다 — 고쳐 보내면 그 편만 켜진다는 것을 미리 알린다.
-  const off = !(state.wo[((state.reviews||[]).find(x=>x.id===edRid)||{}).work_order_id]||{}).has_subtitle;
+  // 지금 대부분의 작품은 대사 자막을 끄고 렌더한다(소스에 자막이 없어서, 또는 8/20 부터는
+  // 채널 템플릿 '대사 자막 끔'으로도). 그 사실을 숨기면 '고쳤는데 영상이 그대로'로 보인다
+  // — 고쳐 보내면 그 편만 켜진다는 것을 미리 알린다(8/17 규칙이 템플릿 '끔'보다 우선).
+  const _rv = (state.reviews||[]).find(x=>x.id===edRid)||{};
+  const _wo = state.wo[_rv.work_order_id]||{};
+  const _ch = (state.chans||[]).find(c=>c.token_slug===(_wo.channel_slug||_rv.channel_slug));
+  const tmplOff = !!_ch && (effDesign(_ch).design||{}).subtitles === false;
+  const off = tmplOff || !_wo.has_subtitle;
   return `${locked ? `<div class="edwarn">구간을 고쳤기 때문에 자막은 <b>대사에서 다시 맞춰집니다</b> —
       지금 고친 자막 문구는 보내지 않습니다. 구간을 먼저 확정해 렌더한 뒤 자막을 고치세요.</div>` : ""}
     ${anchorless.length ? `<div class="edwarn">⚠ <b>앵커 없는 자막 ${anchorless.length}줄</b>
@@ -3747,8 +3752,9 @@ function edPaneSubs(canEdit){
     ${orphans.length ? `<div class="edwarn">⚠ 자막 ${orphans.length}줄
       (${orphans.map(i => i + 1).join("·")}번)의 <b>원본 장면이 구간에서 빠져</b> 있습니다 —
       그대로 두면 옆 장면 위에 얹혀 렌더될 수 있습니다. 줄을 비우거나 구간을 되살리세요.</div>` : ""}
-    ${off && !locked ? `<div class="edwarn">이 영상은 지금 <b>대사 자막을 넣지 않고</b> 렌더됐습니다
-      (아래는 전사된 대사 원본). 한 줄이라도 고쳐 보내면 <b>그 편만 자막이 켜집니다</b>.</div>` : ""}
+    ${off && !locked ? `<div class="edwarn">이 영상은 지금 <b>대사 자막을 넣지 않고</b> 렌더됐습니다${
+      tmplOff ? " (채널 템플릿: 대사 자막 끔)" : ""} — 아래는 전사된 대사 원본.
+      한 줄이라도 고쳐 보내면 <b>그 편만 자막이 켜집니다</b>.</div>` : ""}
     <div class="edcap">상단 제목 <span class="sub">— 영상 안에 그려지는 글자(줄바꿈 유지)</span></div>
     <textarea id="edtitle" rows="2" oninput="edMark()" ${canEdit ? "" : "disabled"}></textarea>
     <div class="edcap">자막 ${edForm.dSubs.filter(s=>!s.del).length}건
@@ -6502,6 +6508,7 @@ function renderChannels(){
         .filter(([k]) => d[k] !== undefined && d[k] !== "")
         .map(([k,l,t]) => `${t==="color"?swatch(d[k]):""}${esc(l)} <b>${esc(String(d[k]))}</b>`)
         .join(" · ") + (d.face_tracking === false ? " · 얼굴크롭 끔" : "")
+        + (d.subtitles === false ? " · 자막 끔" : "")
       : '<span class="sub">기본 디자인으로 생성됩니다</span>';
     const wOvr = state.worksOvr[ch.token_slug];
     const effWorks = (wOvr && wOvr.works) || ch.works || [];
@@ -6560,6 +6567,10 @@ function chModalHtml(ch){
   const faceSel = `<label>얼굴 추종 크롭<select id="df_face_tracking">
         <option value="" ${d.face_tracking===undefined?"selected":""}>기본(켬)</option>
         <option value="false" ${d.face_tracking===false?"selected":""}>끔(--no-reframe)</option>
+      </select></label>
+    <label title="끔 = 소스에 자막이 있어도 이 채널은 대사 자막을 그리지 않습니다. TTS 내레이션 자막은 별개. 예외: 편집실에서 자막을 고쳐 보낸 편은 그 편만 자막이 켜집니다(8/17 규칙 우선)">대사 자막<select id="df_subtitles">
+        <option value="" ${d.subtitles===undefined?"selected":""}>기본(소스·작품 설정 따름)</option>
+        <option value="false" ${d.subtitles===false?"selected":""}>끔(--no-subtitles)</option>
       </select></label>`;
   const wOvr = state.worksOvr[slug];
   const effWorks = (wOvr && wOvr.works) || ch.works || [];
@@ -6634,6 +6645,9 @@ window.dfDiffUpdate = slug => {
   const ftEl = $("#df_face_tracking");
   const ft = ftEl ? ftEl.value : "", oft = d.face_tracking === false ? "false" : "";
   if (ft !== oft) diffs.push(`얼굴크롭: ${oft ? "끔" : "기본(켬)"} → ${ft ? "끔" : "기본(켬)"}`);
+  const sbEl = $("#df_subtitles");
+  const sv = sbEl ? sbEl.value : "", osv = d.subtitles === false ? "false" : "";
+  if (sv !== osv) diffs.push(`대사 자막: ${osv ? "끔" : "기본"} → ${sv ? "끔" : "기본"}`);
   const box = $("#dfdiff"); if (!box) return;
   box.innerHTML = diffs.length
     ? "저장 시 바뀌는 것: " + diffs.map(x => esc(x)).join(" · ")
@@ -6648,6 +6662,7 @@ window.dfCopyFrom = (src, slug) => {
     const el = $("#df_" + k); if (el) el.value = d[k] !== undefined ? String(d[k]) : "";
   }
   const f = $("#df_face_tracking"); if (f) f.value = d.face_tracking === false ? "false" : "";
+  const sb2 = $("#df_subtitles"); if (sb2) sb2.value = d.subtitles === false ? "false" : "";
   toast(`${ch.name || src} 디자인을 불러왔습니다 — 저장 전까지 반영되지 않습니다`);
   dfDiffUpdate(slug);
 };
@@ -6659,6 +6674,7 @@ window.chSave = slug => {
     design[k] = (t === "num" && /^-?\d+$/.test(v)) ? parseInt(v,10) : v;
   }
   if ($("#df_face_tracking")?.value === "false") design.face_tracking = false;
+  if ($("#df_subtitles")?.value === "false") design.subtitles = false;   // 대사 자막 끔(8/20)
   if (!Object.keys(design).length){ toast("설정할 값이 없습니다 — 해제를 쓰세요", true); return; }
   chEdit = null;
   rpc("set_channel_design", { p_slug: slug, p_design: design }, "저장됨 — 다음 생성부터 적용");

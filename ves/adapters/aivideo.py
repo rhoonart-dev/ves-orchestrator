@@ -69,6 +69,9 @@ CHANNEL_DESIGN_FLAGS = {
 }
 CHANNEL_DESIGN_SWITCHES = {
     "face_tracking": ("--no-reframe", False),   # false 면 얼굴 추종 크롭 끔
+    # 대사 자막 끔(8/20 Sally) — false 면 소스에 자막이 있어도 이 채널은 안 그린다.
+    # ⚠ 편집실 자막 예외(8/17 규칙)가 이긴다 — design_for_job 이 그 편만 이 키를 뺀다.
+    "subtitles": ("--no-subtitles", False),
     # F-409(dc1060f): 참이면 제목 동적 배치 대신 title_y 를 그대로 쓴다 — 편집실
     # 제목 드래그가 이 키로 나간다. ⚠ 채널 템플릿에 넣으려면 brain
     # CHANNEL_DESIGN_FLAGS 미러가 선행이다(1:1 규율 — 안 하면 brain 쪽 unknown-key
@@ -107,6 +110,18 @@ def channel_design_flags(design, channel) -> list:
                 f"허용: {sorted(CHANNEL_DESIGN_FLAGS) + sorted(CHANNEL_DESIGN_SWITCHES)}")
         flags += [flag, str(v)]
     return flags
+
+
+def design_for_job(design, params):
+    """편집실 자막 예외(8/17 규칙 우선, 8/20 스위치 추가와 함께). 순수 — 테스트 대상.
+
+    템플릿 subtitles:'끔'을 일반 디자인 플래그 경로로 그냥 흘리면 build_argv_pure 의
+    subtitles_requested 가드를 우회한다 — 사람이 자막을 고쳐 보낸 편에 --no-subtitles
+    가 그대로 붙어 '고쳤는데 안 나가는' 편집실 거짓말이 재발한다. 그래서 자막을 고쳐
+    보낸 잡에서는 이 키만 빼고 나머지 디자인은 그대로 둔다."""
+    if subtitles_requested(params) and (design or {}).get("subtitles") is False:
+        return {k: v for k, v in design.items() if k != "subtitles"}
+    return design
 
 
 def effective_design(override, file_design):
@@ -487,6 +502,7 @@ def _build_argv_fresh(cfg, job):
     rec = _channel_record(cfg, p.get("channel_name"))
     design = effective_design(p.get("design_override"), (rec or {}).get("design"))
     design = edit_design(design, (p.get("edit_overrides") or {}).get("design"))
+    design = design_for_job(design, p)   # 편집실 자막 예외 — 자막 고친 편은 템플릿 '끔' 무시
     argv += channel_design_flags(design, p.get("channel_name"))
     # 로고(가이드 자동화): 작품 카드에 branding.logo 가 있으면 scene_loop 과 같은 플래그
     card = _brain_json(cfg, "works.json").get(p.get("work_title"))

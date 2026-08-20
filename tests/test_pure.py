@@ -703,6 +703,19 @@ def test_branding_flags():
     assert "100" in f2 and "50" in f2 and "top" in f2                    # 카드 예외가 정책보다 우선
 
 
+def test_subtitles_design_switch_and_editor_exception():
+    """대사 자막 끔 스위치(8/20) — subtitles:false → --no-subtitles.
+    단 편집실에서 자막을 고쳐 보낸 편은 템플릿 '끔'을 무시한다(8/17 규칙 우선) —
+    가드가 빠지면 사람이 고친 자막이 소리 없이 안 나간다(편집실 거짓말)."""
+    from ves.adapters.aivideo import channel_design_flags, design_for_job
+    assert channel_design_flags({"subtitles": False}, "한 입 주막") == ["--no-subtitles"]
+    d = {"subtitles": False, "tts_color": "#F783AC"}
+    kept = design_for_job(d, {"edit_overrides": {"subtitles": [{"text": "고침"}]}})
+    assert "subtitles" not in kept and kept["tts_color"] == "#F783AC"   # 자막 키만 뺀다
+    assert design_for_job(d, {}) == d                                   # 안 고친 편은 그대로
+    assert design_for_job(d, {"edit_overrides": {"title": {}}}) == d    # 제목만 고친 편도 그대로
+
+
 def test_editorial_flags():
     """가이드 자동화(편집 지침): works.json editorial 규약 — channel_registry 와 동일 플래그.
     카드에 채운 지침이 argv 에 실리는지 고정 — 경로가 버리면 지침 없이 밤새 발행된다."""
