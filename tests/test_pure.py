@@ -2524,6 +2524,94 @@ def test_dashboard_editor_v3b_tracks():
     assert html.count("edDrag = { out: true }") >= 2
 
 
+def test_editor_uploads_gc_plan():
+    """업로드 GC 순수 판정 — 2회 스캔 규칙: 처음 본 고아는 기록만, 유예 지나
+    연속 미참조 확인된 키만 삭제, 다시 참조되면 사면."""
+    import datetime as dt
+
+    from ves.scheduler.editor_uploads_gc import plan
+    now = dt.datetime(2026, 8, 20, tzinfo=dt.timezone.utc)
+    g = dt.timedelta(days=14)
+    old = now - dt.timedelta(days=15)
+    fresh = now - dt.timedelta(days=1)
+    keys = ["editor_uploads/r/a.png", "editor_uploads/r/b.png",
+            "editor_uploads/r/c.png", "editor_uploads/r/d.png"]
+    protected = ["editor_uploads/r/a.png"]
+    marked = {"editor_uploads/r/b.png": old,        # 유예 경과 고아 → 삭제
+              "editor_uploads/r/c.png": fresh,      # 아직 유예 중 → 대기
+              "editor_uploads/r/a.png": old,        # 다시 참조됨 → 사면
+              "editor_uploads/r/gone.png": old}     # 실물 사라짐 → 대장 정리
+    pardon, mark, due = plan(keys, protected, marked, now, g)
+    assert pardon == ["editor_uploads/r/a.png", "editor_uploads/r/gone.png"]
+    assert mark == ["editor_uploads/r/d.png"]       # 첫 목격 — 기록만, 삭제 없음
+    assert due == ["editor_uploads/r/b.png"]
+    # 첫 스캔(대장 비었음)은 무조건 삭제 0 — 1회 판정 금지의 형태 그 자체
+    pardon, mark, due = plan(keys, [], {}, now, g)
+    assert due == [] and len(mark) == 4 and pardon == []
+
+
+def test_0061_editor_uploads_gc_contract():
+    """0056 후속 GC 계약: 보호 술어는 단일 문장(스냅샷 경합 방지), cancelled 포함
+    전 비성공 상태 + 작업지시별 최신 succeeded 보호, 세그먼트 역산 금지(정확한
+    키 대조만), 삭제 먼저·대장 정리 나중, 스케줄러 등록."""
+    import pathlib
+
+    from ves.scheduler.editor_uploads_gc import BUCKET, PREFIX, PROTECTED_SQL
+    assert BUCKET == "ves-outputs" and PREFIX == "editor_uploads/"
+    # 한 문장: 세미콜론 없음 + 잡 갈래(UNION 앞)와 초안 갈래가 같은 문장에
+    assert ";" not in PROTECTED_SQL and "UNION" in PROTECTED_SQL
+    assert "gen.status <> 'succeeded' OR gen.id IN (SELECT id FROM latest_ok)" \
+        in PROTECTED_SQL                              # cancelled 포함 전 비성공 보호
+    assert "DISTINCT ON (work_order_id)" in PROTECTED_SQL
+    assert "ORDER BY work_order_id, created_at DESC" in PROTECTED_SQL  # 0055 규약
+    assert "ea.draft->'images'" in PROTECTED_SQL
+    assert PROTECTED_SQL.count("LIKE 'editor_uploads/%'") == 2
+    sql = pathlib.Path("ves/control/migrations/0061_editor_upload_orphans.sql") \
+        .read_text(encoding="utf-8")
+    assert "CREATE TABLE IF NOT EXISTS public.editor_upload_orphans" in sql
+    assert "ENABLE ROW LEVEL SECURITY" in sql         # 정책 없음 = 대시보드 비노출
+    src = pathlib.Path("ves/scheduler/editor_uploads_gc.py").read_text(encoding="utf-8")
+    assert "삭제 먼저, 대장 정리는 성공분만" in src
+    # 스냅샷→삭제 사이 재참조 창: due 는 삭제 직전 보호 술어로 한 번 더 걸러진다
+    assert "due = [k for k in due if k not in alive]" in src
+    assert src.find("plan(keys, protected, marked") < src.find("if k not in alive")
+    main_src = pathlib.Path("ves/scheduler/main.py").read_text(encoding="utf-8")
+    assert "editor_uploads_gc.run(conn, cfg)" in main_src
+    assert '_due_daily(last.get("editor_uploads_gc"), now, 6)' in main_src
+
+
+def test_dashboard_editor_inspector_flush():
+    """JP-1 L3: 인스펙터 onchange 커밋은 트랙 mousedown(preventDefault + 동기
+    innerHTML 교체)에 blur 기회를 뺏겨 타이핑이 소실된다 — 선택 교체 전 플러시.
+    리뷰 반영: 빈 입력(Number("")=0)·표시값 경계(toFixed 부동소수) 무행동,
+    잠금 토스트는 실변경 시도에만, 재그림은 제스처 종료 후 지연 render."""
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert "function edInspFlush()" in html
+    assert "if (!edInspSet(a.id.slice(-1), a.value, true)) return;" in html
+    assert "window.edInspSet = (k, v, quiet)" in html
+    # 인스펙터를 파괴하는 세 제스처 전부에서, 선택 교체 **전에** 플러시
+    assert html.count("edInspFlush();") == 3
+    for fn in ("edOutElDown", "edOutDown", "edClipDown"):
+        body = html.split(f"window.{fn} = (ev", 1)[1][:400]
+        flush = body.find("edInspFlush()")
+        assert 0 <= flush < body.find("ev.preventDefault()"), fn
+    fset = html.split("window.edInspSet = (k, v, quiet)", 1)[1]
+    fset = fset.split("window.edInspRepin", 1)[0]
+    # 빈 입력 = 무행동(0 커밋 방지) — 유효성 가드가 잠금 토스트보다 앞
+    assert 'String(v).trim() === ""' in fset
+    # 표시 표현(toFixed(2)) 그대로면 무변화 — 경계값(예: 10.375→"10.38")이
+    # 부동소수로 < 0.005 가드를 뚫고 앵커 자막을 조용히 pin 하면 안 된다
+    assert "num === +cur.toFixed(2)" in fset
+    # 잠금 안내는 무변화 가드 뒤 — 포커스만 얹은 플러시가 토스트를 남발하지 않게
+    assert fset.find("cur.toFixed(2)") < fset.find("edSubsTimingLocked()")
+    # quiet(플러시) 커밋은 render 를 즉시 부르지 않고, 부분 패치로 흉내내지도
+    # 않는다(OOB 특수 배치·충돌색은 전체 재그림만이 진실) — 제스처 종료 후 지연
+    assert "if (!quiet) render();" in fset and "el.style.left" not in fset
+    assert 'document.addEventListener("mouseup",' in html
+    assert "setTimeout(() => { if (!edDrag) render(); }, 0), { once: true });" in html
+
+
 def test_0060_editor_templates_contract():
     """F-508: 쇼츠 템플릿 — 읽기는 authenticated RLS, 쓰기는 reviewer RPC 만.
     저장 = 유효 디자인 스냅샷, 적용 = 편당 오버라이드 통째 교체(화면). 리뷰 반영:
