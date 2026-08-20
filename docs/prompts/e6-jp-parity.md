@@ -21,6 +21,10 @@ dict{ja?, style?, start_sec?, end_sec?, use?}).
 ## 작업 항목 (독립적 — 각각 별 커밋 권장)
 
 ### E6-0. 자막·대사 소프트 삭제 — subs use:false 존중 (소 · **최우선**)
+**✅ 완료(8/20)**: vlp `claude/e6-0-subs-use-false` 커밋 `1ece879` — 세 경로(SHOTCONE
+l3_apply·잔망루피 C 합성 필터·BJ/B as_map) + pairs 제외 + 계약 문서 표. 오케스트레이터
+파트(review_meta B/BJ 폴백의 use 필터)는 본 레포에 반영. **전 노드 배포(last_seen_sha
+≥ 1ece879) 확인 후** 편집실 자막 ✕ 가 실효한다 — 대시보드 게이트는 editor_jp_style 공용.
 대시보드(JP-3b, 사용자 요청 8/20)가 자막 행의 ✕·비움을 KR 편집실과 동일하게
 `subs:{idx:{use:false}}` 로 보낸다 — 텔롭(0038 원계약)과 같은 어휘. 엔진이 이
 키를 무시하는 동안은 자막 삭제가 재렌더에서 조용히 사라지므로 최우선 배포.

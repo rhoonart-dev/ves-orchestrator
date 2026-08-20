@@ -1870,12 +1870,14 @@ def test_loopy_review_meta_reads_ko_glosses(tmp_path):
     assert m["youtube_title"] == "ルーピーの日常" and m["youtube_title_ko"] == "루피의 일상"
     assert m["description_ko"] == "설명입니다"
     assert m["ko_ja_pairs"]["subs"][0]["ja"] == "こんにちは"
-    # C 쌍이 없으면 translations.json(B/BJ)로 폴백
+    # C 쌍이 없으면 translations.json(B/BJ)로 폴백. use=False(소프트 삭제 — E6-0,
+    # vlp 1ece879)는 다음 카드에서 빠지고, 남은 줄은 필터 전 좌표(idx)를 유지한다.
     (d / "ko_ja_pairs.json").unlink()
     (d / "translations.json").write_text(json.dumps({
-        "entries": [{"source": "안녕", "target": "こんにちは"}]}, ensure_ascii=False))
+        "entries": [{"source": "지운 줄", "target": "消した", "use": False},
+                    {"source": "안녕", "target": "こんにちは"}]}, ensure_ascii=False))
     m2 = review_meta(d)
-    assert m2["ko_ja_pairs"]["subs"][0]["ko"] == "안녕"
+    assert [(s["idx"], s["ko"]) for s in m2["ko_ja_pairs"]["subs"]] == [(1, "안녕")]
     assert review_meta(tmp_path / "없음") == {} or "youtube_title" not in review_meta(tmp_path / "없음")
 
 
