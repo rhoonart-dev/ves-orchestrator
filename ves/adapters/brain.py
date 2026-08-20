@@ -147,6 +147,14 @@ class Evaluate:
             if c.fetchone():
                 return
             import json
+            # 편집 지침 칩·재생성 배지(8/20) — 부가 정보라 조회 실패가 검수 등록을 막지 않는다
+            extra = {}
+            ed = _run_log_editorial(cfg, p)
+            if ed:
+                extra["editorial"] = ed
+            rg = _regen_info(conn, job["work_order_id"])
+            if rg:
+                extra["regen"] = rg
             c.execute(
                 """INSERT INTO public.review_queue
                        (kind, work_order_id, job_id, channel_slug, clip_id, payload)
@@ -156,7 +164,8 @@ class Evaluate:
                  json.dumps({"run_id": p.get("run_id"),
                              # 업로더와 같은 키 규약(base.storage_key) — 한글 키 금지(스모크3)
                              "preview_key": base.storage_key(p.get("run_id"), "preview.mp4"),
-                             "note": result.get("stdout_tail", "")[-300:]},
+                             "note": result.get("stdout_tail", "")[-300:],
+                             **extra},
                             ensure_ascii=False)))
 
 
@@ -223,6 +232,60 @@ def _find_video(cfg, run_id, outdir):
     base_dir = f"{cfgmod.engine_dir(cfg, 'ai_video')}/{outdir or 'outputs'}/{run_id}"
     vids = [v for v in glob.glob(f"{base_dir}/shorts*.mp4") if "_480" not in v]
     return vids[0] if vids else None
+
+
+def _run_log_editorial(cfg, p):
+    """run_log.input.editorial → 검수 카드 '권리 지침/기획 방향' 칩의 데이터원(8/20).
+
+    ai-video 가 병합 적용본을 run_log 에 남긴다(그쪽 4a3bb3a). 로컬(run_dir →
+    표준 경로) 우선, 없으면 업로더가 올린 Storage 사본(run_log.json) — evaluate 가
+    생성 노드와 다른 맥에서 돌 수 있어 폴백이 필요하다(_fetch_from_storage 와 같은 이유).
+    실패는 None — 칩은 부가 정보라 검수 등록을 막지 않는다."""
+    import json as _json
+    import pathlib
+    rid = p.get("run_id")
+    if not rid:
+        return None
+    cands = []
+    if p.get("run_dir"):
+        cands.append(pathlib.Path(p["run_dir"]) / "run_log.json")
+    cands.append(pathlib.Path(cfgmod.engine_dir(cfg, "ai_video"))
+                 / (p.get("outdir") or "outputs") / rid / "run_log.json")
+    raw = None
+    for f in cands:
+        try:
+            raw = f.read_text(encoding="utf-8")
+            break
+        except OSError:
+            continue
+    if raw is None:
+        try:
+            from ves.storage.supabase_storage import Store
+            dest = pathlib.Path(cfg.home) / "cache" / "runlog" / f"{rid}.json"
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            Store(cfg.supabase_url, cfg.supabase_service_key).download(
+                "ves-outputs", base.storage_key(rid, "run_log.json"), str(dest))
+            raw = dest.read_text(encoding="utf-8")
+        except Exception as e:  # noqa: BLE001 — 부가 정보 실패는 로그만
+            print(f"[evaluate] run_log 조회 실패({rid}): {e}")
+            return None
+    try:
+        return (_json.loads(raw).get("input") or {}).get("editorial") or None
+    except (ValueError, AttributeError):
+        return None
+
+
+def _regen_info(conn, work_order_id):
+    """반려 재생성 배지(8/20) — rejected_takes 의 최신 사유·단계와 회수.
+    반려 기록이 없으면 None(첫 생성 카드에는 배지가 안 뜬다)."""
+    with conn.cursor() as c:
+        c.execute("""SELECT stage, note FROM public.rejected_takes
+                      WHERE work_order_id=%s ORDER BY created_at DESC""",
+                  (work_order_id,))
+        rows = c.fetchall()
+    if not rows:
+        return None
+    return {"tries": len(rows), "stage": rows[0]["stage"], "note": rows[0]["note"]}
 
 
 def _fetch_from_storage(cfg, run_id):

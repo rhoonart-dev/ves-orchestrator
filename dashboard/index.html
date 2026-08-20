@@ -51,6 +51,9 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   :root[data-theme="light"] .st-info{color:#1f6fd0}
   :root[data-theme="light"] nav.tabs button.on{color:var(--ink)}
   :root[data-theme="light"] nav.tabs .badge{background:#fab219;color:#3d2c04}  /* 검수함 배지: 밝은 노랑 고정 */
+  :root[data-theme="light"] .gchip.hard{color:#c22525}   /* 지침 칩(8/20): 라이트 대비 */
+  :root[data-theme="light"] .gchip.soft{color:#0b8a0b}
+  :root[data-theme="light"] .regen .rgh{color:#96690a}
   :root[data-theme="light"] .chdot{background:#c6c5be}       /* 없음: 라이트에선 연회색 */
   :root[data-theme="light"] .chdot.none{background:#c6c5be}
   :root[data-theme="light"] .chdot.rej{background:transparent}  /* 도넛 가운데는 투명 */
@@ -637,7 +640,9 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .now .idle{color:var(--muted);font-size:13px}
   /* v3: 검수함 카드 그리드. 영상 220px 확대(운영 결정 8/13) — 그리드 최소폭은
      영상폭+294(본문 240+여백)와 세트다. 한쪽만 바꾸면 본문이 찌그러진다. */
-  .rvgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(514px,1fr));gap:12px;align-items:start}
+  /* 8/20 stretch: 지침 칩·재생성 배지가 있는 카드와 없는 카드의 높이·하단 버튼 줄을
+     한 행 안에서 맞춘다 — 높이 차는 .reason(flex:1)이 흡수한다(목업 v2.6 확정). */
+  .rvgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(514px,1fr));gap:12px;align-items:stretch}
   .rvgrid .review{margin-bottom:0}
   /* 목업: 검수 카드 좌우 배치 — 영상 왼쪽 · 채널/judge/사유 오른쪽 */
   .rv2{display:flex;gap:14px;align-items:stretch;flex-wrap:wrap}
@@ -674,6 +679,34 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .rv2 .rv2-work b{color:var(--muted);font-weight:600;margin-right:6px;font-size:12px}
   .rv2 .rv2-mac{margin-left:8px;padding:1px 7px;border-radius:10px;font-size:11px;
     color:var(--muted);background:var(--chip,rgba(127,127,127,.12));white-space:nowrap}
+  .rv2 .reason{flex:1}   /* 8/20: 카드 높이 차를 사유칸이 흡수 — 버튼 줄이 이웃 카드와 정렬 */
+  /* ── 편집 지침 칩(8/20) — payload.editorial(run_log 병합 적용본, brain.Evaluate).
+     권리사 요구(avoid·rules)=빨강 · 기획 방향(prefer·tone)=초록. 지침 없는 작품은 줄 자체가 없다. */
+  .edch{margin-top:6px;display:flex;flex-wrap:wrap;gap:5px;align-items:center;font-size:11.5px}
+  .edch .lbl{font-size:11px;color:var(--muted);font-weight:600;margin-right:2px}
+  .edch .lbl.grp{margin-left:10px;padding-left:12px;border-left:1px solid var(--line)}
+  .gchip{border-radius:999px;padding:1px 9px;border:1px solid;cursor:help;max-width:240px;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .gchip.hard{color:#ff9a8f;border-color:color-mix(in srgb,var(--crit) 55%,var(--line));
+    background:color-mix(in srgb,var(--crit) 14%,transparent)}
+  .gchip.soft{color:#7fd889;border-color:color-mix(in srgb,var(--good) 55%,var(--line));
+    background:color-mix(in srgb,var(--good) 12%,transparent)}
+  /* ── 반려 재생성 배지(8/20) — 배지는 상시, 사유·단계는 클릭해야(목업 v2.2 확정) */
+  .regen{margin-top:6px;border:1px solid color-mix(in srgb,var(--warn) 40%,var(--line));
+    background:color-mix(in srgb,var(--warn) 7%,transparent);border-radius:9px;font-size:12px}
+  .regen .rgh{display:flex;gap:7px;align-items:center;font-weight:700;color:var(--warn);
+    padding:5px 10px;cursor:pointer;user-select:none}
+  .regen .rgh .tries{font-weight:400;color:var(--muted);font-size:11px}
+  .regen .rgh .arr{margin-left:auto;color:var(--muted);font-weight:400;font-size:11px}
+  .regen .rgh .arr i{display:inline-block;font-style:normal;transition:transform .15s}
+  .regen.open .rgh .arr i{transform:rotate(90deg)}
+  .regen .rgb{display:none;border-top:1px solid color-mix(in srgb,var(--warn) 25%,var(--line));
+    padding:6px 10px 8px}
+  .regen.open .rgb{display:block}
+  .regen .rgr{display:flex;gap:8px;margin-top:4px;align-items:baseline}
+  .regen .rgr:first-child{margin-top:0}
+  .regen .rgk{flex:none;font-size:10.5px;color:var(--muted);font-weight:600;width:64px}
+  .regen .rgv{color:var(--ink-2)}
   .review video{max-width:100%}
   .review .rt-big{font-size:15px;font-weight:700}
   /* v3: 소스 게이지 */
@@ -722,6 +755,11 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .runform{display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap;margin-top:8px}
   .runform label{font-size:11.5px;color:var(--muted);display:flex;flex-direction:column;gap:3px}
   .runform select{padding:5px 8px;font-size:12.5px;max-width:220px}
+  /* 기획 방향(8/20) — 이번 한 편에만 얹는 지시. 목업 v2.5 확정 */
+  .runform label.dir{flex:1;min-width:240px}
+  .runform label.dir input{width:100%;box-sizing:border-box;padding:5px 8px;font-size:12.5px;
+    font:inherit;background:var(--surface-2);color:var(--ink);border:1px solid var(--line);
+    border-radius:8px}
   .rjask{display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap}
   th.sortable{cursor:pointer;user-select:none}
   th.sortable:hover{color:var(--ink)}
@@ -1496,8 +1534,12 @@ function runBox(slug){
         <option value="">자동 — ${auto ? esc(epLab(auto)) : "쓸 수 있는 회차 없음"}</option>
         ${eps.map(e => `<option value="${e.ep}">${e.ep}회차 · 남음 ${epRemain(e, slug)}</option>`).join("")}
       </select></label>
+      <label class="dir">기획 방향 (선택 — 이번 한 편에만)
+        <input type="text" id="runDir"
+          placeholder="예: 특정 인물 중심으로 구성해줘 — 장면 선정·구성·제목에 반영됩니다"></label>
       <button class="mini pri" data-slug="${esc(slug)}"
-        onclick="runNow(this.dataset.slug, runWork, document.getElementById('runEp').value)"
+        onclick="runNow(this.dataset.slug, runWork, document.getElementById('runEp').value,
+                        document.getElementById('runDir').value)"
         >이 설정으로 실행</button>
     </div>`;
   return `<div class="runbar">
@@ -1510,10 +1552,13 @@ function runBox(slug){
         auto ? ` · 자동 선택: ${esc(w)} ${esc(epLab(auto))}` : " · 지금 쓸 수 있는 소스가 없습니다"}</span>
     </div>${form}`;
 }
-window.runNow = async (slug, work, ep) => {
+window.runNow = async (slug, work, ep, direction) => {
+  // 기획 방향(8/20): 이번 한 편에만 얹는 지시 → generate 잡 params.editorial_run
+  // → --editorial-run-json (0063). 권리 지침(avoid·rules)은 여기서 완화되지 않는다.
   const { data, error } = await sb.rpc("run_channel_now", {
     p_slug: slug, p_work: work || null,
-    p_episode: (ep === "" || ep == null) ? null : Number(ep), p_note: null });
+    p_episode: (ep === "" || ep == null) ? null : Number(ep), p_note: null,
+    p_direction: (direction || "").trim() || null });
   if (error){ toast("작업 실행 거부: " + error.message, true); return; }
   toast(`${data.channel} · ${data.work} ${data.episode != null ? data.episode + "회차" : "단편"}`
         + ` — 잡 ${data.jobs}건 투입`);
@@ -1521,6 +1566,38 @@ window.runNow = async (slug, work, ep) => {
 };
 
 // ───────── 검수함 (구 대시보드 검수 UX 계승: judge 참고표시·환각경고·반려유형) ─────────
+// 편집 지침 칩(8/20) — payload.editorial = run_log.input.editorial 의 병합 적용본
+// (brain.Evaluate 가 싣는다). avoid·rules 는 권리사 요구(하드), prefer·tone 은 기획
+// 방향(소프트) — 출처 규약은 ai-video editorial.py. 지침 없는 작품은 빈 문자열.
+function guideChips(pay){
+  const ed = pay.editorial || {};
+  const cut = s => s.length > 24 ? s.slice(0, 24) + "…" : s;
+  const one = (cls, glyph, s, tip) =>
+    `<span class="gchip ${cls}" title="${esc(tip)} — ${esc(s)}">${glyph} ${esc(cut(s))}</span>`;
+  const hard = [...(ed.avoid || []).map(s => one("hard", "✕", s, "권리사 요구 · 장면·문구 금지")),
+                ...(ed.rules || []).map(s => one("hard", "≤", s, "권리사 요구 · 구성 제약"))];
+  const soft = [...(ed.prefer || []).map(s => one("soft", "›", s, "기획 방향 — 권리사 요구 아님")),
+                ...(ed.tone ? [one("soft", "›", ed.tone, "기획 방향 · 문구 톤")] : [])];
+  if (!hard.length && !soft.length) return "";
+  return `<div class="edch">${hard.length ? '<span class="lbl">권리 지침</span>' + hard.join("") : ""}${
+    soft.length ? `<span class="lbl${hard.length ? " grp" : ""}">기획 방향</span>` + soft.join("") : ""}</div>`;
+}
+// 반려 재생성 배지(8/20) — payload.regen = rejected_takes 최신 사유·단계·회수.
+// 배지는 상시 노출, 반영 내역은 클릭해야 펼쳐진다(목업 v2.2 확정). 첫 생성 카드엔 없다.
+function regenBox(rid, pay){
+  const g = pay.regen;
+  if (!g || !g.tries) return "";
+  return `<div class="regen" id="rg_${esc(rid)}">
+    <div class="rgh" onclick="document.getElementById('rg_${esc(rid)}').classList.toggle('open')">
+      ↻ 재생성된 영상 <span class="tries">${Number(g.tries)}회차 (${Number(g.tries)}/2)</span>
+      <span class="arr"><i>▸</i> 반영 내역</span></div>
+    <div class="rgb">
+      <div class="rgr"><span class="rgk">반영한 사유</span><span class="rgv">${esc(g.note || "(사유 없음)")}</span></div>
+      <div class="rgr"><span class="rgk">다시 돈 단계</span><span class="rgv">${esc(g.stage || "")}${
+        g.stage === "제작" ? " — 렌더만 다시(사유는 프롬프트 미반영)"
+                           : " — 사유가 분석·구성 프롬프트에 재작업 지시로 반영됨"}</span></div>
+    </div></div>`;
+}
 function judgeBox(run){
   if (!state.legacyOk) return '<div class="judgebox" style="color:var(--muted)">judge 표시는 0011 정책 적용 후 활성화됩니다</div>';
   const cid = run && state.runToClip[run], jg = cid && state.judgeByClip[cid];
@@ -1685,7 +1762,7 @@ function renderReview(){
             wo.episode != null ? ` <span style="color:var(--muted)">· ${wo.episode}회차</span>` : ""}${
             (() => { const n = woNode(wo); return n
               ? ` <span class="rv2-mac" title="이 영상을 제작한 맥 — 반려 후 재생성도 같은 맥에서 돕니다">🖥 ${esc(n)}</span>` : ""; })()}</div>
-          ${jg}${form}</div></div>`;
+          ${guideChips(pay)}${regenBox(r.id, pay)}${jg}${form}</div></div>`;
     }).join("") || `<div class="empty">${rvCh==="all" ? "검수 대기 항목 없음 🎉" : esc(chName(rvCh)) + " — 검수 대기가 없습니다"}</div>`) + `</div></section>
     <section class="card"><h2>최근 결정${rvCh==="all" ? "" : ` — ${esc(chName(rvCh))}`}</h2><div class="tblwrap"><table>
       <tr><th>시각</th><th>채널</th><th>작품</th><th>결정</th><th>발행</th><th>결정자</th><th>사유</th></tr>${

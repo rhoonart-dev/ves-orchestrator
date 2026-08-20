@@ -61,6 +61,19 @@ def test_build_argv_youtube_source():
     assert "--youtube-url" in argv and "--video" not in argv
 
 
+def test_build_argv_editorial_run():
+    """홈 '기획 방향'(0063) — params.editorial_run 이 --editorial-run-json 으로 실리는지.
+    경로가 버리면 운영자가 적은 지시가 조용히 증발한다."""
+    import json as _json
+    argv = build_argv_pure("/py", {
+        "work_title": "가왕쇼",
+        "editorial_run": {"prefer": ["특정 인물 중심으로 구성"]}}, "/cache/abc")
+    i = argv.index("--editorial-run-json")
+    assert _json.loads(argv[i + 1]) == {"prefer": ["특정 인물 중심으로 구성"]}
+    argv2 = build_argv_pure("/py", {"work_title": "가왕쇼"}, "/cache/abc")
+    assert "--editorial-run-json" not in argv2   # 지시 없으면 종전과 동일
+
+
 # ── 재개 스텝 선택 (★⑦) ──
 def test_pick_resume_step():
     assert pick_resume_step([]) is None

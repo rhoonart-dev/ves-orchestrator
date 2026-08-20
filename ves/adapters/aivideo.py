@@ -179,7 +179,7 @@ def branding_flags(card, policy) -> list:
 
 # 작품 카드 editorial 허용 키 — ai-video app/modules/editorial.py 계약의 미러(1:1 규율,
 # brain channel_registry.EDITORIAL_KEYS 와 동일). 셋이 어긋나면 ai-video 쪽 fail-loud 에 걸린다.
-EDITORIAL_KEYS = frozenset({"avoid", "prefer", "tone"})
+EDITORIAL_KEYS = frozenset({"avoid", "rules", "prefer", "tone"})
 
 
 def editorial_flags(card, work) -> list:
@@ -234,6 +234,9 @@ def build_argv_pure(py: str, params: dict, source_path: str | None) -> list:
         cmd += ["--topic", p["topic"]]
     if p.get("reject_note"):     # 검수함 반려 사유 → 분석·스토리 프롬프트의 '재작업 지시'
         cmd += ["--reject-note", str(p["reject_note"])]
+    if p.get("editorial_run"):   # 홈 '기획 방향'(0063) — 이번 한 편에만 얹는 지시.
+        # 카드 상시 지침(--editorial-json)과 ai-video 가 병합한다 — avoid·rules 완화 불가.
+        cmd += ["--editorial-run-json", json.dumps(p["editorial_run"], ensure_ascii=False)]
     if p.get("episode") is not None:
         cmd += ["--episode", str(p["episode"])]
     if p.get("no_research", True):
