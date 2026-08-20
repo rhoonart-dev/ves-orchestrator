@@ -196,7 +196,8 @@ run_remote() {
         fi
     done
     echo "════════════════"
-    echo "결과: 성공 $ok대 / 실패 $fail대${failed:+ —$failed}"
+    # macOS bash 3.2 는 $ok대 처럼 한글이 붙으면 한글까지 변수명으로 읽는다 — 중괄호 필수
+    echo "결과: 성공 ${ok}대 / 실패 ${fail}대${failed:+ —$failed}"
     cat >&2 <<'REMIND'
 
 남은 일 (스크립트 밖):
