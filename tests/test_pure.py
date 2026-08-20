@@ -2676,7 +2676,8 @@ def test_dashboard_editor_v3b_tracks():
     내레이션·이미지는 출력→원본 절대초 역산(edSrcAtOut — 출력은 간극 없는 결합)."""
     import pathlib
     html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
-    assert 'class="edlane v"' in html and 'class="edlane s"' in html   # 4레인
+    # 4레인 — 겹침 행 스택(8/20)부터 요소 레인 클래스는 템플릿 변수(cls)로 조립된다
+    assert 'class="edlane v"' in html and 'const lane = (cls, lb, top, R, E)' in html
     assert "edOutElDown" in html and "edOutElApply" in html            # 이동·트리밍
     assert "edSrcAtOut" in html                                        # 출력→원본 역산
     assert "edSubOutPos" in html                                       # 자막 출력좌표 단일 규약
@@ -2707,10 +2708,11 @@ def test_dashboard_editor_jp3_parity():
     html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
     # 같은 카드 재진입 = 안 보낸 편집 보존(무조건 리셋이 편집을 증발시키던 것)
     assert "if (!edJpForm || edJpForm.rid !== rid){" in html
-    # 타임라인: 자막·텔롭은 편집, 내레이션은 표시 전용(ro)
-    assert 'lane(f.subs, "sub", "osub", "s", "자막", true)' in html
-    assert 'lane(f.tts, "tts", "ocue", "n", "내레이션", false)' in html
-    assert 'lane(f.telops, "tel", "otel", "i", "텔롭", true)' in html
+    # 타임라인: 자막·텔롭은 편집, 내레이션은 표시 전용(ro) — 겹침 행 스택(8/20)으로
+    # 레인 좌표는 인라인, 위치 클래스(s/n/i) 대신 순서가 정한다
+    assert 'lane(f.subs, "sub", "osub", "자막", true)' in html
+    assert 'lane(f.tts, "tts", "ocue", "내레이션", false)' in html
+    assert 'lane(f.telops, "tel", "otel", "텔롭", true)' in html
     assert "edJpTlDown" in html and "edJpInspFlush();" in html
     # tts 타이밍은 폼에 startCur/endCur 자체가 없고(계약 안전장치), 수집도 끈다
     assert "rich(f.tts, false, false, false)" in html
@@ -2784,9 +2786,10 @@ def test_dashboard_editor_kr_polish_0820():
     import pathlib
     html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
     assert "<h1 onclick=\"tab='home';render()\" title=\"홈으로\">VES 모니터링</h1>" in html
-    # '원래대로' — 크기·색에 더해 위치 키까지(제목 고정 배치 해제는 edTitleAutoY 규약)
-    assert '["title_size", "title_color", "title_y"]' in html
-    assert '["tts_size", "tts_color", "tts_y_margin"]' in html
+    # '원래대로' — 크기·색에 더해 위치 키까지(제목 고정 배치 해제는 edTitleAutoY 규약).
+    # 8/20 2차부터 회전(E7)도 같은 묶음.
+    assert '["title_size", "title_color", "title_y", "title_rotate"]' in html
+    assert '["tts_size", "tts_color", "tts_y_margin", "tts_rotate"]' in html
     # TTS 속도 — 행 셀렉트·수집·초안 왕복·게이지 반영·구본(stale) 판정
     assert "const ED_SPEEDS" in html and "edSpeedSel" in html and "window.edTtsSpeed" in html
     assert 'voice: t.voice, speed: t.speed || "normal",' in html
@@ -3456,3 +3459,38 @@ def test_drive_watch_use_limit_from_work_card():
         assert use_limit_of({"X": {"use_limit": bad}}, "X") == DEFAULT_USE_LIMIT
     assert use_limit_of({"X": {"use_limit": "10"}}, "X") == 10   # JSON 문자열도 받아준다
     assert use_limit_of(None, "가왕쇼") == DEFAULT_USE_LIMIT     # 카드 로드 실패
+
+
+def test_dashboard_editor_0820_round2():
+    """8/20 2차: E7 배선(제목·TTS 회전 + 영상 배속) · 구간 분할 ✂(명세) ·
+    자막 다중/전체 선택 삭제(KR·JP) · 완성본 타임라인 겹침 행 스택."""
+    import pathlib
+
+    from ves.adapters.aivideo import CHANNEL_DESIGN_FLAGS
+    # E7 어댑터 — 엔진(ai-video 2a087eb) CLI 플래그와 1:1
+    assert CHANNEL_DESIGN_FLAGS["title_rotate"] == "--design-title-rotate"
+    assert CHANNEL_DESIGN_FLAGS["tts_rotate"] == "--design-tts-rotate"
+    assert CHANNEL_DESIGN_FLAGS["video_speed"] == "--design-video-speed"
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    # E7 게이트 + H2 이중 안전(플래그 전 신 키 미전송 — 구 어댑터 즉사 방지)
+    assert "edE7On" in html and "editor_e7" in html
+    assert "if (!edE7On()) ED_E7_KEYS.forEach(k => delete ov.design[k]);" in html
+    # 배속: 표시·상한·상한선·미리보기 재생 속도가 전부 같은 값(edSpeed)을 본다
+    assert "const lim = 59.7 * edSpeed()" in html
+    assert "total / edSpeed() > ED_MAX_TOTAL_SEC" in html
+    assert "v.defaultPlaybackRate = edSpeed(); v.playbackRate = edSpeed();" in html
+    # 회전: ✎ ↺↻ 가 제목·TTS 로 확장(디자인 키), 미리보기 transform, '원래대로' 복원 묶음
+    assert '"title_rotate", "tts_rotate", "video_speed"' in html      # ED_E7_KEYS 성분표
+    assert "+d.title_rotate" in html and "+d.tts_rotate" in html
+    assert '"title_size", "title_color", "title_y", "title_rotate"' in html
+    # 구간 분할(첨부 명세): 승계 splice·최소 조각 0.5s·24fps 스냅·S 단축키·✂ 활성 동기
+    assert "edForm.clips.splice(i + 1, 0, { ...c, start: t });" in html
+    assert "const ED_SPLIT_MIN = 0.5;" in html
+    assert "const t = edQF(edCursor);" in html
+    assert 'e.code === "KeyS"' in html and "edSplitBtnSync" in html
+    # 자막 다중 선택 삭제 — KR·JP 모두, 스냅샷 1회(Cmd+Z 한 번에 전부 복원)
+    assert "window.edSubCkDel" in html and "window.edJpCkDel" in html
+    assert "edSubCk = new Set();" in html and "edJpCk = new Set();" in html
+    # 겹침 행 스택 — 행 배정 함수 하나를 KR 3레인·JP 3레인이 공용
+    assert "function edLaneRows(items)" in html
+    assert html.count("edLaneRows(") >= 5
