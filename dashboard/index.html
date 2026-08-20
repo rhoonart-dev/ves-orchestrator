@@ -81,6 +81,8 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     display:flex;align-items:center;gap:10px;padding:10px 16px;
     border-bottom:1px solid var(--line);flex-wrap:wrap}
   header.top .sp{flex:1}
+  header.top h1{cursor:pointer}        /* 로고 클릭 = 홈(사용자 8/20) */
+  header.top h1:hover{opacity:.75}
   nav.tabs{display:flex;gap:2px;padding:0 12px;border-bottom:1px solid var(--line);
     background:var(--page);overflow-x:auto}
   nav.tabs button{background:none;border:none;border-bottom:2px solid transparent;
@@ -288,8 +290,11 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
            background:#000;border-radius:10px;overflow:hidden;border:1px solid var(--line)}
   .edstage video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
   /* 가상 시퀀스: 영상은 실제 렌더처럼 '밴드'로 배치된다 — 폭 100%, 높이 = 채널
-     화면비(aspect_ratio), 위치 = video_y(없으면 중앙), 밴드 안 cover 크롭.
+     화면비(aspect_ratio), 위치 = video_y(없으면 중앙), 밴드 안 cover 크롭 + 얼굴 추종
+     크롭의 확대율 근사(video 의 transform:scale — 중앙 기준). 클리핑 박스(.edbandbox)가
+     밴드다 — transform 확대가 밴드 밖(제목 영역)으로 번지지 않게 여기서 자른다.
      크기·위치는 edStageBandSync 가 인라인으로 준다(.seqfit 는 훅 클래스) */
+  .edbandbox{position:absolute;inset:0;overflow:hidden}
   .edbandh{position:absolute;left:6px;width:22px;height:22px;background:#000c;color:#fff;
            border-radius:6px;text-align:center;line-height:22px;font-size:13px;
            cursor:ns-resize;pointer-events:auto;user-select:none;z-index:6;display:none}
@@ -887,7 +892,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 <div id="app" style="display:none">
   <div class="topwrap">
   <header class="top">
-    <h1>VES 모니터링</h1>
+    <h1 onclick="tab='home';render()" title="홈으로">VES 모니터링</h1>
     <span class="pill" id="whoami">—</span>
     <span class="sp"></span>
     <span class="sub" id="lastSync">—</span>
@@ -1979,7 +1984,8 @@ function edResetForm(){
   // 교체 규약에서 '삭제 = 목록에서 빠짐'이지만, 되살리기가 있어야 실수를 되돌린다.
   const tts = (tl.tts || []).map(c => ({
     src: Number(c.source_sec) || 0, dur: Number(c.duration_sec) || 3,
-    voice: c.voice || "ko_female", text: c.text || "",
+    voice: c.voice || "ko_female", speed: c.speed || "normal",
+    text: c.text || "",
     key: c.key || null,               // 합성 mp3(F-204 미리듣기) — 구 재료엔 없다
     del: false, isNew: false,
   }));
@@ -2066,12 +2072,14 @@ function edResetForm(){
         used.add(j);
         const x = dt[j];
         return { ...t, text: String(x.text ?? t.text), voice: x.voice || t.voice,
+                 speed: x.speed || t.speed || "normal",
                  dur: Number(x.duration_sec) || t.dur };
       });
       dt.forEach((x, k) => { if (!used.has(k))
         edForm.tts.push({ src: Number(x.source_time_sec) || 0,
                           dur: Number(x.duration_sec) || 3,
-                          voice: x.voice || "ko_female", text: String(x.text || ""),
+                          voice: x.voice || "ko_female", speed: x.speed || "normal",
+                          text: String(x.text || ""),
                           del: false, isNew: true }); });
     }
   }
@@ -2197,13 +2205,14 @@ function edTts0For(t){
   return edForm.tts0.find(o => Math.abs(o.src - t.src) < 0.0005);
 }
 
-// 내레이션이 원본과 달라졌는가 — 삭제·신규·문구·목소리·창 중 하나라도.
+// 내레이션이 원본과 달라졌는가 — 삭제·신규·문구·목소리·속도·창 중 하나라도.
 function edTtsChanged(){
   if (edForm.tts.length !== edForm.tts0.length) return true;
   return edForm.tts.some(t => {
     if (t.del || t.isNew) return true;
     const o = edTts0For(t);
     return !o || t.text !== o.text || t.voice !== o.voice
+        || (t.speed || "normal") !== (o.speed || "normal")
         || Math.abs(t.dur - o.dur) > 0.001;
   });
 }
@@ -2280,7 +2289,8 @@ function edCollect(forDraft){
     ov.tts = edForm.tts.filter(t => !t.del && String(t.text).trim())
       .map(t => ({ source_time_sec: +Number(t.src).toFixed(3),
                    duration_sec: +Number(t.dur).toFixed(3),
-                   voice: t.voice, text: String(t.text).trim() }));
+                   voice: t.voice, speed: t.speed || "normal",
+                   text: String(t.text).trim() }));
   // 이미지(F-408) — 신원은 스토리지 key. 제출은 key 만 보낸다(어댑터가 run_dir 파일로
   // 치환, 엔진 계약의 file 은 거기서 생긴다). name·del 은 화면 상태라 초안에만.
   // 초안(forDraft)은 플래그와 무관하게 싣는다 — 플래그가 꺼진 새로고침 한 번에 자동
@@ -2357,8 +2367,9 @@ window.edMark = () => {
     const orig = edTts0For(t);
     el.classList.toggle("dirty", t.isNew || !orig || el.value !== orig.text);
     el.classList.toggle("empty", !el.value.trim());
-    // 창 길이 대비 예상 발화 길이 — 넘치면 엔진이 뜻을 지키며 줄여 재합성한다는 예고
-    const e = edTtsEst(t.text), over = e > t.dur;
+    // 창 길이 대비 예상 발화 길이 — 넘치면 엔진이 뜻을 지키며 줄여 재합성한다는 예고.
+    // 속도 프리셋(8/20)이 있으면 그만큼 빨라진/느려진 길이로 근사한다.
+    const e = edTtsEst(t.text) / (ED_SPEED_FACTOR[t.speed] || 1), over = e > t.dur;
     const bar = document.getElementById("edtfb_" + i);
     if (bar){ bar.style.width = Math.min(100, e / t.dur * 100) + "%";
               bar.classList.toggle("over", over); }
@@ -3499,10 +3510,12 @@ function renderEdit(){
             onclick="edSubColorArm()" onchange="edOvColor(this.value)"
             title="선택 대상 색">
           <button class="mini" onclick="edOvReset()"
-            title="선택 대상의 크기·색(자막은 위치까지)을 채널 기본값으로">원래대로</button>
+            title="선택 대상의 크기·색·위치를 채널 기본값으로(자막은 그 줄만)">원래대로</button>
         </div>
         <div class="edstage" id="edstage">
-          <video id="edvid" playsinline preload="metadata" controls></video>
+          <div class="edbandbox" id="edbandbox">
+            <video id="edvid" playsinline preload="metadata" controls></video>
+          </div>
           <div class="edov" id="edov">
             <div class="edovimgs" id="edovimgs"></div>
             <div class="edovtitle" id="edovtitle" onmousedown="edTitleDragDown(event)"></div>
@@ -3511,8 +3524,8 @@ function renderEdit(){
             <i class="edbandh" id="edbandh" onmousedown="edBandDragDown(event)"
               title="영상 밴드 위치(video_y) — 끌어서 위·아래로">⇕</i>
             <div class="edovnote" id="edovnote" style="display:none">근사 미리보기 — 글꼴·색이
-              다를 수 있고, 영상 밴드는 채널 화면비·위치 그대로(밴드 안 크롭만 중앙 기준 —
-              실제는 얼굴 추종)</div>
+              다를 수 있습니다. 영상은 완성본과 같은 밴드(화면비·위치)에 얼굴 추종 크롭의
+              확대율까지 흉내내되, 크롭 위치만 중앙 기준(실제는 인물을 따라감)</div>
           </div>
           <div class="edphold" id="edphold" ${edStageMode === "prev" && !edPrevKey
             ? "" : 'style="display:none"'}>완성본 영상이 아직
@@ -3802,14 +3815,28 @@ function edVoiceSel(cur, canEdit, handler){
     onclick="event.stopPropagation()">${opts.map(([v,l]) =>
     `<option value="${esc(v)}" ${v===cur?"selected":""}>${esc(l)}</option>`).join("")}</select>`;
 }
+// 속도 프리셋(사용자 8/20) — 엔진 tts.SPEED_TO_RATE 와 1:1(합성 시점에 적용되는
+// edge-tts rate). cue 단위 speed 는 edit_overrides/v2 가 원계약부터 통과시킨다.
+const ED_SPEEDS = [["very_slow","아주 느리게"],["slow","느리게"],["normal","보통 속도"],
+                   ["fast","빠르게"],["very_fast","아주 빠르게"]];
+// 발화 길이 게이지용 배율 — 엔진 rate(-25%~+25%)의 근사
+const ED_SPEED_FACTOR = { very_slow: 0.75, slow: 0.9, normal: 1, fast: 1.1, very_fast: 1.25 };
+function edSpeedSel(cur, canEdit, handler){
+  const c = ED_SPEEDS.some(([v]) => v === cur) ? cur : "normal";
+  return `<select ${canEdit?"":"disabled"} onchange="${handler}"
+    onclick="event.stopPropagation()" title="이 내레이션의 말 속도(재렌더 때 재합성)">${
+    ED_SPEEDS.map(([v,l]) =>
+    `<option value="${esc(v)}" ${v===c?"selected":""}>${esc(l)}</option>`).join("")}</select>`;
+}
 function edPaneTts(canEdit){
   const orphans = edForm.tts.filter(t => !t.del && edTtsOrphan(t)).length;
   const cf = edConflicts();
   const rows = edForm.tts.map((t, i) => {
     const orphan = edTtsOrphan(t) && !t.del;
     const o0 = edTts0For(t);
-    // 문구·목소리를 고침 — 저장된 음성은 수정 전 합성본(voice 만 바꿔도 옛 음성이다)
-    const stale = !o0 || t.text !== o0.text || t.voice !== o0.voice;
+    // 문구·목소리·속도를 고침 — 저장된 음성은 수정 전 합성본(voice 만 바꿔도 옛 음성이다)
+    const stale = !o0 || t.text !== o0.text || t.voice !== o0.voice
+      || (t.speed || "normal") !== (o0.speed || "normal");
     return `
     <div class="ednrow ${i===edTtsSel?"sel":""} ${t.del?"deleted":""}" onclick="edTtsPick(${i})">
       <div class="hd">
@@ -3818,6 +3845,7 @@ function edPaneTts(canEdit){
           onclick="event.stopPropagation();edSeek(${t.src})">원본 ${edFmt(t.src)}</span>
         <span>창 ${t.dur.toFixed(1)}s</span>
         ${edVoiceSel(t.voice, canEdit && !t.del, `edTtsVoice(${i},this.value)`)}
+        ${edSpeedSel(t.speed, canEdit && !t.del, `edTtsSpeed(${i},this.value)`)}
         ${t.key && !t.del ? `<button class="mini" onclick="event.stopPropagation();edTtsPlay(${i})"
             title="${stale ? "저장된 음성 미리듣기 — 수정 전 합성본입니다. 고친 문구·위치·목소리는 재렌더 후 합성됩니다"
                            : "합성된 음성 미리듣기"}">▶${stale ? "·구본" : ""}</button>` : ""}
@@ -3925,7 +3953,8 @@ let edTpls = [], edTplLoaded = false, edTplSel = "";
 // 있음). platform_*·work_* 같은 채널 정체성 키는 화면에 안 보여 지울 수도 없으므로
 // 템플릿에 싣지 않는다 — 다른 채널에 적용해도 로고·표기는 그 채널 것이 유지된다.
 function edTplPick(design){
-  const ok = new Set(ED_STYLE_FIELDS.map(f => f[0]).concat(["title_y_fixed"]));
+  const ok = new Set(ED_STYLE_FIELDS.map(f => f[0])
+    .concat(["title_y_fixed", "face_tracking"]));
   const d = {};
   for (const k of Object.keys(design || {})) if (ok.has(k)) d[k] = design[k];
   return d;
@@ -3990,7 +4019,16 @@ function edPaneStyle(canEdit){
     <div class="edrows">${ED_STYLE_FIELDS.map(([k,l,ph]) => `
       <div class="edrow3"><label>${esc(l)}</label>
         <input id="edd_${k}" placeholder="${esc(base[k] != null ? "채널: " + base[k] : ph)}"
-          ${canEdit?"":"disabled"} oninput="edStyleSet('${k}',this.value)"></div>`).join("")}</div>
+          ${canEdit?"":"disabled"} oninput="edStyleSet('${k}',this.value)"></div>`).join("")}
+      ${(() => {   // 얼굴 추종 크롭(engine reframe) — 켬 = 인물 확대, 끔 = 밴드에 영상 전체
+        const cur = (edForm.design || {}).face_tracking;
+        const baseOff = base.face_tracking === false || String(base.face_tracking) === "false";
+        return `<div class="edrow3"><label>영상 확대(얼굴 추종)</label>
+        <select id="edface" ${canEdit ? "" : "disabled"} onchange="edFaceTrack(this.value)">
+          <option value="">채널 기본 (${baseOff ? "끔" : "켬"})</option>
+          <option value="on" ${cur === true ? "selected" : ""}>켬 — 인물을 확대해 담기</option>
+          <option value="off" ${cur === false ? "selected" : ""}>끔 — 밴드에 영상 전체</option>
+        </select></div>`; })()}</div>
     ${edDesign().title_y_fixed ? `<div class="sub" style="margin-top:6px">
       제목이 <b>고정 위치 모드</b>입니다(화면 드래그).
       <button class="mini" onclick="edTitleAutoY()"
@@ -4076,8 +4114,11 @@ async function edMountStage(){
       if (!edPrevWarned){ edPrevWarned = true; toast("완성본 열기 실패: " + e.message, true); }
     }
   }
+  // 소스 해상도가 와야 얼굴 크롭 확대율이 정확하다 — 메타데이터 도착 시 밴드 재동기
+  v.onloadedmetadata = () => edStageBandSync();
   // seq 모드의 소스 로드는 edSeqStart·edSeqTick 이 edStageLoad 로 한다
   edStagePaint(edStageT);
+  edStageBandSync();   // render() 가 video 를 새로 만들었을 수 있다 — 인라인 밴드 복원
 }
 
 // 스테이지 전용 소스 로더 — edLoadSource 와 같은 강화 패턴(세대표·메타데이터 대기·같은 URL
@@ -4318,6 +4359,7 @@ window.edTtsPick = i => { edTtsSel = i; edPane = "tts";
 window.edTtsDel = i => { edSnap(); edForm.tts[i].del = true; render(); };
 window.edTtsRestore = i => { edSnap(); edForm.tts[i].del = false; render(); };
 window.edTtsVoice = (i, v) => { edSnap(); edForm.tts[i].voice = v; edMark(); };
+window.edTtsSpeed = (i, v) => { edSnap(); edForm.tts[i].speed = v; edMark(); };
 window.edTtsAdd = () => {
   const src = edParseTime(($("#edntts")||{}).value);
   const dur = parseFloat(($("#ednttd")||{}).value);
@@ -4327,8 +4369,8 @@ window.edTtsAdd = () => {
   if (!(dur > 0)){ toast("창 길이(초)가 올바르지 않습니다", true); return; }
   if (!text){ toast("내레이션 문구를 적으세요", true); return; }
   edSnap();
-  edForm.tts.push({ src: +src.toFixed(3), dur: +dur.toFixed(3), voice, text,
-                    del: false, isNew: true });
+  edForm.tts.push({ src: +src.toFixed(3), dur: +dur.toFixed(3), voice, speed: "normal",
+                    text, del: false, isNew: true });
   edForm.tts.sort((a, b) => a.src - b.src);
   edTtsSel = edForm.tts.findIndex(t => Math.abs(t.src - src) < 0.0005 && t.isNew);
   render();
@@ -4999,14 +5041,34 @@ function edStageBandGeom(d){
     : (1 - bandH) / 2;
   return { bandH, vy };
 }
+// 얼굴 추종 크롭(reframe)의 확대율 근사(사용자 8/20 — '미리보기가 영상 전체를 보여준다').
+// 엔진 _portrait_crop_size 그대로: 9:16 창 × 줌아웃 1.6, 원본 안으로 클램프. 그 창을
+// 밴드에 cover 한 배율 ÷ 원본 전체를 cover 한 배율 = video 에 얹을 추가 확대.
+// 위치만 중앙 기준 근사다(얼굴 위치는 프레임마다 달라 화면이 알 수 없다 — 안내문 참고).
+function edStageZoom(d, v, g){
+  if (d.face_tracking === false || String(d.face_tracking) === "false") return 1;
+  const sw = v.videoWidth || 1920, sh = v.videoHeight || 1080;
+  let cw, ch;
+  if (sw / sh > 9 / 16){ ch = sh; cw = sh * 9 / 16; }
+  else { cw = sw; ch = sw * 16 / 9; }
+  cw = Math.min(cw * 1.6, sw); ch = Math.min(ch * 1.6, sh);
+  const bw = 9, bh = 16 * g.bandH;             // 밴드 박스의 비율만 필요하다(9:16 스테이지)
+  const cover = (w, h) => Math.max(bw / w, bh / h);
+  return cover(cw, ch) / cover(sw, sh);
+}
 function edStageBandSync(){
-  const v = document.getElementById("edvid"); if (!v) return;
+  const box = document.getElementById("edbandbox");
+  const v = document.getElementById("edvid");
+  if (!box || !v) return;
   if (edStageMode !== "seq"){          // 완성본은 이미 렌더된 레이아웃 — 기본(전체 cover)
-    v.style.top = ""; v.style.height = "";
+    box.style.top = ""; box.style.height = "";
+    v.style.transform = "";
   } else {
-    const g = edStageBandGeom(edDesign());
-    v.style.top = (g.vy * 100) + "%";
-    v.style.height = (g.bandH * 100) + "%";
+    const d = edDesign(), g = edStageBandGeom(d);
+    box.style.top = (g.vy * 100) + "%";
+    box.style.height = (g.bandH * 100) + "%";
+    const z = edStageZoom(d, v, g);
+    v.style.transform = z > 1.001 ? `scale(${z.toFixed(4)})` : "";
   }
   const h = document.getElementById("edbandh");
   if (h){
@@ -5318,9 +5380,16 @@ window.edOvReset = () => {
   if (edOvSel === "sub"){ edSubStyleReset(); return; }
   edSnap();
   const d = { ...(edForm.design || {}) };
-  (edOvSel === "title" ? ["title_size", "title_color"] : ["tts_size", "tts_color"])
+  // 위치도 함께 채널 기본값으로(사용자 8/20) — 위아래로 끌어 본 제목·TTS 가
+  // '원래대로'에 안 돌아오던 것. 제목은 드래그가 켠 고정 배치까지 해제(edTitleAutoY 규약).
+  (edOvSel === "title" ? ["title_size", "title_color", "title_y"]
+                       : ["tts_size", "tts_color", "tts_y_margin"])
     .forEach(k => { delete d[k];
       const el = document.getElementById("edd_" + k); if (el) el.value = ""; });
+  if (edOvSel === "title"){
+    if (edBaseDesign().title_y_fixed) d.title_y_fixed = false;
+    else delete d.title_y_fixed;
+  }
   edForm.design = d;
   edStagePaint(edStageT); edMark();
 };
@@ -5536,6 +5605,21 @@ window.edTitleDragDown = ev => {
   };
   document.addEventListener("mousemove", move);
   document.addEventListener("mouseup", up);
+};
+// 얼굴 추종 크롭 토글(edit_overrides.design.face_tracking — 어댑터 스위치는 원계약부터).
+// false = --no-reframe(영상 전체가 밴드에), 빈 값 = 채널 기본. 미리보기 확대에 즉시 반영.
+window.edFaceTrack = v => {
+  if (!edCanEdit()) return;
+  edSnap();
+  const d = { ...(edForm.design || {}) };
+  if (!v) delete d.face_tracking;
+  else d.face_tracking = v === "on";
+  // 채널 기본과 같은 값이면 오버라이드를 지운다(영구 dirty 방지 — edOvSize 와 같은 규칙)
+  const baseOff = edBaseDesign().face_tracking === false
+    || String(edBaseDesign().face_tracking) === "false";
+  if (d.face_tracking === !baseOff) delete d.face_tracking;
+  edForm.design = d;
+  edStageBandSync(); edMark();
 };
 window.edTitleAutoY = () => {
   if (!edForm) return;

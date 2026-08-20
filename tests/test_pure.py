@@ -2702,6 +2702,31 @@ def test_dashboard_editor_jp_subs_kr_parity():
     assert "if (s.del && edJpTlSel && edJpTlSel.t === t && edJpTlSel.i === idx)" in html
 
 
+def test_dashboard_editor_kr_polish_0820():
+    """사용자 요청 8/20 묶음: ① 로고 클릭=홈 ② '원래대로'가 제목·TTS 위치까지 복원
+    ③ TTS 속도 프리셋(엔진 tts.SPEED_TO_RATE 와 1:1 — cue.speed 는 edit_overrides/v2
+    원계약이 이미 통과·합성 적용) ④ 가상 미리보기 밴드를 클리핑 박스(.edbandbox)로
+    바꾸고 얼굴 추종 크롭(reframe _portrait_crop_size: 9:16 창 ×1.6 줌아웃)의 확대율을
+    중앙 기준으로 근사 — '미리보기에 영상 전체가 나온다' 수정 ⑤ face_tracking 토글."""
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert "<h1 onclick=\"tab='home';render()\" title=\"홈으로\">VES 모니터링</h1>" in html
+    # '원래대로' — 크기·색에 더해 위치 키까지(제목 고정 배치 해제는 edTitleAutoY 규약)
+    assert '["title_size", "title_color", "title_y"]' in html
+    assert '["tts_size", "tts_color", "tts_y_margin"]' in html
+    # TTS 속도 — 행 셀렉트·수집·초안 왕복·게이지 반영·구본(stale) 판정
+    assert "const ED_SPEEDS" in html and "edSpeedSel" in html and "window.edTtsSpeed" in html
+    assert 'voice: t.voice, speed: t.speed || "normal",' in html
+    assert 'speed: c.speed || "normal"' in html            # 재료 타임라인 → 폼
+    assert "ED_SPEED_FACTOR[t.speed]" in html
+    assert '(t.speed || "normal") !== (o.speed || "normal")' in html
+    # 미리보기 — 밴드 클리핑 박스 + 확대율 근사 + 해상도 도착 시 재동기 + 크롭 토글
+    assert 'id="edbandbox"' in html and "function edStageZoom" in html
+    assert "cover(cw, ch) / cover(sw, sh)" in html
+    assert "v.onloadedmetadata = () => edStageBandSync();" in html
+    assert "window.edFaceTrack" in html and 'id="edface"' in html
+
+
 def test_editor_uploads_gc_plan():
     """업로드 GC 순수 판정 — 2회 스캔 규칙: 처음 본 고아는 기록만, 유예 지나
     연속 미참조 확인된 키만 삭제, 다시 참조되면 사면."""
@@ -2815,7 +2840,8 @@ def test_0060_editor_templates_contract():
     # M2: 저장·적용 모두 화이트리스트 경유(edTplPick) — 통째 교체는 그 안에서
     assert "edForm.design = edTplPick(t.design);" in html
     assert "p_design: edTplPick(edDesign())" in html
-    assert 'concat(["title_y_fixed"])' in html                 # 드래그 산물도 템플릿 대상
+    # 드래그 산물(title_y_fixed)·얼굴 추종 크롭(face_tracking, 8/20)도 템플릿 대상
+    assert 'concat(["title_y_fixed", "face_tracking"])' in html
     # M1: 선택이 render 마다 첫 항목으로 리셋되지 않는다
     assert 'onchange="edTplSel=this.value"' in html
     assert 't.name === edTplSel ? " selected" : ""' in html
