@@ -207,7 +207,12 @@ def pick_from_rows(rows, legacy=None):
             ep = r.get("episode")
             spread[ep] = spread.get(ep, 0) + int(r["used"])
     for row in rows or []:
-        limit, used = int(row["use_limit"]), int(row["used_wo"])
+        limit = int(row["use_limit"])
+        tries = int(row["used_wo"])                       # 시도 — 반려·취소도 한 번
+        # 0064: 한도는 발행분만 센다. used_pub 이 없는 호출(옛 테스트·구 DB)은 종전대로
+        # 시도를 한도에 세던 동작으로 흘린다 — 조용히 한도를 풀어주지 않는다.
+        used = int(row["used_pub"]) if row.get("used_pub") is not None else tries
+        slack = int(row.get("retry_slack") if row.get("retry_slack") is not None else 3)
         ep, url = row.get("episode"), (row.get("source_url") or "").strip()
         free = max(limit - used, 0)
         take = min(free, pinned.pop(url, 0)) if url else 0   # ① 못박힌 몫 먼저
@@ -216,7 +221,9 @@ def pick_from_rows(rows, legacy=None):
             if more:
                 spread[ep] -= more
                 take += more
-        if used + take < limit:
+        # 발행이 한도에 못 미쳐도, 시도가 상한(한도+여유)에 닿았으면 더 안 돈다 —
+        # 반려가 반복될 때 같은 원본으로 생성이 무한정 돌아 비용이 새는 것을 막는다.
+        if used + take < limit and tries + take < limit + slack:
             return row
     return None
 
@@ -232,6 +239,8 @@ def _pick_source(conn, work, pipeline="shorts_kr", episode=None, channel_slug=No
       (종전 (작품, 회차) 집계는 회차를 공유하는 영상들의 한도를 서로 잡아먹었다)
     ★레거시 루프가 이미 쓴 몫(source_usage_legacy)도 더해서 센다 — 구 시스템에서 공개까지
       마친 회차를 오케스트레이터가 처음부터 다시 돌지 않게 한다(차감 규칙은 pick_from_rows).
+    ★0064: 한도(use_limit)는 **발행된 편수**로 센다. 반려·취소로 끝난 시도는 한도를
+      깎지 않되, 시도 자체는 **한도 + 시도 여유**(작품 카드, 기본 3)에서 멈춘다.
     ★정렬: 회차 오름차순('오래된 것 = 낮은 번호' 규약) → 회차 안에서는 업로드시각
       (published_ts, 없으면 등록시각).
     episode 지정(0016) 시 그 회차만 — 소진이면 None(사람 결정을 조용히 바꾸지 않는다)."""
@@ -245,7 +254,16 @@ def _pick_source(conn, work, pipeline="shorts_kr", episode=None, channel_slug=No
                           -- 규칙을 복사하면 반드시 한 곳이 어긋난다.
                           AND public.wo_matches_source(
                                 w.work_title, w.source_sha256, w.source_url,
-                                s.work_title, s.sha256, s.source_url)) AS used_wo
+                                s.work_title, s.sha256, s.source_url)) AS used_wo,
+                      -- 0064: 한도는 '발행' 으로, 시도 상한은 위 used_wo 로 판정한다.
+                      (SELECT count(*) FROM public.work_orders w
+                        WHERE w.status NOT IN ('cancelled','failed')
+                          AND (%(ch)s::text IS NULL OR w.channel_slug = %(ch)s::text)
+                          AND public.wo_matches_source(
+                                w.work_title, w.source_sha256, w.source_url,
+                                s.work_title, s.sha256, s.source_url)
+                          AND public.wo_published(w.id))                AS used_pub,
+                      public.source_retry_slack(s.work_title)           AS retry_slack
                  FROM public.sources s
                 WHERE s.work_title = %(work)s AND s.is_active
                   -- 하한 이하 소스는 쓰지 않는다(8/12 사용자 결정). 등록 때 걸러지지만,

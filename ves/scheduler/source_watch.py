@@ -35,10 +35,20 @@ WITH used AS (
            WHERE w.status NOT IN ('cancelled','failed')
              AND public.wo_matches_source(
                    w.work_title, w.source_sha256, w.source_url,
-                   s.work_title, s.sha256, s.source_url)) AS n
+                   s.work_title, s.sha256, s.source_url)) AS n,
+         -- 0064: 앞으로 몇 편 더 만들 수 있나는 두 벽 중 **가까운 쪽**이다.
+         -- 한도는 발행분으로 차고, 시도 상한(한도+여유)은 반려·취소로도 찬다.
+         (SELECT count(*) FROM public.work_orders w
+           WHERE w.status NOT IN ('cancelled','failed')
+             AND public.wo_matches_source(
+                   w.work_title, w.source_sha256, w.source_url,
+                   s.work_title, s.sha256, s.source_url)
+             AND public.wo_published(w.id))               AS n_pub,
+         public.source_retry_slack(s.work_title)          AS slack
     FROM public.sources s WHERE s.is_active)
 SELECT u.work_title,
-       sum(greatest(u.use_limit - u.n, 0))::int AS remaining,
+       sum(least(greatest(u.use_limit - u.n_pub, 0),
+                 greatest(u.use_limit + u.slack - u.n, 0)))::int AS remaining,
        (SELECT count(*) FROM public.channels_mirror c
          WHERE c.works @> ARRAY[u.work_title])::int AS channels
   FROM used u GROUP BY 1

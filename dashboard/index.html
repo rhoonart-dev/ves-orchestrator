@@ -6184,8 +6184,11 @@ function buildEpMap(srcs, byCh){
   (byCh||[]).forEach(r => {
     const e = (map[r.work_title] || {})[key(r.episode)]; if (!e) return;
     if (!srcUsable(r)) return;                  // 한도와 같은 기준으로 센다
-    const c = e.ch[r.channel_slug] = e.ch[r.channel_slug] || { wo:0, lg:0, pin:0, used:0 };
-    c.wo  += Number(r.used_wo) || 0;
+    const c = e.ch[r.channel_slug] = e.ch[r.channel_slug] ||
+              { wo:0, lg:0, pin:0, used:0, pub:0, left:0 };
+    c.wo  += Number(r.used_wo) || 0;            // 시도(작업지시 수) — 반려·취소 포함
+    c.pub += Number(r.used_pub) || 0;           // 0064: 한도에 세는 것은 발행분이다
+    c.left += Number(r.attempts_left) || 0;     // 시도 상한(한도+여유)까지 남은 횟수
     c.pin += Number(r.used_legacy_pin) || 0;    // 0040: 영상에 못박힌 몫 — 행 단위 정확값
     c.lg   = Math.max(c.lg, Number(r.used_legacy) || 0);  // 못박히지 않은 회차 몫 — 한 번만
     c.used = c.wo + c.pin + c.lg;
@@ -6216,7 +6219,12 @@ const epsOf    = w => Object.values((state.eps||{})[w] || {})
                         .sort((a,b) => (a.ep ?? 1e9) - (b.ep ?? 1e9));
 // 쓸 수 있는 행이 하나라도 있으면 그 회차는 쓸 수 있다(0027: 회차에 영상이 여럿이다)
 const epUsable = e => e.usable > 0;
-const epUsed   = (e, slug) => (e.ch[slug] || {}).used || 0;
+// 0064: '쓴 수' 는 한도에 세는 것 — 발행분 + 레거시 보정. 반려·취소로 끝난 시도는
+// 여기 안 들어간다(그건 epTries). 종전에는 시도를 한도에 세어, 검수에서 반려만 몇 번
+// 나도 발행 한 편 없이 원본이 소진됐다(커리어데이 7회차 실측 8/20).
+const epUsed   = (e, slug) => { const c = e.ch[slug] || {}; return (c.pub||0) + (c.pin||0) + (c.lg||0); };
+const epTries  = (e, slug) => { const c = e.ch[slug] || {}; return (c.wo||0) + (c.pin||0) + (c.lg||0); };
+const epLeft   = (e, slug) => (e.ch[slug] || {}).left || 0;   // 시도 상한까지 남은 횟수
 const epRemain = (e, slug) => Math.max(0, e.limit - epUsed(e, slug));   // 0023: 소진은 채널별
 
 // 0040: 영상 목록 펼침 상태 — 회차 키(작품|회차)로 기억한다
@@ -6287,13 +6295,21 @@ function epBlock(e, chs, editable, nextSid){
     const box  = editable
       ? `<input type="number" min="0" max="99" value="${used}" data-sid="${sid}"
                 data-ch="${esc(s)}" onchange="srcUsed(this)"
-                title="이 채널이 이 회차를 실제로 몇 번 썼는지. 발주 기록보다 낮게는 못 내립니다">`
+                title="이 채널이 이 회차로 실제 발행한 편수. 발행 기록보다 낮게는 못 내립니다 — 발행된 건을 지우려면 유튜브에서 내리고 작업 내역에서 그 작업지시를 취소하세요">`
+      : "";
+    // 0064: 한도는 발행분으로 차고, 시도(반려·취소 포함)는 한도+여유에서 멈춘다.
+    // 두 숫자를 같이 보여준다 — 유튜브에 1편인데 창고가 2/2 소진이던 혼란의 원인이다.
+    const tries = epTries(e, s), left = epLeft(e, s);
+    const tTag  = tries > used
+      ? `<span class="sub" title="반려·취소로 끝난 시도를 포함한 작업지시 수. 한도는 안 깎지만 시도 상한(한도+여유)에는 들어갑니다${
+           left ? ` — 앞으로 ${left}번 더 시도할 수 있습니다` : " — 시도 상한에 닿아 더 안 돕니다"}">
+           · 시도 ${tries}${left ? "" : " (상한)"}</span>`
       : "";
     return `<div class="eprow chrow"><span class="ep2" title="${esc(c.name)}">${esc(c.name)}</span>
       <span class="gauge"><i class="${full ? "full" : ""}" style="width:${pct}%"></i></span>
       <span class="cnt">${used}/${e.limit}</span>${box}
-      <span class="sub">발주 ${u.wo}${u.lg ? ` · 보정 ${u.lg}` : ""}${
-        full ? "" : ` · 남음 ${remain}`}</span></div>`;
+      <span class="sub">발행 ${u.pub||0}${u.lg || u.pin ? ` · 보정 ${(u.lg||0)+(u.pin||0)}` : ""}${
+        full ? "" : ` · 남음 ${remain}`}</span>${tTag}</div>`;
   }).join("")
     : '<div class="eprow"><span class="sub">배정된 채널이 없어 소진되지 않습니다 — 채널 템플릿에서 작품을 배정하세요</span></div>';
   return `<div class="epgrp"><div class="ephd"><b>${lab}</b>${mins}${nf}${dead}${vbtn}
@@ -6352,7 +6368,9 @@ function renderSources(){
       <button class="mini right" onclick="srcAll()">모두 ${srcOpen.size ? "접기" : "펼치기"}</button></h2>
     <div class="sub" style="margin-bottom:8px">소진은 채널별로 셉니다(0023) — 같은 회차를 두 채널이
       각자 한도만큼 씁니다. <b>한도</b>는 그 회차로 만들 편수 상한(등록 시 길이로 자동 결정: 10분 미만 1
-      · 10~30분 2 · 30분↑ 3), <b>쓴 수</b>는 그 채널이 실제로 쓴 합계(발주 기록 + 레거시 보정)입니다.
+      · 10~30분 2 · 30분↑ 3)으로 <b>발행된 편수</b>를 셉니다(0064). 검수에서 반려하거나 취소된 시도는
+      한도를 깎지 않고 <b>시도</b>로만 잡히며, 시도는 <b>한도 + 여유(기본 3)</b>에서 멈춥니다 —
+      반려가 반복될 때 같은 원본으로 생성이 무한정 도는 것을 막는 벽입니다.
       ${editable ? "숫자를 고치면 바로 저장됩니다." : "수정은 operator 권한이 필요합니다."}</div>
     ${(state.srcs||[]).length && !(state.srcCh||[]).length
       ? `<div class="sub" style="color:var(--serious);margin-bottom:8px">⚠ 채널별 소진
@@ -6711,6 +6729,13 @@ function renderJobsTab(){
           ? `<button class="mini" onclick="rpc('retry_job',{p_job:'${j.id}'},'재시도 큐잉')">재시도</button>` : "",
         ["pending","running","blocked"].includes(j.status)
           ? `<button class="mini danger" data-l="취소" onclick="armed(this,'취소',()=>rpc('cancel_job',{p_job:'${j.id}',p_note:'dashboard'},'취소됨'))">취소</button>` : "",
+        // 0064: 작업지시 자체를 취소하는 정식 경로. 소스 창고의 '발행 기록 아래로는 못
+        // 내립니다' 안내가 여기를 가리키는데 정작 버튼이 없어 막다른 길이었다.
+        // 발행까지 간 건은 RPC 가 거부한다(올라간 영상의 이력을 지우는 셈이라서).
+        j.work_order_id && wo.status !== "cancelled"
+          ? `<button class="mini danger" data-l="작업지시 취소"
+               title="이 잡이 속한 작업지시를 통째로 취소합니다 — 남은 잡과 검수 대기 카드가 함께 닫히고, 소스 소진에서도 빠집니다"
+               onclick="armed(this,'작업지시 취소',()=>rpc('cancel_work_order',{p_wo:'${j.work_order_id}',p_note:'관제에서 작업지시 취소'},'작업지시 취소됨'))">작업지시 취소</button>` : "",
       ].join("") : "";
       return `<tr><td>${esc(kindKo(j.kind))}</td><td>${chip(cls,ic,lb)}</td>
         <td class="num">${j.attempt}/${j.max_attempts??3}</td>

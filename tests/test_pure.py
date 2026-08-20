@@ -997,6 +997,7 @@ def test_pick_from_rows_per_row_and_legacy():
     """0027: 행 단위 소진 + 회차 단위 레거시를 앞선 행부터 차감."""
     from ves.scheduler.planner import pick_from_rows
     # 같은 회차 두 행 — A(한도1) 소진이어도 B(한도3)는 살아 있다
+    # used_pub 이 없으면 종전대로 used_wo 를 한도에 센다(구 DB·옛 호출 폴백)
     rows = [{"episode": 5, "use_limit": 1, "used_wo": 1, "id": "A"},
             {"episode": 5, "use_limit": 3, "used_wo": 0, "id": "B"}]
     assert pick_from_rows(rows)["id"] == "B"
@@ -1010,6 +1011,35 @@ def test_pick_from_rows_per_row_and_legacy():
     assert pick_from_rows(rows, [{"episode": 3, "used": 2}])["id"] == "D"
     assert pick_from_rows(rows, [{"episode": 3, "used": 3}]) is None
     assert pick_from_rows([], []) is None
+
+
+def test_pick_from_rows_publish_quota_and_retry_slack():
+    """0064: 한도는 발행분으로 차고, 시도는 한도+여유에서 멈춘다.
+
+    커리어데이 실측(8/20)이 출발점 — 6회차는 반려 1·발행 1 인데 한도 2 를 다 쓴 것으로
+    잡혀 소진됐고, 7회차는 검수 대기(미발행)인데 1/1 로 잠겼다."""
+    from ves.scheduler.planner import pick_from_rows
+    # 시도 2 · 발행 1 · 한도 2 → 아직 한 편 더 만들 수 있다(종전에는 소진)
+    row = {"episode": 6, "use_limit": 2, "used_wo": 2, "used_pub": 1,
+           "retry_slack": 3, "id": "6화"}
+    assert pick_from_rows([dict(row)])["id"] == "6화"
+    # 발행이 한도를 채우면 시도가 남아도 닫힌다
+    full = dict(row, used_pub=2)
+    assert pick_from_rows([full]) is None
+    # 발행 0 이어도 시도가 상한(한도+여유=1+3)에 닿으면 멈춘다 — 반려 무한 재생성 방지
+    burn = {"episode": 7, "use_limit": 1, "used_wo": 4, "used_pub": 0,
+            "retry_slack": 3, "id": "7화"}
+    assert pick_from_rows([burn]) is None
+    assert pick_from_rows([dict(burn, used_wo=3)])["id"] == "7화"
+    # 여유는 작품 카드값을 따른다 — 0 이면 종전과 같은 '시도=한도' 동작
+    tight = {"episode": 8, "use_limit": 1, "used_wo": 1, "used_pub": 0,
+             "retry_slack": 0, "id": "8화"}
+    assert pick_from_rows([tight]) is None
+    # 레거시(발행 완료분)는 발행·시도 양쪽에 더해진다
+    lg = {"episode": 9, "use_limit": 2, "used_wo": 0, "used_pub": 0,
+          "retry_slack": 3, "id": "9화"}
+    assert pick_from_rows([dict(lg)], [{"episode": 9, "used": 1}])["id"] == "9화"
+    assert pick_from_rows([dict(lg)], [{"episode": 9, "used": 2}]) is None
 
 
 def test_storage_4xx_permanent_except_429():
@@ -1119,7 +1149,8 @@ def test_legacy_waterfall_matches_between_python_and_sql():
     assert pick_from_rows(rows2, [{"episode": 5, "used": 3}]) is None
     # SQL 도 '여유' 누적이어야 한다 — '한도' 누적(limit_before)이면 위 두 건을 통과시킨다
     sql = _live_mig("CREATE OR REPLACE FUNCTION public.run_channel_now")
-    assert "GREATEST(b.use_limit - b.used_wo, 0)" in sql, "free_before 가 여유 누적이 아니다"
+    # 0064: 레거시 회차몫을 흘릴 '여유' 도 발행 기준(used_pub)으로 센다
+    assert "GREATEST(b.use_limit - b.used_pub, 0)" in sql, "free_before 가 여유 누적이 아니다"
     assert "GREATEST(r.legacy_ep - r.free_before, 0)" in sql
     assert "AS limit_before" not in sql, "0027 의 한도 합 방식이 남아 있다"
 
@@ -1132,7 +1163,9 @@ def test_source_edit_rpcs_are_episode_scoped():
     used = _live_mig("CREATE OR REPLACE FUNCTION public.set_source_used") \
         .split("FUNCTION public.set_source_used", 1)[1].split("$$;", 1)[0]
     assert "l.episode IS NOT DISTINCT FROM v_s.episode" in used
-    assert "p_used < v_wo" in used            # 발주 기록 아래로는 못 내린다(이중장부 방지)
+    # 0064: 한도가 발행 기준이 되면서 바닥도 발행 편수다 — 반려·취소로 끝난 시도는
+    # 이제 이 숫자에 안 들어가므로 사람이 0 으로 되돌릴 수 있어야 한다.
+    assert "p_used < v_pub" in used          # 발행분 아래로는 못 내린다(이중장부 방지)
     assert "DELETE FROM public.source_usage_legacy" in used   # 0 이면 보정 행을 지운다
 
 
