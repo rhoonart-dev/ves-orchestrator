@@ -132,12 +132,6 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .bch .dots{border-left:1px solid var(--line);padding-left:10px;align-self:stretch;align-items:center;gap:8px}
   .dcol{display:flex;flex-direction:column;gap:3px;align-items:center;width:52px;flex:none}
   .dcol.dim{opacity:.4}
-  /* 지난 작업분(오늘 작업지시 없음)은 한 단계 뒤로 물린다 — 8/20 운영 피드백: 엔딩순삭이
-     8/18 작업분의 '합격' 초록을 오늘 것과 같은 채도로 달고 있어 오늘 잘 굴러간 것처럼 읽혔다.
-     회색으로 죽이지 않는 이유는 f0f6de1(8/9)에서 '없음' 이 잡·검수함과 어긋나 보였던 것과 같다 —
-     상태는 남기되 오늘 것과 구분만 시킨다. 옆의 날짜 배지가 흐린 이유를 말해준다(그래서 배지는 원래 밝기). */
-  .bch.past .dcol{opacity:.6}
-  .bch.past .dcol.dim{opacity:.32}
   .bch:hover{border-color:var(--muted)}
   .bchL{flex:1;min-width:0}
   .bchName{font-weight:700;font-size:13.5px;display:flex;align-items:center;gap:7px;min-width:0}
@@ -1312,19 +1306,24 @@ function renderHome(){
     }
     const ws = woToday(ch);
     const cur = ws.length ? ws[0] : woRecent(ch);
-    const st = cur ? woStatus(cur) : "none";
+    // 신호등은 '오늘 이 일이 일어났나' 만 추적한다(운영 결정 8/20). 오늘 작업지시가 없으면
+    // 지난 작업분 상태로 색을 켜지 않는다 — f0f6de1(8/9)의 폴백 표시는 여기서 되돌린다.
+    // 어제 것이 오늘 것과 같은 초록으로 보여 '오늘 잘 굴러갔다' 로 읽혔다(엔딩순삭 8/18 '합격').
+    // 지난 작업분은 왼쪽 '마지막 MM/DD' 배지로만 알리고, 상태는 행을 눌러 상세에서 본다.
+    const st = ws.length && cur ? woStatus(cur) : "none";
     const [gc, gl] = GEN_DOT[st] || GEN_DOT.none;
     // 공개 칸은 작업지시가 아니라 발행 날짜로 판정한다 — cur(생성일 기준)와 무관.
     const [pc, pl, pt, punv] = chPubDot(ch.token_slug);
     const dateBadge = cur && !ws.length
-      ? `<span class="fpill fp-mut" title="오늘 작업은 없음 — 마지막 작업분 표시">${
-          esc(kstDay(cur.service_date||cur.created_at).slice(5).replace("-","/"))} 작업분</span>` : "";
+      ? `<span class="fpill fp-mut" title="오늘 작업지시가 없습니다 — 마지막 작업지시는 ${
+          esc(kstDay(cur.service_date||cur.created_at))}. 신호등은 오늘 것만 표시하므로 회색입니다(행을 누르면 그 작업분 상세)">마지막 ${
+          esc(kstDay(cur.service_date||cur.created_at).slice(5).replace("-","/"))}</span>` : "";
     const open = boardOpen === ch.token_slug;
     // v3: 작업 이력 없는 채널도 "왜 없는지"를 말해준다 (JP 대기 / 소스 준비됨 / 소스 인입 대기)
     const noWo = JP_SLUGS.has(ch.token_slug) ? "일본 채널 · 가동 대기"
       : ((state.srcs||[]).some(s => (ch.works||[]).includes(s.work_title) && s.is_active !== false)
          ? "소스 준비됨 · 다음 회차 합류" : "소스 인입 대기 중");
-    return `<div class="bch${dateBadge ? " past" : ""}" onclick="boardOpen=boardOpen==='${esc(ch.token_slug)}'?null:'${esc(ch.token_slug)}';render()">
+    return `<div class="bch" onclick="boardOpen=boardOpen==='${esc(ch.token_slug)}'?null:'${esc(ch.token_slug)}';render()">
       <div class="bchL">
         <div class="bchName">${chAvatarHtml(ch.token_slug, 18)}<span title="${esc(ch.name || ch.token_slug)}">${esc(ch.name || ch.token_slug)}</span></div>
         <div class="bchWork" title="${cur ? esc(cur.work_title) : noWo}">${cur ? esc(cur.work_title) : noWo}</div>
@@ -5467,7 +5466,7 @@ function chAvatarHtml(slug, size){
     background:linear-gradient(135deg,hsl(${h},55%,45%),hsl(${(h+45)%360},60%,58%))">${esc(name.slice(0,1))}${
     url ? `<img src="${url}" alt="" loading="lazy" onerror="this.remove()">` : ""}</span>`;
 }
-// 채널의 현재 생성 신호등 (홈 탭과 동일 규칙: 오늘 작업분 우선, 없으면 최근 작업분)
+// 채널의 현재 생성 신호등 (홈 탭과 동일 규칙: 오늘 작업분만 — 없으면 회색, 8/20)
 function chSignal(slug){
   const today = kstDay();
   if (EXT_PIPE[slug]){
@@ -5480,7 +5479,8 @@ function chSignal(slug){
   }
   const alive = (state.wos||[]).filter(w => w.status !== "cancelled" && w.channel_slug === slug);
   const todays = alive.filter(w => kstDay(w.service_date || w.created_at) === today);
-  const cur = todays.length ? todays[0] : alive[0];
+  // 달력의 '오늘' 칸에 두르는 테두리다 — 오늘 작업지시가 없으면 회색(8/20 홈 신호등과 같은 규칙).
+  const cur = todays[0];
   const st = cur ? woStatus(cur) : "none";
   const [cls, label] = GEN_DOT[st] || GEN_DOT.none;
   return {cls, label};
