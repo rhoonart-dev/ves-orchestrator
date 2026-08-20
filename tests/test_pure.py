@@ -2524,6 +2524,52 @@ def test_dashboard_editor_v3b_tracks():
     assert html.count("edDrag = { out: true }") >= 2
 
 
+def test_dashboard_editor_jp3_parity():
+    """JP-3a: 일본 채널 편집실 KR 동등화(대시보드 단독분) — 완성본 타임라인 레인,
+    같은 카드 재진입 폼 보존, undo/redo, 체인 새로고침 복구, 텔롭 use:false 삭제,
+    설명(description_ja) 편집, 겹침 경고, tts 타이밍 표시 전용(엔진이 거절 — E6 전)."""
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    # 같은 카드 재진입 = 안 보낸 편집 보존(무조건 리셋이 편집을 증발시키던 것)
+    assert "if (!edJpForm || edJpForm.rid !== rid){" in html
+    # 타임라인: 자막·텔롭은 편집, 내레이션은 표시 전용(ro)
+    assert 'lane(f.subs, "sub", "osub", "s", "자막", true)' in html
+    assert 'lane(f.tts, "tts", "ocue", "n", "내레이션", false)' in html
+    assert 'lane(f.telops, "tel", "otel", "i", "텔롭", true)' in html
+    assert "edJpTlDown" in html and "edJpInspFlush();" in html
+    # tts 타이밍은 폼에 startCur/endCur 자체가 없고(계약 안전장치), 수집도 끈다
+    assert "rich(f.tts, false, false, false)" in html
+    tts_map = html.split("tts: (pr.tts || []).map", 1)[1].split("telops:", 1)[0]
+    assert "startCur" not in tts_map and "endCur" not in tts_map
+    # 텔롭 소프트 삭제 — use:false 는 0038 원계약, 삭제가 다른 diff 를 이긴다
+    assert "if (s.del) tel[s.idx] = { use: false };" in html
+    assert "edJpTelDel" in html
+    # undo/redo + keydown JP 분기(기존 가드가 edForm 없음으로 전체 침묵하던 것).
+    # 리뷰 반영: edJpMode(KR 화면 오발동 방지)·edJpDrag(드래그 찢김 방지) 가드,
+    # 스냅샷은 스타일·타이밍·삭제만(텍스트는 네이티브 undo — 타이핑 소실 방지)
+    assert "edJpUndoStk" in html and "window.edJpUndoOp" in html
+    assert "if (edJpMode && edJpForm && !edJpDrag" in html
+    snap = html.split("function edJpSnapJson()", 1)[1].split("}\n", 2)[0]
+    assert "titleCur" not in snap and "s.cur" not in snap
+    # KR 카드 경유가 JP 폼을 지우지 않는다(무경고 전량 소실 — 리뷰 high)
+    assert "edJpForm 은 지우지 않는다" in html
+    # 종결된 옛 체인 소생 금지(48h) + 겹침 검사는 최대 끝 스윕
+    assert '["pending", "running", "blocked"].includes(j.status)' in html
+    assert "if (rows[k].b > mb){ mb = rows[k].b; mi = rows[k].i; }" in html
+    # undo·삭제의 render 가 재생 위치를 보존한다
+    assert "edJpSeekTo = jv.currentTime" in html or "edJpSeekTo = jv0.currentTime" in html
+    # 체인 새로고침 복구 — 멱등키는 rid/vid 만으로 재구성(0038 정본)
+    assert "async function edJpChainRecover(r)" in html
+    assert "else edJpChainRecover(r0);" in html
+    # 설명 편집 + 한국어 병기(제목·설명·행 아래 ko 는 기존 유지, 검수함 내레이션 쌍 추가)
+    assert "ed.description_ja = f.descCur;" in html
+    assert 'grab("jpdesc", f.desc, v => f.descCur = v, true);' in html
+    assert '내레이션 ${pr.tts.length}건' in html          # 검수함 병기에 tts 추가
+    # 겹침 경고 + 시각 입력 빈 문자열 가드(Number("")=0 이 시작을 0 으로 박던 것)
+    assert "function edJpConflicts()" in html
+    assert 'String(v).trim() === "" || !isFinite(num) || num < 0' in html
+
+
 def test_editor_uploads_gc_plan():
     """업로드 GC 순수 판정 — 2회 스캔 규칙: 처음 본 고아는 기록만, 유예 지나
     연속 미참조 확인된 키만 삭제, 다시 참조되면 사면."""
@@ -2685,7 +2731,8 @@ def test_dashboard_editor_jp2_style_timing():
     assert "edJpTime" in html and 'id="${pfx}ts_${s.idx}"' in html    # 행 시각 입력
     # 수집: 텍스트만이면 종전 문자열(하위호환), 그 외 dict — 게이트 확인
     assert "o.start_sec = +(+s.startCur).toFixed(3)" in html
-    assert "if (edJpStyleOn()){" in html
+    # JP-3a: withTiming 파라미터 추가(tts 타이밍 전송 차단) — 플래그 게이트는 유지
+    assert "if (edJpStyleOn() && withTiming !== false){" in html
     assert '(Object.keys(o).length === 1 && o.ja && !alwaysObj) ? o.ja : o' in html
     # y 시맨틱은 v3 와 동일(0=상단, 1=하단) — JP 기본값 0.87(하단 근사)과 (1−y) 환산
     assert "sty.y != null ? +sty.y : 0.87" in html
