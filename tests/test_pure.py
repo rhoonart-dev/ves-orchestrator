@@ -1347,6 +1347,79 @@ def test_migration_0026_decide_loopy():
     assert "ON CONFLICT (idempotency_key) DO UPDATE" in fn   # 두 번 눌러도 안전
 
 
+# ── 8/21: 오채널 게이트 — LOOPY 토큰이 다른 브랜드 채널로 발급돼 오채널 발행(8/20 사고) ──
+def test_loopy_channel_gate_client_pairs():
+    """vlp 토큰 파일엔 클라이언트가 없다 — ves.env 의 모든 쌍을 후보로 삼는다.
+    secret 없는 ID·빈 값은 제외(반쪽 자격증명으로 헛 refresh 를 날리지 않는다)."""
+    from ves.adapters.zanmang_decision import client_pairs
+    env = {"YT_CLIENT_ID": "a.apps", "YT_CLIENT_SECRET": "sa",
+           "YT_CLIENT_ID_JMLP": "j.apps", "YT_CLIENT_SECRET_JMLP": "sj",
+           "YT_CLIENT_ID_P2": "p2.apps",                              # secret 없음 — 제외
+           "YT_CLIENT_ID_VES01": "  ", "YT_CLIENT_SECRET_VES01": "s",  # 빈 ID — 제외
+           "OTHER": "x"}
+    assert client_pairs(env) == [("a.apps", "sa"), ("j.apps", "sj")]
+    assert client_pairs({}) == []
+
+
+def test_loopy_channel_gate_token_file():
+    """실측 위치(outputs/yt_oauth_token.json) 우선, refresh_token 없는 JSON 은 무시."""
+    import pathlib, tempfile
+    from ves.adapters.zanmang_decision import find_token_file
+    with tempfile.TemporaryDirectory() as d:
+        assert find_token_file(d) is None
+        out = pathlib.Path(d) / "outputs"
+        out.mkdir()
+        (out / "metadata.json").write_text('{"title": "x"}', encoding="utf-8")
+        assert find_token_file(d) is None                    # 토큰 아닌 JSON 은 무시
+        (out / "yt_oauth_token.json").write_text('{"refresh_token": "1//t"}', encoding="utf-8")
+        assert find_token_file(d).name == "yt_oauth_token.json"
+
+
+def test_loopy_channel_gate_blocks_mismatch(monkeypatch):
+    """실채널 ≠ 기대 채널이면 PermanentError — 조용히 통과하면 오채널 발행이 재발한다.
+    미발급이 하드실패(R10)이듯 '어느 채널인지 모르는 토큰'도 하드실패."""
+    import pathlib, tempfile
+    import pytest
+    import ves.adapters.zanmang_decision as zd
+    from ves.adapters import base
+
+    class _Cur:
+        def __init__(self, row): self.row = row
+        def execute(self, *a): pass
+        def fetchone(self): return self.row
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    class _Conn:
+        def __init__(self, row): self.row = row
+        def cursor(self): return _Cur(self.row)
+
+    conn = _Conn({"channel_id": "UC_EXPECTED", "name": "まいにちじゃんまんるぴー"})
+    with tempfile.TemporaryDirectory() as d:
+        out = pathlib.Path(d) / "outputs"
+        out.mkdir()
+        (out / "yt_oauth_token.json").write_text('{"refresh_token": "1//t"}', encoding="utf-8")
+        monkeypatch.setattr(zd, "client_pairs", lambda env: [("c", "s")])
+        # 불일치 → 차단 (에러에 실채널·기대 채널이 둘 다 남아야 사람이 바로 판단한다)
+        monkeypatch.setattr(zd, "_bound_channel", lambda t, p: ("UC_WRONG", "다른채널"))
+        with pytest.raises(base.PermanentError, match="UC_WRONG"):
+            zd.assert_upload_channel(conn, d)
+        # 검증 불가(전 클라이언트 invalid_grant) → 차단
+        monkeypatch.setattr(zd, "_bound_channel", lambda t, p: None)
+        with pytest.raises(base.PermanentError, match="invalid_grant"):
+            zd.assert_upload_channel(conn, d)
+        # 일치 → 통과
+        monkeypatch.setattr(zd, "_bound_channel", lambda t, p: ("UC_EXPECTED", "まいにち"))
+        assert zd.assert_upload_channel(conn, d) == "UC_EXPECTED まいにち"
+        # 토큰 파일이 없어도 차단 — 모르는 채로 올리지 않는다
+        (out / "yt_oauth_token.json").unlink()
+        with pytest.raises(base.PermanentError, match="토큰 파일"):
+            zd.assert_upload_channel(conn, d)
+    # 미러에 channel_id 가 없으면 차단 — channels.json 이 정본이다
+    with pytest.raises(base.PermanentError, match="channels_mirror"):
+        zd.assert_upload_channel(_Conn(None), "/없는경로")
+
+
 def test_localize_level_per_channel():
     """오디오 현지화 여부가 채널마다 다르다(사용자 결정 8/12):
     ショトコン은 오디오 현지화 불필요(B — 번인 제거+자막), 잔망루피는 전부 현지화(C — 더빙).
