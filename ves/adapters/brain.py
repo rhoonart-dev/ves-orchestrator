@@ -149,9 +149,11 @@ class Evaluate:
             import json
             # 편집 지침 칩·재생성 배지(8/20) — 부가 정보라 조회 실패가 검수 등록을 막지 않는다
             extra = {}
-            ed = _run_log_editorial(cfg, p)
+            ed, ed_run = _run_log_editorial(cfg, p)
             if ed:
                 extra["editorial"] = ed
+            if ed_run:
+                extra["editorial_run"] = ed_run   # '추가 생성된 영상' 배지의 기획 방향 원문
             rg = _regen_info(conn, job["work_order_id"])
             if rg:
                 extra["regen"] = rg
@@ -235,17 +237,19 @@ def _find_video(cfg, run_id, outdir):
 
 
 def _run_log_editorial(cfg, p):
-    """run_log.input.editorial → 검수 카드 '권리 지침/기획 방향' 칩의 데이터원(8/20).
+    """run_log.input → (editorial, editorial_run) — 검수 카드 지침 칩·'추가 생성' 배지의
+    데이터원(8/20). editorial 은 병합 적용본(칩), editorial_run 은 이번 실행에만 얹은
+    지시의 **원문**(배지에서 상시 지침과 구분해 보여준다 — 운영 결정 8/20).
 
-    ai-video 가 병합 적용본을 run_log 에 남긴다(그쪽 4a3bb3a). 로컬(run_dir →
+    ai-video 가 둘 다 run_log 에 남긴다(그쪽 4a3bb3a·후속). 로컬(run_dir →
     표준 경로) 우선, 없으면 업로더가 올린 Storage 사본(run_log.json) — evaluate 가
     생성 노드와 다른 맥에서 돌 수 있어 폴백이 필요하다(_fetch_from_storage 와 같은 이유).
-    실패는 None — 칩은 부가 정보라 검수 등록을 막지 않는다."""
+    실패는 (None, None) — 칩은 부가 정보라 검수 등록을 막지 않는다."""
     import json as _json
     import pathlib
     rid = p.get("run_id")
     if not rid:
-        return None
+        return None, None
     cands = []
     if p.get("run_dir"):
         cands.append(pathlib.Path(p["run_dir"]) / "run_log.json")
@@ -268,11 +272,12 @@ def _run_log_editorial(cfg, p):
             raw = dest.read_text(encoding="utf-8")
         except Exception as e:  # noqa: BLE001 — 부가 정보 실패는 로그만
             print(f"[evaluate] run_log 조회 실패({rid}): {e}")
-            return None
+            return None, None
     try:
-        return (_json.loads(raw).get("input") or {}).get("editorial") or None
+        inp = _json.loads(raw).get("input") or {}
+        return inp.get("editorial") or None, inp.get("editorial_run") or None
     except (ValueError, AttributeError):
-        return None
+        return None, None
 
 
 def _regen_info(conn, work_order_id):

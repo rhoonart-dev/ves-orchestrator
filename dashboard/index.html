@@ -54,6 +54,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   :root[data-theme="light"] .gchip.hard{color:#c22525}   /* 지침 칩(8/20): 라이트 대비 */
   :root[data-theme="light"] .gchip.soft{color:#0b8a0b}
   :root[data-theme="light"] .regen .rgh{color:#96690a}
+  :root[data-theme="light"] .regen.plus .rgh{color:#0b8a0b}
   :root[data-theme="light"] .chdot{background:#c6c5be}       /* 없음: 라이트에선 연회색 */
   :root[data-theme="light"] .chdot.none{background:#c6c5be}
   :root[data-theme="light"] .chdot.rej{background:transparent}  /* 도넛 가운데는 투명 */
@@ -707,6 +708,11 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .regen .rgr:first-child{margin-top:0}
   .regen .rgk{flex:none;font-size:10.5px;color:var(--muted);font-weight:600;width:64px}
   .regen .rgv{color:var(--ink-2)}
+  /* '추가 생성된 영상'(8/20) — 재생성 배지와 같은 골격, 초록 계열(기획 방향 칩과 같은 결) */
+  .regen.plus{border-color:color-mix(in srgb,var(--good) 40%,var(--line));
+    background:color-mix(in srgb,var(--good) 7%,transparent)}
+  .regen.plus .rgh{color:#7fd889}
+  .regen.plus .rgb{border-top-color:color-mix(in srgb,var(--good) 25%,var(--line))}
   .review video{max-width:100%}
   .review .rt-big{font-size:15px;font-weight:700}
   /* v3: 소스 게이지 */
@@ -1571,16 +1577,40 @@ window.runNow = async (slug, work, ep, direction) => {
 // 방향(소프트) — 출처 규약은 ai-video editorial.py. 지침 없는 작품은 빈 문자열.
 function guideChips(pay){
   const ed = pay.editorial || {};
+  // 이번 편에만 얹은 지시(editorial_run)는 칩에서 빼고 '추가 생성' 배지가 보여준다(8/20)
+  // — 병합본에 원문 그대로 append 되므로 문자열 일치로 걸러진다.
+  const run = pay.editorial_run || {};
+  const runPref = new Set(run.prefer || []);
   const cut = s => s.length > 24 ? s.slice(0, 24) + "…" : s;
   const one = (cls, glyph, s, tip) =>
     `<span class="gchip ${cls}" title="${esc(tip)} — ${esc(s)}">${glyph} ${esc(cut(s))}</span>`;
   const hard = [...(ed.avoid || []).map(s => one("hard", "✕", s, "권리사 요구 · 장면·문구 금지")),
                 ...(ed.rules || []).map(s => one("hard", "≤", s, "권리사 요구 · 구성 제약"))];
-  const soft = [...(ed.prefer || []).map(s => one("soft", "›", s, "기획 방향 — 권리사 요구 아님")),
-                ...(ed.tone ? [one("soft", "›", ed.tone, "기획 방향 · 문구 톤")] : [])];
+  const soft = [...(ed.prefer || []).filter(s => !runPref.has(s))
+                    .map(s => one("soft", "›", s, "기획 방향 — 권리사 요구 아님")),
+                ...(ed.tone && ed.tone !== run.tone
+                    ? [one("soft", "›", ed.tone, "기획 방향 · 문구 톤")] : [])];
   if (!hard.length && !soft.length) return "";
   return `<div class="edch">${hard.length ? '<span class="lbl">권리 지침</span>' + hard.join("") : ""}${
     soft.length ? `<span class="lbl${hard.length ? " grp" : ""}">기획 방향</span>` + soft.join("") : ""}</div>`;
+}
+// 추가 생성 배지(8/20) — 홈 '작업 실행'으로 오늘 계획과 별개로 만든 편(wo.origin='manual').
+// 기획 방향을 적었으면(payload.editorial_run) 펼쳐서 입력 문장을 원문 그대로 보여준다.
+function manualBox(rid, wo, pay){
+  if ((wo || {}).origin !== "manual") return "";
+  const run = pay.editorial_run || {};
+  const lines = [...(run.prefer || []), ...(run.tone ? [run.tone] : [])];
+  if (!lines.length)
+    return `<div class="regen plus"><div class="rgh" style="cursor:default">
+      ＋ 추가 생성된 영상 <span class="tries">오늘 계획과 별개 — 홈 '작업 실행'</span></div></div>`;
+  return `<div class="regen plus" id="mx_${esc(rid)}">
+    <div class="rgh" onclick="document.getElementById('mx_${esc(rid)}').classList.toggle('open')">
+      ＋ 추가 생성된 영상 <span class="tries">오늘 계획과 별개 — 홈 '작업 실행'</span>
+      <span class="arr"><i>▸</i> 이번 편 기획 방향</span></div>
+    <div class="rgb">${lines.map(s =>
+      `<div class="rgr"><span class="rgk">입력한 지시</span><span class="rgv">“${esc(s)}”</span></div>`).join("")}
+      <div class="rgr"><span class="rgk">반영 범위</span><span class="rgv">장면 선정·구성·제목 — 이번 실행에만 · 권리 지침은 완화되지 않음</span></div>
+    </div></div>`;
 }
 // 반려 재생성 배지(8/20) — payload.regen = rejected_takes 최신 사유·단계·회수.
 // 배지는 상시 노출, 반영 내역은 클릭해야 펼쳐진다(목업 v2.2 확정). 첫 생성 카드엔 없다.
@@ -1762,7 +1792,7 @@ function renderReview(){
             wo.episode != null ? ` <span style="color:var(--muted)">· ${wo.episode}회차</span>` : ""}${
             (() => { const n = woNode(wo); return n
               ? ` <span class="rv2-mac" title="이 영상을 제작한 맥 — 반려 후 재생성도 같은 맥에서 돕니다">🖥 ${esc(n)}</span>` : ""; })()}</div>
-          ${guideChips(pay)}${regenBox(r.id, pay)}${jg}${form}</div></div>`;
+          ${guideChips(pay)}${manualBox(r.id, wo, pay)}${regenBox(r.id, pay)}${jg}${form}</div></div>`;
     }).join("") || `<div class="empty">${rvCh==="all" ? "검수 대기 항목 없음 🎉" : esc(chName(rvCh)) + " — 검수 대기가 없습니다"}</div>`) + `</div></section>
     <section class="card"><h2>최근 결정${rvCh==="all" ? "" : ` — ${esc(chName(rvCh))}`}</h2><div class="tblwrap"><table>
       <tr><th>시각</th><th>채널</th><th>작품</th><th>결정</th><th>발행</th><th>결정자</th><th>사유</th></tr>${
