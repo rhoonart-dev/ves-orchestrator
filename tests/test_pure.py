@@ -1887,12 +1887,14 @@ def test_loopy_review_meta_reads_ko_glosses(tmp_path):
     assert m["youtube_title"] == "ルーピーの日常" and m["youtube_title_ko"] == "루피의 일상"
     assert m["description_ko"] == "설명입니다"
     assert m["ko_ja_pairs"]["subs"][0]["ja"] == "こんにちは"
-    # C 쌍이 없으면 translations.json(B/BJ)로 폴백
+    # C 쌍이 없으면 translations.json(B/BJ)로 폴백. use=False(소프트 삭제 — E6-0,
+    # vlp 1ece879)는 다음 카드에서 빠지고, 남은 줄은 필터 전 좌표(idx)를 유지한다.
     (d / "ko_ja_pairs.json").unlink()
     (d / "translations.json").write_text(json.dumps({
-        "entries": [{"source": "안녕", "target": "こんにちは"}]}, ensure_ascii=False))
+        "entries": [{"source": "지운 줄", "target": "消した", "use": False},
+                    {"source": "안녕", "target": "こんにちは"}]}, ensure_ascii=False))
     m2 = review_meta(d)
-    assert m2["ko_ja_pairs"]["subs"][0]["ko"] == "안녕"
+    assert [(s["idx"], s["ko"]) for s in m2["ko_ja_pairs"]["subs"]] == [(1, "안녕")]
     assert review_meta(tmp_path / "없음") == {} or "youtube_title" not in review_meta(tmp_path / "없음")
 
 
@@ -2558,9 +2560,10 @@ def test_dashboard_editor_jp3_parity():
     assert "rich(f.tts, false, false, false)" in html
     tts_map = html.split("tts: (pr.tts || []).map", 1)[1].split("telops:", 1)[0]
     assert "startCur" not in tts_map and "endCur" not in tts_map
-    # 텔롭 소프트 삭제 — use:false 는 0038 원계약, 삭제가 다른 diff 를 이긴다
-    assert "if (s.del) tel[s.idx] = { use: false };" in html
-    assert "edJpTelDel" in html
+    # 소프트 삭제 — use:false(0038 원계약)는 다른 diff 를 이긴다. 행 ✕ 는
+    # 자막·텔롭 공용 edJpDel (KR 동등화 — test_dashboard_editor_jp_subs_kr_parity)
+    assert "tel[s.idx] = { use: false };" in html
+    assert "window.edJpDel" in html
     # undo/redo + keydown JP 분기(기존 가드가 edForm 없음으로 전체 침묵하던 것).
     # 리뷰 반영: edJpMode(KR 화면 오발동 방지)·edJpDrag(드래그 찢김 방지) 가드,
     # 스냅샷은 스타일·타이밍·삭제만(텍스트는 네이티브 undo — 타이핑 소실 방지)
@@ -2585,6 +2588,35 @@ def test_dashboard_editor_jp3_parity():
     # 겹침 경고 + 시각 입력 빈 문자열 가드(Number("")=0 이 시작을 0 으로 박던 것)
     assert "function edJpConflicts()" in html
     assert 'String(v).trim() === "" || !isFinite(num) || num < 0' in html
+
+
+def test_dashboard_editor_jp_subs_kr_parity():
+    """JP-3b(사용자 요청 8/20): 일본어 편집 행을 KR 자막 행과 완전 동일하게 —
+    .edsub 재사용(시각 배지 클릭=완성본 이동 · ✎ 그 줄 스타일 · ✕ 삭제/되살리기),
+    '비우면 그 줄이 빠집니다'(KR 의미). 유일한 추가는 입력 바로 아래 한국어 원문.
+    자막 use:false 존중은 엔진 몫(E6-0)이라 신형 배포 표식(edJpStyleOn)과 함께
+    연다(구 엔진 조용한 무시 방지) — 텔롭 ✕ 는 0038 원계약이라 게이트 없음."""
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    # KR 행 부품 재사용 — JP 전용 행 CSS(.jprow·.jptm)는 제거됐다
+    assert ".jprow" not in html and ".jptm" not in html
+    assert ".edsub .jpcol" in html and ".edsub .ko" in html
+    # 시각 배지·✎·✕ — KR edSeek/edSubStage/edDelSub 상당
+    assert "window.edJpSeek" in html and "window.edJpSubStage" in html
+    assert "window.edJpDel" in html and "edJpTelDel" not in html
+    assert "edJpDel('${t}',${s.idx})" in html
+    # 수집: 삭제·비움 = use:false(삭제가 다른 diff 를 이긴다) · 비움 판정은 원문이
+    # 있던 줄만 · 자막은 게이트 뒤
+    assert 'const emptied = s => String(s.ja || "").trim() && !String(s.cur || "").trim();' \
+        in html
+    assert "if (s.del || emptied(s)) subs[s.idx] = { use: false };" in html
+    # 유령 자막이 뺀 줄을 건너뛰고, 스냅샷(Cmd+Z)이 자막 삭제도 되돌린다
+    assert "if (s.del) return false;" in html
+    snap = html.split("function edJpSnapJson()", 1)[1].split("});", 1)[0]
+    assert snap.count("d: !!s.del") == 2
+    # 타임라인 선택 블록 Delete(KR 과 동일) + 삭제 시 선택 해제
+    assert "edJpDel(edJpTlSel.t, edJpTlSel.i)" in html
+    assert "if (s.del && edJpTlSel && edJpTlSel.t === t && edJpTlSel.i === idx)" in html
 
 
 def test_editor_uploads_gc_plan():
@@ -2745,7 +2777,8 @@ def test_dashboard_editor_jp2_style_timing():
     assert "edJpStyleOn" in html and "editor_jp_style" in html        # 플래그 게이트
     assert "edJpPaint" in html and "edJpSubDragDown" in html          # 유령 자막
     assert "edJpSize" in html and "edJpColor" in html and "edJpRotate" in html
-    assert "edJpTime" in html and 'id="${pfx}ts_${s.idx}"' in html    # 행 시각 입력
+    # 시각 편집은 KR 처럼 타임라인·인스펙터로(행 시각 입력은 KR 동등화 때 배지로 교체)
+    assert "edJpTime" in html and 'id="jpi_s"' in html and 'id="jpi_e"' in html
     # 수집: 텍스트만이면 종전 문자열(하위호환), 그 외 dict — 게이트 확인
     assert "o.start_sec = +(+s.startCur).toFixed(3)" in html
     # JP-3a: withTiming 파라미터 추가(tts 타이밍 전송 차단) — 플래그 게이트는 유지
@@ -2812,8 +2845,8 @@ def test_dashboard_editor_jp_mode():
     # KR 편집실과 같은 탭 구성 + 같은 제출 문구
     assert "edJpPane" in html and "edJpPaneHtml" in html
     assert "✏️ 고친 내용으로 다시 렌더" in html
-    # 한국어 병기 + dirty diff
-    assert ".jprow .ko" in html and "jpko" in html
+    # 한국어 병기 + dirty diff — 행은 KR .edsub 재사용, ko 는 입력 바로 아래
+    assert ".edsub .ko" in html and "jpko" in html
     assert "edJpCollect" in html and "edJpMark" in html
     # 잔망루피 카드에서 편집실 진입 가능 + 체인 폴링(잡 멱등키·새 카드 감지).
     # 멱등키는 0038 SQL 이 정본 — LOOPY 는 zanmang_rerender:<vid>:<review_id>

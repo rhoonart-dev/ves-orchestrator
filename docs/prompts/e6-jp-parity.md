@@ -20,6 +20,24 @@ dict{ja?, style?, start_sec?, end_sec?, use?}).
 
 ## 작업 항목 (독립적 — 각각 별 커밋 권장)
 
+### E6-0. 자막·대사 소프트 삭제 — subs use:false 존중 (소 · **최우선**)
+**✅ 완료(8/20)**: vlp `claude/e6-0-subs-use-false` 커밋 `1ece879` — 세 경로(SHOTCONE
+l3_apply·잔망루피 C 합성 필터·BJ/B as_map) + pairs 제외 + 계약 문서 표. 오케스트레이터
+파트(review_meta B/BJ 폴백의 use 필터)는 본 레포에 반영. **전 노드 배포(last_seen_sha
+≥ 1ece879) 확인 후** 편집실 자막 ✕ 가 실효한다 — 대시보드 게이트는 editor_jp_style 공용.
+대시보드(JP-3b, 사용자 요청 8/20)가 자막 행의 ✕·비움을 KR 편집실과 동일하게
+`subs:{idx:{use:false}}` 로 보낸다 — 텔롭(0038 원계약)과 같은 어휘. 엔진이 이
+키를 무시하는 동안은 자막 삭제가 재렌더에서 조용히 사라지므로 최우선 배포.
+- 두 병합 경로(process_video·dub) 공통: use:false 인 idx 는 렌더(번인·사이드카
+  ass/srt)에서 제외. SHOTCONE 은 l3_apply 의 segments 전사에서 그 줄을 뺀다.
+- C/BC(더빙): 그 이벤트의 TTS 합성도 제외 — 단 무음 창은 유지(retime 이 뒤
+  이벤트를 앞으로 당겨오면 안 된다).
+- build_ko_ja_pairs / ko_ja_pairs.json: 다음 카드 pairs 에서 그 줄을 빼라
+  (편집실 재진입 때 뺀 줄이 살아 돌아와 보이면 안 된다). idx 좌표는 필터 **전**
+  순번이라 그대로 유지된다.
+- 신규 자막 **추가**는 이번에도 계약 밖(idx 가 기존 줄에만 있다) — KR 의
+  '＋ 자막 추가' 동등화가 필요해지면 별도 발주.
+
 ### E6-1. SHOTCONE tts 타이밍 오버라이드 수용 (중)
 지금은 tts idx 값에 start_sec/end_sec 가 오면 즉시 ValueError.
 - apply_overrides 거절 해제 → tts cue 의 창(start~end)을 사용자 값으로 교체

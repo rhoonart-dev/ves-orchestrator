@@ -314,28 +314,17 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .edsubtools .mini.on{background:var(--ink);color:var(--surface);border-color:var(--ink)}
   .edsubtools input[type=color]{width:26px;height:22px;padding:0;border:1px solid var(--line);
               border-radius:5px;background:none;cursor:pointer}
-  /* 일본어 편집 모드(JP-1) — 한국어 원문 병기 행 */
-  .jprows{border:1px solid var(--line);border-radius:8px;padding:2px 8px}
-  .jprow{display:flex;gap:6px;padding:4px 0;border-bottom:1px dotted var(--line)}
-  .jprow:last-child{border-bottom:none}
-  .jprow .n{flex:none;width:24px;text-align:right;color:var(--muted);font-size:11px;
-            padding-top:5px}
-  .jpcol{flex:1;min-width:0}
-  .jprow input,#jptitle,#jptop,#jpdesc{font:inherit;font-size:13px;padding:4px 7px;
+  /* 일본어 편집 행 — KR 편집실 .edsub 를 그대로 재사용(사용자 요청: 완전 동일).
+     다른 점은 입력 바로 아래 한국어 원문 병기 한 줄뿐 */
+  .edsub .jpcol{flex:1;min-width:0}
+  .edsub .jpcol input.x{width:100%}
+  .edsub .ko,.jpko{font-size:11.5px;color:var(--muted);margin-top:2px;line-height:1.4}
+  .edsub.del .ko{opacity:.4}
+  #jptitle,#jptop,#jpdesc{font:inherit;font-size:13px;padding:4px 7px;
             border:1px solid var(--line);border-radius:6px;background:var(--surface);
             color:var(--ink)}
-  .jprow input{width:100%;padding:3px 6px;border-radius:5px}
-  .jprow .ko,.jpko{font-size:11.5px;color:var(--muted);margin-top:2px;line-height:1.4}
-  .jprow input.dirty,#jptitle.dirty,#jptop.dirty{border-color:var(--warn);
+  #jptitle.dirty,#jptop.dirty,#jpdesc.dirty{border-color:var(--warn);
             background:color-mix(in srgb,var(--warn) 12%,transparent)}
-  /* 타이밍 편집(E5) — 행 아래 시작~끝 초 입력 */
-  .jptm{display:flex;gap:4px;align-items:center;margin-top:2px;font-size:11px;
-        color:var(--muted)}
-  .jptm .tm{width:64px;font:inherit;font-size:11px;text-align:center;padding:1px 3px;
-        border:1px solid var(--line);border-radius:4px;background:var(--surface);
-        color:var(--ink);font-variant-numeric:tabular-nums}
-  .jptm .tm.dirty{border-color:var(--warn);
-        background:color-mix(in srgb,var(--warn) 12%,transparent)}
   /* 원본 스크럽 스트립 — 원본 타임라인 바로 아래. 구간 찍기(I/O)는 여기서 한다 */
   .edsrcstrip{display:flex;gap:12px;margin-top:8px;align-items:flex-start;flex-wrap:wrap}
   .edsrcstrip video{width:min(420px,46vw);aspect-ratio:16/9;background:#000;border-radius:8px}
@@ -377,8 +366,6 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .edouttl.jp .edlane.s{top:3px}
   .edouttl.jp .edlane.n{top:23px}
   .edouttl.jp .edlane.i{top:43px}
-  .jprow.del input{opacity:.4;text-decoration:line-through}
-  .jprow.del .ko{opacity:.4}
   .edoel .hL,.edoel .hR{position:absolute;top:0;bottom:0;width:6px;cursor:ew-resize}
   .edoel .hL{left:-2px}.edoel .hR{right:-2px}
   /* 인스펙터 — 선택한 블록의 시작·끝·길이 숫자 편집(드래그와 같은 데이터) */
@@ -2513,7 +2500,8 @@ function edJpResetForm(r){
       start: x.start ?? null, end: x.end ?? null, endActual: x.end_actual,
       startCur: x.start ?? null, endCur: x.end ?? null,
       style: x.style && typeof x.style === "object" ? { ...x.style } : undefined,
-      styleCur: x.style && typeof x.style === "object" ? { ...x.style } : undefined })),
+      styleCur: x.style && typeof x.style === "object" ? { ...x.style } : undefined,
+      del: false })),
     // tts 타이밍은 **표시 전용**(8/20 이후 카드만 동봉 — 구 카드는 null 가드):
     // 엔진이 tts 의 start_sec/end_sec 를 즉시 거절한다(E6 전). startCur/endCur 를
     // 두지 않는 것이 계약 안전장치 — 수집(rich)이 실을 값 자체가 없다.
@@ -2572,19 +2560,24 @@ function renderEditJp(){
         <div id="jpinsp" class="edinsp">${edJpInspHtml()}</div>
         <div id="jpconf" class="edwarn" style="display:none;margin-top:4px"></div>
         <div class="sub">완성본 타임라인 — 블록 끌기 = 이동, 양끝 = 길이, 클릭 = 그 시각으로.
-          내레이션은 표시만(시각 편집은 엔진 확장 후) · Cmd+Z 되돌리기</div>` : ""}
+          내레이션은 표시만(시각 편집은 엔진 확장 후) · Delete = 선택한 줄 빼기 ·
+          Cmd+Z 되돌리기</div>` : ""}
       </div>
       <div class="edright">
         <div class="edtabs">
-          ${[["subs", (f.loopy ? "자막·대사 " : "자막 ") + f.subs.length], ["title", "제목"]]
+          ${[["subs", (f.loopy ? "자막·대사 " : "자막 ")
+              + f.subs.filter(s => !s.del).length], ["title", "제목"]]
             .concat(f.tts.length ? [["tts", "내레이션 " + f.tts.length]] : [])
-            .concat(f.telops.length ? [["telops", "텔롭 " + f.telops.length]] : [])
+            .concat(f.telops.length
+              ? [["telops", "텔롭 " + f.telops.filter(s => !s.del).length]] : [])
             .map(([k, l]) => `<button class="edtab ${edJpPane === k ? "on" : ""}"
               onclick="edJpPane='${k}';render()">${esc(l)}</button>`).join("")}
         </div>
         <div class="edpane" style="max-height:460px">${edJpPaneHtml(canEdit)}</div>
         <div class="sub" style="margin-top:4px">위 입력이 일본어(고치는 값), 아래 회색이
-          한국어 원문입니다 · 비운 칸은 무시됩니다(빈 값 전송 없음)</div>
+          한국어 원문입니다 · ${edJpStyleOn()
+            ? "자막·텔롭은 비우거나 ✕ 로 그 줄이 빠지고, 제목·내레이션의 빈 칸은 무시됩니다"
+            : "비운 칸은 무시됩니다(빈 값 전송 없음)"}</div>
       </div>
     </div>
     ${edJpChain && edJpChain.rid === edRid ? `<div id="jpchain">${edJpChainHtml()}</div>` : ""}
@@ -2628,39 +2621,44 @@ function renderEditJp(){
 }
 
 // 우측 패널(탭) — KR 편집실과 같은 구성. 렌더 내용이 아니라 번역 텍스트가 대상이라
-// 탭 구성만 다르다(자막·대사 | 제목 | 내레이션 | 텔롭).
+// 탭 구성만 다르다(자막·대사 | 제목 | 내레이션 | 텔롭). 행 모양은 KR 자막 행(.edsub —
+// 시각 배지·✎·✕)과 동일(사용자 요청: 완전 동일) — 다른 점은 입력 바로 아래 한국어
+// 원문 병기뿐. 행 시각 입력(E5)은 KR 처럼 타임라인·인스펙터로 옮겼다.
 function edJpPaneHtml(canEdit){
   const f = edJpForm;
   const showT = edJpStyleOn();       // 타이밍·스타일(E5) — 전 노드 배포 후 플래그로 개방
-  const rows = (list, pfx) => !list.length
+  const rows = (list, pfx) => {
+    const t = pfx === "jps_" ? "sub" : pfx === "jpn_" ? "tts" : "tel";
+    // 삭제: 텔롭 use:false 는 0038 원계약. 자막은 E6-0(엔진 존중) 몫이라 신형 엔진
+    // 배포 표식(edJpStyleOn)과 함께 연다. tts 는 엔진이 ja 외 키를 안 받는다(E6 전).
+    const canDel = canEdit && (t === "tel" || (t === "sub" && showT));
+    return !list.length
     ? '<div class="sub">항목 없음</div>'
-    : `<div class="jprows">${list.map(s => {
-        // tts 시각은 표시 전용 — 엔진이 tts 의 start_sec/end_sec 를 즉시 거절한다(E6 전)
-        const tEdit = pfx !== "jpn_";
+    : `<div class="edsubs">${list.map(s => {
+        const a = s.startCur ?? s.start;
         return `
-        <div class="jprow${s.del ? " del" : ""}"><span class="n">${s.idx + 1}</span>
+        <div class="edsub ${s.del ? "del" : ""}">
+          <span class="t" ${a != null
+            ? `onclick="edJpSeek(${(+a).toFixed(2)})" title="완성본 ${(+a).toFixed(2)}초로 이동${
+                s.endActual === false ? " (더빙 합성 전 계획값)" : ""}"`
+            : 'title="시각 정보가 없는 옛 카드"'}>${a != null ? (+a).toFixed(1) + "s" : "—"}</span>
           <div class="jpcol">
-            <input type="text" id="${pfx}${s.idx}" oninput="edJpMark()" ${
+            <input class="x" type="text" id="${pfx}${s.idx}" oninput="edJpMark()" ${
               canEdit && !s.del ? "" : "disabled"}>
             <div class="ko">${esc(s.ko)}</div>
-            ${showT && s.start != null && s.end != null ? `<div class="jptm">${tEdit ? `
-              <input class="tm" id="${pfx}ts_${s.idx}" value="${(+s.startCur).toFixed(2)}"
-                onchange="edJpTime('${pfx}',${s.idx},'s',this.value)" ${
-                  canEdit && !s.del ? "" : "disabled"}>
-              ~ <input class="tm" id="${pfx}te_${s.idx}" value="${(+s.endCur).toFixed(2)}"
-                onchange="edJpTime('${pfx}',${s.idx},'e',this.value)" ${
-                  canEdit && !s.del ? "" : "disabled"}>
-              <span class="sub">초${s.endActual === false
-                ? ' · <span title="더빙 합성 전 계획값 — 실표시는 다를 수 있습니다">계획</span>' : ""}${
-                pfx === "jps_" && f.loopy && /C/.test(f.route || "")
-                  ? " · 끝을 고치면 그 값으로 고정(end_fixed)" : ""}</span>`
-            : `<span class="sub">${(+s.start).toFixed(2)} ~ ${(+s.end).toFixed(2)} 초 —
-                시각 편집은 준비 중(표시만)</span>`}</div>` : ""}
           </div>
-          ${pfx === "jpl_" && canEdit ? `<button class="mini${s.del ? "" : " danger"}"
-            onclick="edJpTelDel(${s.idx})" title="${s.del ? "이 텔롭 되살리기"
-              : "이 텔롭을 영상에서 빼기(재렌더에 반영)"}">${s.del ? "되살리기" : "✕"}</button>` : ""}
+          ${t === "sub" && showT && canEdit && !s.del && a != null && f.prevKey
+            ? `<button class="mini" ${edJpStyleSig(s.styleCur)
+                ? 'style="color:var(--warn)"' : ""} onclick="edJpSubStage(${s.idx})"
+                title="완성본을 이 줄이 뜨는 순간으로 옮겨 위치·크기·색을 조절합니다${
+                  edJpStyleSig(s.styleCur) ? " — 이 줄에 스타일이 있습니다" : ""}">✎</button>` : ""}
+          ${canDel ? (s.del
+            ? `<button class="mini" onclick="edJpDel('${t}',${s.idx})"
+                title="이 줄 되살리기">되살리기</button>`
+            : `<button class="mini danger" onclick="edJpDel('${t}',${s.idx})"
+                title="이 줄 삭제(되살리기 가능 — 재렌더에 반영)">✕</button>`) : ""}
         </div>`;}).join("")}</div>`;
+  };
   if (edJpPane === "title") return `
     <div class="edcap">업로드 제목 <span class="sub">— YouTube 제목</span></div>
     <input type="text" id="jptitle" oninput="edJpMark()" ${canEdit ? "" : "disabled"}
@@ -2677,9 +2675,20 @@ function edJpPaneHtml(canEdit){
       <textarea id="jpdesc" rows="3" oninput="edJpMark()" ${canEdit ? "" : "disabled"}
         style="width:100%"></textarea>
       ${f.descKo ? `<div class="sub jpko">한국어: ${esc(f.descKo)}</div>` : ""}` : ""}`;
-  if (edJpPane === "tts") return rows(f.tts, "jpn_");
-  if (edJpPane === "telops") return rows(f.telops, "jpl_");
-  return f.subs.length ? rows(f.subs, "jps_")
+  if (edJpPane === "tts") return `
+    <div class="edcap">내레이션 ${f.tts.length}건 <span class="sub">— 문구만 고칠 수
+      있습니다(시각·삭제는 엔진 확장 후) · 시각을 누르면 완성본 그 위치로</span></div>`
+    + rows(f.tts, "jpn_");
+  if (edJpPane === "telops") return `
+    <div class="edcap">텔롭 ${f.telops.filter(s => !s.del).length}건 <span class="sub">—
+      시각을 누르면 완성본 그 위치로${edJpStyleOn()
+        ? " · 비우거나 ✕ 로 그 줄이 빠집니다" : " · ✕ 로 그 줄이 빠집니다"}</span></div>`
+    + rows(f.telops, "jpl_");
+  return f.subs.length ? `
+    <div class="edcap">${f.loopy ? "자막·대사" : "자막"} ${f.subs.filter(s => !s.del).length}건
+      <span class="sub">— 시각을 누르면 완성본 그 위치로${edJpStyleOn()
+        ? " · 비우거나 ✕ 로 그 줄이 빠집니다 · ✎ 는 위치·크기·색(줄마다 따로)" : ""}</span></div>`
+    + rows(f.subs, "jps_")
     : '<div class="sub">이 카드에는 편집할 자막 쌍이 없습니다</div>';
 }
 
@@ -2729,9 +2738,16 @@ function edJpCollect(){
   // tts 는 텍스트만 — 타이밍은 표시용 데이터가 있어도 엔진이 즉시 거절한다(E6 전)
   const tts = rich(f.tts, false, false, false);
   const tel = rich(f.telops, false, true);   // 텔롭은 종전부터 dict 값
-  // 텔롭 소프트 삭제 — use:false 는 0038 원계약부터 엔진이 존중한다(렌더 제외).
-  // 삭제가 다른 diff 를 이긴다: 뺄 줄의 문구·시각을 같이 보내는 건 무의미.
-  f.telops.forEach(s => { if (s.del) tel[s.idx] = { use: false }; });
+  // 소프트 삭제(use:false) — 삭제가 다른 diff 를 이긴다: 뺄 줄의 문구·시각을 같이
+  // 보내는 건 무의미. 텔롭은 0038 원계약부터 엔진이 존중한다(렌더 제외). 자막은
+  // KR 의 '비우면 그 줄이 빠집니다'와 같은 의미 — 엔진 존중(E6-0)이 신형 몫이라
+  // 배포 표식(edJpStyleOn)과 함께 열고, 비움=삭제 판정은 원문(ja)이 있던 줄만
+  // (원래 빈 줄을 지웠다고 삭제로 보내면 안 된다).
+  const emptied = s => String(s.ja || "").trim() && !String(s.cur || "").trim();
+  if (edJpStyleOn())
+    f.subs.forEach(s => { if (s.del || emptied(s)) subs[s.idx] = { use: false }; });
+  f.telops.forEach(s => {
+    if (s.del || (edJpStyleOn() && emptied(s))) tel[s.idx] = { use: false }; });
   if (Object.keys(subs).length) ed.subs = subs;
   if (Object.keys(tts).length) ed.tts = tts;
   if (Object.keys(tel).length) ed.telops = tel;
@@ -2757,6 +2773,7 @@ function edJpPaint(t){
   const editing = edJpEditable();
   let cur = null;
   f.subs.some(s => {
+    if (s.del) return false;               // 뺀 줄의 유령이 도구 대상이 되면 안 된다
     const a = s.startCur ?? s.start, b = s.endCur ?? s.end;
     if (a == null || b == null) return false;
     if (t >= a && t < b){ cur = s; return true; }
@@ -2854,15 +2871,15 @@ window.edJpSubDragDown = ev => {
   document.addEventListener("mouseup", up);
 };
 
+// 시각 편집 커밋 — 입력은 인스펙터(edJpInspSet)에서 온다. 쓰레기·클램프 후 실값은
+// 호출부의 edJpTlSync 인스펙터 재그림이 폼에서 다시 읽어 보여준다.
 window.edJpTime = (pfx, idx, which, v) => {
   const f = edJpForm; if (!f) return;
   const list = pfx === "jps_" ? f.subs : pfx === "jpn_" ? f.tts : f.telops;
   const s = list.find(x => x.idx === idx); if (!s) return;
   const num = Number(v);
-  const el0 = document.getElementById(pfx + (which === "s" ? "ts_" : "te_") + idx);
   // 빈 문자열 가드 — Number("") 은 0 이라 지운 채 blur 하면 시작이 0 으로 박힌다
   if (String(v).trim() === "" || !isFinite(num) || num < 0){
-    if (el0) el0.value = ((which === "s" ? s.startCur : s.endCur) ?? 0).toFixed(2);
     edJpMark(); return;                        // 쓰레기 입력은 폼 값으로 되돌린다
   }
   const nv = which === "s" ? Math.max(0, Math.min(num, (s.endCur ?? num) - 0.1))
@@ -2870,7 +2887,6 @@ window.edJpTime = (pfx, idx, which, v) => {
   const before = which === "s" ? s.startCur : s.endCur;
   if (nv !== before) edJpSnap();               // 실변화만 undo 스텝
   if (which === "s") s.startCur = nv; else s.endCur = nv;
-  if (el0) el0.value = nv.toFixed(2);
   edJpMark(); edJpTlSync();
 };
 
@@ -2948,6 +2964,8 @@ function edJpInspHtml(){
         ? " · 내레이션 시각 편집은 준비 중" : ""}</span>`}
     ${s.endActual === false ? `<span class="sub" style="color:#b45309"
       title="더빙 합성 전 계획값 — 실제 표시 시각과 다를 수 있습니다">계획값</span>` : ""}
+    ${ce && sel.t === "sub" && f.loopy && /C/.test(f.route || "")
+      ? '<span class="sub">끝을 고치면 그 값으로 고정(end_fixed)</span>' : ""}
     <button class="mini" title="선택 해제"
       onmousedown="edJpInspFlush();edJpTlSel=null;edJpTlSync()">✕</button>
     <span style="flex-basis:100%;font-size:12px">${esc(s.cur || s.ja)}</span>
@@ -2960,16 +2978,11 @@ window.edJpInspSet = (which, v) => {
 };
 // 미커밋 플러시 — KR 인스펙터(L3)와 같은 이유: 블록 mousedown 의 preventDefault +
 // innerHTML 교체가 blur/change 기회를 없애 타이핑이 소실된다. 선택 교체 전에 커밋.
-// 우측 행의 .tm 시각 입력도 같은 소실 경로라 함께 커버한다.
 function edJpInspFlush(){
   const a = document.activeElement;
   if (!a) return;
-  if (/^jpi_[se]$/.test(a.id) && edJpTlSel){
+  if (/^jpi_[se]$/.test(a.id) && edJpTlSel)
     edJpInspSet(a.id === "jpi_s" ? "s" : "e", a.value);
-    return;
-  }
-  const m = /^(jps_|jpl_)t([se])_(\d+)$/.exec(a.id || "");
-  if (m) edJpTime(m[1], +m[3], m[2], a.value);
 }
 window.edJpTlDown = (ev, t, idx, hd) => {
   if (ev.button !== 0) return;
@@ -3015,14 +3028,10 @@ window.edJpTlDown = (ev, t, idx, hd) => {
     document.removeEventListener("mouseup", up);
     edJpDrag = false;
     if (moved){
-      // 우측 행 시각 입력에도 새 값 반영(같은 데이터의 두 화면)
-      const pfx = t === "sub" ? "jps_" : "jpl_";
-      const ia = document.getElementById(pfx + "ts_" + idx);
-      if (ia) ia.value = (+s.startCur).toFixed(2);
-      const ib = document.getElementById(pfx + "te_" + idx);
-      if (ib) ib.value = (+s.endCur).toFixed(2);
       edJpMark();
       edJpTlSync();  // 드래그 중 미룬 축척 갱신(loadedmetadata)까지 여기서 재동기
+      // 행의 시각 배지는 다음 render 까지 옛 값 — KR 완성본 트랙과 같은 절충
+      // (여기서 render() 를 부르면 재생 중인 완성본 video 가 파괴된다)
     } else {
       const jv = document.getElementById("jpvid");
       const a2 = s.startCur ?? s.start;
@@ -3033,16 +3042,37 @@ window.edJpTlDown = (ev, t, idx, hd) => {
   document.addEventListener("mousemove", move);
   document.addEventListener("mouseup", up);
 };
-window.edJpTelDel = idx => {
+// 행 ✕·타임라인 Delete 공용 — 자막·텔롭 소프트 삭제 토글(KR edDelSub/edRestoreSub 상당)
+window.edJpDel = (t, idx) => {
   const f = edJpForm; if (!f) return;
   const r = (state.reviews || []).find(x => x.id === edRid) || {};
   if (!(can("reviewer") && r.status === "waiting" && !f.sent)) return;
-  const s = f.telops.find(x => x.idx === idx); if (!s) return;
+  if (t === "sub" && !edJpStyleOn()) return;   // 자막 use:false 는 신형 엔진 몫(E6-0)
+  const list = t === "sub" ? f.subs : f.telops;
+  const s = list.find(x => x.idx === idx); if (!s) return;
   edJpSnap();
   s.del = !s.del;
+  // 방금 뺀 줄이 선택돼 있으면 해제 — 레인에서 사라진 블록의 인스펙터가 남으면 안 된다
+  if (s.del && edJpTlSel && edJpTlSel.t === t && edJpTlSel.i === idx) edJpTlSel = null;
   const jv = document.getElementById("jpvid");
   if (jv) edJpSeekTo = jv.currentTime;   // render 가 video 를 파괴 — 재생 위치 보존
   render();          // 행 disabled·버튼·레인이 함께 바뀐다 — 전면 재그림이 단순·정확
+};
+// 시각 배지 — 완성본을 그 줄의 시각으로(KR edSeek 상당, 좌표는 완성본 시간축)
+window.edJpSeek = t => {
+  const jv = document.getElementById("jpvid");
+  if (jv && jv.readyState > 0)
+    jv.currentTime = isFinite(jv.duration) ? Math.min(t, jv.duration) : t;
+};
+// 자막 탭의 ✎(KR edSubStage 상당) — 완성본을 그 줄이 뜨는 순간으로 옮겨 유령 자막을
+// 띄운다. 위 도구(A±·색·↺↻)와 드래그가 곧바로 이 줄에 걸린다.
+window.edJpSubStage = idx => {
+  const f = edJpForm; if (!f) return;
+  const s = f.subs.find(x => x.idx === idx); if (!s || s.del) return;
+  const a = s.startCur ?? s.start; if (a == null) return;
+  const jv = document.getElementById("jpvid");
+  if (jv){ jv.pause(); if (jv.readyState > 0) jv.currentTime = a + 0.05; }
+  edJpPaint(a + 0.05);   // 영상 로드 전이어도 유령은 그 줄을 띄운다(KR 과 동일)
 };
 
 // ── JP undo/redo(JP-3a) — 스타일·타이밍·삭제 **조작만**의 스냅샷 스택(Cmd+Z).
@@ -3052,7 +3082,8 @@ let edJpUndoStk = [], edJpRedoStk = [];
 function edJpSnapJson(){
   const f = edJpForm;
   return JSON.stringify({
-    subs: f.subs.map(s => ({ a: s.startCur, b: s.endCur, st: s.styleCur ?? null })),
+    subs: f.subs.map(s => ({ a: s.startCur, b: s.endCur, st: s.styleCur ?? null,
+                             d: !!s.del })),
     telops: f.telops.map(s => ({ a: s.startCur, b: s.endCur, d: !!s.del })) });
 }
 function edJpSnap(){
@@ -3067,7 +3098,7 @@ function edJpRestore(j){
   const f = edJpForm, o = JSON.parse(j);
   f.subs.forEach((s, i) => { const v = o.subs[i] || {};
     s.startCur = v.a; s.endCur = v.b;
-    s.styleCur = v.st ? { ...v.st } : undefined; });
+    s.styleCur = v.st ? { ...v.st } : undefined; s.del = !!v.d; });
   f.telops.forEach((s, i) => { const v = o.telops[i] || {};
     s.startCur = v.a; s.endCur = v.b; s.del = !!v.d; });
   const jv0 = document.getElementById("jpvid");
@@ -3165,16 +3196,16 @@ window.edJpMark = () => {
     cf.style.display = c.length ? "" : "none";
     cf.textContent = c.length ? "⚠ " + c.join(" · ") : "";
   }
-  // 타이밍 입력 dirty 표시(E5) — 값은 edJpTime 이 이미 폼에 저장했다
-  const markT = (list, pfx) => list.forEach(s => {
-    const a = document.getElementById(pfx + "ts_" + s.idx);
-    if (a) a.classList.toggle("dirty",
-      s.start != null && Math.abs((s.startCur ?? s.start) - s.start) > 0.005);
-    const b = document.getElementById(pfx + "te_" + s.idx);
-    if (b) b.classList.toggle("dirty",
-      s.end != null && Math.abs((s.endCur ?? s.end) - s.end) > 0.005);
-  });
-  markT(f.subs, "jps_"); markT(f.telops, "jpl_");
+  // 비우면 그 줄이 빠진다(KR 과 동일) — 줄긋기로 예고. 판정은 edJpCollect 의
+  // emptied 와 같은 조건(원문이 있던 줄만) · 자막·텔롭 공히 신형 엔진 게이트.
+  if (edJpStyleOn()){
+    const markEmpty = (list, pfx) => list.forEach(s => {
+      const el = document.getElementById(pfx + s.idx);
+      if (el) el.classList.toggle("empty",
+        !s.del && !!String(s.ja || "").trim() && !el.value.trim());
+    });
+    markEmpty(f.subs, "jps_"); markEmpty(f.telops, "jpl_");
+  }
   const n = Object.keys(edJpCollect()).length;
   const btn = document.getElementById("jpsubmit");
   if (btn){
@@ -5641,8 +5672,9 @@ window.edKbToggle = () => {
 document.addEventListener("keydown", e => {
   if (tab !== "edit") return;
   if (!edForm){
-    // JP 편집실 — Cmd+Z/Shift+Cmd+Z 만(스타일·타이밍·삭제 조작의 스냅샷 스택).
-    // 입력 필드 안에서는 네이티브 undo 에 양보하고(KR 과 같은 규칙), 드래그 중에는
+    // JP 편집실 — Cmd+Z/Shift+Cmd+Z(스타일·타이밍·삭제 조작의 스냅샷 스택)와
+    // Delete(선택 블록 소프트 삭제 — KR 과 동일)만.
+    // 입력 필드 안에서는 네이티브 동작에 양보하고(KR 과 같은 규칙), 드래그 중에는
     // 금지(KR edDrag 가드와 같은 이유 — restore 의 render 가 드래그 클로저와 찢어져
     // 복원값을 드래그가 도로 덮는다). edJpMode 확인: KR 화면(재료 로딩 전 edForm
     // null)에서 남아 있는 JP 폼이 오발동하면 안 된다.
@@ -5652,6 +5684,16 @@ document.addEventListener("keydown", e => {
       if (t0 && (/^(INPUT|TEXTAREA)$/.test(t0.tagName) || t0.isContentEditable)) return;
       e.preventDefault();
       if (e.shiftKey) edJpRedoOp(); else edJpUndoOp();
+    }
+    else if (edJpMode && edJpForm && !edJpDrag
+        && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat
+        && (e.key === "Delete" || e.key === "Backspace")
+        && edJpTlSel && edJpTlSel.t !== "tts"){
+      const t0 = e.target;
+      if (t0 && (/^(INPUT|TEXTAREA|SELECT|BUTTON)$/.test(t0.tagName)
+                 || t0.isContentEditable)) return;
+      e.preventDefault();
+      edJpDel(edJpTlSel.t, edJpTlSel.i);   // 권한·게이트는 edJpDel 이 판정한다
     }
     return;
   }

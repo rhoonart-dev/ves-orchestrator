@@ -232,7 +232,9 @@ def review_meta(out_dir) -> dict:
             # 필터 전에 매기므로 화면에서 빠진 항목이 있어도 좌표가 어긋나지 않는다.
             subs = []
             for i, e in enumerate(tj.get("entries") or []):
-                if not e.get("source"):
+                # use=False = 소프트 삭제(E6-0, vlp 1ece879) — 뺀 줄이 다음 카드에서
+                # 살아 돌아와 보이면 안 된다(C 루트는 엔진이 pairs 에서 이미 뺀다)
+                if not e.get("source") or e.get("use") is False:
                     continue
                 row = {"idx": i, "ko": e.get("source"), "ja": e.get("target")}
                 m = ev.get(i)
