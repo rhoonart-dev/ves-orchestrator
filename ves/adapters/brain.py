@@ -164,6 +164,9 @@ class Evaluate:
                 rg = _regen_info(conn, job["work_order_id"])
                 if rg:
                     extra["regen"] = rg
+                ei = _editor_info(conn, p.get("run_id"))
+                if ei:
+                    extra["editor"] = ei      # '편집된 영상' 배지(8/21)
             except Exception as e:  # noqa: BLE001 — 칩·배지는 없어도 검수는 돌아야 한다
                 print(f"[evaluate] 검수 카드 부가 정보 수집 실패(카드는 만든다): "
                       f"{type(e).__name__} {e}")
@@ -304,6 +307,41 @@ def _regen_info(conn, work_order_id):
     if not rows:
         return None
     return {"tries": len(rows), "stage": rows[0]["stage"], "note": rows[0]["note"]}
+
+
+def _editor_info(conn, run_id):
+    """편집된 영상 배지(8/21) — 0067 submit_editor_render 가 남긴 감사 기록에서
+    이 run 의 마지막 편집 요약을 뽑는다. 편집실을 안 거친 카드에는 None(배지 없음).
+
+    출처를 감사 로그로 잡은 이유: 0067 이 이미 keys·carried·subs·clips·tts·images·note 를
+    거기 다 적고 있다 — 같은 값을 다른 자리에 또 쓰면 두 벌이 어긋난다.
+    nth 는 같은 run 의 편집 횟수(2회 이상이면 배지 칩에 '2번째'로 붙는다).
+    actor 는 auth.uid() 라 이메일은 auth.users 에서 되찾는다 — 못 찾으면 uid 를 그대로 둔다."""
+    if not run_id:
+        return None
+    with conn.cursor() as c:
+        c.execute("""SELECT a.at, a.actor, a.payload
+                       FROM public.dashboard_actions a
+                      WHERE a.action='editor_render'
+                        AND a.payload->>'run_id' = %s
+                      ORDER BY a.at DESC""", (run_id,))
+        rows = c.fetchall()
+    if not rows:
+        return None
+    top, pay = rows[0], rows[0]["payload"] or {}
+    keys = pay.get("keys") or []
+    by = top["actor"]
+    with conn.cursor() as c:
+        c.execute("SELECT email FROM auth.users WHERE id::text=%s", (str(by),))
+        u = c.fetchone()
+    if u and u.get("email"):
+        by = u["email"]
+    return {"nth": len(rows), "at": top["at"].isoformat(), "by": by,
+            "title": "title" in keys, "design": "design" in keys,
+            "subs": pay.get("subs") or 0, "clips": pay.get("clips") or 0,
+            "tts": pay.get("tts") or 0, "images": pay.get("images") or 0,
+            "carried": pay.get("carried") or [],
+            "resubmit": bool(pay.get("resubmit")), "note": pay.get("note")}
 
 
 def _fetch_from_storage(cfg, run_id):
