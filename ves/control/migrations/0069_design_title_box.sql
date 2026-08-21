@@ -1,5 +1,5 @@
 -- ─────────────────────────────────────────────────────────────────────────────
--- 0069_design_title_box.sql — 제목 줄별 배경 박스·굵게 design 키 + title_y_fixed 승격
+-- 0069_design_title_box.sql — 제목 줄별 배경 박스·굵게 design 키 + title_y_fixed 승격 + E10 video_width
 --
 -- 제목 줄별 배경 박스(없음/둥근네모/각진네모)·배경색·굵게(ai-video 2026-08-21, 어댑터·brain
 -- 미러 동반)의 셋째 검증 층 — 0065 교훈(어댑터·brain 은 넣고 v_allowed 를 빠뜨려 저장 거부).
@@ -36,7 +36,9 @@ DECLARE
         'subtitles',
         -- 0069: 제목 줄별 배경 박스(none·round·rect)·배경색·굵게(true) + 제목 Y 고정(F-409)
         'title_box','title_box2','title_box_color','title_box_color2',
-        'title_bold','title_bold2','title_y_fixed'];
+        'title_bold','title_bold2','title_y_fixed',
+        -- 0069: E10 영상 밴드 가로 폭(ai-video d195cb9 · 어댑터 fcf5233 · brain 미러 804a9f4 동반)
+        'video_width'];
 BEGIN
     SELECT role INTO v_role FROM public.user_roles WHERE user_id = auth.uid();
     IF v_role IS NULL OR v_role NOT IN ('operator','admin') THEN
@@ -71,4 +73,4 @@ VALUES ('editor_title_box', 'off',
 ON CONFLICT (key) DO NOTHING;
 
 INSERT INTO public.applied_migrations(engine, version, applied_by)
-VALUES ('orchestrator','0069','claude (design 허용 키 title_box·bold + title_y_fixed 승격, editor_title_box 게이트)');
+VALUES ('orchestrator','0069','claude (design 허용 키 title_box·bold + title_y_fixed 승격 + video_width, editor_title_box 게이트)');
