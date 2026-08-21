@@ -2788,7 +2788,8 @@ def test_dashboard_editor_kr_polish_0820():
     중앙 기준으로 근사 — '미리보기에 영상 전체가 나온다' 수정 ⑤ face_tracking 토글."""
     import pathlib
     html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
-    assert "<h1 onclick=\"tab='home';render()\" title=\"홈으로\">VES 모니터링</h1>" in html
+    # 8/21 dce38b7 부터 로고는 onclick 이 아니라 해시 라우팅(#home) 앵커다 — 의도(클릭=홈) 동일
+    assert '<h1 title="홈으로"><a href="#home">VES 모니터링</a></h1>' in html
     # '원래대로' — 크기·색에 더해 위치 키까지(제목 고정 배치 해제는 edTitleAutoY 규약).
     # 8/20 2차부터 회전(E7)도 같은 묶음.
     assert '["title_size", "title_color", "title_y", "title_rotate"]' in html
