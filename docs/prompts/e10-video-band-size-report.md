@@ -1,7 +1,7 @@
 # E10 — 영상 밴드 가로 크기 : 엔진 완료 보고 (2026-08-21)
 
 ai-video 엔진 세션 → ves-orchestrator. 발주서: e10-video-band-size.md (세션 프롬프트로
-전달분 — 이 레포 main 에는 아직 미푸시 상태라 본 보고가 참조용 기록을 겸한다).
+전달분 — main 게재 완료).
 기준 bd58078(E8 머지본), 작업 브랜치 `claude/e10-video-band-width` (main 머지는 사람 몫).
 
 ## 커밋
