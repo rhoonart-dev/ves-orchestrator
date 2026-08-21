@@ -1220,8 +1220,15 @@ function chPubDot(slug){
 // 창이라 하룻밤 지나면 실패한 발행 잡이 창 밖으로 밀려 '없는 것'이 된다.
 function pubJobOf(rv){
   const js = state.pubJobs || [];
+  // 잔망루피 재합격은 같은 영상의 발행 잡을 멱등 키로 재사용한다 — 0068 이전에 만든 잡은
+  // params.review_id 가 옛(반려된) 카드를 가리킨 채 남아 review_id 로는 못 찾는다(8/20
+  // 349jZIBj-0s: 업로드·예약까지 끝났는데 "발행 잡 없음" 오경보). 영상 id 로도 잇는다.
+  const vid = (rv.payload||{}).zanmang_video_id;
   return (rv.work_order_id && js.find(j => j.work_order_id === rv.work_order_id))
       || js.find(j => (j.params||{}).review_id === rv.id)   // 잔망루피: 작업지시 없이 잡만 있다
+      || (vid && js.find(j => j.kind === "zanmang_decision"
+            && (j.params||{}).video_id === vid
+            && ((j.params||{}).action || "publish") === "publish"))
       || null;
 }
 function unpublished(){
