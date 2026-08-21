@@ -294,15 +294,17 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .edstage{position:relative;width:min(270px,100%);aspect-ratio:9/16;margin:0 auto;
            background:#000;border-radius:10px;overflow:hidden;border:1px solid var(--line)}
   .edstage video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
-  /* 가상 시퀀스: 영상은 실제 렌더처럼 '밴드'로 배치된다 — 폭 100%, 높이 = 채널
-     화면비(aspect_ratio), 위치 = video_y(없으면 중앙), 밴드 안 cover 크롭 + 얼굴 추종
-     크롭의 확대율 근사(video 의 transform:scale — 중앙 기준). 클리핑 박스(.edbandbox)가
-     밴드다 — transform 확대가 밴드 밖(제목 영역)으로 번지지 않게 여기서 자른다.
+  /* 가상 시퀀스: 영상은 실제 렌더처럼 '밴드'로 배치된다 — 폭 = video_width(E10,
+     미지정 1080=100%, 가로 중앙), 높이 = 채널 화면비(aspect_ratio, 미지정 = 엔진 기본
+     1:1), 위치 = video_y(없으면 중앙), 밴드 안 cover 크롭 + 얼굴 추종 크롭의 확대율
+     근사(video 의 transform:scale — 중앙 기준). 클리핑 박스(.edbandbox)가 밴드다 —
+     transform 확대가 밴드 밖(제목 영역)으로 번지지 않게 여기서 자른다.
      크기·위치는 edStageBandSync 가 인라인으로 준다(.seqfit 는 훅 클래스) */
   .edbandbox{position:absolute;inset:0;overflow:hidden}
   .edbandh{position:absolute;left:6px;width:22px;height:22px;background:#000c;color:#fff;
            border-radius:6px;text-align:center;line-height:22px;font-size:13px;
            cursor:ns-resize;pointer-events:auto;user-select:none;z-index:6;display:none}
+  #edbandw{cursor:ew-resize}   /* 밴드 폭(video_width, E10) 핸들 — 위치는 인라인 동기 */
   .edstage .edphold{position:absolute;inset:0;display:flex;align-items:center;
                     justify-content:center;text-align:center;padding:16px;
                     color:#ffffff99;font-size:12px;line-height:1.6;pointer-events:none}
@@ -2225,6 +2227,10 @@ function edSpeed(){
 }
 // E8(ai-video bd58078) — 시간대별 제목(title.segments). 전 노드 배포 확인 후 개방.
 const edE8On = () => (((state.ops||{}).editor_e8||{}).value === "on");
+// E10 — 영상 밴드 가로 크기(design.video_width, 발주서 docs/prompts/e10-video-band-size.md).
+// 엔진 --design-video-width + 어댑터 신 키 전 노드 배포 확인 후 ops_config editor_e10=on
+// 으로 개방(구 엔진은 모르는 CLI 플래그에 즉시 실패 — E7 과 같은 롤아웃).
+const edE10On = () => (((state.ops||{}).editor_e10||{}).value === "on");
 // E9(vlp 66056fe) — 잔망루피 구간 빼기(p_edits.cuts). 전 노드 배포 확인 후 개방
 // (구 엔진은 최상위 cuts 를 조용히 무시 — E6-0 과 같은 구도).
 const edJpCutsOn = () => (((state.ops||{}).editor_jp_cuts||{}).value === "on");
@@ -2458,6 +2464,7 @@ function edCollect(forDraft){
     // 이중 안전(H2): 플래그 전엔 신 키를 절대 내보내지 않는다 — 구 어댑터 즉사 방지
     if (!edImagesOn()) delete ov.design.title_y_fixed;
     if (!edE7On()) ED_E7_KEYS.forEach(k => delete ov.design[k]);   // E7(회전·배속)도 동일
+    if (!edE10On()) ED_E10_KEYS.forEach(k => delete ov.design[k]); // E10(밴드 크기)도 동일
     if (!Object.keys(ov.design).length) delete ov.design;
   }
   return ov;
@@ -3866,9 +3873,11 @@ function renderEdit(){
             <div class="edovsub" id="edovsub" onmousedown="edSubDragDown(event)"></div>
             <i class="edbandh" id="edbandh" onmousedown="edBandDragDown(event)"
               title="영상 밴드 위치(video_y) — 끌어서 위·아래로">⇕</i>
+            <i class="edbandh" id="edbandw" onmousedown="edBandWDragDown(event)"
+              title="영상 밴드 크기(video_width) — 끌어서 좌·우로(가로 중앙 유지)">⇔</i>
             <div class="edovnote" id="edovnote" style="display:none">근사 미리보기 — 글꼴·색이
-              다를 수 있습니다. 영상은 완성본과 같은 밴드(화면비·위치)에 얼굴 추종 크롭의
-              확대율까지 흉내내되, 크롭 위치만 중앙 기준(실제는 인물을 따라감)</div>
+              다를 수 있습니다. 영상은 완성본과 같은 밴드(화면비·크기·위치)에 얼굴 추종
+              크롭의 확대율까지 흉내내되, 크롭 위치만 중앙 기준(실제는 인물을 따라감)</div>
           </div>
           <div class="edphold" id="edphold" ${edStageMode === "prev" && !edPrevKey
             ? "" : 'style="display:none"'}>완성본 영상이 아직
@@ -4363,7 +4372,7 @@ const ED_STYLE_FIELDS = [
   ["title_size",       "제목 크기(1줄 기준)", "예: 70"],
   ["title_y",          "제목 세로(위에서 px)", "화면에서 끌면 채워집니다"],
   ["title_color",      "제목 색(1줄)",   "#FFFFFF"],
-  ["title_color2",     "제목 색(2줄)",   "#FFE400"],
+  ["title_color2",     "제목 색(2줄)",   "#FFFF00"],
   ["subtitle_size",    "자막 크기",     "예: 65"],
   ["subtitle_color",   "자막 색",       "#FFFFFF"],
   ["subtitle_style",   "자막 스타일",   "kvar_yellow 등"],
@@ -4373,8 +4382,11 @@ const ED_STYLE_FIELDS = [
   ["tts_color",        "TTS 자막 색",    "#87CEEB"],
   ["tts_y_margin",     "TTS 세로(하단px)", "예: 580"],
   // 영상 밴드(V3-a) — 렌더가 이미 받는 키. 위치는 ✎ 켠 가상 미리보기의 ⇕ 드래그와 동기
-  ["aspect_ratio",     "영상 화면비",    "예: 16:9 · 1:1 · 4:3"],
+  ["aspect_ratio",     "영상 화면비",    "비우면 1:1 · 예: 16:9 · 4:3"],
   ["video_y",          "영상 세로(위에서 px)", "비우면 중앙 · ⇕ 드래그로도"],
+  // 영상 밴드 크기(E10) — 가로 px(≤1080, 미지정=꽉 참), 가로 중앙 유지. ✎ 의 ⇔ 와 동기.
+  // 표시는 editor_e10 게이트(edPaneStyle 필터), 전송 게이트는 edCollect(H2 이중 안전).
+  ["video_width",      "영상 가로 크기(px)", "비우면 1080(꽉 참) · 320~1080"],
   // E7(2a087eb) — 디자인 레벨 회전·배속. 표시는 editor_e7 게이트(edPaneStyle 필터),
   // 전송 게이트는 edCollect(H2 이중 안전). 회전은 ✎ 의 ↺↻ 와 같은 값.
   ["title_rotate",     "제목 회전(도)",  "-180~180 · 시계 +"],
@@ -4383,6 +4395,8 @@ const ED_STYLE_FIELDS = [
 ];
 // E7 키 — 게이트 전 화면·전송에서 함께 뺀다(성분표는 한 곳)
 const ED_E7_KEYS = ["title_rotate", "tts_rotate", "video_speed"];
+// E10 키 — 같은 규약(게이트 전 화면·전송 동시 차단)
+const ED_E10_KEYS = ["video_width"];
 // 쇼츠 템플릿(F-508) — 화면이 편집하는 스타일 키 묶음. 적용 = 이 편 오버라이드 통째
 // 교체(채널 위에), 저장 = 지금 화면의 유효 디자인(채널+이 편) 스냅샷. 목록은 세션당
 // 1회 + 저장·삭제 후. state 에 넣지 않는다 — refresh() 의 state 통재구성에 지워진다.
@@ -4437,7 +4451,7 @@ window.edTplDelete = async () => {
 function edPaneStyle(canEdit){
   const base = edBaseDesign();
   if (!edTplLoaded) edTplLoad().then(() => { if (edPane === "style") render(); });
-  return `<div class="edcap">쇼츠 템플릿 <span class="sub">— 영상 비율·위치, 제목·자막·TTS
+  return `<div class="edcap">쇼츠 템플릿 <span class="sub">— 영상 비율·크기·위치, 제목·자막·TTS
       스타일 묶음을 저장해 두고 편마다 골라 씁니다</span></div>
     <div class="edaddrow" style="margin:0 0 10px">
       <select id="edtplsel" style="flex:1;font:inherit;font-size:12px"
@@ -4456,6 +4470,7 @@ function edPaneStyle(canEdit){
       이 편에만 적용됩니다.</div>
     <div class="edrows">${ED_STYLE_FIELDS
       .filter(([k]) => edE7On() || !ED_E7_KEYS.includes(k))
+      .filter(([k]) => edE10On() || !ED_E10_KEYS.includes(k))
       .map(([k,l,ph]) => `
       <div class="edrow3"><label>${esc(l)}</label>
         <input id="edd_${k}" placeholder="${esc(base[k] != null ? "채널: " + base[k] : ph)}"
@@ -4898,7 +4913,26 @@ window.edStyleSet = (k, v) => {
     else if (edBaseDesign().title_y_fixed) edForm.design.title_y_fixed = false;
     else delete edForm.design.title_y_fixed;
   }
-  if (k === "aspect_ratio" || k === "video_y") edStageBandSync();   // 밴드 즉시 반영
+  // E10 — 범위 밖·비숫자는 폼에 싣지 않는다(E7 과 같은 빨간 테두리 규약, 엔진 계약
+  // 320~1080. 흘리면 엔진 CLI 가 즉시 실패시켜 렌더가 낭비된다).
+  if (k === "video_width"){
+    const el = document.getElementById("edd_" + k), t = String(v).trim();
+    let bad = false;
+    if (t){
+      const n = +t;
+      bad = !isFinite(n) || n < 320 || n > 1080;
+      if (bad) delete edForm.design[k];
+    }
+    if (el){
+      el.classList.toggle("bad", bad);
+      el.title = bad ? "320~1080 사이 px" : "";
+    }
+  }
+  // 밴드 즉시 반영(제목 자동 배치가 밴드를 따라오므로 스테이지 페인트 포함)
+  if (k === "aspect_ratio" || k === "video_y" || k === "video_width") edStageBandSync();
+  // 제목 크기·색·위치는 유령 오버레이에 즉시 반영(자동 배치 높이가 크기를 따라간다)
+  if (["title_size", "title_color", "title_color2", "title_y"].includes(k))
+    edStagePaint(edStageT);
   // E7 — 범위 밖·비숫자는 폼에 싣지 않는다(엔진이 즉시 실패시키는 값 — 렌더 낭비 예방).
   // 입력 도중 잠깐 스치는 미완성 값("0."·"-")에 토스트를 쏘면 시끄러워, 빨간 테두리로만.
   if (ED_E7_KEYS.includes(k)){
@@ -5615,17 +5649,26 @@ function edStageBtnsSync(){
   edStageBandSync();
 }
 
-// 영상 밴드(V3-a) — 실제 렌더 수식 그대로: 폭 1080 고정, 높이 = 1080×(세로비/가로비),
-// 위치 = design.video_y(캔버스 px, 없으면 세로 중앙), 밴드 안 cover 크롭(얼굴 추종은 근사).
+// 영상 밴드(V3-a) — 실제 렌더 수식 그대로: 폭 = video_width(E10, 미지정=1080 꽉 참,
+// 가로 중앙), 높이 = int(폭×세로비/가로비), 위치 = design.video_y(캔버스 px, 없으면
+// 세로 중앙), 밴드 안 cover 크롭(얼굴 추종은 근사).
+// ⚠ 기본 화면비는 엔진 DesignConfig 와 같은 **1:1**(정사각) — 종전 근사(16:9)는
+// aspect_ratio 없는 채널(대부분)에서 완성본(정사각 밴드)과 다른 화면을 보여줬다
+// (사용자 8/21 '미리보기가 완성본과 다르다'). 파싱 실패·0 가로비도 엔진과 동일하게
+// 정사각 폴백(renderer.py: except → scaled_h = W). 짝수 보정까지 같은 수식.
 function edStageBandGeom(d){
-  let rw = 16, rh = 9;
-  const m = String(d.aspect_ratio || "16:9").trim().match(/^(\d+)\s*:\s*(\d+)$/);
-  if (m && +m[1] > 0){ rw = +m[1]; rh = +m[2]; }
-  const bandH = Math.min(1, (rh / rw) * (1080 / 1920));   // 캔버스 세로 대비 밴드 비율
+  let bwpx = Math.round(+d.video_width) || 1080;
+  bwpx = Math.max(2, Math.min(1080, bwpx)); bwpx -= bwpx % 2;
+  let bhpx = bwpx;                          // 화면비 미지정·불량 = 1:1 (엔진 기본과 동일)
+  const m = String(d.aspect_ratio || "").trim().match(/^(\d+)\s*:\s*(\d+)$/);
+  if (m && +m[1] > 0) bhpx = Math.floor(bwpx * +m[2] / +m[1]);
+  bhpx -= bhpx % 2;
+  const bandW = bwpx / 1080;                // 캔버스 가로 대비 밴드 비율
+  const bandH = Math.min(1, bhpx / 1920);   // 캔버스 세로 대비 밴드 비율
   const vy = (d.video_y != null && String(d.video_y).trim() !== "")
     ? Math.max(0, Math.min(1 - bandH, (+d.video_y || 0) / 1920))
     : (1 - bandH) / 2;
-  return { bandH, vy };
+  return { bandW, bandH, vy, left: (1 - bandW) / 2, bwpx, bhpx };
 }
 // 얼굴 추종 크롭(reframe)의 확대율 근사(사용자 8/20 — '미리보기가 영상 전체를 보여준다').
 // 엔진 _portrait_crop_size 그대로: 9:16 창 × 줌아웃 1.6, 원본 안으로 클램프. 그 창을
@@ -5638,7 +5681,7 @@ function edStageZoom(d, v, g){
   if (sw / sh > 9 / 16){ ch = sh; cw = sh * 9 / 16; }
   else { cw = sw; ch = sw * 16 / 9; }
   cw = Math.min(cw * 1.6, sw); ch = Math.min(ch * 1.6, sh);
-  const bw = 9, bh = 16 * g.bandH;             // 밴드 박스의 비율만 필요하다(9:16 스테이지)
+  const bw = 9 * g.bandW, bh = 16 * g.bandH;   // 밴드 박스의 비율만 필요하다(9:16 스테이지)
   const cover = (w, h) => Math.max(bw / w, bh / h);
   return cover(cw, ch) / cover(sw, sh);
 }
@@ -5648,20 +5691,32 @@ function edStageBandSync(){
   if (!box || !v) return;
   if (edStageMode !== "seq"){          // 완성본은 이미 렌더된 레이아웃 — 기본(전체 cover)
     box.style.top = ""; box.style.height = "";
+    box.style.left = ""; box.style.width = "";
     v.style.transform = "";
   } else {
     const d = edDesign(), g = edStageBandGeom(d);
     box.style.top = (g.vy * 100) + "%";
     box.style.height = (g.bandH * 100) + "%";
+    box.style.left = (g.left * 100) + "%";
+    box.style.width = (g.bandW * 100) + "%";
     const z = edStageZoom(d, v, g);
     v.style.transform = z > 1.001 ? `scale(${z.toFixed(4)})` : "";
   }
   const h = document.getElementById("edbandh");
+  const hw = document.getElementById("edbandw");
+  const editing = edV3() && edStyleTool && edCanEdit() && edStageMode === "seq";
+  const g2 = (h || hw) && editing ? edStageBandGeom(edDesign()) : null;
   if (h){
-    const editing = edV3() && edStyleTool && edCanEdit() && edStageMode === "seq";
     h.style.display = editing ? "" : "none";
-    if (editing) h.style.top = (edStageBandGeom(edDesign()).vy * 100) + "%";
+    if (g2){ h.style.top = (g2.vy * 100) + "%";
+             h.style.left = `calc(${(g2.left * 100).toFixed(3)}% + 6px)`; }
   }
+  if (hw){                             // 밴드 폭(video_width, E10) 핸들 — 오른쪽 가장자리
+    hw.style.display = editing && edE10On() ? "" : "none";
+    if (g2){ hw.style.top = `calc(${((g2.vy + g2.bandH / 2) * 100).toFixed(3)}% - 11px)`;
+             hw.style.left = `calc(${((g2.left + g2.bandW) * 100).toFixed(3)}% - 26px)`; }
+  }
+  edStagePaint(edStageT);              // 제목 자동 배치(밴드 위)가 밴드를 따라와야 한다
 }
 // 밴드 세로 드래그 → design.video_y (엔진과 같은 캔버스 px — 클램프도 렌더와 동일)
 window.edBandDragDown = ev => {
@@ -5683,6 +5738,38 @@ window.edBandDragDown = ev => {
     document.removeEventListener("mouseup", up);
     const el = document.getElementById("edd_video_y");
     if (el) el.value = (edForm.design || {}).video_y ?? "";
+    edMark();
+  };
+  document.addEventListener("mousemove", move);
+  document.addEventListener("mouseup", up);
+};
+// 밴드 가로 드래그 → design.video_width (E10 — 캔버스 px, 가로 중앙 유지라 오른쪽
+// 가장자리 이동량의 2배로 는다). 클램프는 엔진 계약과 동일(320~1080, 1080=꽉 참).
+window.edBandWDragDown = ev => {
+  if (ev.button !== 0 || !edStyleTool || !edCanEdit() || edStageMode !== "seq"
+      || !edE10On()) return;
+  const st = document.getElementById("edstage"); if (!st || !edForm) return;
+  ev.preventDefault(); ev.stopPropagation();
+  const W = st.clientWidth || 270;
+  const g0 = edStageBandGeom(edDesign());
+  const cx = ev.clientX;
+  edSnap("bandwdrag");
+  const move = e => {
+    if (!e.buttons){ up(); return; }
+    const npx = Math.max(320, Math.min(1080,
+      Math.round(g0.bwpx + (e.clientX - cx) / W * 1080 * 2)));
+    const d2 = { ...(edForm.design || {}) };
+    // 채널 기본과 같은 값이면 키를 지운다(edOvSize 규칙 — 영구 dirty 방지)
+    const bv = Math.round(+edBaseDesign().video_width) || 1080;
+    if (npx === bv) delete d2.video_width; else d2.video_width = npx;
+    edForm.design = d2;
+    edStageBandSync();
+  };
+  const up = () => {
+    document.removeEventListener("mousemove", move);
+    document.removeEventListener("mouseup", up);
+    const el = document.getElementById("edd_video_width");
+    if (el) el.value = (edForm.design || {}).video_width ?? "";
     edMark();
   };
   document.addEventListener("mousemove", move);
@@ -5761,11 +5848,74 @@ function edDesign(){
 // 자막이 이미 구워져 있으므로 ✎(스타일 편집)이 켜졌을 때만 '유령 자막'을 겹친다 —
 // 위치·크기를 끌어 만질 대상이 화면에 있어야 해서다.
 // v3 style.y = 자막 **하단**이 놓일 캔버스 세로 위치(0=상단, 1=하단) — ai-video 계약:
-// MarginV = (1−y)×1920. 화면 CSS 는 bottom 기준이라 (1−y) 로 그린다. 기본값은 채널
-// subtitle_y_margin(하단 px)의 역산 근사 — 정본은 엔진 프리셋.
-const edSubYDef = d => 1 - ((+d.subtitle_y_margin || 380) / 1920);
+// MarginV = (1−y)×1920. 화면 CSS 는 bottom 기준이라 (1−y) 로 그린다.
+// 기본값(줄 style.y 없음) — 엔진 pipeline._compute_subtitle_margin_v 미러(8/21 정합 +
+// E10 교정 9faa4fe): '밴드 하단에서 10px 위'. 신 기하(video_y·video_width 반영 밴드
+// 하단 앵커)는 **video_width 명시 시에만** — 미지정이면 종전 기하(꽉 찬 폭·세로 중앙
+// 가정) 그대로다. video_y 만 쓰는 기존 채널(한 입 주막)의 실렌더 튜닝을 지키는 회귀 0
+// 게이트로, 엔진과 같은 조건이라 미리보기도 같은 그림을 낸다. subtitle_y_margin
+// 디자인 키는 엔진 대사 자막 경로가 읽지 않는다(margin_v 동적 계산이 '항상 우선').
+const edVwSet = d => d.video_width != null && String(d.video_width).trim() !== "";
+function edSubBandBottom(d, legacy){   // 엔진 _video_band_bottom — legacy = 종전 기하
+  const g = edStageBandGeom(legacy ? { aspect_ratio: d.aspect_ratio } : d);
+  return legacy || d.video_y == null || String(d.video_y).trim() === ""
+    ? Math.max(0, Math.floor((1920 - g.bhpx) / 2)) + g.bhpx
+    : Math.round(g.vy * 1920) + g.bhpx;
+}
+function edSubMarginV(d){
+  return Math.max(10, 1920 - edSubBandBottom(d, !edVwSet(d)) + 10);
+}
+const edSubYDef = d => 1 - edSubMarginV(d) / 1920;
+// TTS 기본 위치 — 엔진 _compute_tts_margin_v 미러: tts_y_margin(절대값)은 유지하되
+// video_width 명시 시에만 '종전 밴드 하단 대비 델타'로 밴드에 앵커(회귀 0 조건 동일)
+function edTtsBandDelta(d){
+  if (!edVwSet(d)) return 0;
+  return Math.min(1920, edSubBandBottom(d, true))
+       - Math.min(1920, edSubBandBottom(d, false));
+}
+const edTtsMarginV = d => Math.max(0, (+d.tts_y_margin || 580) + edTtsBandDelta(d));
 // 제목 y — 0(맨 위)이 유효값이라 || 폴백을 쓰면 안 된다(놓는 순간 120 으로 점프)
 const edTitleYv = d => (d.title_y != null && String(d.title_y) !== "" ? +d.title_y : 120);
+// ── 제목 블록 — 엔진 미러(8/21 정합) ──────────────────────────────────
+// renderer.py 와 같은 수식: split_text_smart(20자 어절 wrap) · 줄별 크기(title_sizes
+// 조립 — --design-title-size X → [X, X×90/70], 기본 [70,90]) · 14~20자 길이 축소표 ·
+// 자동 배치(밴드 위 20px, 여백 <10px 면 title_y 폴백). 종전 근사(단일 96px·고정
+// 120px)는 완성본과 제목 위치·크기가 크게 달랐다(사용자 8/21).
+const ED_TITLE_LEN_SCALE = { 14:.90, 15:.83, 16:.77, 17:.72, 18:.67, 19:.63, 20:.60 };
+const ED_TITLE_LINE_SPACING = 30;             // 엔진 line_spacing
+function edTitleWrap(text, maxChars = 20){    // → [[원본 줄 idx, 줄 텍스트], …]
+  const out = [];
+  String(text || "").split("\n").forEach((line, oi) => {
+    let cur = "";
+    for (const w of line.split(/\s+/).filter(Boolean)){
+      // 엔진과 동일: {키:값} 꼴 어절은 ':' 앞 부분만 길이로 센다
+      const clean = w.includes(":") ? w.split(":")[0].replace(/[{}]/g, "") : w;
+      if (cur.length + clean.length <= maxChars) cur = (cur + " " + w).trim();
+      else { if (cur) out.push([oi, cur]); cur = w; }
+    }
+    if (cur) out.push([oi, cur]);
+  });
+  return out;
+}
+function edTitleLines(d, text){               // → [{oi, t, size(캔버스 px)}, …]
+  const s1 = Math.round(+d.title_size) || 70;
+  const sizes = [s1, Math.max(1, Math.round(s1 * 90 / 70))];
+  return edTitleWrap(text).map(([oi, t]) => {
+    const base = sizes[Math.min(oi, sizes.length - 1)];
+    const scale = t.length <= 13 ? 1 : ED_TITLE_LEN_SCALE[Math.min(t.length, 20)];
+    return { oi, t, size: Math.max(1, Math.round(base * scale)) };
+  });
+}
+const edTitleBlockH = lines =>
+  lines.reduce((a, l) => a + l.size, 0)
+  + Math.max(0, lines.length - 1) * ED_TITLE_LINE_SPACING;
+// 제목 블록 상단(캔버스 px) — 고정(title_y_fixed)=title_y 그대로, 자동=밴드 위 20px
+// (엔진 _dynamic_title_top, 공간 <10px 면 title_y 폴백)
+function edTitleTopPx(d, blockH){
+  if (d.title_y_fixed) return edTitleYv(d);
+  const dyn = Math.round(edStageBandGeom(d).vy * 1920) - blockH - 20;
+  return dyn >= 10 ? dyn : edTitleYv(d);
+}
 function edStagePaint(outT){
   const st = document.getElementById("edstage"); if (!st || !edForm) return;
   edStageT = Number(outT) || 0;
@@ -5776,8 +5926,6 @@ function edStagePaint(outT){
   if (tt){
     tt.style.display = (seqMode || editing) ? "" : "none";
     if (seqMode || editing){
-      tt.style.fontSize = ((+d.title_size || 96) * sc) + "px";
-      tt.style.top = (edTitleYv(d) * sc) + "px";
       // 회전(E7) — 원점은 블록 중심(엔진 계약과 동일, CSS 기본값)
       tt.style.transform = Math.round(+d.title_rotate)
         ? `rotate(${Math.round(+d.title_rotate)}deg)` : "";
@@ -5788,16 +5936,28 @@ function edStagePaint(outT){
       const _ttext = _tsegs.length && seqMode
         ? ((_tsegs.find(x => outT >= x.start && outT < x.end) || {}).text || "")
         : edForm.dTitle;
-      const th = String(_ttext || "").split("\n").map((l, i) =>
-        `<div style="color:${esc(i === 0 ? (d.title_color || "#FFFFFF")
-                                         : (d.title_color2 || "#FFE400"))}">${esc(l)}</div>`).join("");
+      // 줄바꿈·줄별 크기(70/90 위계·길이 축소)·자동 배치(밴드 위) — 엔진 미러(8/21).
+      // 자동 배치 기준 높이는 E8 세그먼트 전체의 최대 블록(엔진 title_total_height —
+      // 세그마다 제목이 위아래로 튀지 않게 모든 세그 첫 줄이 같은 y 에서 시작).
+      const _tlines = edTitleLines(d, _ttext);
+      const _tblockH = _tsegs.length && seqMode
+        ? Math.max(...(_tsegs.map(x => edTitleBlockH(edTitleLines(d, x.text)))))
+        : edTitleBlockH(_tlines);
+      const _ttop = edTitleTopPx(d, _tblockH);
+      tt.style.top = (_ttop * sc) + "px";
+      tt.dataset.top = _ttop;            // 드래그 시작점 — 화면에 보이는 그 위치부터
+      const th = _tlines.map(l =>
+        `<div style="color:${esc(l.oi === 0 ? (d.title_color || "#FFFFFF")
+                                            : (d.title_color2 || "#FFFF00"))};font-size:${
+          (l.size * sc).toFixed(2)}px;line-height:1;margin-bottom:${
+          (ED_TITLE_LINE_SPACING * sc).toFixed(2)}px">${esc(l.t)}</div>`).join("");
       if (tt.dataset.h !== th){ tt.dataset.h = th; tt.innerHTML = th; }
       // F-409(dc1060f): 끌면 고정 배치(title_y_fixed) — 안 끌면 엔진 자동 배치(영상 위).
       // edImagesOn 게이트 = 0057·신 어댑터 배포 표식(H2)
       tt.classList.toggle("editable", editing && edImagesOn());
       tt.title = !(editing && edImagesOn()) ? "" : (d.title_y_fixed
         ? "제목 — 끌어서 위치(고정 배치 모드 · 스타일 탭에서 자동 배치로 복귀)"
-        : "제목 — 끌면 자동 배치 대신 고정 위치가 됩니다(여기 표시는 근사 — 실제 자동 위치는 영상 바로 위)");
+        : "제목 — 지금은 자동 배치(영상 바로 위, 완성본과 동일) · 끌면 고정 위치가 됩니다");
     }
   }
   // 지금 순간의 자막 줄 — seq 는 재매핑된 출력 시각(edOutPos), prev 는 종전 렌더의
@@ -5845,11 +6005,12 @@ function edStagePaint(outT){
           const r = edOutPos(eff0, t.src); return r && outT >= r.p && outT < r.p + t.dur; });
       }
       // 엔진 전용 키(tts_size·tts_color·tts_y_margin=하단 px)가 있으면 그대로 —
-      // 없을 때만 근사 기본값(엔진 tts_line_* 기본과 동치)
+      // 없을 때만 근사 기본값(엔진 tts_line_* 기본과 동치). 위치는 유효 margin
+      // (edTtsMarginV — video_width 명시 시 밴드 델타 앵커, 엔진 E10 교정과 동일)
       te.style.fontSize = ((+d.tts_size || 70) * sc) + "px";
       te.style.color = d.tts_color || "#87CEEB";
       te.style.bottom = (Math.max(0.02, Math.min(0.9,
-        (+d.tts_y_margin || 580) / 1920)) * 100) + "%";
+        edTtsMarginV(d) / 1920)) * 100) + "%";
       te.style.transform = Math.round(+d.tts_rotate)         // 회전(E7) — 원점 블록 중심
         ? `rotate(${Math.round(+d.tts_rotate)}deg)` : "";
       te.textContent = cue ? cue.text : "";
@@ -5916,7 +6077,8 @@ window.edStyleToolToggle = () => {
   edStyleTool = !edStyleTool;
   const b = document.getElementById("edstylebtn");
   if (b) b.classList.toggle("on", edStyleTool);
-  edStagePaint(edStageT);      // render() 는 재생 중 스테이지를 파괴한다 — 무렌더 갱신
+  edStageBandSync();           // ⇕·⇔ 핸들 표시까지 — 끝에서 edStagePaint 도 한다
+                               // (render() 는 재생 중 스테이지를 파괴한다 — 무렌더 갱신)
 };
 // ✎ 도구의 대상 선택 — 세그먼트 버튼 또는 화면 요소를 잡는 순간 바뀐다
 function edOvSelSync(){
@@ -5930,11 +6092,12 @@ window.edOvSize = dd => {
   edSnap("ovsize" + edOvSel);
   const d = edDesign();        // 채널+오버라이드 병합 현재값 기준으로 증감
   const key = edOvSel === "title" ? "title_size" : "tts_size";
-  const cur = edOvSel === "title" ? (+d.title_size || 96) : (+d.tts_size || 70);
+  // 제목 기본 70 = 엔진 DesignConfig.title_sizes[0](1줄 기준 — 2줄은 ×90/70 위계)
+  const cur = edOvSel === "title" ? (+d.title_size || 70) : (+d.tts_size || 70);
   const nv = Math.max(24, Math.min(200, Math.round(cur + dd)));
   // 채널 기본값으로 돌아오면 오버라이드를 지운다 — 안 지우면 같은 값인데 영구 dirty
   const base = edBaseDesign();
-  const bv = edOvSel === "title" ? (+base.title_size || 96) : (+base.tts_size || 70);
+  const bv = edOvSel === "title" ? (+base.title_size || 70) : (+base.tts_size || 70);
   const d2 = { ...(edForm.design || {}) };
   if (nv === bv) delete d2[key]; else d2[key] = nv;
   edForm.design = d2;
@@ -6199,7 +6362,11 @@ window.edTitleDragDown = ev => {
   ev.preventDefault(); ev.stopPropagation();
   edOvSel = "title"; edOvSelSync();   // 잡은 요소가 곧 도구의 대상
   const H = st.clientHeight || 480;
-  const y0 = Math.max(0, Math.min(0.85, edTitleYv(edDesign()) / 1920));
+  // 시작점은 화면에 보이는 그 위치(자동 배치 = 밴드 위) — edTitleYv(120)에서 시작하면
+  // 잡는 순간 제목이 맨 위로 튄다(8/21 자동 배치 미러와 함께 도입)
+  const tt0 = +((tt.dataset || {}).top);
+  const y0 = Math.max(0, Math.min(0.85,
+    (isFinite(tt0) ? tt0 : edTitleYv(edDesign())) / 1920));
   const cy = ev.clientY;
   edSnap("titledrag");
   const move = e => {
@@ -6257,13 +6424,17 @@ window.edTtsDragDown = ev => {
   ev.preventDefault(); ev.stopPropagation();
   edOvSel = "tts"; edOvSelSync();     // 잡은 요소가 곧 도구의 대상
   const H = st.clientHeight || 480;
-  const b0 = Math.max(0.02, Math.min(0.9, (+edDesign().tts_y_margin || 580) / 1920));
+  // 화면은 유효 margin(밴드 델타 포함)으로 그리므로, 저장할 tts_y_margin(절대 노브)은
+  // 델타를 되빼서 넣는다 — 엔진이 다시 델타를 더해 화면과 같은 위치가 된다(왕복 항등)
+  const delta0 = edTtsBandDelta(edDesign());
+  const b0 = Math.max(0.02, Math.min(0.9, edTtsMarginV(edDesign()) / 1920));
   const cy = ev.clientY;
   edSnap("ttsdrag");
   const move = e => {
     if (!e.buttons){ up(); return; }
     const nb = Math.max(0.02, Math.min(0.9, b0 + (cy - e.clientY) / H));  // 위로 끌면 여백↑
-    edForm.design = { ...(edForm.design || {}), tts_y_margin: Math.round(nb * 1920) };
+    edForm.design = { ...(edForm.design || {}),
+                      tts_y_margin: Math.round(nb * 1920) - delta0 };
     te.style.bottom = (nb * 100) + "%";
   };
   const up = () => {
