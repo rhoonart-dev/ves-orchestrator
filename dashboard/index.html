@@ -333,14 +333,25 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .edsubtools input[type=color]{width:26px;height:22px;padding:0;border:1px solid var(--line);
               border-radius:5px;background:none;cursor:pointer}
   /* 제목 줄별 도구(2026-08-21) — 줄 그룹 + 팔레트 팝오버(채널 모달 cpick 팔레트와 같은 색 목록) */
-  .edtitletools{position:relative}
-  .lngrp{display:inline-flex;align-items:center;gap:3px;padding:2px 4px 2px 6px;
-         border:1px solid var(--line);border-radius:8px;background:var(--surface)}
-  .lngrp .lbl{font-size:11px;color:var(--ink-2);font-weight:700;margin-right:2px;white-space:nowrap}
-  .lngrp .mini.b{font-weight:900;padding:2px 7px}
-  .lngrp .mini.sw{display:inline-flex;align-items:center;gap:4px;padding:2px 6px}
-  .lngrp .mini.sw .swl{font-size:11px;color:var(--muted)}
-  .lngrp .mini.sw i{width:14px;height:14px;border-radius:3px;border:1px solid #ffffff55;display:inline-block}
+  /* 줄마다 한 행 — 왼쪽 칼럼이 220~300px 로 좁아 가로로 늘어놓으면 접힌다.
+     배경 버튼은 그 줄의 실제 스타일(색·모서리·굵기)을 축소해 보여준다 — 인스타 텍스트
+     스타일 버튼과 같은 원리로, 라벨을 읽지 않아도 지금 상태가 보인다. */
+  .edtitletools{position:relative;display:flex;flex-direction:column;gap:4px;align-items:stretch}
+  .edtitletools .ttrow{display:flex;align-items:center;gap:4px}
+  .edtitletools .n{font-size:11px;color:var(--muted);font-weight:700;width:26px;flex:none}
+  .edtitletools .mini{padding:2px 7px}
+  .edtitletools .mini.shape{min-width:58px;display:inline-flex;align-items:center;gap:4px;
+                            justify-content:center}
+  .edtitletools .mini.shape em{font-style:normal;font-size:11px;font-weight:800;line-height:1;padding:1px 3px}
+  .edtitletools .mini.bold{font-weight:900}
+  .edtitletools .mini.cbtn{padding:2px 4px}
+  /* 색 칩: 영상 배경이 어두우므로 글자색은 어두운 타일 위에 '가' 로 — 흰 글자도 보인다 */
+  .edtitletools .tile{width:18px;height:18px;border-radius:4px;border:1px solid var(--line);
+                      display:flex;align-items:center;justify-content:center;
+                      font-size:11px;font-weight:800;line-height:1}
+  .edtitletools .tile.txt{background:#3a3a3e}
+  .edtitletools .tile.off{background:repeating-linear-gradient(45deg,transparent,transparent 3px,
+                          var(--muted) 3px,var(--muted) 4px)}   /* 배경 없음 = 빗금 */
   .edpal{position:absolute;z-index:20;background:var(--surface);border:1px solid var(--line);
          border-radius:10px;padding:8px 10px;box-shadow:0 12px 40px #0008;width:236px}
   .edpalhd{font-size:11px;color:var(--muted);font-weight:700;margin-bottom:6px}
@@ -3996,19 +4007,21 @@ function renderEdit(){
           <button class="mini" onclick="edOvReset()"
             title="선택 대상의 크기·색·위치를 채널 기본값으로(자막은 그 줄만)">원래대로</button>
         </div>
-        <!-- 제목 줄별 도구(2026-08-21) — 제목을 선택했을 때만(editor_title_box 게이트):
-             배경 순환(없음→둥근→각진)·굵게·글자색/배경색 팔레트. 표시는 edTitleToolsSync -->
+        <!-- 제목 줄별 도구(2026-08-21) — 제목을 선택했을 때만(editor_title_box 게이트).
+             줄마다 한 행: [배경 순환(실제 스타일 미리보기)] [B 굵게] [글자색] [배경색].
+             상태 반영은 edTitleToolsSync -->
         <div class="edsubtools edtitletools" id="edtitletools" style="display:none">
-          ${[0, 1].map(i => `<span class="lngrp">
-            <span class="lbl">제목 ${i + 1}줄</span>
-            <button class="mini" id="edtbox${i}" onclick="edOvBox(${i})"
-              title="${i + 1}줄 배경: 없음 → 둥근네모 → 각진네모">▭ 없음</button>
-            <button class="mini b" id="edtbold${i}" onclick="edOvBold(${i})" title="${i + 1}줄 굵게">B</button>
-            <button class="mini sw" id="edttxt${i}" onclick="edPalOpen(event,${i},'txt')"
-              title="${i + 1}줄 글자색 — 팔레트"><span class="swl">가</span><i></i></button>
-            <button class="mini sw" id="edtbg${i}" onclick="edPalOpen(event,${i},'box')"
-              title="${i + 1}줄 배경색 — 팔레트"><span class="swl">▦</span><i></i></button>
-          </span>`).join("")}
+          ${[0, 1].map(i => `<div class="ttrow">
+            <span class="n">${i + 1}줄</span>
+            <button class="mini shape" id="edtbox${i}" onclick="edOvBox(${i})"
+              title="${i + 1}줄 배경: 없음 → 둥근네모 → 각진네모"><em>가</em><span class="lb">없음</span></button>
+            <button class="mini bold" id="edtbold${i}" onclick="edOvBold(${i})"
+              title="${i + 1}줄 굵게">B</button>
+            <button class="mini cbtn" id="edttxt${i}" onclick="edPalOpen(event,${i},'txt')"
+              title="${i + 1}줄 글자색"><span class="tile txt">가</span></button>
+            <button class="mini cbtn" id="edtbg${i}" onclick="edPalOpen(event,${i},'box')"
+              title="${i + 1}줄 배경색"><span class="tile"></span></button>
+          </div>`).join("")}
           <div class="edpal" id="edpal" style="display:none">
             <div class="edpalhd" id="edpalhd"></div>
             <div class="edpalsw" id="edpalsw"></div>
@@ -4781,14 +4794,23 @@ function edTitleToolsSync(){
     const bk = i ? "title_box2" : "title_box", bd = i ? "title_bold2" : "title_bold";
     const tc = i ? (d.title_color2 || "#FFFF00") : (d.title_color || "#FFFFFF");
     const bc = i ? (d.title_box_color2 || "#000000") : (d.title_box_color || "#000000");
-    const mode = d[bk] || "none";
+    const mode = d[bk] || "none", bold = edIsBold(d[bd]);
+    // 배경 버튼 = 그 줄의 축소 미리보기(글자색·박스색·모서리·굵기) + 짧은 상태말
     const b = document.getElementById("edtbox" + i);
-    if (b){ b.textContent = (mode === "round" ? "▢ " : mode === "rect" ? "■ " : "▭ ")
-              + (ED_BOX_OPTIONS.find(o => o[0] === mode) || ["", "없음"])[1];
-            b.classList.toggle("on", mode !== "none"); }
-    const w = document.getElementById("edtbold" + i); if (w) w.classList.toggle("on", edIsBold(d[bd]));
-    const t = document.querySelector("#edttxt" + i + " i"); if (t) t.style.background = tc;
-    const x = document.querySelector("#edtbg" + i + " i"); if (x) x.style.background = bc;
+    if (b){
+      const em = b.querySelector("em"), lb = b.querySelector(".lb");
+      if (em) em.style.cssText = (mode === "none"
+        ? "color:var(--ink);"
+        : `background:${bc};border-radius:${mode === "round" ? "5px" : "0"};color:${tc};`)
+        + (bold ? "-webkit-text-stroke:.03em currentColor;" : "");
+      if (lb) lb.textContent = mode === "round" ? "둥근" : mode === "rect" ? "각진" : "없음";
+      b.classList.toggle("on", mode !== "none");
+    }
+    const w = document.getElementById("edtbold" + i); if (w) w.classList.toggle("on", bold);
+    const t = document.querySelector("#edttxt" + i + " .tile"); if (t) t.style.color = tc;
+    const x = document.querySelector("#edtbg" + i + " .tile");
+    if (x){ x.classList.toggle("off", mode === "none");   // 배경 없음이면 빗금
+            x.style.background = mode === "none" ? "" : bc; }
   });
 }
 // 키 하나를 편집실 오버라이드에 쓰되 채널 기본과 같으면 지운다(edOvSize 규약 — 영구 dirty 방지)
