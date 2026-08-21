@@ -5766,9 +5766,19 @@ function edDesign(){
 // 자막이 이미 구워져 있으므로 ✎(스타일 편집)이 켜졌을 때만 '유령 자막'을 겹친다 —
 // 위치·크기를 끌어 만질 대상이 화면에 있어야 해서다.
 // v3 style.y = 자막 **하단**이 놓일 캔버스 세로 위치(0=상단, 1=하단) — ai-video 계약:
-// MarginV = (1−y)×1920. 화면 CSS 는 bottom 기준이라 (1−y) 로 그린다. 기본값은 채널
-// subtitle_y_margin(하단 px)의 역산 근사 — 정본은 엔진 프리셋.
-const edSubYDef = d => 1 - ((+d.subtitle_y_margin || 380) / 1920);
+// MarginV = (1−y)×1920. 화면 CSS 는 bottom 기준이라 (1−y) 로 그린다.
+// 기본값(줄 style.y 없음) — 엔진 pipeline._compute_subtitle_margin_v 미러(8/21 정합):
+// '밴드 하단에서 10px 위'. subtitle_y_margin 디자인 키는 엔진 대사 자막 경로가 읽지
+// 않는다(margin_v 동적 계산이 '항상 우선' — pipeline 주석) — 종전 380 역산은 낡은
+// 근사였다. 엔진과 동일하게 세로 중앙 가정(video_y 미반영 — 엔진도 안 본다)·밴드 폭
+// (E10) 기준 높이·짝수 보정.
+function edSubMarginV(d){
+  const g = edStageBandGeom(d);        // bhpx = 밴드 폭 기준 · 짝수 보정 완료
+  if (g.bhpx >= 1920) return 10;
+  const oy = Math.max(0, Math.floor((1920 - g.bhpx) / 2));
+  return Math.max(10, 1920 - (oy + g.bhpx) + 10);
+}
+const edSubYDef = d => 1 - edSubMarginV(d) / 1920;
 // 제목 y — 0(맨 위)이 유효값이라 || 폴백을 쓰면 안 된다(놓는 순간 120 으로 점프)
 const edTitleYv = d => (d.title_y != null && String(d.title_y) !== "" ? +d.title_y : 120);
 // ── 제목 블록 — 엔진 미러(8/21 정합) ──────────────────────────────────

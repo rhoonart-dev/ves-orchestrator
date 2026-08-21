@@ -3110,9 +3110,12 @@ def test_dashboard_editor_sub_style_wysiwyg():
     assert '"aspect_ratio",     "영상 화면비"' in html
     assert 'classList.toggle("seqfit"' in html
     # v3 계약: style.y 는 0=상단, 1=하단(자막 하단 위치) — 화면은 bottom 이라 (1−y).
-    # 기본값은 채널 subtitle_y_margin 역산. (첫 판의 '하단 비율' 해석은 상하 반전 버그)
-    assert "edSubYDef" in html
-    assert "1 - ((+d.subtitle_y_margin || 380) / 1920)" in html
+    # 기본값(줄 style.y 없음)은 엔진 _compute_subtitle_margin_v 미러(8/21 정합):
+    # '밴드 하단에서 10px 위' 동적 계산 — subtitle_y_margin 380 역산은 낡은 근사였다
+    # (엔진 대사 자막 경로는 그 키를 읽지 않는다 — margin_v 동적 계산이 '항상 우선').
+    assert "edSubYDef" in html and "function edSubMarginV" in html
+    assert "1920 - (oy + g.bhpx) + 10" in html
+    assert "(+d.subtitle_y_margin || 380)" not in html
     assert "(1 - yv) * 100" in html
     # TTS(내레이션) 자막 — 위치는 이 편 전체 공통(design.tts_y_margin, 하단 px 드래그)
     assert "edTtsDragDown" in html
