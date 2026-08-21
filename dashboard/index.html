@@ -4302,8 +4302,11 @@ function edVoiceSel(cur, canEdit, handler){
 }
 // 속도 프리셋(사용자 8/20) — 엔진 tts.SPEED_TO_RATE 와 1:1(합성 시점에 적용되는
 // edge-tts rate). cue 단위 speed 는 edit_overrides/v2 가 원계약부터 통과시킨다.
-const ED_SPEEDS = [["very_slow","아주 느리게"],["slow","느리게"],["normal","보통 속도"],
-                   ["fast","빠르게"],["very_fast","아주 빠르게"]];
+// 라벨에 실제 배율을 적는다(8/21) — fast/slow 는 ±10% 라 체감이 약해 '안 먹힌다'로
+// 보였다(실측: 8/21 전까지 normal 아닌 speed 가 제출된 적이 한 번도 없음). 확실히
+// 체감하려면 ±25% 프리셋을 쓰라는 안내를 라벨이 겸한다.
+const ED_SPEEDS = [["very_slow","아주 느리게 (-25%)"],["slow","느리게 (-10%)"],["normal","보통 속도"],
+                   ["fast","빠르게 (+10%)"],["very_fast","아주 빠르게 (+25%)"]];
 // 발화 길이 게이지용 배율 — 엔진 rate(-25%~+25%)의 근사
 const ED_SPEED_FACTOR = { very_slow: 0.75, slow: 0.9, normal: 1, fast: 1.1, very_fast: 1.25 };
 function edSpeedSel(cur, canEdit, handler){
@@ -4364,6 +4367,7 @@ function edPaneTts(canEdit){
       <input class="tm" id="edntts" placeholder="원본 시각" title="1:23:45.6 또는 초">
       <input class="tm" id="ednttd" placeholder="길이(초)" value="3.0">
       <span id="edndvsel">${edVoiceSel("ko_female", true, "")}</span>
+      <span id="edndssel">${edSpeedSel("normal", true, "")}</span>
       <input id="edntt" placeholder="새 내레이션 문구 — 그 장면 위에 얹힙니다">
       <button class="mini" onclick="edTtsAdd()">＋ 내레이션 추가</button>
     </div>` : ""}
@@ -4420,8 +4424,11 @@ const ED_STYLE_FIELDS = [
   ["title_color2",     "제목 색(2줄)",   "#FFFF00"],
   ["subtitle_size",    "자막 크기",     "예: 65"],
   ["subtitle_color",   "자막 색",       "#FFFFFF"],
-  ["subtitle_style",   "자막 스타일",   "kvar_yellow 등"],
-  ["subtitle_font",    "자막 폰트",     "여기어때 잘난체 2 TTF"],
+  // 스타일·폰트는 edPaneStyle 이 목록 select 로 그린다(엔진 실지원 성분표 =
+  // STYLE_OPTIONS·FONT_OPTIONS, 채널 모달과 공유). 폰트는 자막·TTS 자막 공통
+  // (엔진 tts_line_style 이 design.subtitle_font 를 그대로 쓴다 — pipeline.py).
+  ["subtitle_style",   "자막 스타일",   "목록에서 선택"],
+  ["subtitle_font",    "자막·TTS 폰트", "목록에서 선택"],
   // TTS(내레이션) 자막 — 엔진 tts_line_*. 세로는 하단에서 px(스테이지 드래그와 동기)
   ["tts_size",         "TTS 자막 크기",  "예: 70"],
   ["tts_color",        "TTS 자막 색",    "#87CEEB"],
@@ -4697,6 +4704,21 @@ function edPaneStyle(canEdit){
               <option value="true" ${edIsBold(cur) ? "selected" : ""}>굵게</option>
               <option value="false" ${cur !== undefined && !edIsBold(cur) ? "selected" : ""}>보통</option>
             </select></div>`;
+        // 자막 스타일·폰트 — 엔진이 실제 지원하는 목록(채널 모달과 같은 성분표)에서만
+        // 고른다. 자유 입력은 오타가 그대로 나가 libass/프리셋 선택이 **조용히** 엔진
+        // 기본으로 대체되는 함정이었다(ai-video config.py 2026-07-29 실측 머리말과 같은 계열).
+        // 목록 밖 기존 값(손 편집 채널 등)은 '직접 입력값'으로 보존 — 열었다 닫아도 안 지워진다.
+        if (k === "subtitle_style" || k === "subtitle_font"){
+          const opts = k === "subtitle_font" ? FONT_OPTIONS : STYLE_OPTIONS;
+          const baseLab = (opts.find(o => o[0] === base[k]) || [])[1] || base[k];
+          const known = !cur || opts.some(([v]) => v === cur);
+          return `<div class="edrow3"><label>${esc(l)}</label>
+            <select id="edd_${k}" ${canEdit?"":"disabled"} onchange="edStyleSet('${k}',this.value)">
+              <option value="">채널 기본 (${esc(baseLab || (k === "subtitle_font" ? "여기어때 잘난체" : "장르 자동"))})</option>
+              ${known ? "" : `<option value="${esc(cur)}" selected>${esc(cur)} (직접 입력값)</option>`}
+              ${opts.map(([v,t]) => `<option value="${esc(v)}" ${cur === v ? "selected" : ""}>${esc(t)}</option>`).join("")}
+            </select></div>`;
+        }
         return `
       <div class="edrow3"><label>${esc(l)}</label>
         <input id="edd_${k}" placeholder="${esc(base[k] != null ? "채널: " + base[k] : ph)}"
@@ -5114,12 +5136,14 @@ window.edTtsAdd = () => {
   const src = edParseTime(($("#edntts")||{}).value);
   const dur = parseFloat(($("#ednttd")||{}).value);
   const voice = (document.querySelector("#edndvsel select")||{}).value || "ko_female";
+  // 새 행도 속도를 고른다(8/21) — 종전엔 normal 하드코딩이라 추가 직후 행에서 다시 바꿔야 했다
+  const speed = (document.querySelector("#edndssel select")||{}).value || "normal";
   const text = (($("#edntt")||{}).value || "").trim();
   if (src == null){ toast("원본 시각을 적으세요 (1:23:45.6 또는 초)", true); return; }
   if (!(dur > 0)){ toast("창 길이(초)가 올바르지 않습니다", true); return; }
   if (!text){ toast("내레이션 문구를 적으세요", true); return; }
   edSnap();
-  edForm.tts.push({ src: +src.toFixed(3), dur: +dur.toFixed(3), voice, speed: "normal",
+  edForm.tts.push({ src: +src.toFixed(3), dur: +dur.toFixed(3), voice, speed,
                     text, del: false, isNew: true });
   edForm.tts.sort((a, b) => a.src - b.src);
   edTtsSel = edForm.tts.findIndex(t => Math.abs(t.src - src) < 0.0005 && t.isNew);
@@ -7556,7 +7580,7 @@ const DESIGN_FIELDS = [   // [키, 라벨, 종류] — brain channel_registry �
   ["title_bold2","제목 2줄 굵게","bool"],
   ["work_color","작품명 색","color"],    ["work_title_y","작품명 위치 Y","num"],
   ["work_font_size","작품명 크기","num"],
-  ["subtitle_font","자막 폰트","font"],  ["subtitle_size","자막 크기","num"],
+  ["subtitle_font","자막·TTS 폰트","font"],  ["subtitle_size","자막 크기","num"],
   ["subtitle_color","자막 색","color"],  ["subtitle_y_margin","자막 Y여백","num"],
   ["subtitle_style","자막 스타일","style"],
   ["tts_color","TTS 자막 색","color"],   ["tts_size","TTS 자막 크기","num"],

@@ -2807,6 +2807,35 @@ def test_dashboard_editor_kr_polish_0820():
     assert "window.edFaceTrack" in html and 'id="edface"' in html
 
 
+def test_dashboard_editor_font_style_lists_0821():
+    """사용자 요청 8/21 묶음: ① 편집실 자막 스타일·폰트(자막·TTS 자막 공통)를 엔진
+    실지원 목록 select 로 — 자유 입력 오타는 libass/프리셋 선택에서 **조용히** 엔진
+    기본으로 대체된다(ai-video config.py 2026-07-29 실측 계열). 채널 모달과 같은
+    성분표(FONT_OPTIONS·STYLE_OPTIONS)를 공유한다. ② TTS 속도 라벨에 실제 배율
+    (±10/±25%) 표기 — fast(+10%)가 미묘해 '안 먹힌다'로 보이던 기대치 교정
+    (8/21 실측: 그 전까지 normal 아닌 speed 는 제출 자체가 0건). ③ 새 내레이션
+    추가 행에도 속도 선택(종전 normal 하드코딩)."""
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    # ① 스타일 탭 select 분기 — 채널 기본 첫 옵션 + 목록 밖 기존 값 보존
+    assert 'if (k === "subtitle_style" || k === "subtitle_font"){' in html
+    assert 'const opts = k === "subtitle_font" ? FONT_OPTIONS : STYLE_OPTIONS;' in html
+    # 성분표 = 엔진 실지원 값(ai-video config.py FONT_NAME_MAP · subtitle_styles.PRESET_IDS)
+    for v in ("여기어때 잘난체 2 TTF", "여기어때 잘난체 고딕 TTF", "물마루", "그리운 경찰공평체"):
+        assert f'["{v}"' in html, v
+    for v in ("hormozi", "kvar_yellow", "drama_cine", "thriller_mono", "y2k_pink", "kakao_bubble"):
+        assert f'["{v}"' in html, v
+    # 폰트는 자막·TTS 자막 공통(엔진 tts_line_style 이 subtitle_font 를 쓴다) — 라벨에 명시
+    assert '"자막·TTS 폰트"' in html
+    # ② 속도 프리셋 라벨 배율 — 엔진 SPEED_TO_RATE(±10/±25%)와 1:1
+    assert '["fast","빠르게 (+10%)"]' in html
+    assert '["very_fast","아주 빠르게 (+25%)"]' in html
+    assert '["very_slow","아주 느리게 (-25%)"]' in html
+    # ③ 새 내레이션 추가 행 속도 선택 + 수집
+    assert 'id="edndssel"' in html
+    assert '(document.querySelector("#edndssel select")||{}).value || "normal"' in html
+
+
 def test_editor_uploads_gc_plan():
     """업로드 GC 순수 판정 — 2회 스캔 규칙: 처음 본 고아는 기록만, 유예 지나
     연속 미참조 확인된 키만 삭제, 다시 참조되면 사면."""
