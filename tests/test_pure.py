@@ -2836,6 +2836,24 @@ def test_dashboard_editor_font_style_lists_0821():
     assert '(document.querySelector("#edndssel select")||{}).value || "normal"' in html
 
 
+def test_dashboard_editor_draft_delete_0821():
+    """편집 카드 삭제(8/21 사용자 요청): 편집실 첫 화면 카드의 ✕ 는 **초안만** 지운다 —
+    0044 save_editor_draft 의 '비우면 삭제' 경로 재사용(새 서버 코드 없음). 검수
+    카드·영상은 무관. 보낸 초안(F-302 재제출 재료)을 지울 때는 경고를 한 번 더 낸다."""
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert "window.edDraftDel" in html
+    # 카드 클릭(열기)과 분리 — 삭제 버튼이 편집실을 열면 안 된다
+    assert "event.stopPropagation();edDraftDel('${esc(d.run_id)}')" in html
+    # 서버 계약: 초안 비우기 = 삭제(0044) — 별도 RPC 를 만들지 않는다
+    assert 'rpc("save_editor_draft", { p_run_id: runId, p_draft: null }' in html
+    # 보낸 초안 경고(F-302) + 즉시 목록 반영
+    assert "재렌더로 보낸 초안입니다" in html
+    assert 'state.drafts = (state.drafts || []).filter(x => x.run_id !== runId);' in html
+    # 권한: 초안 저장과 같은 reviewer 게이트
+    assert 'can("reviewer") ? `<button class="mini danger"' in html
+
+
 def test_editor_uploads_gc_plan():
     """업로드 GC 순수 판정 — 2회 스캔 규칙: 처음 본 고아는 기록만, 유예 지나
     연속 미참조 확인된 키만 삭제, 다시 참조되면 사면."""

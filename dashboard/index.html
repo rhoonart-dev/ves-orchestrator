@@ -2774,9 +2774,34 @@ function edDraftList(){
           ${d.draft_by ? " · " + esc(d.draft_by) : ""}
           ${d.draft_sent_at ? " · 재렌더로 보냄 — 실패했으면 열어서 재제출"
             : dead ? " · ⚠ 검수 카드가 닫혀 보낼 수 없습니다" : ""}</span></span>
-      <span class="sub">열기 →</span></div>`;
+      <span class="sub">열기 →</span>
+      ${can("reviewer") ? `<button class="mini danger"
+        title="이 편집 카드를 목록에서 삭제합니다 — 검수 카드·영상은 그대로, 편집실에서 고친 내용(초안)만 사라집니다(복구 불가)"
+        onclick="event.stopPropagation();edDraftDel('${esc(d.run_id)}')">✕</button>` : ""}</div>`;
   }).join("")}</div>`;
 }
+
+// 편집 카드 삭제(8/21 사용자 요청) — 초안을 지워 목록에서 뺀다. 검수 카드·영상은
+// 무관하다(초안 = 화면이 자동 저장한 편집 내용일 뿐). RPC 는 0044 save_editor_draft
+// 의 '비우면 삭제' 경로를 그대로 쓴다 — 새 서버 코드 없음. 닫힌 카드(dead)의 잔재
+// 청소가 주 용도지만, 산 카드도 같은 버튼으로 버린다(다시 열면 원본 재료로 새로 시작).
+window.edDraftDel = async runId => {
+  const d = (state.drafts || []).find(x => x.run_id === runId) || {};
+  const wo = state.wo[d.work_order_id] || {};
+  const name = (wo.work_title || runId) + (wo.episode != null ? ` ${wo.episode}회차` : "");
+  // 보낸 초안(F-302)은 재렌더 실패 시 재제출 재료다 — 지우면 그 복구 경로도 사라진다
+  const warn = d.draft_sent_at
+    ? "\n⚠ 재렌더로 보낸 초안입니다 — 렌더가 실패했을 때 재제출할 재료가 사라집니다."
+    : "";
+  if (!window.confirm(`'${name}' 편집 카드를 삭제할까요?\n` +
+    `검수 카드와 영상은 그대로 남고, 편집실에서 고친 내용만 사라집니다(복구 불가).${warn}`)) return;
+  const r = await rpc("save_editor_draft", { p_run_id: runId, p_draft: null },
+    "편집 카드 삭제됨 — 검수 카드·영상은 그대로입니다");
+  if (r){
+    state.drafts = (state.drafts || []).filter(x => x.run_id !== runId);
+    render();
+  }
+};
 
 // ───────── 일본어 편집 모드 (JP-1) — localization_qa 카드 전용 ─────────
 // 검수함 인라인 패널(0038)의 승격판: 좌측에 일본어 완성본 스테이지, 우측에 한국어
