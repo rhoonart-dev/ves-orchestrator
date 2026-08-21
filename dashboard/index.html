@@ -4602,10 +4602,19 @@ window.edTxtAdd = () => {
   edPane = "txts";
   if (edV3() && !edStyleTool) edStyleTool = true;     // 바로 끌 수 있게 ✎ 를 켠다
   render();
+  edTxtShow(edForm.texts.length - 1);                 // 넣은 순간이 화면에 보여야 끌 수 있다
   const inp = document.getElementById("edtx_" + (edForm.texts.length - 1));
   if (inp){ inp.focus(); inp.select(); }
 };
-window.edTxtPick = i => { edOutSel = { t: "txt", i }; edOutSync(); edStagePaint(edStageT); };
+// 텍스트의 표시 창 시작 순간으로 화면을 옮긴다(정지) — 창(기본 1.5초) 밖에 있으면 화면에
+// 안 그려지므로(이미지와 같은 규칙) 추가·선택 때 자동으로 그 순간을 보여준다
+function edTxtShow(i){
+  const t = (edForm.texts || [])[i]; if (!t) return;
+  const { eff } = edEffList();
+  const r = edOutPos(eff, t.src); if (!r) return;     // 고아(구간 밖) — 행의 ⚠ 가 알린다
+  edOutSeek(Math.max(0, r.p + 0.05), false);
+}
+window.edTxtPick = i => { edOutSel = { t: "txt", i }; edOutSync(); edTxtShow(i); edStagePaint(edStageT); };
 window.edTxtDel = i => { edSnap(); edForm.texts[i].del = true;
   if (edOutSel && edOutSel.t === "txt" && edOutSel.i === i) edOutSel = null; render(); };
 window.edTxtRestore = i => { edSnap(); edForm.texts[i].del = false; render(); };
@@ -6541,14 +6550,17 @@ function edStagePaint(outT){
   const xc = document.getElementById("edovtexts");
   if (xc){
     const vis = [];
+    const xsel = edOutSel && edOutSel.t === "txt" ? edOutSel.i : -1;
+    const ghost = new Set();            // 선택됐지만 지금 순간엔 안 보이는 텍스트 — 유령으로
     if (edTextsOn())
       (edForm.texts || []).forEach((t, xi) => {
         if (t.del || !String(t.text).trim()) return;
         const r = edOutPos(seqMode ? eff : eff0, t.src);
-        if (r && outT >= r.p && outT < r.p + (Number(t.dur) || 0)) vis.push([xi, t]);
+        const inWin = r && outT >= r.p && outT < r.p + (Number(t.dur) || 0);
+        if (inWin) vis.push([xi, t]);
+        else if (xi === xsel && editing){ vis.push([xi, t]); ghost.add(xi); }
       });
-    const xsel = edOutSel && edOutSel.t === "txt" ? edOutSel.i : -1;
-    const sig = vis.map(([xi, t]) => xi + ":" + t.text).join(",") + (editing ? "|e" : "") + "|" + xsel;
+    const sig = vis.map(([xi, t]) => xi + ":" + t.text + (ghost.has(xi) ? "~" : "")).join(",") + (editing ? "|e" : "") + "|" + xsel;
     if (xc.dataset.sig !== sig){
       xc.dataset.sig = sig;
       xc.innerHTML = vis.map(([xi, t]) => `
@@ -6568,6 +6580,8 @@ function edStagePaint(outT){
       el.style.fontSize = Math.max(6, (Math.round(+t.size) || 72) * sc) + "px";
       el.style.color = t.color || "#FFFFFF";
       el.style.fontFamily = fontOf(t.font) + ",system-ui,sans-serif";
+      el.style.opacity = ghost.has(xi) ? "0.35" : "";
+      if (ghost.has(xi)) el.title = `지금 순간(${edStageT.toFixed(1)}s)엔 안 보이는 텍스트 — 표시 창 밖(반투명). 끌어서 위치는 고칠 수 있습니다`;
       const b = Math.max(1, Math.round((Math.round(+t.size) || 72) * sc * 0.07));
       el.style.textShadow = t.stroke === "none" ? "none"
         : t.stroke === "white" ? `0 0 ${b}px #fff,0 0 ${b}px #fff,0 0 1px #fff`
