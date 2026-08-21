@@ -17,7 +17,7 @@ ves/scheduler/   main(advisory lock) · planner(09:00, 지오블락 스탬프★
 ves/adapters/    aivideo(재개★⑦) · brain(ingest/evaluate/publish) · acquire · upload_artifacts · localize
 ves/storage/     Supabase Storage (서명 URL·다운로드)
 ves/control/     migrations/0006(스키마) · 0006_seed · 0007(RLS·RPC — 대시보드 규칙 전부 여기)
-deploy/          bootstrap.sh · launchd plist · secrets.env.example
+deploy/          bootstrap.sh · launchd plist · secrets.env.example · fetch_node_keys.sh(노드 키 확인·회수)
 dashboard/       Phase 2 — S3 정적 SPA (스텁만, RPC 는 0007 에 이미 있음)
 ```
 

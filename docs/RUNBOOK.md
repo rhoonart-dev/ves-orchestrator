@@ -68,3 +68,24 @@ generate(TTL 300s)는 최대 ~75초 안에 멈춘다.
   ~$60/월) 추가 상향 검토. 컴퓨트 변경은 수 분 재시작 수반 — 사용자 확인 후 실행.
 - 보조: PostgREST 풀은 Management API `PATCH /v1/projects/{ref}/postgrest` 의 `db_pool`
   로 축소 가능하나 REST 동시성 저하 트레이드오프. storage_admin 풀은 사용자 설정 불가.
+
+## 9. 노드에 지금 어떤 키가 들어 있나 (확인·회수)
+
+시크릿 정본은 sops/age 지만 **실제로 돌고 있는 값은 노드의 env 파일**이다(ARCHITECTURE §5).
+"넣었는데 왜 안 되지" 계열(08-17 발행 토큰 · 08-18 쿠키)은 대부분 정본과 노드가 어긋난 것이라
+노드 쪽을 먼저 본다. 현지화·LOOPY 발행은 mm-06 전담이라 기본 대상도 mm-06 이다.
+
+```bash
+bash deploy/fetch_node_keys.sh                        # mm-06 키 목록 — 값은 마스킹(빈 값 표시)
+bash deploy/fetch_node_keys.sh --files all            # rclone.conf · vlp refresh_token JSON 까지
+bash deploy/fetch_node_keys.sh --key YT_REFRESH_TOKEN_LOOPY   # 값 1개만 (출처 파일도 알려줌)
+bash deploy/fetch_node_keys.sh --out ~/mm-06.env      # 평문 저장(600) — 다 쓰면 rm -P
+bash deploy/fetch_node_keys.sh --node mm-02           # 다른 노드 (mm-01~mm-06 · --host 로 직접 지정도 가능)
+```
+
+- 가져오는 것: `/etc/ves/node.env` · `secrets/ves.env` · 엔진별 `.env`(brain·ai-video·vlp),
+  `--files all` 이면 `secrets/rclone.conf` 와 vlp 의 refresh_token JSON 까지.
+- 값은 ssh 파이프로만 흐른다 — argv·원격 임시파일·셸 히스토리에 안 남는다. 기본 출력은 마스킹이라
+  화면 공유 중에도 안전하고, 평문은 `--reveal`/`--out`/`--key` 로 **명시할 때만** 나온다.
+- 노드 간 차이를 볼 땐 `--out` 으로 두 대를 받아 `diff`. 정본과 다르면 고치는 쪽은 정본이 먼저다
+  (노드만 고치면 다음 배포 때 되돌아간다 — apply_loopy_token.sh 의 교훈).
