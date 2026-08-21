@@ -3463,6 +3463,61 @@ def test_dashboard_subs_cleared_notice():
     assert "대사 자막 없이</b> 렌더됩니다" in html
 
 
+def test_dashboard_elevenlabs_voice_picker():
+    """편집실 내레이션 목소리에 일레븐랩스 계열을 연다(E12) — 값이 곧 계약이다.
+
+    ① 기존 프리셋(ko_*)은 한 글자도 안 바뀐다 ② 새 어휘는 'elevenlabs:<voice_id>'
+    ③ 낯선 프리셋(chat_* — 엔진 어휘, 이 저장소에 목록이 없다) 보존은 유지돼야 한다:
+    편집실을 한 번 거쳤다고 사람이 안 고른 목소리로 바뀌면 안 된다."""
+    import pathlib, re
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert 'const ED_EL_PREFIX = "elevenlabs:"' in html
+    assert "ED_EL_VOICES" in html and "edVoiceGroups" in html
+    assert "editor_tts_elevenlabs" in html and "edElVoicesOn" in html
+    # 기존 프리셋 넷은 그대로
+    for v in ("ko_female", "ko_female_high", "ko_male", "ko_male_low"):
+        assert f'["{v}"' in html
+    # 낯선 값 보존 — 그룹 밖 맨 위 option
+    assert 'known ? "" : `<option value="${esc(cur)}" selected>' in html
+    # 게이트가 꺼져 있어도 이미 실린 일레븐랩스 목소리는 목록에 남는다(플래그는 롤백이 아님)
+    assert "edElVoicesOn() || String(cur || \"\").startsWith(ED_EL_PREFIX)" in html
+    # 목록은 실제로 채워져 있어야 한다 — 빈 배열이면 게이트를 켜도 고를 게 없다
+    m = re.search(r"const ED_EL_VOICES_DEFAULT = \[(.*?)\n\];", html, re.S)
+    assert m, "ED_EL_VOICES_DEFAULT 배열을 찾지 못했다"
+    ids = re.findall(r'"elevenlabs:([A-Za-z0-9]+)"', m.group(1))
+    assert len(ids) >= 15, f"목소리가 너무 적다({len(ids)}개) — '더 다양하게'가 요청이었다"
+    assert len(set(ids)) == len(ids), "voice_id 중복"
+    for vid in ids:
+        assert 16 <= len(vid) <= 32, f"voice_id 형태가 RPC 검증(영숫자 16~32자)과 어긋난다: {vid}"
+    # ElevenLabs 가 완전 폐기(legacy)한 목소리는 넣지 않는다 — 붙긴 하는데 조용히
+    # 다른 목소리로 갈아치워진다(2026-08 조사). 정상 동작처럼 보여 더 나쁘다.
+    LEGACY = {"21m00Tcm4TlvDq8ikWAM", "AZnzlk1XvdvUeBnXmlld", "MF3mGyEYCl7XYWbV9V6O",
+              "TxGEqnHWrfWFTfGW9XjX", "VR6AewLTigWG4xSOukaG", "pNInz6obpgDQGcFmaJgB",
+              "yoZ06aMxZJJ28mfd3POQ", "ErXwobaYiN019PkySvjV"}
+    assert not (set(ids) & LEGACY), f"폐기된 legacy 목소리: {sorted(set(ids) & LEGACY)}"
+    # 계정 자산은 코드에 박지 않는다 — 운영자 목록(ops_config)이 기본 목록을 이긴다
+    assert "editor_tts_voices" in html and "function edElVoices()" in html
+    # 영어권 목소리라는 사실을 화면이 말해야 한다 — 한국어에 억양이 배어난다
+    assert "영어권 기본 목소리" in html
+
+
+def test_0073_tts_voice_vocab_and_subs_contract():
+    """0073 — 새 어휘만 형태를 못박고, 엔진 어휘의 관용은 유지한다."""
+    sql = _live_mig("CREATE OR REPLACE FUNCTION public.submit_editor_render")
+    assert "0073" in sql, "submit_editor_render 의 라이브 정의가 0073 이상이어야 한다"
+    # 새 어휘: elevenlabs:<voice_id> 형태 검증
+    assert "elevenlabs:%" in sql and "^[A-Za-z0-9]{16,32}$" in sql
+    # 모르는 프리셋(chat_* 등)을 거절하는 화이트리스트는 없어야 한다 — 이 저장소에
+    # 엔진 프리셋의 정본 목록이 없다. 주석은 빼고 **실행되는 SQL**만 본다.
+    code = "\n".join(l for l in sql.splitlines() if not l.lstrip().startswith("--"))
+    assert "ko_female" not in code
+    # 자막 빈 배열 = 전부 삭제 계약 (images·texts 처럼 걷어내면 안 된다)
+    assert "빈 배열 = 대사 자막 전부 삭제" in sql
+    assert "v_ov := v_ov - 'subtitles'" not in sql
+    # 게이트는 off 로 시작
+    assert "'editor_tts_elevenlabs', 'off'" in sql
+
+
 def test_0045_cache_requires_editing_video():
     """캐시는 '있다/없다'가 아니라 '지금 화면이 요구하는 것을 갖췄는가'로 판정한다.
 

@@ -4432,12 +4432,83 @@ function edPaneSubs(canEdit){
 // 절대초(신원 겸용) — 구간을 고쳐도 안 흔들리므로 자막처럼 잠그지 않는다.
 const ED_VOICES = [["ko_female","기본 여성"],["ko_female_high","밝은 여성"],
                    ["ko_male","기본 남성"],["ko_male_low","낮은 남성"]];
+// 일레븐랩스 목소리(E12, 사용자 요청 2026-08-21) — 값이 곧 계약이다:
+// 'elevenlabs:<voice_id>'. 엔진은 접두사로 갈라 ElevenLabs 로 합성하고, 사람이 읽는
+// 이름표는 여기(화면)만 든다 — 목록을 두 곳에 두면 반드시 어긋난다(E12-2).
+// voice_id 는 ElevenLabs 기본(premade) 목소리 정본. 다국어 모델이 한국어를 말하므로
+// 이름이 영어라도 한국어 내레이션에 쓴다 — 라벨은 그래서 '누구'가 아니라 '어떤 소리'다.
+// 계정 라이브러리에 담은 목소리를 더 넣으려면 이 배열에 한 줄 추가하면 된다(엔진 무관).
+const ED_EL_PREFIX = "elevenlabs:";
+// 기본 목록 = ElevenLabs 'premade'(기본) 목소리 20종. 두 가지를 알고 써야 한다:
+//   ⓐ 전부 영어권 목소리다 — 다국어 모델이 한국어를 말하긴 하지만 영어 억양이 배어난다.
+//      네이티브 한국어 목소리는 ElevenLabs '보이스 라이브러리'(계정마다 다름)에 있고,
+//      그걸 쓰려면 아래 ops_config 목록으로 갈아끼운다.
+//   ⓑ ElevenLabs 공지상 기본 목소리는 2026-12-31 만료 예정이고, 2026-03 이후에 만든
+//      계정에는 애초에 없다. 그래서 이 배열은 **바닥값**일 뿐 정본이 아니다.
+// 정본 통로: ops_config 'editor_tts_voices' = [{"id":"<voice_id>","label":"..."}, ...]
+// (더빙 경로의 ops_config.localize_voices 와 같은 규율 — 계정 자산은 코드에 안 박는다).
+const ED_EL_VOICES_DEFAULT = [
+  // — 내레이션(ElevenLabs use_case: narration)
+  ["elevenlabs:JBFqnCBsd6RMkjVDRZzb", "내레이션 · 남 · 따뜻함 (George, 영국)"],
+  ["elevenlabs:pFZP5JQG7iQjIQuC4Bku", "내레이션 · 여 · 따뜻함 (Lily, 영국)"],
+  ["elevenlabs:XrExE9yKIg1WjnnlVkGX", "내레이션 · 여 · 친근함 (Matilda, 미국)"],
+  ["elevenlabs:nPczCjzI2devNBz1zQrb", "내레이션 · 남 · 낮고 굵음 (Brian, 미국)"],
+  ["elevenlabs:TX3LPaxmHKxFdv7VOQHJ", "내레이션 · 남 · 또렷함·젊음 (Liam, 미국)"],
+  ["elevenlabs:pqHfZKP75CvOlQylNhV4", "내레이션 · 남 · 중후함 (Bill, 미국)"],
+  // — 뉴스·전달
+  ["elevenlabs:EXAVITQu4vr4xnSDxMaL", "뉴스 · 여 · 부드러움 (Sarah, 미국)"],
+  ["elevenlabs:Xb7hH8MSUJpSbSDYk0k2", "뉴스 · 여 · 단단함 (Alice, 영국)"],
+  ["elevenlabs:onwK4e9ZLuTAKqWW03F9", "뉴스 · 남 · 권위 (Daniel, 영국)"],
+  // — 대화체
+  ["elevenlabs:cgSgspJ2msm6clMCkdW9", "대화체 · 여 · 표현 풍부 (Jessica, 미국)"],
+  ["elevenlabs:cjVigY5qzO86Huf0OWal", "대화체 · 남 · 친근함 (Eric, 미국)"],
+  ["elevenlabs:iP95p4xoKVk53GoZ742B", "대화체 · 남 · 편안함 (Chris, 미국)"],
+  ["elevenlabs:IKne3meq5aSn9XLyUdCD", "대화체 · 남 · 자연스러움 (Charlie, 호주)"],
+  // — 쇼츠·SNS 톤
+  ["elevenlabs:9BWtsMINqrJLrRacOk9x", "쇼츠 · 여 · 표현 풍부 (Aria, 미국)"],
+  ["elevenlabs:FGY2WhTYpPnrIDTdsKH5", "쇼츠 · 여 · 밝고 빠름 (Laura, 미국)"],
+  ["elevenlabs:CwhRBWXzGAHq8TQ4Fs17", "쇼츠 · 남 · 자신감 (Roger, 미국)"],
+  ["elevenlabs:bIHbv24MWmeRgasZH58o", "쇼츠 · 남 · 친근함·젊음 (Will, 미국)"],
+  ["elevenlabs:SAz9YHcvj6GT2YYXdXww", "쇼츠 · 중성 · 담백함 (River, 미국)"],
+  // — 캐릭터
+  ["elevenlabs:N2lVS1w4EtoT3dr4eOWO", "캐릭터 · 남 · 강렬함 (Callum)"],
+  ["elevenlabs:XB0fDUnXU5powFXDhCwa", "캐릭터 · 여 · 나른함 (Charlotte, 스웨덴)"],
+];
+// 운영자 목록이 있으면 그것이 이긴다(위 ⓐⓑ). 깨진 JSON·이상한 항목 하나가 목소리
+// 선택을 통째로 못 쓰게 만들면 안 된다 — 조용히 기본 목록으로 떨어진다(표시 계층이라
+// fail-loud 대상이 아니다. 값 자체의 형태는 RPC 0073 이 제출 시점에 거른다).
+function edElVoices(){
+  try {
+    const rows = JSON.parse(((state.ops||{}).editor_tts_voices||{}).value || "null");
+    if (Array.isArray(rows) && rows.length){
+      const ok = rows.filter(r => r && /^[A-Za-z0-9]{16,32}$/.test(String(r.id || "")))
+                     .map(r => [ED_EL_PREFIX + r.id, String(r.label || r.id)]);
+      if (ok.length) return ok;
+    }
+  } catch (e) { /* 기본 목록으로 */ }
+  return ED_EL_VOICES_DEFAULT;
+}
+// 게이트(0073) — 엔진 E12 합성 경로 전 노드 배포 확인 후 운영자가 on.
+// 끄는 것은 **새 선택**을 막을 뿐이다: 이미 그 목소리가 실린 줄은 현재값으로 보존돼
+// 계속 나간다(editor_v3·editor_texts 와 같은 규율 — 플래그는 롤백이 아니다).
+const edElVoicesOn = () => (((state.ops||{}).editor_tts_elevenlabs||{}).value === "on");
+function edVoiceGroups(cur){
+  const g = [["기본 (edge-tts)", ED_VOICES]];
+  if (edElVoicesOn() || String(cur || "").startsWith(ED_EL_PREFIX))
+    g.push(["일레븐랩스 (재렌더 때 합성)", edElVoices()]);
+  return g;
+}
 function edVoiceSel(cur, canEdit, handler){
-  const opts = ED_VOICES.some(([v]) => v === cur)
-    ? ED_VOICES : [[cur, cur], ...ED_VOICES];       // 낯선 프리셋(chat_*)은 현재값 보존
+  const groups = edVoiceGroups(cur);
+  // 낯선 프리셋(chat_* 등 엔진 어휘)은 현재값 보존 — 편집실을 한 번 거쳤다고 사람이
+  // 안 고른 목소리로 바뀌면 안 된다. 그룹 밖 맨 위에 그대로 둔다.
+  const known = groups.some(([, vs]) => vs.some(([v]) => v === cur));
   return `<select ${canEdit?"":"disabled"} onchange="${handler}"
-    onclick="event.stopPropagation()">${opts.map(([v,l]) =>
-    `<option value="${esc(v)}" ${v===cur?"selected":""}>${esc(l)}</option>`).join("")}</select>`;
+    onclick="event.stopPropagation()">${
+    known ? "" : `<option value="${esc(cur)}" selected>${esc(cur)}</option>`}${
+    groups.map(([lab, vs]) => `<optgroup label="${esc(lab)}">${vs.map(([v,l]) =>
+      `<option value="${esc(v)}" ${v===cur?"selected":""}>${esc(l)}</option>`).join("")}</optgroup>`
+    ).join("")}</select>`;
 }
 // 속도 프리셋(사용자 8/20) — 엔진 tts.SPEED_TO_RATE 와 1:1(합성 시점에 적용되는
 // edge-tts rate). cue 단위 speed 는 edit_overrides/v2 가 원계약부터 통과시킨다.
@@ -4508,7 +4579,11 @@ function edPaneTts(canEdit){
     </div>` : ""}
     <div class="sub" style="margin-top:6px">시각은 <b>원본</b> 기준 — 구간을 옮겨도 내레이션은
       그 장면을 따라갑니다 · 고쳐 보내면 <b>음성을 새로 합성</b>합니다(재렌더 몇 분) ·
-      비우면 그 줄이 빠집니다</div>`;
+      비우면 그 줄이 빠집니다</div>
+    ${edElVoicesOn() ? `<div class="sub" style="margin-top:4px">일레븐랩스 목소리는
+      <b>영어권 기본 목소리</b>라 한국어를 말할 때 억양이 배어날 수 있습니다 — 한 줄로 먼저
+      들어보고 정하세요. 한국어 네이티브 목소리는 일레븐랩스 보이스 라이브러리에서 계정에
+      담은 뒤 <code>ops_config.editor_tts_voices</code> 에 넣으면 이 목록에 뜹니다.</div>` : ""}`;
 }
 
 // ── 우측 패널: 이미지 (F-408) ─────────────────────────────────────────
@@ -8033,7 +8108,7 @@ const DESIGN_DEFAULTS = {
 // render)로는 다시 뜨지 않는다 — 고른 값은 **다음 생성부터** 적용된다.
 const chTranscribeOn = () => (((state.ops||{}).channel_transcribe||{}).value === "on");
 const TRANSCRIBE_OPTIONS = [
-  ["", "기본 (엔진 내장 전사 — 로컬 Whisper 계열)"],
+  ["", "기본 (엔진 내장 전사 — 지금까지 쓰던 것)"],
   ["elevenlabs", "일레븐랩스 Scribe (외부 API — 한국어 정확도↑, 유료·초 단위 과금)"],
 ];
 const DESIGN_GROUPS = [

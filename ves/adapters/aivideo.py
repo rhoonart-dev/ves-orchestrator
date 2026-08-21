@@ -71,7 +71,7 @@ CHANNEL_DESIGN_FLAGS = {
     # 템플릿(channels.json)에 넣으려면 brain CHANNEL_DESIGN_FLAGS 미러 선행(1:1 규율).
     "video_width": "--design-video-width",
     # 자막 전사 백엔드(E11, 사용자 요청 2026-08-21) — 대사 자막을 무엇으로 받아쓰는가.
-    # 'default'(엔진 기본 = 로컬 Whisper 계열) | 'elevenlabs'(Scribe STT). 값 검증은
+    # 'default'(엔진 내장 전사 = 지금까지 쓰던 것) | 'elevenlabs'(Scribe STT). 값 검증은
     # _transcribe_value — 오타가 조용히 기본값으로 발행되면 안 된다(registry 원칙).
     # 채널 단위(다음 생성부터)다: 전사는 chunk_transcribe 단계라 편집실 재렌더
     # (from_step=resources|render)로는 다시 뜨지 않는다.
