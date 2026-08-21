@@ -2288,8 +2288,10 @@ def test_0043_submit_editor_render_contract():
     assert "has_role(auth.uid(),'reviewer')" in sql
     # 대상 카드 — 일본어(localization_qa)는 0038 담당이라 여기서 받으면 안 된다.
     # 0050: rejected 는 재제출 경로(F-302) — 가드(새 waiting 카드 없음 + 보낸 초안)가 있어야 한다.
-    # kind 핀은 계속 필수 — 흘리면 localization_qa(0038 담당)까지 받는다.
-    assert "rq.kind = 'publish_gate'" in sql
+    # kind 핀(0066 개정): publish_gate + 작업지시 있는 localization_qa(SHOTCONE) —
+    # 작업지시 없는 카드(LOOPY)는 여전히 거절(0038 담당 유지).
+    assert "rq.kind IN ('publish_gate','localization_qa')" in sql
+    assert "작업지시 없는 카드는 편집실 대상이 아닙니다" in sql
     assert "rq.status IN ('waiting','rejected')" in sql
     assert "이미 새 검수 카드가 있습니다" in sql
     assert "보낸 초안이 없습니다" in sql
@@ -2333,7 +2335,8 @@ def test_dashboard_editor_edit_ui_wired():
     # 권한·카드 게이트가 화면에도 있어야 한다(서버가 최종 방어선이지만 버튼부터 안 보이게)
     # 0050(F-302)부터 edCanEdit 이 waiting + '재제출 가능한 rejected' 를 받는다 —
     # reviewer·publish_gate 핀과 waiting 허용은 계속 필수
-    assert 'if (!can("reviewer") || r.kind !== "publish_gate") return false;' in html
+    # 0066 개정: publish_gate + 작업지시 있는 localization_qa(SHOTCONE) — 판정은 edKindOk 한 곳
+    assert 'if (!can("reviewer") || !edKindOk(r)) return false;' in html
     assert 'if (r.status === "waiting") return true;' in html
     # draft 분리 — 화면이 다시 그려져도 고치던 문장이 살아남는다
     assert "dTitle" in html and "dSubs" in html
@@ -2676,7 +2679,8 @@ def test_dashboard_editor_v3b_tracks():
     내레이션·이미지는 출력→원본 절대초 역산(edSrcAtOut — 출력은 간극 없는 결합)."""
     import pathlib
     html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
-    assert 'class="edlane v"' in html and 'class="edlane s"' in html   # 4레인
+    # 4레인 — 겹침 행 스택(8/20)부터 요소 레인 클래스는 템플릿 변수(cls)로 조립된다
+    assert 'class="edlane v"' in html and 'const lane = (cls, lb, top, R, E)' in html
     assert "edOutElDown" in html and "edOutElApply" in html            # 이동·트리밍
     assert "edSrcAtOut" in html                                        # 출력→원본 역산
     assert "edSubOutPos" in html                                       # 자막 출력좌표 단일 규약
@@ -2707,10 +2711,11 @@ def test_dashboard_editor_jp3_parity():
     html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
     # 같은 카드 재진입 = 안 보낸 편집 보존(무조건 리셋이 편집을 증발시키던 것)
     assert "if (!edJpForm || edJpForm.rid !== rid){" in html
-    # 타임라인: 자막·텔롭은 편집, 내레이션은 표시 전용(ro)
-    assert 'lane(f.subs, "sub", "osub", "s", "자막", true)' in html
-    assert 'lane(f.tts, "tts", "ocue", "n", "내레이션", false)' in html
-    assert 'lane(f.telops, "tel", "otel", "i", "텔롭", true)' in html
+    # 타임라인: 자막·텔롭은 편집, 내레이션은 표시 전용(ro) — 겹침 행 스택(8/20)으로
+    # 레인 좌표는 인라인, 위치 클래스(s/n/i) 대신 순서가 정한다
+    assert 'lane(f.subs, "sub", "osub", "자막", true)' in html
+    assert 'lane(f.tts, "tts", "ocue", "내레이션", false)' in html
+    assert 'lane(f.telops, "tel", "otel", "텔롭", true)' in html
     assert "edJpTlDown" in html and "edJpInspFlush();" in html
     # tts 타이밍은 폼에 startCur/endCur 자체가 없고(계약 안전장치), 수집도 끈다
     assert "rich(f.tts, false, false, false)" in html
@@ -2784,9 +2789,10 @@ def test_dashboard_editor_kr_polish_0820():
     import pathlib
     html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
     assert "<h1 onclick=\"tab='home';render()\" title=\"홈으로\">VES 모니터링</h1>" in html
-    # '원래대로' — 크기·색에 더해 위치 키까지(제목 고정 배치 해제는 edTitleAutoY 규약)
-    assert '["title_size", "title_color", "title_y"]' in html
-    assert '["tts_size", "tts_color", "tts_y_margin"]' in html
+    # '원래대로' — 크기·색에 더해 위치 키까지(제목 고정 배치 해제는 edTitleAutoY 규약).
+    # 8/20 2차부터 회전(E7)도 같은 묶음.
+    assert '["title_size", "title_color", "title_y", "title_rotate"]' in html
+    assert '["tts_size", "tts_color", "tts_y_margin", "tts_rotate"]' in html
     # TTS 속도 — 행 셀렉트·수집·초안 왕복·게이지 반영·구본(stale) 판정
     assert "const ED_SPEEDS" in html and "edSpeedSel" in html and "window.edTtsSpeed" in html
     assert 'voice: t.voice, speed: t.speed || "normal",' in html
@@ -3456,3 +3462,67 @@ def test_drive_watch_use_limit_from_work_card():
         assert use_limit_of({"X": {"use_limit": bad}}, "X") == DEFAULT_USE_LIMIT
     assert use_limit_of({"X": {"use_limit": "10"}}, "X") == 10   # JSON 문자열도 받아준다
     assert use_limit_of(None, "가왕쇼") == DEFAULT_USE_LIMIT     # 카드 로드 실패
+
+
+def test_dashboard_editor_0820_round2():
+    """8/20 2차: E7 배선(제목·TTS 회전 + 영상 배속) · 구간 분할 ✂(명세) ·
+    자막 다중/전체 선택 삭제(KR·JP) · 완성본 타임라인 겹침 행 스택."""
+    import pathlib
+
+    from ves.adapters.aivideo import CHANNEL_DESIGN_FLAGS
+    # E7 어댑터 — 엔진(ai-video 2a087eb) CLI 플래그와 1:1
+    assert CHANNEL_DESIGN_FLAGS["title_rotate"] == "--design-title-rotate"
+    assert CHANNEL_DESIGN_FLAGS["tts_rotate"] == "--design-tts-rotate"
+    assert CHANNEL_DESIGN_FLAGS["video_speed"] == "--design-video-speed"
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    # E7 게이트 + H2 이중 안전(플래그 전 신 키 미전송 — 구 어댑터 즉사 방지)
+    assert "edE7On" in html and "editor_e7" in html
+    assert "if (!edE7On()) ED_E7_KEYS.forEach(k => delete ov.design[k]);" in html
+    # 배속: 표시·상한·상한선·미리보기 재생 속도가 전부 같은 값(edSpeed)을 본다
+    assert "const lim = 59.7 * edSpeed()" in html
+    assert "total / edSpeed() > ED_MAX_TOTAL_SEC" in html
+    assert "v.defaultPlaybackRate = edSpeed(); v.playbackRate = edSpeed();" in html
+    # 회전: ✎ ↺↻ 가 제목·TTS 로 확장(디자인 키), 미리보기 transform, '원래대로' 복원 묶음
+    assert '"title_rotate", "tts_rotate", "video_speed"' in html      # ED_E7_KEYS 성분표
+    assert "+d.title_rotate" in html and "+d.tts_rotate" in html
+    assert '"title_size", "title_color", "title_y", "title_rotate"' in html
+    # 구간 분할(첨부 명세): 승계 splice·최소 조각 0.5s·24fps 스냅·S 단축키·✂ 활성 동기
+    assert "edForm.clips.splice(i + 1, 0, { ...c, start: t });" in html
+    assert "const ED_SPLIT_MIN = 0.5;" in html
+    assert "const t = edQF(edCursor);" in html
+    assert 'e.code === "KeyS"' in html and "edSplitBtnSync" in html
+    # 자막 다중 선택 삭제 — KR·JP 모두, 스냅샷 1회(Cmd+Z 한 번에 전부 복원)
+    assert "window.edSubCkDel" in html and "window.edJpCkDel" in html
+    assert "edSubCk = new Set();" in html and "edJpCk = new Set();" in html
+    # 겹침 행 스택 — 행 배정 함수 하나를 KR 3레인·JP 3레인이 공용
+    assert "function edLaneRows(items)" in html
+    assert html.count("edLaneRows(") >= 5
+
+
+def test_0066_editor_jp_full_chain():
+    """SHOTCONE 카드에 KR 편집실 전체 개방(사용자 8/20: 'ai-video 에서 편집하고
+    현지화가 재번역·재렌더') — submit_editor_render 가 localization_qa(작업지시
+    있는 카드)를 받고, JP 작업지시면 체인 꼬리에 localize(scene_rerender)를 단다."""
+    import pathlib
+    sql = _live_mig("CREATE OR REPLACE FUNCTION public.submit_editor_render")
+    # ① 카드 수용 — LOOPY(작업지시 없음)는 종전 메시지로 거절
+    assert "rq.kind IN ('publish_gate','localization_qa')" in sql
+    assert "작업지시 없는 카드는 편집실 대상이 아닙니다" in sql
+    # ③ JP 꼬리 — planner 정상 체인과 같은 mode·캡·노드 핀, 멱등키 ':loc'
+    assert "'shorts_jp_localized'" in sql and "v_jp" in sql
+    assert "'editrender:' || p_review_id || ':loc'" in sql
+    assert "jsonb_build_object('mode', 'scene_rerender'" in sql
+    # ② 재제출 가드 — 새 카드 판정은 같은 kind
+    assert "w.kind = v_rq.kind AND w.status = 'waiting'" in sql
+    # 어댑터: JP 는 brain 이 조기 반환이라 초안 청소(F-302)는 localize 가 맡는다
+    src = pathlib.Path("ves/adapters/localize.py").read_text(encoding="utf-8")
+    assert "SET draft=NULL, draft_at=NULL, draft_by=NULL, draft_sent_at=NULL" in src
+    # 대시보드: KR 편집실 개방(kr 파라미터)·양방향 전환·체인 폴 kind 인식
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert "window.openEditor = async (rid, kr)" in html
+    assert "edJpMode = kr ? null : edJpKind(r0);" in html
+    assert "🎬 원본(한국어) 편집실" in html and "일본어 편집으로" in html
+    assert "const edKindOk = r =>" in html
+    assert 'edChain.jp ? jobs.localize : jobs.evaluate' in html
+    assert '"localization_qa" : "publish_gate"' in html
+    assert '[["localize", "재번역"]]' in html                  # 체인 스트립 칩

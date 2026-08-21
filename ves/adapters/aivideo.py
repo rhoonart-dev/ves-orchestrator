@@ -52,6 +52,12 @@ CHANNEL_DESIGN_FLAGS = {
     "tts_color": "--design-tts-color",
     "tts_size": "--design-tts-size",
     "tts_y_margin": "--design-tts-y-margin",
+    # E7(ai-video 2a087eb): 디자인 레벨 회전·배속 — 지금은 편집실(edit_overrides.design)
+    # 경로 전용. 채널 템플릿(channels.json)에 넣으려면 brain CHANNEL_DESIGN_FLAGS 미러
+    # 선행(1:1 규율). 범위 검증(회전 -180~180 · 배속 0.8~2.0, 밖이면 즉시 실패)은 엔진 CLI.
+    "title_rotate": "--design-title-rotate",
+    "tts_rotate": "--design-tts-rotate",
+    "video_speed": "--design-video-speed",
     "work_title_y": "--design-work-title-y",    # 작품명(하단) Y
     "work_font_size": "--design-work-font-size",
     "work_color": "--design-work-color",        # 작품명 색

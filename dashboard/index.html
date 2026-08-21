@@ -224,6 +224,8 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .edsub input.x:focus{border-color:var(--line);background:var(--surface);outline:none}
   .edsub input.x.dirty{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 12%,transparent)}
   .edsub input.x.empty{text-decoration:line-through;opacity:.5}
+  /* 다중 선택(8/20) — 행 맨 앞 체크박스. KR·JP 공용 */
+  .edsub input.ck{flex:none;width:14px;height:14px;margin-top:3px;cursor:pointer}
   #edtitle{width:100%;font:inherit;font-size:14px;line-height:1.5;padding:6px 8px;
            border:1px solid var(--line);border-radius:8px;background:var(--surface);
            color:var(--ink);resize:vertical}
@@ -275,6 +277,8 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .edrow3 label{flex:0 0 96px;color:var(--muted)}
   .edrow3 input{flex:1;font:inherit;font-size:12px;padding:3px 6px;border:1px solid var(--line);
                 border-radius:5px;background:var(--surface);color:var(--ink)}
+  /* E7 범위 밖 입력 — 엔진이 거절할 값은 폼에 안 싣고 테두리로만 알린다(edStyleSet) */
+  .edrow3 input.bad{border-color:#dc2626;background:color-mix(in srgb,#dc2626 10%,transparent)}
   .edaddrow{display:flex;gap:5px;margin-top:6px;align-items:center}
   .edaddrow input{font:inherit;font-size:12px;padding:3px 6px;border:1px solid var(--line);
                   border-radius:5px;background:var(--surface);color:var(--ink)}
@@ -348,7 +352,9 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   /* 출력 타임라인(F-105) — 완성본 순서. 원본 트랙과 달리 줌 없음(≤60초) */
   /* V3-b 멀티트랙: V(구간) 위에 S(자막)·N(내레이션)·I(이미지) 레인 — 요소 블록을
      끌면 이동, 양끝 핸들로 트리밍. 높이 = 44(V) + 16×3 + 여백 */
-  .edouttl{position:relative;height:100px;margin-top:3px;border:1px solid var(--line);
+  /* 높이는 내용이 정한다(겹침 줄 나누기 8/20 — 겹치는 블록은 레인 안에서 행으로 쌓인다).
+     레인·행 좌표는 edOutHtml/edJpTlHtml 이 인라인으로 준다 — 아래 top 들은 폴백 */
+  .edouttl{position:relative;min-height:100px;margin-top:3px;border:1px solid var(--line);
            border-radius:8px;background:var(--surface-2);overflow:hidden}
   .edlane{position:absolute;left:0;right:0}
   .edlane.v{top:2px;height:40px}
@@ -371,7 +377,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   /* JP 타임라인(JP-3a) — KR 레인 부품 재사용, 텔롭 = 보라 · 읽기전용(내레이션) 반투명 */
   .edoel.otel{background:#c4b5fd}
   .edoel.ro{cursor:default;opacity:.5}
-  .edouttl.jp{height:62px}
+  .edouttl.jp{min-height:62px;height:auto}
   .edouttl.jp .edlane.s{top:3px}
   .edouttl.jp .edlane.n{top:23px}
   .edouttl.jp .edlane.i{top:43px}
@@ -1969,6 +1975,7 @@ let edJpMode = null, edJpForm = null, edJpChain = null, edJpTimer = null;
 let edJpPane = "subs";   // KR 편집실과 같은 탭 구성 — 자막·대사 | 제목 | 내레이션 | 텔롭
 
 function edResetForm(){
+  edSubCk = new Set();          // 다중 선택은 카드 단위 — 다른 카드로 새면 오삭제
   const tl = (edData && edData.timeline) || {};
   const subs = (tl.subtitles || []).map(s => ({
     start: Number(s.edited_start) || 0, end: Number(s.edited_end) || 0,
@@ -2105,6 +2112,16 @@ const edImagesOn = () => (((state.ops||{}).editor_images||{}).value === "on");
 // 플래그는 롤백이 아니다(editor_v3 와 동일): 이미 회전이 실린 카드의 재제출·서버
 // 승계는 계속 rotate 를 흘린다 — 끄는 것은 새 회전 편집을 막을 뿐이다.
 const edRotOn = () => (((state.ops||{}).editor_rotate||{}).value === "on");
+// E7(ai-video 2a087eb) — 제목·TTS 회전 + 영상 배속. 어댑터(신 키)·엔진 전 노드 배포
+// 확인 후 ops_config editor_e7=on 으로 개방(구 어댑터는 모르는 design 키에 즉시 실패).
+const edE7On = () => (((state.ops||{}).editor_e7||{}).value === "on");
+// 유효 배속 — 완성본 길이 표시·쇼츠 상한·가상 미리보기 재생 속도가 같은 값을 쓴다.
+// 범위 밖·비숫자는 1(엔진 검증과 동일 범위 — edStyleSet 이 입력 단계에서 거른다).
+function edSpeed(){
+  if (!edE7On()) return 1;
+  const s = +edDesign().video_speed;
+  return isFinite(s) && s >= 0.8 && s <= 2.0 ? s : 1;
+}
 // 일본어 자막 스타일·타이밍(JP-2, E5=vlp 72d4cd5) — 구 엔진은 오버라이드 dict 의
 // ja 외 키를 **조용히 무시**한다(에러 없이 미반영) — 전 노드 배포 확인 후에만 켠다.
 const edJpStyleOn = () => (((state.ops||{}).editor_jp_style||{}).value === "on");
@@ -2316,6 +2333,7 @@ function edCollect(forDraft){
     ov.design = { ...edForm.design };
     // 이중 안전(H2): 플래그 전엔 신 키를 절대 내보내지 않는다 — 구 어댑터 즉사 방지
     if (!edImagesOn()) delete ov.design.title_y_fixed;
+    if (!edE7On()) ED_E7_KEYS.forEach(k => delete ov.design[k]);   // E7(회전·배속)도 동일
     if (!Object.keys(ov.design).length) delete ov.design;
   }
   return ov;
@@ -2422,9 +2440,10 @@ window.edSubmit = async () => {
     // undefined 비교·NaN 합계라 이 두 검증이 한 번도 동작한 적이 없었다.
     const bad = ov.clips.find(c => c.end_sec <= c.start_sec);
     if (bad){ toast("끝이 시작보다 앞인 구간이 있습니다", true); return; }
-    const total = ov.clips.reduce((a,c) => a + (c.end_sec - c.start_sec), 0);
+    // 상한은 출력 길이 기준 — 배속(E7)이 있으면 소스 합 ÷ S (엔진 길이 정책과 동일)
+    const total = ov.clips.reduce((a,c) => a + (c.end_sec - c.start_sec), 0) / edSpeed();
     if (total > ED_MAX_TOTAL_SEC){
-      toast(`구간 합계 ${total.toFixed(1)}초 — 쇼츠 한계(3분)를 넘으면 쇼츠로 발행되지 않습니다. ${ED_MAX_TOTAL_SEC}초 이하로 줄여주세요`, true);
+      toast(`완성본 ${total.toFixed(1)}초 — 쇼츠 한계(3분)를 넘으면 쇼츠로 발행되지 않습니다. ${ED_MAX_TOTAL_SEC}초 이하로 줄여주세요`, true);
       return;
     }
     // v3 동시 제출의 함정(막지 않고 확인만): 앵커 없는 줄은 옛 시간축 그대로 박힌다
@@ -2444,8 +2463,10 @@ window.edSubmit = async () => {
     // 편집실에 남는다(F-301) — 진행 스트립이 이 화면에 뜨고, 새 카드가 오면 바로 잇는다
     edTtsStop();
     edForm.sent = true;                      // 자동 저장 차단 — 초안 부활 방지
-    const wo = ((state.reviews||[]).find(x => x.id === edRid) || {}).work_order_id;
-    edChain = { rid: edRid, woId: wo,
+    const rv0 = (state.reviews||[]).find(x => x.id === edRid) || {};
+    edChain = { rid: edRid, woId: rv0.work_order_id,
+                // JP 카드(0066) = 체인 꼬리가 localize·새 카드가 localization_qa
+                jp: rv0.kind === "localization_qa",
                 kind: (ov.clips || ov.tts) ? "resources" : "render", jobs: {} };
     render();                                // 렌더 꼬리가 폴링을 시작한다
   }
@@ -2460,14 +2481,16 @@ function edJpKind(r){
   return null;
 }
 
-window.openEditor = async (rid) => {
+// kr=true(0066): SHOTCONE 일본어 카드를 **KR 편집실 전체**로 연다 — 한국어 원본을
+// 컷·구간·자막·이미지까지 고치고, 재렌더 뒤 재번역(localize)까지 잇는 경로.
+window.openEditor = async (rid, kr) => {
   edRid = rid; edData = null; edForm = null; tab = "edit";
   edPrevImages = [];
   // 일본어 카드(JP-1) — 재료 RPC(request_editor_assets)를 부르지 않는다: LOOPY 는
   // 작업지시가 없어 거절되고, SHOTCONE 도 텍스트 편집에는 카드 payload 로 충분하다.
   clearTimeout(edJpTimer);
   const r0 = (state.reviews || []).find(x => x.id === rid);
-  edJpMode = edJpKind(r0);
+  edJpMode = kr ? null : edJpKind(r0);
   if (edJpMode){
     edTtsStop();                       // KR 미리듣기 오디오가 JP 화면 위로 남지 않게
     clearTimeout(edPoll);              // KR 재료 폴링 잔존이 5초마다 render 로 입력을 지운다
@@ -2598,6 +2621,7 @@ function edDraftList(){
 // diff 만 전송) 그대로 — 서버·엔진 무변경. 타이밍·스타일·구간 편집은 JP-2(엔진이
 // idx↔타임라인 매핑을 내보낸 뒤)의 몫이라 여기선 문구만 받는다.
 function edJpResetForm(r){
+  edJpCk = new Set();           // 다중 선택은 카드 단위 — 다른 카드로 새면 오삭제
   const pay = (r || {}).payload || {}, pr = pay.ko_ja_pairs || {};
   edJpForm = {
     rid: r.id, loopy: edJpMode === "loopy", route: pay.route || "",
@@ -2651,7 +2675,10 @@ function renderEditJp(){
   const head = `<div class="edhead"><b>${esc(wo.work_title || (r.payload || {}).title || "일본어 편집")}</b>
       <span class="rv2-mac">${esc(chName(r.channel_slug))}</span>
       <span class="sub">일본어 편집 — 문구를 고치면 그 항목만 다시 렌더됩니다</span>
-      <span class="right"><button class="mini" onclick="tab='review';render()">← 검수함</button></span></div>`;
+      <span class="right">${edJpMode === "shotcone" && r.work_order_id
+        ? `<button class="mini" onclick="openEditor('${edRid}', true)"
+            title="한국어 원본을 KR 편집실 전체 기능(컷·구간·자막·내레이션·이미지·스타일)으로 고칩니다 — 보내면 다시 렌더한 뒤 재번역까지 이어져 새 일본어 카드가 올라옵니다">🎬 원본(한국어) 편집실</button>` : ""}
+      <button class="mini" onclick="tab='review';render()">← 검수함</button></span></div>`;
   $("#page").innerHTML = `<section class="card">${head}
     <div class="edgrid2">
       <div class="edleft">
@@ -2759,6 +2786,10 @@ function edJpPaneHtml(canEdit){
         const a = s.startCur ?? s.start;
         return `
         <div class="edsub ${s.del ? "del" : ""}">
+          ${canDel ? `<input type="checkbox" class="ck" ${
+            edJpCk.has(t + ":" + s.idx) ? "checked" : ""} ${s.del ? "disabled" : ""}
+            onclick="edJpCkToggle('${t}',${s.idx},this.checked)"
+            title="다중 선택 — 위 '선택 삭제'로 한 번에">` : ""}
           <span class="t" ${a != null
             ? `onclick="edJpSeek(${(+a).toFixed(2)})" title="완성본 ${(+a).toFixed(2)}초로 이동${
                 s.endActual === false ? " (더빙 합성 전 계획값)" : ""}"`
@@ -2803,15 +2834,69 @@ function edJpPaneHtml(canEdit){
   if (edJpPane === "telops") return `
     <div class="edcap">텔롭 ${f.telops.filter(s => !s.del).length}건 <span class="sub">—
       시각을 누르면 완성본 그 위치로${edJpStyleOn()
-        ? " · 비우거나 ✕ 로 그 줄이 빠집니다" : " · ✕ 로 그 줄이 빠집니다"}</span></div>`
+        ? " · 비우거나 ✕ 로 그 줄이 빠집니다" : " · ✕ 로 그 줄이 빠집니다"}</span>
+      ${edJpCkBar("tel", f.telops, canEdit)}</div>`
     + rows(f.telops, "jpl_");
   return f.subs.length ? `
     <div class="edcap">${f.loopy ? "자막·대사" : "자막"} ${f.subs.filter(s => !s.del).length}건
       <span class="sub">— 시각을 누르면 완성본 그 위치로${edJpStyleOn()
-        ? " · 비우거나 ✕ 로 그 줄이 빠집니다 · ✎ 는 위치·크기·색(줄마다 따로)" : ""}</span></div>`
+        ? " · 비우거나 ✕ 로 그 줄이 빠집니다 · ✎ 는 위치·크기·색(줄마다 따로)" : ""}</span>
+      ${edJpCkBar("sub", f.subs, canEdit && edJpStyleOn())}</div>`
     + rows(f.subs, "jps_")
     : '<div class="sub">이 카드에는 편집할 자막 쌍이 없습니다</div>';
 }
+// ── JP 다중 선택 삭제(8/20) — KR edSubCk* 와 같은 규약, 키는 "sub:idx"/"tel:idx" ──
+let edJpCk = new Set();
+function edJpCkBar(t, list, canDel){
+  if (!canDel || !list.length) return "";
+  const live = list.filter(s => !s.del).length;
+  const sel = [...edJpCk].filter(k => k.startsWith(t + ":")).length;
+  return `<span class="right" style="margin-left:auto">
+    <label class="sub" style="cursor:pointer"><input type="checkbox" id="jpckall_${t}"
+      ${sel && sel === live ? "checked" : ""} onclick="edJpCkAll('${t}',this.checked)">
+      전체 선택</label>
+    <button class="mini danger" id="jpckdel_${t}" onclick="edJpCkDel('${t}')"
+      ${sel ? "" : "disabled"}
+      title="선택한 줄들을 한 번에 삭제(되살리기·Cmd+Z 가능)">선택 삭제${
+      sel ? ` (${sel})` : ""}</button></span>`;
+}
+window.edJpCkToggle = (t, idx, on) => {
+  const k = t + ":" + idx;
+  if (on) edJpCk.add(k); else edJpCk.delete(k);
+  const f = edJpForm; if (!f) return;
+  const list = t === "sub" ? f.subs : f.telops;
+  const sel = [...edJpCk].filter(x => x.startsWith(t + ":")).length;
+  const b = document.getElementById("jpckdel_" + t);   // 무렌더 갱신 — render 는 video 파괴
+  if (b){ b.disabled = !sel;
+          b.textContent = sel ? `선택 삭제 (${sel})` : "선택 삭제"; }
+  const a = document.getElementById("jpckall_" + t);
+  if (a) a.checked = !!sel && sel === list.filter(s => !s.del).length;
+};
+window.edJpCkAll = (t, on) => {
+  const f = edJpForm; if (!f) return;
+  const list = t === "sub" ? f.subs : f.telops;
+  edJpCk = new Set([...edJpCk].filter(k => !k.startsWith(t + ":")));
+  if (on) list.forEach(s => { if (!s.del) edJpCk.add(t + ":" + s.idx); });
+  render();
+};
+window.edJpCkDel = t => {
+  const f = edJpForm; if (!f) return;
+  const r = (state.reviews || []).find(x => x.id === edRid) || {};
+  if (!(can("reviewer") && r.status === "waiting" && !f.sent)) return;
+  if (t === "sub" && !edJpStyleOn()) return;   // 자막 use:false 는 신형 엔진 몫(E6-0)
+  const keys = [...edJpCk].filter(k => k.startsWith(t + ":"));
+  if (!keys.length) return;
+  edJpSnap();                                  // Cmd+Z 한 번에 전부 복원
+  const list = t === "sub" ? f.subs : f.telops;
+  keys.forEach(k => { const s = list.find(x => x.idx === +k.split(":")[1]);
+                      if (s) s.del = true; });
+  edJpCk = new Set([...edJpCk].filter(k => !k.startsWith(t + ":")));
+  if (edJpTlSel && edJpTlSel.t === t) edJpTlSel = null;   // 뺀 줄 인스펙터 잔존 방지
+  const jv = document.getElementById("jpvid");
+  if (jv) edJpSeekTo = jv.currentTime;         // render 가 video 를 파괴 — 위치 보존
+  render();
+  toast(`${keys.length}줄 삭제됨 — 되살리기·Cmd+Z 로 복구할 수 있습니다`);
+};
 
 // 고친 항목만 diff — 0038 계약(reject_and_rerender p_edits) 규약. 빈 값은 무시.
 // DOM 이 아니라 폼(cur)을 읽는다 — 렌더 직후·재그림 뒤에도 값이 산다.
@@ -3034,27 +3119,38 @@ function edJpDur(){
 function edJpTlHtml(canEdit){
   const f = edJpForm; if (!f) return "";
   const span = Math.max(edJpDur(), 1);
-  const lane = (list, t, cls, pos, label, editable) => {
+  const ROW = 16;                    // 행 높이 — 겹치는 블록은 행으로 쌓는다(KR 과 동일)
+  let top = 3;
+  const lane = (list, t, cls, label, editable) => {
     const timed = list.filter(s => !s.del
       && (s.startCur ?? s.start) != null && (s.endCur ?? s.end) != null);
     if (!timed.length) return "";
-    return `<div class="edlane ${pos}"><span class="lb">${label}</span>${timed.map(s => {
+    const R = edLaneRows(timed.map(s => (
+      { a: s.startCur ?? s.start, b: s.endCur ?? s.end })));
+    const html = `<div class="edlane" style="top:${top}px;height:${R.rows * ROW}px">
+      <span class="lb">${label}${R.rows > 1
+        ? ` <b title="겹치는 구간이 있어 ${R.rows}줄로 나눠 표시">×${R.rows}줄</b>` : ""}</span>${
+      timed.map((s, k) => {
       const a = s.startCur ?? s.start, b = s.endCur ?? s.end;
       const on = edJpTlSel && edJpTlSel.t === t && edJpTlSel.i === s.idx;
       return `<div class="edoel ${cls}${on ? " sel" : ""}${editable && canEdit ? "" : " ro"}"
         data-t="${t}" data-i="${s.idx}"
         style="left:${(Math.max(0, a) / span * 100).toFixed(3)}%;width:${
-          Math.max(0.35, (b - a) / span * 100).toFixed(3)}%"
+          Math.max(0.35, (b - a) / span * 100).toFixed(3)}%;top:${
+          R.row[k] * ROW + 2}px;height:${ROW - 4}px;bottom:auto"
         onmousedown="edJpTlDown(event,'${t}',${s.idx},null)"
         title="${s.endActual === false ? "[계획값] " : ""}${
           esc(String(s.cur || s.ja).slice(0, 60))}">${editable && canEdit ? `
         <span class="hL" onmousedown="edJpTlDown(event,'${t}',${s.idx},'L')"></span>
         <span class="hR" onmousedown="edJpTlDown(event,'${t}',${s.idx},'R')"></span>` : ""}</div>`;
     }).join("")}</div>`;
+    top += R.rows * ROW + 4;
+    return html;
   };
-  return lane(f.subs, "sub", "osub", "s", "자막", true)
-       + lane(f.tts, "tts", "ocue", "n", "내레이션", false)
-       + lane(f.telops, "tel", "otel", "i", "텔롭", true);
+  const h = lane(f.subs, "sub", "osub", "자막", true)
+    + lane(f.tts, "tts", "ocue", "내레이션", false)
+    + lane(f.telops, "tel", "otel", "텔롭", true);
+  return `<div style="position:relative;height:${Math.max(top, 59)}px">${h}</div>`;
 }
 function edJpTlSync(){
   if (edJpDrag) return;   // 드래그 중 innerHTML 교체 금지 — 축척이 낡아도 up 이 재동기
@@ -3173,6 +3269,7 @@ window.edJpDel = (t, idx) => {
   const s = list.find(x => x.idx === idx); if (!s) return;
   edJpSnap();
   s.del = !s.del;
+  if (s.del) edJpCk.delete(t + ":" + idx);   // 지운 줄은 다중 선택에서도 빠진다
   // 방금 뺀 줄이 선택돼 있으면 해제 — 레인에서 사라진 블록의 인스펙터가 남으면 안 된다
   if (s.del && edJpTlSel && edJpTlSel.t === t && edJpTlSel.i === idx) edJpTlSel = null;
   const jv = document.getElementById("jpvid");
@@ -3417,7 +3514,10 @@ function renderEdit(){
   const head = `<div class="edhead"><b>${esc(wo.work_title || "")}</b>
       ${wo.episode != null ? `<span class="sub">${wo.episode}회차</span>` : ""}
       <span class="rv2-mac">${esc(chName(wo.channel_slug || r.channel_slug))}</span>
-      <span class="right"><button class="mini" onclick="edTtsStop();tab='review';render()">← 검수함</button>
+      <span class="right">${r.kind === "localization_qa"
+        ? `<button class="mini" onclick="edTtsStop();openEditor('${edRid}')"
+            title="일본어 문구·타이밍·스타일만 고치는 가벼운 편집(재번역 없음)">일본어 편집으로</button>` : ""}
+      <button class="mini" onclick="edTtsStop();tab='review';render()">← 검수함</button>
       <button class="mini" onclick="edTtsStop();edRid=null;edData=null;edForm=null;render()">편집 목록</button></span></div>`;
 
   if (!edData){
@@ -3460,7 +3560,9 @@ function renderEdit(){
 
   // 완성본 순서(편집 결과) — 구간을 만지면 여기 길이가 바로 바뀐다(삭제분 제외)
   const total = edClipsEff().reduce((a,c) => a + Math.max(0, c.end - c.start), 0);
-  const over = total > ED_MAX_TOTAL_SEC;   // 편집실 상한 = 쇼츠 3분 한계 (60초는 자동 생성 정책)
+  // 편집실 상한 = 쇼츠 3분 한계 (60초는 자동 생성 정책). 배속(E7)이 있으면 출력이
+  // 1/S 로 줄어드므로 상한·표시 모두 출력 길이 기준으로 잰다.
+  const over = total / edSpeed() > ED_MAX_TOTAL_SEC;
 
   const blocks = edForm.clips.map((c,i) => `
     <div class="edclip ${esc(c.role)} ${i === edSel ? "sel" : ""} ${c.del ? "del" : ""}"
@@ -3504,8 +3606,8 @@ function renderEdit(){
           <button class="mini" onclick="edOvSize(-4)" title="선택 대상 축소">A−</button>
           <button class="mini" onclick="edOvSize(4)" title="선택 대상 확대">A＋</button>
           ${edRotOn() ? `<button class="mini" onclick="edOvRotate(-5)"
-            title="자막 줄 회전 −5° (이미지는 이미지의 ↻ 핸들로)">↺</button>
-          <button class="mini" onclick="edOvRotate(5)" title="자막 줄 회전 +5°">↻</button>` : ""}
+            title="선택 대상 회전 −5° — 자막은 그 줄만, 제목·TTS 는 이 편 전체(이미지는 이미지의 ↻ 핸들로)">↺</button>
+          <button class="mini" onclick="edOvRotate(5)" title="선택 대상 회전 +5°">↻</button>` : ""}
           <input type="color" id="edsubcolor" value="#ffffff"
             onclick="edSubColorArm()" onchange="edOvColor(this.value)"
             title="선택 대상 색">
@@ -3637,6 +3739,7 @@ function renderEdit(){
     <div class="edkb ${edKbHelp ? "on" : ""}" id="edkb"><table>
       <tr><td>Space</td><td>재생 / 정지</td></tr>
       <tr><td>I · O</td><td>구간 시작 · 끝 표시</td></tr>
+      <tr><td>S</td><td>선택한 구간을 재생 헤드에서 둘로 나누기 (✂)</td></tr>
       <tr><td>← →</td><td>1프레임 이동 (Shift = 1초) — 트랙 블록을 선택했으면 그 블록</td></tr>
       <tr><td>Esc</td><td>트랙 선택 해제</td></tr>
       <tr><td>↑ ↓</td><td>구간 선택</td></tr>
@@ -3649,7 +3752,8 @@ function renderEdit(){
     <div class="edscrub">
       <div class="edthumb" id="edthumb"></div>
       <div class="edscrubinfo">
-        <b class="${over ? "bad" : ""}">완성본 ${total.toFixed(1)}초 · 구간 ${edClipsEff().length}개</b>
+        <b id="edscrubtotal" class="${over ? "bad" : ""}">완성본 ${(total / edSpeed()).toFixed(1)}초${
+          edSpeed() !== 1 ? ` (배속 ${edSpeed()}× · 원본 ${total.toFixed(1)}초)` : ""} · 구간 ${edClipsEff().length}개</b>
         <span class="sub">${over ? "⚠ 3분(쇼츠 한계)을 넘으면 보낼 수 없습니다"
           : "타임라인: 클릭 이동 · 휠 줌 · Shift+휠 좌우 · ? 단축키"}</span></div>
     </div>
@@ -3661,7 +3765,7 @@ function renderEdit(){
       if (edChain && edChain.rid === edRid) return "";
       if (r.status !== "rejected" || !edData.draft_sent_at) return "";
       const newer = (state.reviews||[]).some(x => x.work_order_id === r.work_order_id
-        && x.kind === "publish_gate" && x.status === "waiting");
+        && x.kind === r.kind && x.status === "waiting");   // JP(0066)는 localization_qa
       if (newer) return "";
       return `<div class="edwarn" style="margin-top:10px">이 카드는 편집 재렌더로 닫혔지만
         <b>새 카드가 없습니다</b> — 체인이 진행 중이거나 실패했을 수 있습니다. 보낸 초안(${
@@ -3676,9 +3780,11 @@ function renderEdit(){
         ✏️ 고친 내용으로 다시 렌더</button>
       <span id="edsaved" class="edsaved">${edData.draft_at
         ? "초안 이어서 편집 중 — " + new Date(edData.draft_at).toLocaleString("ko-KR") : ""}</span>
-      <span>지금 카드는 반려로 닫히고, 고친 본으로 다시 렌더한 새 카드가 올라옵니다</span>
+      <span>지금 카드는 반려로 닫히고, 고친 본으로 다시 렌더한 새 카드가 올라옵니다${
+        r.kind === "localization_qa"
+          ? " — 재번역까지 이어집니다(일본어 문구 수정은 새 카드의 일본어 편집에서)" : ""}</span>
     </div>` : `<div class="sub" style="margin-top:10px">
-      ${r.kind !== "publish_gate"
+      ${!edKindOk(r)
         ? "편집 짝(ko/ja) 정보가 없는 옛 일본어 카드라 보기 전용입니다 — 새 카드부터는 일본어 편집 화면이 열립니다"
         : !can("reviewer") ? "reviewer 권한이 있어야 고칠 수 있습니다"
         : "이 카드는 닫혀 있어 고칠 수 없습니다"}
@@ -3731,6 +3837,11 @@ function edPaneClips(canEdit, dur){
       <span class="len">${(c.end-c.start).toFixed(1)}s</span>
       <span class="ops" onclick="event.stopPropagation()">
         <button class="mini" onclick="edPlayClip(${i})" title="이 구간 재생">▶</button>
+        <button class="mini spl" data-i="${i}" onclick="edSplitClip(${i})" ${
+          canEdit && !c.del && edSplitAt(i) != null ? "" : "disabled"}
+          title="${canEdit && !c.del && edSplitAt(i) != null
+            ? "재생 헤드에서 이 구간 나누기 (S)"
+            : "재생 헤드가 이 구간 안쪽(양끝 0.5초 이상)에 있어야 나눌 수 있습니다"}">✂</button>
         <button class="mini" onclick="edMove(${i},-1)" ${canEdit&&i>0?"":"disabled"} title="위로">↑</button>
         <button class="mini" onclick="edMove(${i},1)" ${canEdit&&i<edForm.clips.length-1?"":"disabled"} title="아래로">↓</button>
         ${c.del
@@ -3772,9 +3883,20 @@ function edPaneSubs(canEdit){
     <textarea id="edtitle" rows="2" oninput="edMark()" ${canEdit ? "" : "disabled"}></textarea>
     <div class="edcap">자막 ${edForm.dSubs.filter(s=>!s.del).length}건
       <span class="sub">— 시각(완성본 기준)을 누르면 원본 위치로 · 비우면 그 줄이 빠집니다${
-      edV3() && canEdit ? " · ✎ 스타일(위치·크기·색)은 줄마다 따로 저장됩니다" : ""}</span></div>
+      edV3() && canEdit ? " · ✎ 스타일(위치·크기·색)은 줄마다 따로 저장됩니다" : ""}</span>
+      ${canEdit && !locked && edForm.dSubs.length ? `<span class="right" style="margin-left:auto">
+        <label class="sub" style="cursor:pointer"><input type="checkbox" id="edckall"
+          ${edSubCk.size && edSubCk.size === edForm.dSubs.filter(s=>!s.del).length ? "checked" : ""}
+          onclick="edSubCkAll(this.checked)"> 전체 선택</label>
+        <button class="mini danger" id="edckdel" onclick="edSubCkDel()"
+          ${edSubCk.size ? "" : "disabled"}
+          title="선택한 줄들을 한 번에 삭제(되살리기·Cmd+Z 가능)">선택 삭제${
+          edSubCk.size ? ` (${edSubCk.size})` : ""}</button></span>` : ""}</div>
     <div class="edsubs">${edForm.dSubs.map((s, i) => `
       <div class="edsub ${s.del ? "del" : ""}">
+        ${canEdit && !locked ? `<input type="checkbox" class="ck" ${
+          edSubCk.has(i) ? "checked" : ""} ${s.del ? "disabled" : ""}
+          onclick="edSubCkToggle(${i},this.checked)" title="다중 선택 — 위 '선택 삭제'로 한 번에">` : ""}
         <span class="t" onclick="edSeek(${s.src ?? 0})"
           title="원본 ${s.src != null ? edFmt(s.src) : "—"}">${
           Number(s.start).toFixed(1)}s</span>
@@ -3944,7 +4066,14 @@ const ED_STYLE_FIELDS = [
   // 영상 밴드(V3-a) — 렌더가 이미 받는 키. 위치는 ✎ 켠 가상 미리보기의 ⇕ 드래그와 동기
   ["aspect_ratio",     "영상 화면비",    "예: 16:9 · 1:1 · 4:3"],
   ["video_y",          "영상 세로(위에서 px)", "비우면 중앙 · ⇕ 드래그로도"],
+  // E7(2a087eb) — 디자인 레벨 회전·배속. 표시는 editor_e7 게이트(edPaneStyle 필터),
+  // 전송 게이트는 edCollect(H2 이중 안전). 회전은 ✎ 의 ↺↻ 와 같은 값.
+  ["title_rotate",     "제목 회전(도)",  "-180~180 · 시계 +"],
+  ["tts_rotate",       "TTS 회전(도)",   "-180~180 · 시계 +"],
+  ["video_speed",      "영상 배속",      "0.8~2.0 · 예: 1.25"],
 ];
+// E7 키 — 게이트 전 화면·전송에서 함께 뺀다(성분표는 한 곳)
+const ED_E7_KEYS = ["title_rotate", "tts_rotate", "video_speed"];
 // 쇼츠 템플릿(F-508) — 화면이 편집하는 스타일 키 묶음. 적용 = 이 편 오버라이드 통째
 // 교체(채널 위에), 저장 = 지금 화면의 유효 디자인(채널+이 편) 스냅샷. 목록은 세션당
 // 1회 + 저장·삭제 후. state 에 넣지 않는다 — refresh() 의 state 통재구성에 지워진다.
@@ -4016,7 +4145,9 @@ function edPaneStyle(canEdit){
     </div>
     <div class="sub" style="margin-bottom:6px">비워두면 채널 기본값을 그대로 씁니다 —
       이 편에만 적용됩니다.</div>
-    <div class="edrows">${ED_STYLE_FIELDS.map(([k,l,ph]) => `
+    <div class="edrows">${ED_STYLE_FIELDS
+      .filter(([k]) => edE7On() || !ED_E7_KEYS.includes(k))
+      .map(([k,l,ph]) => `
       <div class="edrow3"><label>${esc(l)}</label>
         <input id="edd_${k}" placeholder="${esc(base[k] != null ? "채널: " + base[k] : ph)}"
           ${canEdit?"":"disabled"} oninput="edStyleSet('${k}',this.value)"></div>`).join("")}
@@ -4072,6 +4203,8 @@ function edMountSrc(){
 let edStageSrcCur = null, edStageGen = 0, edStageSeeking = false;
 async function edMountStage(){
   const v = document.getElementById("edvid"); if (!v) return;
+  // 배속(E7): prev(완성본)는 배속이 이미 구워져 있어 1 — seq 는 edStageLoad 가 적용
+  if (edStageMode === "prev"){ v.defaultPlaybackRate = 1; v.playbackRate = 1; }
   v.ontimeupdate = () => {
     if (edStageMode === "prev"){
       edPrevT = v.currentTime || edPrevT;              // 렌더 후 위치 복원용
@@ -4154,6 +4287,8 @@ async function edStageLoad(t, play){
     edStageSeeking = false;
   }
   if (gen !== edStageGen) return;
+  // 배속(E7) 근사 재생 — 새 src 로드가 playbackRate 를 기본값으로 되돌리므로 매번 적용
+  v.defaultPlaybackRate = edSpeed(); v.playbackRate = edSpeed();
   v.currentTime = Math.max(0, t - want.offset);
   if (play) v.play().catch(()=>{});
 }
@@ -4229,6 +4364,7 @@ function edCursorSet(t, moveVideo){
   }
   const lab = document.getElementById("edtime");
   if (lab) lab.textContent = edFmtMs(edCursor);
+  edSplitBtnSync();                     // ✂ 활성 조건이 재생 헤드를 따라간다
   edPaintThumb(document.getElementById("edthumb"), edData.sprites || {}, edCursor);
   if (moveVideo) edLoadSource(edCursor, false);
 }
@@ -4304,6 +4440,41 @@ window.edAddClip = () => {
 };
 window.edPick = i => { edSel = i; edSelSync();
   const c = edForm.clips[i]; if (c) edSeek(c.start); else render(); };
+// ── 구간 분할 ✂ (사용자 8/20 명세) — 재생 헤드에서 선택 구간을 두 행으로 ──
+// 분할 직후 완성본은 분할 전과 동일해야 한다(핵심 안전 계약): [start,t]+[t,end] 가
+// 목록에서 연속 위치라 concat 결과가 같다. role 은 양쪽 승계, 완성본 순서 유지,
+// 자막 앵커(src)는 시각 기반 자동 재배정이라 orphan 이 새로 생기지 않는다.
+const ED_SPLIT_MIN = 0.5;               // 최소 조각 길이(12프레임 @24fps — 명세 제안값)
+function edSplitAt(i){
+  const c = edForm && edForm.clips[i];
+  if (!c || c.del) return null;
+  const t = edQF(edCursor);             // 분할점은 정밀 편집 fps(24) 스냅
+  if (t < c.start + ED_SPLIT_MIN || t > c.end - ED_SPLIT_MIN) return null;
+  return t;
+}
+window.edSplitClip = i => {
+  if (!edCanEdit()) return;
+  const t = edSplitAt(i);
+  if (t == null){
+    toast("재생 헤드를 구간 안쪽(양끝 0.5초 이상)에 두고 나누세요", true); return;
+  }
+  edSnap();                             // Cmd+Z 한 번 = 분할 이전(한 행) 복원
+  const c = edForm.clips[i];
+  edForm.clips.splice(i + 1, 0, { ...c, start: t });
+  c.end = t;
+  edSel = i + 1;                        // 포커스는 뒤 조각 — 보통 뒤 시작점을 이어 만진다
+  render();
+};
+// 재생 헤드가 움직일 때마다 ✂ 활성을 무렌더 동기 — 렌더 시점의 disabled 는 낡는다
+function edSplitBtnSync(){
+  if (!edForm) return;
+  document.querySelectorAll("#page .ops .spl").forEach(b => {
+    const i = +b.dataset.i, ok = edCanEdit() && edSplitAt(i) != null;
+    b.disabled = !ok;
+    b.title = ok ? "재생 헤드에서 이 구간 나누기 (S)"
+                 : "재생 헤드가 이 구간 안쪽(양끝 0.5초 이상)에 있어야 나눌 수 있습니다";
+  });
+}
 // 삭제는 소프트(F-106) — 목록에 취소선으로 남고 되살리기·Cmd+Z 로 복구된다.
 // 종전의 무확인 즉시 splice 는 자동 저장(1.5초)이 실수까지 초안에 덮어썼다.
 window.edDelClip = i => { edSnap(); edForm.clips[i].del = true; render(); };
@@ -4340,8 +4511,37 @@ const edFmtMs = s => {
 };
 
 // ── 자막 편집 ─────────────────────────────────────────────────────────
-window.edDelSub = i => { edSnap(); edForm.dSubs[i].del = true; render(); };
+window.edDelSub = i => { edSnap(); edForm.dSubs[i].del = true; edSubCk.delete(i); render(); };
 window.edRestoreSub = i => { edSnap(); edForm.dSubs[i].del = false; render(); };
+// ── 자막 다중 선택 삭제(사용자 8/20) — 체크박스로 여러 줄을 골라 한 번에 ──
+// 선택은 인덱스 집합(렌더를 넘어 산다) — 카드 전환(edResetForm)이 비운다.
+let edSubCk = new Set();
+window.edSubCkToggle = (i, on) => {
+  if (on) edSubCk.add(i); else edSubCk.delete(i);
+  // 무렌더 갱신 — 렌더는 재생 중 스테이지를 파괴한다. 버튼 라벨·전체 체크만 손본다.
+  const b = document.getElementById("edckdel");
+  if (b){ b.disabled = !edSubCk.size;
+          b.textContent = edSubCk.size ? `선택 삭제 (${edSubCk.size})` : "선택 삭제"; }
+  const a = document.getElementById("edckall");
+  if (a) a.checked = !!edSubCk.size
+    && edSubCk.size === edForm.dSubs.filter(s => !s.del).length;
+};
+window.edSubCkAll = on => {
+  edSubCk = new Set();
+  if (on) edForm.dSubs.forEach((s, i) => { if (!s.del) edSubCk.add(i); });
+  render();
+};
+window.edSubCkDel = () => {
+  if (!edCanEdit() || !edSubCk.size) return;
+  const locked = edForm.clips.length && edClipsChanged() && !edV3();
+  if (locked){ toast("구간을 고친 상태라 자막은 지금 지울 수 없습니다(자막 탭 경고 참고)", true); return; }
+  edSnap();                              // Cmd+Z 한 번에 전부 복원
+  edSubCk.forEach(i => { const s = edForm.dSubs[i]; if (s) s.del = true; });
+  const n = edSubCk.size;
+  edSubCk = new Set();
+  render();
+  toast(`자막 ${n}줄 삭제됨 — 되살리기·Cmd+Z 로 복구할 수 있습니다`);
+};
 window.edAddSub = () => {
   const a = edParseTime(($("#edns")||{}).value), b = edParseTime(($("#edne")||{}).value);
   const t = (($("#ednt")||{}).value || "").trim();
@@ -4390,8 +4590,44 @@ window.edStyleSet = (k, v) => {
     else delete edForm.design.title_y_fixed;
   }
   if (k === "aspect_ratio" || k === "video_y") edStageBandSync();   // 밴드 즉시 반영
+  // E7 — 범위 밖·비숫자는 폼에 싣지 않는다(엔진이 즉시 실패시키는 값 — 렌더 낭비 예방).
+  // 입력 도중 잠깐 스치는 미완성 값("0."·"-")에 토스트를 쏘면 시끄러워, 빨간 테두리로만.
+  if (ED_E7_KEYS.includes(k)){
+    const el = document.getElementById("edd_" + k), t = String(v).trim();
+    let bad = false;
+    if (t){
+      const n = +t;
+      bad = !isFinite(n) || (k === "video_speed" ? n < 0.8 || n > 2.0
+                                                 : n < -180 || n > 180);
+      if (bad) delete edForm.design[k];
+    }
+    if (el){
+      el.classList.toggle("bad", bad);
+      el.title = bad ? (k === "video_speed" ? "0.8~2.0 사이 숫자" : "-180~180 도 숫자") : "";
+    }
+    if (k === "video_speed") edSpeedSync();
+    else edStagePaint(edStageT);              // 회전 즉시 반영(유령 오버레이)
+  }
   edMark();
 };
+// 배속(E7) 무렌더 동기 — 미리보기 재생 속도·완성본 길이·상한 마커가 같은 값을 본다
+function edSpeedSync(){
+  const v = document.getElementById("edvid");
+  if (v){ const r = edStageMode === "seq" ? edSpeed() : 1;
+          v.defaultPlaybackRate = r; v.playbackRate = r; }
+  edScrubSync();
+  const ot = document.getElementById("edouttl");
+  if (ot) ot.innerHTML = edOutHtml();         // 쇼츠 상한선(59.7×배속, 소스축) 재배치
+}
+// 완성본 길이 줄 — 배속 반영 출력 길이 기준(렌더·무렌더 공용)
+function edScrubSync(){
+  const el = document.getElementById("edscrubtotal"); if (!el) return;
+  const total = edClipsEff().reduce((a,c) => a + Math.max(0, c.end - c.start), 0);
+  const spd = edSpeed(), outLen = total / spd;
+  el.classList.toggle("bad", outLen > ED_MAX_TOTAL_SEC);
+  el.textContent = `완성본 ${outLen.toFixed(1)}초${spd !== 1
+    ? ` (배속 ${spd}× · 원본 ${total.toFixed(1)}초)` : ""} · 구간 ${edClipsEff().length}개`;
+}
 
 // ── 타임라인 줌·팬 (F-101) ────────────────────────────────────────────
 // 종전 10등분 고정 눈금은 4시간물 최대 줌에서 눈금 사이가 수십 분씩 벌어진다.
@@ -4644,21 +4880,39 @@ function edSrcAtOut(p){
   return { src: eff[0].c.start, e: eff[0] };
 }
 
+// 같은 레인 안 겹침 — 행(줄)으로 나눠 쌓는다(사용자 8/20): 겹침을 한 줄에 포개면
+// 뒤 블록을 잡을 수도 구분할 수도 없다. 시작 오름차순 탐욕 배정(첫 들어갈 행) —
+// 반환 row[k] = 블록별 행 번호, rows = 행 수. 순수 — 테스트 대상.
+function edLaneRows(items){
+  const order = items.map((_, k) => k).sort((p, q) => items[p].a - items[q].a);
+  const rowEnd = [], row = new Array(items.length).fill(0);
+  for (const k of order){
+    let r = rowEnd.findIndex(e => items[k].a >= e - 0.001);
+    if (r < 0){ r = rowEnd.length; rowEnd.push(0); }
+    rowEnd[r] = Math.max(rowEnd[r], items[k].b);
+    row[k] = r;
+  }
+  return { row, rows: Math.max(1, rowEnd.length) };
+}
 function edOutHtml(){
   const { eff, total } = edEffList();
-  const lim = 59.7, span = Math.max(total, lim) || 1;
+  // 축은 소스 합계 초 — 배속(E7)이 있으면 출력 상한 59.7초가 소스축에선 59.7×S 다
+  const lim = 59.7 * edSpeed(), span = Math.max(total, lim) || 1;
   const px = v => (Math.max(0, Math.min(span, v)) / span * 100).toFixed(3) + "%";
   const wpx = v => Math.max(0.35, v / span * 100).toFixed(3) + "%";
   const cf = edConflicts();                    // 주황 = 자막↔내레이션 같은 순간 겹침(F-205)
   const selIs = (t, i) => edOutSel && edOutSel.t === t && edOutSel.i === i ? "sel" : "";
-  // V 레인 — 구간(순서 드래그, 종전 그대로)
+  // V 레인 — 구간(순서 드래그, 종전 그대로 한 줄)
   const v = eff.map(e => `<div class="edoclip ${esc(e.c.role)} ${e.i === edSel ? "sel" : ""}"
       data-i="${e.i}" style="left:${px(e.off)};width:${wpx(e.c.end - e.c.start)}"
-      title="${e.i + 1}번 구간 · 완성본 ${e.off.toFixed(1)}~${
-        (e.off + e.c.end - e.c.start).toFixed(1)}초 — 끌면 순서가 바뀝니다"
+      title="${e.i + 1}번 구간 · 완성본 ${(e.off / edSpeed()).toFixed(1)}~${
+        ((e.off + e.c.end - e.c.start) / edSpeed()).toFixed(1)}초 — 끌면 순서가 바뀝니다"
       onmousedown="edOutDown(event,${e.i})"><span>${e.i + 1}</span></div>`).join("");
-  // S 레인 — 자막 블록: 끌면 이동, 양끝 트리밍 — 손대는 순간 그 줄은 시각 고정(호박색)
-  let s = "";
+  // 요소 블록은 {a,b,mk(top)} 로 모아 행 배정 후 그린다 — 겹치면 아래 행으로
+  const ROW = 16;                              // 요소 행 높이(px, 종전 레인 높이)
+  const blk = top => `top:${top}px;height:${ROW - 4}px;bottom:auto;`;
+  // S — 자막: 끌면 이동, 양끝 트리밍 — 손대는 순간 그 줄은 시각 고정(호박색)
+  const sE = [];
   edForm.dSubs.forEach((sb, si) => {
     if (sb.del || !String(sb.text).trim()) return;
     const p = edSubOutPos(eff, sb);
@@ -4668,53 +4922,64 @@ function edOutHtml(){
     // 인스펙터 진입 수단이 없어 영영 못 고친다(리뷰 M3)
     const oob = total > 0 && p > total - 0.05;
     const pd = oob ? Math.max(0, span - Math.max(0.5, len)) : p;
-    s += `<div class="edoel osub ${sb.pin || sb.src == null ? "pin" : ""} ${
+    sE.push({ a: pd, b: pd + len, mk: top => `<div class="edoel osub ${
+        sb.pin || sb.src == null ? "pin" : ""} ${
         cf.subClash.has(si) ? "clash" : ""} ${oob ? "oob" : ""} ${selIs("sub", si)}"
-      data-t="sub" data-i="${si}" style="left:${px(pd)};width:${wpx(len)}"
+      data-t="sub" data-i="${si}" style="left:${px(pd)};width:${wpx(len)};${blk(top)}"
       title="자막 ${si + 1} · ${esc(String(sb.text).slice(0, 24))}${
         sb.pin ? " · 시각 고정(앵커 해제)" : sb.src == null ? " · 신규(시각 고정)" : ""}${
         oob ? " · ⚠ 완성본 길이 밖 — 시작을 앞으로 당기세요" : ""}"
       onmousedown="edOutElDown(event,'sub',${si})"><i class="hL"
         onmousedown="edOutElDown(event,'sub',${si},'L')"></i><i class="hR"
-        onmousedown="edOutElDown(event,'sub',${si},'R')"></i></div>`;
+        onmousedown="edOutElDown(event,'sub',${si},'R')"></i></div>` });
   });
-  // N 레인 — 내레이션: 끌면 원본 절대초 역산(다른 장면 위로), 오른쪽 핸들 = 창 길이
-  let n = "";
+  // N — 내레이션: 끌면 원본 절대초 역산(다른 장면 위로), 오른쪽 핸들 = 창 길이
+  const nE = [];
   edForm.tts.forEach((t, ti) => {
     if (t.del) return;
     const r = edOutPos(eff, t.src);
     if (!r) return;
-    n += `<div class="edoel ocue ${cf.ttsClash.has(ti) ? "clash" : ""} ${selIs("tts", ti)}"
-      data-t="tts" data-i="${ti}" style="left:${px(r.p)};width:${wpx(t.dur)}"
+    nE.push({ a: r.p, b: r.p + t.dur, mk: top => `<div class="edoel ocue ${
+        cf.ttsClash.has(ti) ? "clash" : ""} ${selIs("tts", ti)}"
+      data-t="tts" data-i="${ti}" style="left:${px(r.p)};width:${wpx(t.dur)};${blk(top)}"
       title="내레이션 ${ti + 1} · ${esc(String(t.text).slice(0, 24))} — 끌면 다른 장면 위로 옮겨집니다(음성 재합성)"
       onmousedown="edOutElDown(event,'tts',${ti})"><i class="hR"
-        onmousedown="edOutElDown(event,'tts',${ti},'R')"></i></div>`;
+        onmousedown="edOutElDown(event,'tts',${ti},'R')"></i></div>` });
   });
-  // I 레인 — 이미지: 끌면 원본 앵커 역산, 양끝 트리밍
-  let im = "";
+  // I — 이미지: 끌면 원본 앵커 역산, 양끝 트리밍
+  const iE = [];
   if (edImagesOn())
     (edForm.images || []).forEach((m, mi) => {
       if (m.del) return;
       const r = edOutPos(eff, m.src);
       if (!r) return;
-      im += `<div class="edoel oimg ${selIs("img", mi)}"
-        data-t="img" data-i="${mi}" style="left:${px(r.p)};width:${wpx(m.dur)}"
+      iE.push({ a: r.p, b: r.p + m.dur, mk: top => `<div class="edoel oimg ${selIs("img", mi)}"
+        data-t="img" data-i="${mi}" style="left:${px(r.p)};width:${wpx(m.dur)};${blk(top)}"
         title="이미지 ${mi + 1} · ${esc(m.name || "")}"
         onmousedown="edOutElDown(event,'img',${mi})"><i class="hL"
           onmousedown="edOutElDown(event,'img',${mi},'L')"></i><i class="hR"
-          onmousedown="edOutElDown(event,'img',${mi},'R')"></i></div>`;
+          onmousedown="edOutElDown(event,'img',${mi},'R')"></i></div>` });
     });
-  let h = `<div class="edlane v">${v}</div>
-    <div class="edlane s"><span class="lb">자막</span>${s}</div>
-    <div class="edlane n"><span class="lb">내레이션</span>${n}</div>
-    <div class="edlane i"><span class="lb">이미지</span>${im}</div>`;
+  // 레인(=요소 섹션) 좌표 — 각 섹션 높이는 그 요소의 행 수가 정한다
+  const sR = edLaneRows(sE), nR = edLaneRows(nE), iR = edLaneRows(iE);
+  const sTop = 46, nTop = sTop + sR.rows * ROW + 2, iTop = nTop + nR.rows * ROW + 2;
+  const lane = (cls, lb, top, R, E) => `<div class="edlane ${cls}"
+      style="top:${top}px;height:${R.rows * ROW}px"><span class="lb">${lb}${
+      R.rows > 1 ? ` <b title="겹치는 구간이 있어 ${R.rows}줄로 나눠 표시">×${R.rows}줄</b>` : ""}</span>${
+      E.map((e, k) => e.mk(R.row[k] * ROW + 2)).join("")}</div>`;
+  let h = `<div class="edlane v" style="top:2px;height:40px">${v}</div>`
+    + lane("s", "자막", sTop, sR, sE)
+    + lane("n", "내레이션", nTop, nR, nE)
+    + lane("i", "이미지", iTop, iR, iE);
   if (total > lim)
     h += `<div class="edoover" style="left:${px(lim)};width:${
       ((total - lim) / span * 100).toFixed(3)}%"></div>`;
   // 상한선은 안쪽으로 2px 클램프 — total≤상한이면 left 가 100% 라 overflow 에 잘린다
-  h += `<div class="edolim" style="left:calc(${px(lim)} - 2px)" title="쇼츠 상한 59.7초"></div>`;
+  h += `<div class="edolim" style="left:calc(${px(lim)} - 2px)" title="쇼츠 상한 59.7초${
+    edSpeed() !== 1 ? `(배속 ${edSpeed()}× 반영 — 소스 ${lim.toFixed(1)}초)` : ""}"></div>`;
   h += `<div class="edocur" id="edocur"></div>`;   // 가상 미리보기(F-202) 재생 헤드
-  return h;
+  // 겹침 행이 쌓이면 컨테이너가 함께 자란다(min-height 100px 아래로는 안 준다)
+  return `<div style="position:relative;height:${iTop + iR.rows * ROW + 2}px">${h}</div>`;
 }
 // ── V3-b: 완성본 트랙 요소 편집(자막·내레이션·이미지) ─────────────────
 let edOutSel = null;   // {t:"sub"|"tts"|"img", i} — 인스펙터·하이라이트 대상
@@ -5156,7 +5421,7 @@ function edSeqTick(srcT){
   edStagePaint(outT);
   const oc = document.getElementById("edocur");
   if (oc){ oc.style.display = "";
-    oc.style.left = (outT / Math.max(total, 59.7) * 100).toFixed(3) + "%"; }
+    oc.style.left = (outT / Math.max(total, 59.7 * edSpeed()) * 100).toFixed(3) + "%"; }
 }
 // 채널 기본 디자인 — 스타일 탭 placeholder 와 오버레이가 같은 정의를 써야 한다
 function edBaseDesign(){
@@ -5192,6 +5457,9 @@ function edStagePaint(outT){
     if (seqMode || editing){
       tt.style.fontSize = ((+d.title_size || 96) * sc) + "px";
       tt.style.top = (edTitleYv(d) * sc) + "px";
+      // 회전(E7) — 원점은 블록 중심(엔진 계약과 동일, CSS 기본값)
+      tt.style.transform = Math.round(+d.title_rotate)
+        ? `rotate(${Math.round(+d.title_rotate)}deg)` : "";
       // 제목은 틱마다 안 바뀐다 — innerHTML 재생성은 내용이 달라졌을 때만(깜빡임 방지)
       const th = String(edForm.dTitle || "").split("\n").map((l, i) =>
         `<div style="color:${esc(i === 0 ? (d.title_color || "#FFFFFF")
@@ -5255,6 +5523,8 @@ function edStagePaint(outT){
       te.style.color = d.tts_color || "#87CEEB";
       te.style.bottom = (Math.max(0.02, Math.min(0.9,
         (+d.tts_y_margin || 580) / 1920)) * 100) + "%";
+      te.style.transform = Math.round(+d.tts_rotate)         // 회전(E7) — 원점 블록 중심
+        ? `rotate(${Math.round(+d.tts_rotate)}deg)` : "";
       te.textContent = cue ? cue.text : "";
       te.classList.toggle("editable", editing && !!cue);
       te.title = editing && cue ? "내레이션 자막 — 끌어서 세로 위치(모든 내레이션 공통)" : "";
@@ -5356,11 +5626,26 @@ window.edOvColor = v => {
   if (el) el.value = edForm.design[key];
   edStagePaint(edStageT); edMark();
 };
-// 자막 줄 회전(F-410) — 계약상 회전은 자막 줄과 이미지뿐(제목·TTS 는 불가)
+// 회전 — 자막 줄은 subtitles[].style.rotate(F-410), 제목·TTS 는 디자인 레벨
+// title_rotate·tts_rotate(E7, 이 편 전체 — editor_e7 게이트)
 window.edOvRotate = dd => {
   if (!edCanEdit() || !edRotOn()) return;
   if (edOvSel !== "sub"){
-    toast("회전은 자막 줄과 이미지만 됩니다(엔진 계약 — 제목·TTS 는 불가)", true); return;
+    if (!edE7On()){
+      toast("제목·TTS 회전은 엔진(E7) 개방 후 됩니다 — 지금은 자막 줄과 이미지만", true);
+      return;
+    }
+    edSnap("ovrot" + edOvSel);
+    const key = edOvSel === "title" ? "title_rotate" : "tts_rotate";
+    const bv = Math.round(+edBaseDesign()[key]) || 0;   // 채널 기본과 같으면 키를 지운다
+    const nv = Math.max(-180, Math.min(180, (Math.round(+edDesign()[key]) || 0) + dd));
+    const d2 = { ...(edForm.design || {}) };
+    if (nv === bv) delete d2[key]; else d2[key] = nv;
+    edForm.design = d2;
+    const el = document.getElementById("edd_" + key);
+    if (el) el.value = d2[key] ?? "";
+    edStagePaint(edStageT); edMark();
+    return;
   }
   const i = edStageCur;
   if (i < 0){ toast("자막이 화면에 떠 있는 순간에 조절할 수 있습니다", true); return; }
@@ -5382,8 +5667,9 @@ window.edOvReset = () => {
   const d = { ...(edForm.design || {}) };
   // 위치도 함께 채널 기본값으로(사용자 8/20) — 위아래로 끌어 본 제목·TTS 가
   // '원래대로'에 안 돌아오던 것. 제목은 드래그가 켠 고정 배치까지 해제(edTitleAutoY 규약).
-  (edOvSel === "title" ? ["title_size", "title_color", "title_y"]
-                       : ["tts_size", "tts_color", "tts_y_margin"])
+  // 회전(E7)도 같은 묶음 — 게이트 전이라도 키 삭제는 무해하다.
+  (edOvSel === "title" ? ["title_size", "title_color", "title_y", "title_rotate"]
+                       : ["tts_size", "tts_color", "tts_y_margin", "tts_rotate"])
     .forEach(k => { delete d[k];
       const el = document.getElementById("edd_" + k); if (el) el.value = ""; });
   if (edOvSel === "title"){
@@ -5745,7 +6031,10 @@ const ED_CHAIN_STEPS = [["acquire","소스"],["generate","렌더"],
 function edChainHtml(){
   if (!edChain) return "";
   const jobs = edChain.jobs || {};
-  const chips = ED_CHAIN_STEPS.map(([k, l]) => {
+  // JP 카드(0066) — 꼬리에 재번역·재렌더(localize) 칩이 하나 더 붙는다
+  const steps = edChain.jp
+    ? ED_CHAIN_STEPS.concat([["localize", "재번역"]]) : ED_CHAIN_STEPS;
+  const chips = steps.map(([k, l]) => {
     const j = jobs[k] || {};
     const st = j.status || "pending";
     const cls = st === "succeeded" ? "ok"
@@ -5793,10 +6082,13 @@ async function edChainPoll(){
       // 이걸 모르면 회색 칩인 채 5초 폴이 영원히 돈다.
       edChain.failed = (data || []).find(j =>
         ["failed", "dead", "cancelled", "blocked"].includes(j.status)) || null;
-      if ((jobs.evaluate || {}).status === "succeeded" && !edChain.newRid){
+      // 종결 잡·새 카드 kind — JP 카드(0066)는 localize 가 꼬리, 새 카드는 localization_qa
+      const doneJob = edChain.jp ? jobs.localize : jobs.evaluate;
+      if ((doneJob || {}).status === "succeeded" && !edChain.newRid){
         const { data: rv } = await sb.from("review_queue")
           .select("id").eq("work_order_id", edChain.woId)
-          .eq("kind", "publish_gate").eq("status", "waiting")
+          .eq("kind", edChain.jp ? "localization_qa" : "publish_gate")
+          .eq("status", "waiting")
           .order("created_at", { ascending: false }).limit(1);
         if (rv && rv.length) edChain.newRid = rv[0].id;
       }
@@ -5839,16 +6131,22 @@ function edCanEdit(r){
   // 체인 잠금도 여기서 — 전역 핸들러(Delete 키·드래그)가 각자 챙기면 반드시 샌다.
   if (edChain && edChain.rid === edRid) return false;
   r = r || (state.reviews||[]).find(x => x.id === edRid) || {};
-  if (!can("reviewer") || r.kind !== "publish_gate") return false;
+  // 0066: SHOTCONE 일본어 카드(작업지시 있음)도 KR 편집실 전체를 쓴다 —
+  // 재렌더 뒤 재번역(localize) 꼬리는 서버(0066 submit_editor_render)가 잇는다.
+  if (!can("reviewer") || !edKindOk(r)) return false;
   if (r.status === "waiting") return true;
   // 재제출 경로(F-302): 편집 재렌더로 닫혔고 새 카드가 없으면 **고쳐서** 다시 보낼 수
   // 있어야 한다 — 초안 내용 자체가 실패 원인(엔진 검증)일 수 있다. 서버(0050)가 같은
-  // 조건을 다시 검증한다.
+  // 조건을 다시 검증한다. 새 카드 판정은 같은 kind(JP 는 localization_qa).
   if (r.status === "rejected" && edData && edData.draft_sent_at)
     return !(state.reviews||[]).some(x => x.work_order_id === r.work_order_id
-      && x.kind === "publish_gate" && x.status === "waiting");
+      && x.kind === r.kind && x.status === "waiting");
   return false;
 }
+// 편집 재렌더를 받는 카드 — 발행 검수(KR) + 작업지시 있는 현지화 검수(SHOTCONE).
+// LOOPY 는 작업지시가 없다(ai-video 런 자체가 없음 — 일본어 편집 화면만).
+const edKindOk = r => r.kind === "publish_gate"
+  || (r.kind === "localization_qa" && !!r.work_order_id);
 // 선택 하이라이트를 렌더 없이 맞춘다 — 키보드 내비마다 render() 를 돌리면 video 가
 // 다시 로드된다. 블록·행 모두 인덱스 = clips 인덱스라 순서 대응이 성립한다.
 function edSelSync(){
@@ -5920,6 +6218,12 @@ document.addEventListener("keydown", e => {
   // 문자 비교가 영영 안 맞는다. 검수자 대부분이 한글 자판이다.
   else if (e.code === "KeyI"){ e.preventDefault(); edMarkIn(); }
   else if (e.code === "KeyO"){ e.preventDefault(); edMarkOut(); }
+  else if (e.code === "KeyS"){          // 구간 분할 ✂ — 선택 구간을 재생 헤드에서
+    e.preventDefault();
+    if (!edCanEdit()) return;
+    if (edSel >= 0 && edForm.clips[edSel]) edSplitClip(edSel);
+    else toast("나눌 구간을 먼저 선택하세요(구간 행 클릭 또는 ↑↓)", true);
+  }
   else if (k === "ArrowLeft"){ e.preventDefault();
     // 읽기 전용 카드에선 트랙 선택이 있어도 소스 이동으로 — 무음으로 죽으면 안 된다(M2)
     if (edOutSel && edOutSelObj() && edCanEdit()) edOutNudge(e.shiftKey ? -1 : -1 / ED_FPS);
