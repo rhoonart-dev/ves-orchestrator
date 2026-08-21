@@ -51,8 +51,10 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   :root[data-theme="light"] .st-info{color:#1f6fd0}
   :root[data-theme="light"] nav.tabs button.on{color:var(--ink)}
   :root[data-theme="light"] nav.tabs .badge{background:#fab219;color:#3d2c04}  /* 검수함 배지: 밝은 노랑 고정 */
-  :root[data-theme="light"] .gchip.hard{color:#c22525}   /* 지침 칩(8/20): 라이트 대비 */
-  :root[data-theme="light"] .gchip.soft{color:#0b8a0b}
+  :root[data-theme="light"] .gbh .gcnt.hard,
+  :root[data-theme="light"] .gk.hard{color:#c22525}      /* 편집 지침(8/20): 라이트 대비 */
+  :root[data-theme="light"] .gbh .gcnt.soft,
+  :root[data-theme="light"] .gk.soft{color:#0b8a0b}
   :root[data-theme="light"] .regen .rgh{color:#96690a}
   :root[data-theme="light"] .regen.plus .rgh{color:#0b8a0b}
   :root[data-theme="light"] .chdot{background:#c6c5be}       /* 없음: 라이트에선 연회색 */
@@ -740,17 +742,28 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .rv2 .rv2-mac{margin-left:8px;padding:1px 7px;border-radius:10px;font-size:11px;
     color:var(--muted);background:var(--chip,rgba(127,127,127,.12));white-space:nowrap}
   .rv2 .reason{flex:1}   /* 8/20: 카드 높이 차를 사유칸이 흡수 — 버튼 줄이 이웃 카드와 정렬 */
-  /* ── 편집 지침 칩(8/20) — payload.editorial(run_log 병합 적용본, brain.Evaluate).
-     권리사 요구(avoid·rules)=빨강 · 기획 방향(prefer·tone)=초록. 지침 없는 작품은 줄 자체가 없다. */
-  .edch{margin-top:6px;display:flex;flex-wrap:wrap;gap:5px;align-items:center;font-size:11.5px}
-  .edch .lbl{font-size:11px;color:var(--muted);font-weight:600;margin-right:2px}
-  .edch .lbl.grp{margin-left:10px;padding-left:12px;border-left:1px solid var(--line)}
-  .gchip{border-radius:999px;padding:1px 9px;border:1px solid;cursor:help;max-width:240px;
-    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .gchip.hard{color:#ff9a8f;border-color:color-mix(in srgb,var(--crit) 55%,var(--line));
-    background:color-mix(in srgb,var(--crit) 14%,transparent)}
-  .gchip.soft{color:#7fd889;border-color:color-mix(in srgb,var(--good) 55%,var(--line));
-    background:color-mix(in srgb,var(--good) 12%,transparent)}
+  /* ── 편집 지침(8/20) — payload.editorial(run_log 병합 적용본, brain.Evaluate).
+     칩을 늘어놓으면 문구가 길어 카드가 두세 줄로 밀린다(운영자 실측 8/20) — 접힌 상태는
+     '무엇이 몇 건'만 보이고 클릭하면 전문이 펼쳐진다(재생성·추가 생성 배지와 같은 골격).
+     권리사 요구(avoid·rules)=빨강 · 기획 방향(prefer·tone)=초록. 지침 없으면 박스 자체가 없다. */
+  .gbox{margin-top:6px;border:1px solid var(--line);background:var(--surface-2);
+    border-radius:9px;font-size:12px}
+  .gbh{display:flex;gap:10px;align-items:center;padding:5px 10px;cursor:pointer;
+    user-select:none;flex-wrap:nowrap;white-space:nowrap}
+  .gbh .gcnt{font-weight:700}
+  .gbh .gcnt.hard{color:#ff9a8f}
+  .gbh .gcnt.soft{color:#7fd889}
+  .gbh .arr{margin-left:auto;color:var(--muted);font-weight:400;font-size:11px;flex:none}
+  .gbh .arr i{display:inline-block;font-style:normal;transition:transform .15s}
+  .gbox.open .gbh .arr i{transform:rotate(90deg)}
+  .gbb{display:none;border-top:1px solid var(--line);padding:6px 10px 8px}
+  .gbox.open .gbb{display:block}
+  .grow{display:flex;gap:8px;margin-top:5px;align-items:baseline}
+  .grow:first-child{margin-top:0}
+  .gk{flex:none;font-size:10.5px;font-weight:700;border-radius:4px;padding:0 6px}
+  .gk.hard{color:#ff9a8f;background:color-mix(in srgb,var(--crit) 14%,transparent)}
+  .gk.soft{color:#7fd889;background:color-mix(in srgb,var(--good) 12%,transparent)}
+  .gv{color:var(--ink-2)}
   /* ── 반려 재생성 배지(8/20) — 배지는 상시, 사유·단계는 클릭해야(목업 v2.2 확정) */
   .regen{margin-top:6px;border:1px solid color-mix(in srgb,var(--warn) 40%,var(--line));
     background:color-mix(in srgb,var(--warn) 7%,transparent);border-radius:9px;font-size:12px}
@@ -1680,27 +1693,29 @@ window.runNow = async (slug, work, ep, direction) => {
 };
 
 // ───────── 검수함 (구 대시보드 검수 UX 계승: judge 참고표시·환각경고·반려유형) ─────────
-// 편집 지침 칩(8/20) — payload.editorial = run_log.input.editorial 의 병합 적용본
+// 편집 지침(8/20) — payload.editorial = run_log.input.editorial 의 병합 적용본
 // (brain.Evaluate 가 싣는다). avoid·rules 는 권리사 요구(하드), prefer·tone 은 기획
-// 방향(소프트) — 출처 규약은 ai-video editorial.py. 지침 없는 작품은 빈 문자열.
-function guideChips(pay){
+// 방향(소프트) — 출처 규약은 ai-video editorial.py. 접힌 상태는 건수만, 클릭하면 전문.
+// 이번 편에만 얹은 지시(editorial_run)는 여기서 빼고 '추가 생성' 배지가 보여준다.
+function guideBox(rid, pay){
   const ed = pay.editorial || {};
-  // 이번 편에만 얹은 지시(editorial_run)는 칩에서 빼고 '추가 생성' 배지가 보여준다(8/20)
-  // — 병합본에 원문 그대로 append 되므로 문자열 일치로 걸러진다.
   const run = pay.editorial_run || {};
   const runPref = new Set(run.prefer || []);
-  const cut = s => s.length > 24 ? s.slice(0, 24) + "…" : s;
-  const one = (cls, glyph, s, tip) =>
-    `<span class="gchip ${cls}" title="${esc(tip)} — ${esc(s)}">${glyph} ${esc(cut(s))}</span>`;
-  const hard = [...(ed.avoid || []).map(s => one("hard", "✕", s, "권리사 요구 · 장면·문구 금지")),
-                ...(ed.rules || []).map(s => one("hard", "≤", s, "권리사 요구 · 구성 제약"))];
-  const soft = [...(ed.prefer || []).filter(s => !runPref.has(s))
-                    .map(s => one("soft", "›", s, "기획 방향 — 권리사 요구 아님")),
-                ...(ed.tone && ed.tone !== run.tone
-                    ? [one("soft", "›", ed.tone, "기획 방향 · 문구 톤")] : [])];
+  const hard = [...(ed.avoid || []).map(s => ["금지", s]),
+                ...(ed.rules || []).map(s => ["제약", s])];
+  const soft = [...(ed.prefer || []).filter(s => !runPref.has(s)).map(s => ["방향", s]),
+                ...(ed.tone && ed.tone !== run.tone ? [["톤", ed.tone]] : [])];
   if (!hard.length && !soft.length) return "";
-  return `<div class="edch">${hard.length ? '<span class="lbl">권리 지침</span>' + hard.join("") : ""}${
-    soft.length ? `<span class="lbl${hard.length ? " grp" : ""}">기획 방향</span>` + soft.join("") : ""}</div>`;
+  const row = (cls, k, v) =>
+    `<div class="grow"><span class="gk ${cls}">${esc(k)}</span><span class="gv">${esc(v)}</span></div>`;
+  return `<div class="gbox" id="gd_${esc(rid)}">
+    <div class="gbh" onclick="document.getElementById('gd_${esc(rid)}').classList.toggle('open')">
+      ${hard.length ? `<span class="gcnt hard" title="권리사 요구 — 어기면 계약 문제">✕ 권리 지침 ${hard.length}</span>` : ""}
+      ${soft.length ? `<span class="gcnt soft" title="기획 방향 — 권리사 요구 아님">› 기획 방향 ${soft.length}</span>` : ""}
+      <span class="arr"><i>▸</i> 보기</span></div>
+    <div class="gbb">${hard.map(([k, v]) => row("hard", k, v)).join("")}${
+      soft.map(([k, v]) => row("soft", k, v)).join("")}</div>
+  </div>`;
 }
 // 추가 생성 배지(8/20) — 홈 '작업 실행'으로 오늘 계획과 별개로 만든 편(wo.origin='manual').
 // 기획 방향을 적었으면(payload.editorial_run) 펼쳐서 입력 문장을 원문 그대로 보여준다.
@@ -1943,7 +1958,7 @@ function renderReview(){
             wo.episode != null ? ` <span style="color:var(--muted)">· ${wo.episode}회차</span>` : ""}${
             (() => { const n = woNode(wo); return n
               ? ` <span class="rv2-mac" title="이 영상을 제작한 맥 — 반려 후 재생성도 같은 맥에서 돕니다">🖥 ${esc(n)}</span>` : ""; })()}</div>
-          ${guideChips(pay)}${manualBox(r.id, wo, pay)}${regenBox(r.id, pay)}${editBox(r.id, pay)}${jg}${form}</div></div>`;
+          ${guideBox(r.id, pay)}${manualBox(r.id, wo, pay)}${regenBox(r.id, pay)}${editBox(r.id, pay)}${jg}${form}</div></div>`;
     }).join("") || `<div class="empty">${rvCh==="all" ? "검수 대기 항목 없음 🎉" : esc(chName(rvCh)) + " — 검수 대기가 없습니다"}</div>`) + `</div></section>
     <section class="card"><h2>최근 결정${rvCh==="all" ? "" : ` — ${esc(chName(rvCh))}`}</h2><div class="tblwrap"><table>
       <tr><th>시각</th><th>채널</th><th>작품</th><th>결정</th><th>발행</th><th>결정자</th><th>사유</th></tr>${
