@@ -7,6 +7,10 @@ drive_watch 는 잡을 만들 때 인덱스 라운드로빈(i % len(nodes))으�
   mm-02 는 자기 5건을 09:05 에 끝내고 놀았다. 한 대는 줄이 네 겹, 한 대는 빈손.
 핀이 박혀 있으니 claim 이 알아서 옮겨줄 수 없다 — 그래서 주기적으로 다시 나눈다.
 running 은 절대 건드리지 않는다(진행 중인 rclone 을 뺏으면 받아둔 캐시가 뜬다).
+
+'바쁨'은 **모든 종류의 진행 중 잡**으로 센다(8/21 실측): 인입 잡 수만 세던 종전 셈은
+generate 를 돌리는 mm-01 을 '한가하다'고 보고 대기 인입을 그리로 계속 재핀했다 —
+max_concurrency=1 이라 generate 가 끝날 때까지 줄이 안 빠지는데, 놀던 mm-02 는 빈손이었다.
 """
 from __future__ import annotations
 
@@ -19,7 +23,7 @@ def plan_rebalance(pending, busy, nodes) -> list:
     """대기 잡을 '지금 덜 바쁜 노드'부터 채운다. 바꿀 것만 돌려준다. 순수 — 테스트 대상.
 
     pending: [(job_id, 현재_핀_노드|None)] — 오래 기다린 순
-    busy:    {노드: 진행중 인입 건수}
+    busy:    {노드: 진행중 잡 건수(종류 무관 — 한 대는 한 번에 한 잡이라 뭐든 점유다)}
     nodes:   인입 가능 노드 목록(rclone.conf 가 있는 대들)
     """
     if not nodes:
@@ -51,8 +55,10 @@ def run(conn, cfg=None) -> int:
         return 0                      # 한 대뿐이면 나눌 게 없다
 
     with conn.cursor() as c:
+        # 인입 잡만 세지 않는다 — generate 등 무엇이든 돌고 있으면 그 노드는 점유다
+        # (max_concurrency=1). 종전엔 generate 중인 노드를 '한가'로 봐서 그리로 몰았다(8/21).
         c.execute("""SELECT node_id, count(*) AS n FROM public.job_queue
-                      WHERE kind=%s AND status='running' GROUP BY node_id""", (KIND,))
+                      WHERE status='running' AND node_id IS NOT NULL GROUP BY node_id""")
         busy = {r["node_id"]: r["n"] for r in c.fetchall()}
         c.execute("""SELECT id, required_caps FROM public.job_queue
                       WHERE kind=%s AND status='pending'
