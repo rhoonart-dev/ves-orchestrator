@@ -77,14 +77,16 @@ generate(TTL 300s)는 최대 ~75초 안에 멈춘다.
 
 ```bash
 bash deploy/fetch_node_keys.sh                        # mm-06 키 목록 — 값은 마스킹(빈 값 표시)
-bash deploy/fetch_node_keys.sh --files all            # rclone.conf · vlp refresh_token JSON 까지
+bash deploy/fetch_node_keys.sh --files all            # secrets/ 디렉토리 전부 · vlp refresh_token JSON 까지
 bash deploy/fetch_node_keys.sh --key YT_REFRESH_TOKEN_LOOPY   # 값 1개만 (출처 파일도 알려줌)
 bash deploy/fetch_node_keys.sh --out ~/mm-06.env      # 평문 저장(600) — 다 쓰면 rm -P
 bash deploy/fetch_node_keys.sh --node mm-02           # 다른 노드 (mm-01~mm-06 · --host 로 직접 지정도 가능)
 ```
 
-- 가져오는 것: `/etc/ves/node.env` · `secrets/ves.env` · 엔진별 `.env`(brain·ai-video·vlp),
-  `--files all` 이면 `secrets/rclone.conf` 와 vlp 의 refresh_token JSON 까지.
+- 가져오는 것: `/etc/ves/node.env` · `secrets/ves.env` · 엔진별 `.env`(brain·ai-video·vlp).
+  `--files all` 은 여기에 **`$VES_HOME/secrets` 아래 파일 전부**(rclone.conf·쿠키·서비스계정 JSON 등)와
+  vlp 의 refresh_token JSON 을 더한다. 백업본(`*.bak-*`)·바이너리·256KB 초과 파일은 이름만 알리고
+  건너뛴다(그건 `scp` 로). 시크릿 디렉토리만 보려면 `--files secrets`.
 - 값은 ssh 파이프로만 흐른다 — argv·원격 임시파일·셸 히스토리에 안 남는다. 기본 출력은 마스킹이라
   화면 공유 중에도 안전하고, 평문은 `--reveal`/`--out`/`--key` 로 **명시할 때만** 나온다.
 - 노드 간 차이를 볼 땐 `--out` 으로 두 대를 받아 `diff`. 정본과 다르면 고치는 쪽은 정본이 먼저다

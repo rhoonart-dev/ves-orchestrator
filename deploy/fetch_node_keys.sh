@@ -14,7 +14,8 @@
 #   bash fetch_node_keys.sh --local [--files …]             # 번들을 stdout 으로 (마스킹 없음)
 #
 # --files: default(env 파일들) | all | 콤마목록
-#          ves.env,node.env,brain,aivideo,vlp,rclone,tokens
+#          ves.env,node.env,secrets,brain,aivideo,vlp,rclone,tokens
+#          secrets = $VES_HOME/secrets 아래 파일 전부 (백업본·대용량·바이너리는 목록만)
 # 값은 ssh 파이프로만 흐른다 — argv·원격 임시파일·셸 히스토리에 남지 않는다.
 set -euo pipefail
 
@@ -59,7 +60,7 @@ run_local() {
     local sel
     case "$FILES" in
         default) sel=" ves.env node.env brain aivideo vlp " ;;
-        all)     sel=" ves.env node.env brain aivideo vlp rclone tokens " ;;
+        all)     sel=" ves.env node.env secrets brain aivideo vlp rclone tokens " ;;
         *)       sel=" $(printf '%s' "$FILES" | tr ',' ' ') " ;;
     esac
     want() { case "$sel" in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
@@ -69,7 +70,10 @@ run_local() {
             || m="$(stat -f '%Lp %Sm' -t '%Y-%m-%d %H:%M' "$1" 2>/dev/null)" || m='?'
         printf '%s' "$m" | tr -d '\n'
     }
-    emit() { # $1 = 경로
+    EMITTED=""
+    emit() { # $1 = 경로 (같은 파일은 한 번만)
+        case "$EMITTED" in *"|$1|"*) return 0 ;; esac
+        EMITTED="$EMITTED|$1|"
         if [ -f "$1" ] && [ -r "$1" ]; then
             printf '#=== FILE %s | %s ===\n' "$1" "$(meta "$1")"
             cat "$1"; printf '\n'
@@ -78,6 +82,26 @@ run_local() {
         else
             printf '#=== MISSING %s ===\n' "$1"
         fi
+    }
+
+    emit_secrets() { # $1 = 디렉토리 — 그 아래 파일 전부. 백업·대용량·바이너리는 이름만 알린다.
+        local d="$1" f sz n_bak=0
+        [ -d "$d" ] || { printf '#=== MISSING %s ===\n' "$d"; return 0; }
+        while IFS= read -r f; do
+            [ -n "$f" ] || continue
+            case "$f" in *.bak|*.bak-*|*~|*.DS_Store) n_bak=$((n_bak + 1)); continue ;; esac
+            sz="$(wc -c < "$f" 2>/dev/null | tr -d ' ')"
+            if [ "${sz:-0}" -gt 262144 ]; then
+                printf '#=== SKIPPED %s (%s bytes — 너무 큼, 필요하면 scp) ===\n' "$f" "$sz"
+            elif [ "${sz:-0}" -gt 0 ] && ! LC_ALL=C grep -Iq . "$f" 2>/dev/null; then
+                printf '#=== SKIPPED %s (바이너리 — 필요하면 scp) ===\n' "$f"
+            else
+                emit "$f"
+            fi
+        done <<EOF
+$(find "$d" -maxdepth 3 -type f 2>/dev/null | sort)
+EOF
+        [ "$n_bak" = 0 ] || printf '#=== SKIPPED %s (백업본 %s개 — .bak-*) ===\n' "$d" "$n_bak"
     }
 
     printf '#=== NODE %s | %s ===\n' \
@@ -89,6 +113,7 @@ run_local() {
     want aivideo  && emit "$VES_HOME/engines/ai-video/.env"
     want vlp      && emit "$VES_HOME/engines/video-localization-project/.env"
     want rclone   && emit "$VES_HOME/secrets/rclone.conf"
+    want secrets  && emit_secrets "$VES_HOME/secrets"
     if want tokens; then
         # 발행이 실제로 쓰는 refresh token JSON (zanmang.py — outputs/yt_oauth_token.json 등)
         local vlp="$VES_HOME/engines/video-localization-project" f found=0 list
@@ -167,10 +192,21 @@ def mask(v):
     return f"{v[:4]}…{v[-4:]}  ({len(v)}자)"
 
 
-keys = empty = 0
+keys = empty = other = 0
+
+
+def flush_other():
+    # KV 도 JSON 도 아닌 줄(쿠키·PEM·설정 등)은 내용 대신 줄 수만 — 값은 --reveal/--out 으로.
+    global other
+    if other:
+        print(f"  ({other}줄은 KEY=VALUE 형식이 아님 — 내용은 --reveal/--out 으로)")
+    other = 0
+
+
 for ln in os.environ["BUNDLE"].splitlines():
     s = ln.strip()
     if s.startswith("#=== ") and s.endswith(" ==="):
+        flush_other()
         kind, _, rest = s[5:-4].strip().partition(" ")
         if kind == "NODE":
             print(f"════ {os.environ['NODE']} · {rest} ════")
@@ -196,7 +232,10 @@ for ln in os.environ["BUNDLE"].splitlines():
         print(f"  {j.group(1):<32} {mask(j.group(2))}")
     elif s.startswith("["):
         print(f"  {s}")                 # rclone.conf 섹션명
+    else:
+        other += 1
 
+flush_other()
 print(f"\n키 {keys}개" + (f" · ⚠ 빈 값 {empty}개" if empty else ""))
 print("평문: --reveal(화면) · --out FILE(파일,600) · --key NAME(1개)")
 PYEOF
