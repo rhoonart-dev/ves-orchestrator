@@ -5767,18 +5767,31 @@ function edDesign(){
 // 위치·크기를 끌어 만질 대상이 화면에 있어야 해서다.
 // v3 style.y = 자막 **하단**이 놓일 캔버스 세로 위치(0=상단, 1=하단) — ai-video 계약:
 // MarginV = (1−y)×1920. 화면 CSS 는 bottom 기준이라 (1−y) 로 그린다.
-// 기본값(줄 style.y 없음) — 엔진 pipeline._compute_subtitle_margin_v 미러(8/21 정합):
-// '밴드 하단에서 10px 위'. subtitle_y_margin 디자인 키는 엔진 대사 자막 경로가 읽지
-// 않는다(margin_v 동적 계산이 '항상 우선' — pipeline 주석) — 종전 380 역산은 낡은
-// 근사였다. 엔진과 동일하게 세로 중앙 가정(video_y 미반영 — 엔진도 안 본다)·밴드 폭
-// (E10) 기준 높이·짝수 보정.
+// 기본값(줄 style.y 없음) — 엔진 pipeline._compute_subtitle_margin_v 미러(8/21 정합 +
+// E10 교정 9faa4fe): '밴드 하단에서 10px 위'. 신 기하(video_y·video_width 반영 밴드
+// 하단 앵커)는 **video_width 명시 시에만** — 미지정이면 종전 기하(꽉 찬 폭·세로 중앙
+// 가정) 그대로다. video_y 만 쓰는 기존 채널(한 입 주막)의 실렌더 튜닝을 지키는 회귀 0
+// 게이트로, 엔진과 같은 조건이라 미리보기도 같은 그림을 낸다. subtitle_y_margin
+// 디자인 키는 엔진 대사 자막 경로가 읽지 않는다(margin_v 동적 계산이 '항상 우선').
+const edVwSet = d => d.video_width != null && String(d.video_width).trim() !== "";
+function edSubBandBottom(d, legacy){   // 엔진 _video_band_bottom — legacy = 종전 기하
+  const g = edStageBandGeom(legacy ? { aspect_ratio: d.aspect_ratio } : d);
+  return legacy || d.video_y == null || String(d.video_y).trim() === ""
+    ? Math.max(0, Math.floor((1920 - g.bhpx) / 2)) + g.bhpx
+    : Math.round(g.vy * 1920) + g.bhpx;
+}
 function edSubMarginV(d){
-  const g = edStageBandGeom(d);        // bhpx = 밴드 폭 기준 · 짝수 보정 완료
-  if (g.bhpx >= 1920) return 10;
-  const oy = Math.max(0, Math.floor((1920 - g.bhpx) / 2));
-  return Math.max(10, 1920 - (oy + g.bhpx) + 10);
+  return Math.max(10, 1920 - edSubBandBottom(d, !edVwSet(d)) + 10);
 }
 const edSubYDef = d => 1 - edSubMarginV(d) / 1920;
+// TTS 기본 위치 — 엔진 _compute_tts_margin_v 미러: tts_y_margin(절대값)은 유지하되
+// video_width 명시 시에만 '종전 밴드 하단 대비 델타'로 밴드에 앵커(회귀 0 조건 동일)
+function edTtsBandDelta(d){
+  if (!edVwSet(d)) return 0;
+  return Math.min(1920, edSubBandBottom(d, true))
+       - Math.min(1920, edSubBandBottom(d, false));
+}
+const edTtsMarginV = d => Math.max(0, (+d.tts_y_margin || 580) + edTtsBandDelta(d));
 // 제목 y — 0(맨 위)이 유효값이라 || 폴백을 쓰면 안 된다(놓는 순간 120 으로 점프)
 const edTitleYv = d => (d.title_y != null && String(d.title_y) !== "" ? +d.title_y : 120);
 // ── 제목 블록 — 엔진 미러(8/21 정합) ──────────────────────────────────
@@ -5910,11 +5923,12 @@ function edStagePaint(outT){
           const r = edOutPos(eff0, t.src); return r && outT >= r.p && outT < r.p + t.dur; });
       }
       // 엔진 전용 키(tts_size·tts_color·tts_y_margin=하단 px)가 있으면 그대로 —
-      // 없을 때만 근사 기본값(엔진 tts_line_* 기본과 동치)
+      // 없을 때만 근사 기본값(엔진 tts_line_* 기본과 동치). 위치는 유효 margin
+      // (edTtsMarginV — video_width 명시 시 밴드 델타 앵커, 엔진 E10 교정과 동일)
       te.style.fontSize = ((+d.tts_size || 70) * sc) + "px";
       te.style.color = d.tts_color || "#87CEEB";
       te.style.bottom = (Math.max(0.02, Math.min(0.9,
-        (+d.tts_y_margin || 580) / 1920)) * 100) + "%";
+        edTtsMarginV(d) / 1920)) * 100) + "%";
       te.style.transform = Math.round(+d.tts_rotate)         // 회전(E7) — 원점 블록 중심
         ? `rotate(${Math.round(+d.tts_rotate)}deg)` : "";
       te.textContent = cue ? cue.text : "";
@@ -6328,13 +6342,17 @@ window.edTtsDragDown = ev => {
   ev.preventDefault(); ev.stopPropagation();
   edOvSel = "tts"; edOvSelSync();     // 잡은 요소가 곧 도구의 대상
   const H = st.clientHeight || 480;
-  const b0 = Math.max(0.02, Math.min(0.9, (+edDesign().tts_y_margin || 580) / 1920));
+  // 화면은 유효 margin(밴드 델타 포함)으로 그리므로, 저장할 tts_y_margin(절대 노브)은
+  // 델타를 되빼서 넣는다 — 엔진이 다시 델타를 더해 화면과 같은 위치가 된다(왕복 항등)
+  const delta0 = edTtsBandDelta(edDesign());
+  const b0 = Math.max(0.02, Math.min(0.9, edTtsMarginV(edDesign()) / 1920));
   const cy = ev.clientY;
   edSnap("ttsdrag");
   const move = e => {
     if (!e.buttons){ up(); return; }
     const nb = Math.max(0.02, Math.min(0.9, b0 + (cy - e.clientY) / H));  // 위로 끌면 여백↑
-    edForm.design = { ...(edForm.design || {}), tts_y_margin: Math.round(nb * 1920) };
+    edForm.design = { ...(edForm.design || {}),
+                      tts_y_margin: Math.round(nb * 1920) - delta0 };
     te.style.bottom = (nb * 100) + "%";
   };
   const up = () => {

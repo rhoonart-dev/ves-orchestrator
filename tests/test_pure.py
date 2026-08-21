@@ -3110,16 +3110,21 @@ def test_dashboard_editor_sub_style_wysiwyg():
     assert '"aspect_ratio",     "영상 화면비"' in html
     assert 'classList.toggle("seqfit"' in html
     # v3 계약: style.y 는 0=상단, 1=하단(자막 하단 위치) — 화면은 bottom 이라 (1−y).
-    # 기본값(줄 style.y 없음)은 엔진 _compute_subtitle_margin_v 미러(8/21 정합):
-    # '밴드 하단에서 10px 위' 동적 계산 — subtitle_y_margin 380 역산은 낡은 근사였다
-    # (엔진 대사 자막 경로는 그 키를 읽지 않는다 — margin_v 동적 계산이 '항상 우선').
+    # 기본값(줄 style.y 없음)은 엔진 _compute_subtitle_margin_v 미러(8/21 정합 + E10
+    # 교정 9faa4fe): '밴드 하단에서 10px 위' — 신 기하(video_y·video_width)는
+    # video_width 명시 시에만(회귀 0 게이트, 엔진과 동일 조건). subtitle_y_margin 380
+    # 역산은 낡은 근사였다(엔진 대사 자막 경로는 그 키를 읽지 않는다).
     assert "edSubYDef" in html and "function edSubMarginV" in html
-    assert "1920 - (oy + g.bhpx) + 10" in html
+    assert "function edSubBandBottom" in html and "edVwSet" in html
+    assert "edSubBandBottom(d, !edVwSet(d))" in html
     assert "(+d.subtitle_y_margin || 380)" not in html
     assert "(1 - yv) * 100" in html
-    # TTS(내레이션) 자막 — 위치는 이 편 전체 공통(design.tts_y_margin, 하단 px 드래그)
+    # TTS(내레이션) 자막 — 위치는 이 편 전체 공통(design.tts_y_margin, 하단 px 드래그).
+    # E10 교정 미러: 화면은 유효 margin(edTtsMarginV — video_width 명시 시 밴드 델타),
+    # 저장은 절대 노브(델타 되빼기 — 엔진이 다시 더해 화면과 같은 위치, 왕복 항등)
     assert "edTtsDragDown" in html
-    assert "tts_y_margin: Math.round(nb * 1920)" in html
+    assert "function edTtsBandDelta" in html and "edTtsMarginV" in html
+    assert "tts_y_margin: Math.round(nb * 1920) - delta0" in html
     assert '"tts_y_margin"' in html or "'tts_y_margin'" in html or "edd_tts_y_margin" in html
     # 수집: 아는 키(size·y·color)만 정제해 싣는다 — 플래그 게이트 없음(전량 교체라
     # 빼면 스타일 있는 카드의 재제출이 스타일을 조용히 벗긴다)

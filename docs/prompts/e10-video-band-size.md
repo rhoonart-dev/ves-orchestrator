@@ -1,5 +1,17 @@
 # E10 — 영상 밴드 가로 크기 (design.video_width, ai-video 엔진 발주서)
 
+> **구현 완료(2026-08-21, ai-video PR #31 = d195cb9 머지).** 확정 계약이 발주서와
+> 다른 점 두 가지 — 이후 미러·개방은 이 확정본 기준:
+> - `DesignConfig.video_width` 기본값은 1080 이 아니라 **None(미지정)** 이다.
+>   미지정 = 렌더 폭 1080(종전) + 자막·TTS margin 도 **종전 기하 그대로**(회귀 0).
+> - 발주 검수(9faa4fe) 교정: 자막('밴드 하단 10px 위')·TTS(tts_line_y_margin 델타)
+>   의 **밴드 앵커(video_y·video_width 반영)는 video_width 명시 시에만** 켜진다 —
+>   video_y 만 쓰는 기존 채널(한 입 주막, 8/19 실렌더 픽셀 튜닝)의 출력이 조용히
+>   움직이지 않게. 회귀 가드: 엔진 tests/test_e10_video_band_width.py
+>   (test_hanipjumak_shape_regression_guard 포함). 대시보드 미리보기도 같은 조건으로
+>   미러(edSubMarginV·edTtsMarginV·edVwSet). 개방: 전 노드 배포 확인 후
+>   ops_config editor_e10=on.
+
 ai-video(rht-22/ai-video) 엔진 세션용 작업 프롬프트. 기준: bd58078(E8 머지본).
 사용자 요청(8/21): "쇼츠 화면 크기 안에서 영상의 비율 및 크기를 조절할 수 있게".
 비율(aspect_ratio)·세로 위치(video_y)는 이미 있다 — 이번엔 **밴드의 가로 크기**다.
