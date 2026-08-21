@@ -3311,16 +3311,21 @@ def test_edit_design_keys_are_known_flags():
     """화면이 보내는 스타일 키는 전부 CLI 플래그로 번역돼야 한다 — 모르는 키가 오면
     어댑터가 PermanentError 를 내므로(registry 원칙) 화면 목록과 계약이 어긋나면 잡이 죽는다."""
     import pathlib, re
-    from ves.adapters.aivideo import CHANNEL_DESIGN_FLAGS, channel_design_flags
+    from ves.adapters.aivideo import (CHANNEL_DESIGN_FLAGS, CHANNEL_DESIGN_SWITCHES,
+                                      channel_design_flags)
     html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
     block = html.split("const ED_STYLE_FIELDS = [", 1)[1].split("];", 1)[0]
     keys = re.findall(r'\["(\w+)"', block)
     assert keys, "화면 스타일 목록을 찾지 못했다"
-    for k in keys:
+    # 스위치 키(title_bold 등)는 값 없이 플래그 하나 — 불리언 true 로 보내 1개, 값 키는 2개
+    switches = [k for k in keys if k in CHANNEL_DESIGN_SWITCHES]
+    values = [k for k in keys if k not in CHANNEL_DESIGN_SWITCHES]
+    for k in values:
         assert k in CHANNEL_DESIGN_FLAGS, f"화면이 보내는 {k!r} 를 어댑터가 모른다"
     # 실제로 argv 로도 나오는지(플래그 이름 오타 방어)
-    flags = channel_design_flags({k: "1" for k in keys}, "TEST")
-    assert len(flags) == len(keys) * 2
+    flags = channel_design_flags({**{k: "1" for k in values},
+                                  **{k: CHANNEL_DESIGN_SWITCHES[k][1] for k in switches}}, "TEST")
+    assert len(flags) == len(values) * 2 + len(switches)
 
 
 def test_dashboard_editor_v2_wired():
@@ -3653,3 +3658,20 @@ def test_dashboard_editor_video_band_size_e10():
     assert "1080 * 2" in html
     assert '"video_width",      "영상 가로 크기(px)"' in html
     assert "n < 320 || n > 1080" in html
+
+
+# ── 제목 줄별 배경 박스·굵게(2026-08-21) — 어댑터 플래그 방출 ──
+
+def test_title_box_and_bold_design_keys_emit_flags():
+    """박스 4키는 값 플래그, 굵게 2키는 스위치(true 일 때만). brain channel_registry 와 1:1."""
+    from ves.adapters import aivideo
+    flags = aivideo.channel_design_flags({
+        "title_box": "round", "title_box2": "rect",
+        "title_box_color": "#FF3E9D", "title_box_color2": "black@0.6",
+        "title_bold": True, "title_bold2": False,
+    }, "T")
+    assert flags == ["--design-title-box", "round", "--design-title-box2", "rect",
+                     "--design-title-box-color", "#FF3E9D",
+                     "--design-title-box-color2", "black@0.6",
+                     "--design-title-bold"]
+    assert aivideo.CHANNEL_DESIGN_SWITCHES["title_bold2"] == ("--design-title-bold2", True)

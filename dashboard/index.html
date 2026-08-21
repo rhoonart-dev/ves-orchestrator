@@ -330,6 +330,26 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .edsubtools .mini.on{background:var(--ink);color:var(--surface);border-color:var(--ink)}
   .edsubtools input[type=color]{width:26px;height:22px;padding:0;border:1px solid var(--line);
               border-radius:5px;background:none;cursor:pointer}
+  /* 제목 줄별 도구(2026-08-21) — 줄 그룹 + 팔레트 팝오버(채널 모달 cpick 팔레트와 같은 색 목록) */
+  .edtitletools{position:relative}
+  .lngrp{display:inline-flex;align-items:center;gap:3px;padding:2px 4px 2px 6px;
+         border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+  .lngrp .lbl{font-size:11px;color:var(--ink-2);font-weight:700;margin-right:2px;white-space:nowrap}
+  .lngrp .mini.b{font-weight:900;padding:2px 7px}
+  .lngrp .mini.sw{display:inline-flex;align-items:center;gap:4px;padding:2px 6px}
+  .lngrp .mini.sw .swl{font-size:11px;color:var(--muted)}
+  .lngrp .mini.sw i{width:14px;height:14px;border-radius:3px;border:1px solid #ffffff55;display:inline-block}
+  .edpal{position:absolute;z-index:20;background:var(--surface);border:1px solid var(--line);
+         border-radius:10px;padding:8px 10px;box-shadow:0 12px 40px #0008;width:236px}
+  .edpalhd{font-size:11px;color:var(--muted);font-weight:700;margin-bottom:6px}
+  .edpalsw{display:grid;grid-template-columns:repeat(8,1fr);gap:5px}
+  .edpalsw b{display:block;aspect-ratio:1;border-radius:5px;border:1px solid #ffffff33;cursor:pointer}
+  .edpalsw b:hover{outline:2px solid var(--ink)}
+  .edpalsw b.on{outline:2px solid var(--accent);outline-offset:1px}
+  .edpalcustom{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);margin-top:8px}
+  /* 제목 줄 미리보기 — 박스는 글자를 감싸는 inline-block(엔진 여백 .30em·라운드 .25em 과 같은 비율) */
+  .edovtitle .ln{display:inline-block}
+  .edovtitle .ln.bx{text-shadow:none}
   /* 일본어 편집 행 — KR 편집실 .edsub 를 그대로 재사용(사용자 요청: 완전 동일).
      다른 점은 입력 바로 아래 한국어 원문 병기 한 줄뿐 */
   .edsub .jpcol{flex:1;min-width:0}
@@ -2218,6 +2238,10 @@ const edRotOn = () => (((state.ops||{}).editor_rotate||{}).value === "on");
 // E7(ai-video 2a087eb) — 제목·TTS 회전 + 영상 배속. 어댑터(신 키)·엔진 전 노드 배포
 // 확인 후 ops_config editor_e7=on 으로 개방(구 어댑터는 모르는 design 키에 즉시 실패).
 const edE7On = () => (((state.ops||{}).editor_e7||{}).value === "on");
+// 제목 줄별 배경 박스·굵게(ai-video 2026-08-21) — 어댑터 신 키 + 엔진 전 노드 배포 확인 후
+// ops_config editor_title_box=on 으로 개방(구 엔진은 모르는 --design-title-box 에 argparse 즉사,
+// 구 어댑터는 모르는 design 키에 즉시 실패). 플래그는 롤백이 아니다(E7 과 동일).
+const edTitleBoxOn = () => (((state.ops||{}).editor_title_box||{}).value === "on");
 // 유효 배속 — 완성본 길이 표시·쇼츠 상한·가상 미리보기 재생 속도가 같은 값을 쓴다.
 // 범위 밖·비숫자는 1(엔진 검증과 동일 범위 — edStyleSet 이 입력 단계에서 거른다).
 function edSpeed(){
@@ -2465,6 +2489,7 @@ function edCollect(forDraft){
     if (!edImagesOn()) delete ov.design.title_y_fixed;
     if (!edE7On()) ED_E7_KEYS.forEach(k => delete ov.design[k]);   // E7(회전·배속)도 동일
     if (!edE10On()) ED_E10_KEYS.forEach(k => delete ov.design[k]); // E10(밴드 크기)도 동일
+    if (!edTitleBoxOn()) ED_TITLEBOX_KEYS.forEach(k => delete ov.design[k]);   // 제목 박스·굵게
     if (!Object.keys(ov.design).length) delete ov.design;
   }
   return ov;
@@ -3862,6 +3887,26 @@ function renderEdit(){
           <button class="mini" onclick="edOvReset()"
             title="선택 대상의 크기·색·위치를 채널 기본값으로(자막은 그 줄만)">원래대로</button>
         </div>
+        <!-- 제목 줄별 도구(2026-08-21) — 제목을 선택했을 때만(editor_title_box 게이트):
+             배경 순환(없음→둥근→각진)·굵게·글자색/배경색 팔레트. 표시는 edTitleToolsSync -->
+        <div class="edsubtools edtitletools" id="edtitletools" style="display:none">
+          ${[0, 1].map(i => `<span class="lngrp">
+            <span class="lbl">제목 ${i + 1}줄</span>
+            <button class="mini" id="edtbox${i}" onclick="edOvBox(${i})"
+              title="${i + 1}줄 배경: 없음 → 둥근네모 → 각진네모">▭ 없음</button>
+            <button class="mini b" id="edtbold${i}" onclick="edOvBold(${i})" title="${i + 1}줄 굵게">B</button>
+            <button class="mini sw" id="edttxt${i}" onclick="edPalOpen(event,${i},'txt')"
+              title="${i + 1}줄 글자색 — 팔레트"><span class="swl">가</span><i></i></button>
+            <button class="mini sw" id="edtbg${i}" onclick="edPalOpen(event,${i},'box')"
+              title="${i + 1}줄 배경색 — 팔레트"><span class="swl">▦</span><i></i></button>
+          </span>`).join("")}
+          <div class="edpal" id="edpal" style="display:none">
+            <div class="edpalhd" id="edpalhd"></div>
+            <div class="edpalsw" id="edpalsw"></div>
+            <label class="edpalcustom">직접 선택 <input type="color" id="edpalc"
+              onchange="edPalPick(this.value)"></label>
+          </div>
+        </div>
         <div class="edstage" id="edstage">
           <div class="edbandbox" id="edbandbox">
             <video id="edvid" playsinline preload="metadata" controls></video>
@@ -4392,11 +4437,25 @@ const ED_STYLE_FIELDS = [
   ["title_rotate",     "제목 회전(도)",  "-180~180 · 시계 +"],
   ["tts_rotate",       "TTS 회전(도)",   "-180~180 · 시계 +"],
   ["video_speed",      "영상 배속",      "0.8~2.0 · 예: 1.25"],
+  // 제목 줄별 배경 박스·굵게(ai-video 2026-08-21) — 표시·전송은 editor_title_box 게이트.
+  // 박스/굵게 칸은 edPaneStyle 이 select 로 그린다(값: none·round·rect / true). ✎ 의
+  // 제목 줄별 도구(배경 순환·B·팔레트)와 같은 키.
+  ["title_box",        "제목 배경(1줄)",  "none · round · rect"],
+  ["title_box_color",  "제목 배경색(1줄)", "#FF3E9D"],
+  ["title_bold",       "제목 굵게(1줄)",  "true"],
+  ["title_box2",       "제목 배경(2줄)",  "none · round · rect"],
+  ["title_box_color2", "제목 배경색(2줄)", "#FFFFFF"],
+  ["title_bold2",      "제목 굵게(2줄)",  "true"],
 ];
 // E7 키 — 게이트 전 화면·전송에서 함께 뺀다(성분표는 한 곳)
 const ED_E7_KEYS = ["title_rotate", "tts_rotate", "video_speed"];
 // E10 키 — 같은 규약(게이트 전 화면·전송 동시 차단)
 const ED_E10_KEYS = ["video_width"];
+// 제목 박스·굵게 키 — editor_title_box 게이트 전 화면·전송에서 함께 뺀다
+const ED_TITLEBOX_KEYS = ["title_box", "title_box2", "title_box_color", "title_box_color2",
+                          "title_bold", "title_bold2"];
+const ED_BOX_OPTIONS = [["none", "없음"], ["round", "둥근네모"], ["rect", "각진네모"]];
+const edIsBold = v => v === true || String(v).trim().toLowerCase() === "true";
 // 쇼츠 템플릿(F-508) — 화면이 편집하는 스타일 키 묶음. 적용 = 이 편 오버라이드 통째
 // 교체(채널 위에), 저장 = 지금 화면의 유효 디자인(채널+이 편) 스냅샷. 목록은 세션당
 // 1회 + 저장·삭제 후. state 에 넣지 않는다 — refresh() 의 state 통재구성에 지워진다.
@@ -4448,6 +4507,150 @@ window.edTplDelete = async () => {
   if (r){ await edTplLoad(true); render(); }
 };
 
+// ── 편집실 → 채널 템플릿 저장(2026-08-21) ───────────────────────────────
+// set_channel_design 의 오버라이드는 **통째 교체**(adapters/aivideo.effective_design)라
+// 부분 전송 금지 — edDesign()(채널 기본 + 이 편) 전체를 스냅샷한다. 그래야 안 건드린
+// 폰트·플랫폼 로고·작품명 위치가 엔진 기본값으로 떨어지지 않는다. v_allowed 에 없는
+// 편집실 전용 키(E7 회전·배속)만 뺀다. 게이트 꺼진 박스 키는 edForm 에 애초에 없다.
+const ED_CHTPL_DROP = new Set(ED_E7_KEYS);
+function edChTplPayload(){
+  const out = {};
+  for (const [k, v] of Object.entries(edDesign())){
+    if (ED_CHTPL_DROP.has(k)) continue;
+    if (v === null || v === undefined) continue;
+    if (typeof v === "string"){
+      const t = v.trim();
+      if (!t) continue;
+      out[k] = /^-?\d+$/.test(t) ? parseInt(t, 10)
+             : t === "true" ? true : t === "false" ? false : t;   // chSave 와 같은 정규화
+    } else out[k] = v;
+  }
+  return out;
+}
+function edChTplChannel(){
+  const r = (state.reviews||[]).find(x => x.id === edRid) || {};
+  const wo = state.wo[r.work_order_id] || {};
+  return (state.chans||[]).find(c => c.token_slug === wo.channel_slug) || null;
+}
+window.edChTplSave = () => {
+  if (!can("operator")){ toast("채널 템플릿 저장은 operator 권한입니다", true); return; }
+  const ch = edChTplChannel();
+  if (!ch){ toast("이 카드의 채널을 찾지 못했습니다", true); return; }
+  const payload = edChTplPayload();
+  if (!Object.keys(payload).length){ toast("저장할 스타일 값이 없습니다", true); return; }
+  // 바뀌는 것 요약 — 현재 채널 템플릿(유효 디자인) 대비. dfDiffUpdate 와 같은 어휘.
+  const cur = effDesign(ch).design || {};
+  const labels = Object.fromEntries(DESIGN_FIELDS.map(([k, l]) => [k, l])
+    .concat(ED_STYLE_FIELDS.map(([k, l]) => [k, l])));
+  const keys = [...new Set([...Object.keys(cur), ...Object.keys(payload)])]
+    .filter(k => !k.startsWith("_") && String(cur[k] ?? "") !== String(payload[k] ?? ""));
+  const diffs = keys.map(k => `${labels[k] || k}: ${cur[k] ?? "기본"} → ${payload[k] ?? "기본"}`);
+  const box = document.getElementById("edchtplconfirm"); if (!box) return;
+  box.innerHTML = `<div class="edwarn" style="margin:0 0 10px">
+    <b>${esc(ch.name || ch.token_slug)}</b> 채널 템플릿으로 저장할까요?<br>
+    ${diffs.length ? "바뀌는 것: " + diffs.map(esc).join(" · ")
+                   : '<span class="sub">변경 없음 — 지금 채널 템플릿과 같습니다</span>'}<br>
+    <span class="sub">플랫폼 표기·작품명 크기·위치, 폰트 등 나머지는 현재 값 그대로 함께 저장됩니다(통째 교체).
+    저장 즉시 이 채널의 <b>다음 생성부터 전부</b> 적용 — 이 편 자체는 바뀌지 않습니다.</span>
+    <div style="margin-top:8px;display:flex;gap:6px">
+      <button class="pri mini" onclick="edChTplCommit('${esc(ch.token_slug)}')">✓ 저장 — 다음 생성부터 적용</button>
+      <button class="mini" onclick="document.getElementById('edchtplconfirm').innerHTML=''">취소</button>
+    </div></div>`;
+};
+window.edChTplCommit = async slug => {
+  const payload = edChTplPayload();
+  const box = document.getElementById("edchtplconfirm"); if (box) box.innerHTML = "";
+  const r = await rpc("set_channel_design", { p_slug: slug, p_design: payload },
+    "채널 템플릿 저장됨 — 다음 생성부터 적용 (채널 탭 디자인 모달에도 반영)");
+  if (r){
+    // 화면 상태도 즉시 — refresh 전까지 edBaseDesign/채널 모달이 새 템플릿을 본다
+    state.designOvr = state.designOvr || {};
+    state.designOvr[slug] = { ...(state.designOvr[slug] || {}), token_slug: slug, design: payload };
+    render();
+  }
+};
+
+// ── ✎ 제목 줄별 도구(배경 박스 순환·굵게·팔레트) — editor_title_box 게이트 ───────
+let edPalT = null;   // 열린 팔레트의 대상 {line, kind:'txt'|'box'}
+function edTitleToolsSync(){
+  const el = document.getElementById("edtitletools"); if (!el) return;
+  const show = edV3() && edStyleTool && edOvSel === "title" && edTitleBoxOn() && edCanEdit();
+  el.style.display = show ? "" : "none";
+  if (!show){ edPalClose(); return; }
+  const d = edDesign();
+  [0, 1].forEach(i => {
+    const bk = i ? "title_box2" : "title_box", bd = i ? "title_bold2" : "title_bold";
+    const tc = i ? (d.title_color2 || "#FFFF00") : (d.title_color || "#FFFFFF");
+    const bc = i ? (d.title_box_color2 || "#000000") : (d.title_box_color || "#000000");
+    const mode = d[bk] || "none";
+    const b = document.getElementById("edtbox" + i);
+    if (b){ b.textContent = (mode === "round" ? "▢ " : mode === "rect" ? "■ " : "▭ ")
+              + (ED_BOX_OPTIONS.find(o => o[0] === mode) || ["", "없음"])[1];
+            b.classList.toggle("on", mode !== "none"); }
+    const w = document.getElementById("edtbold" + i); if (w) w.classList.toggle("on", edIsBold(d[bd]));
+    const t = document.querySelector("#edttxt" + i + " i"); if (t) t.style.background = tc;
+    const x = document.querySelector("#edtbg" + i + " i"); if (x) x.style.background = bc;
+  });
+}
+// 키 하나를 편집실 오버라이드에 쓰되 채널 기본과 같으면 지운다(edOvSize 규약 — 영구 dirty 방지)
+function edDesignSet(key, val){
+  const base = edBaseDesign();
+  const d2 = { ...(edForm.design || {}) };
+  const same = String(val ?? "") === String(base[key] ?? "")
+    || (val === "none" && base[key] == null)
+    || (val === "false" && !edIsBold(base[key]));
+  if (same) delete d2[key]; else d2[key] = val;
+  edForm.design = d2;
+  const el = document.getElementById("edd_" + key);
+  if (el) el.value = d2[key] ?? "";
+  edStagePaint(edStageT); edTitleToolsSync(); edMark();
+}
+window.edOvBox = line => {   // 없음 → 둥근네모 → 각진네모 → 없음
+  if (!edCanEdit() || !edTitleBoxOn()) return;
+  const key = line ? "title_box2" : "title_box";
+  const cur = edDesign()[key] || "none";
+  const order = ED_BOX_OPTIONS.map(o => o[0]);
+  edSnap("ovbox" + line);
+  edDesignSet(key, order[(order.indexOf(cur) + 1) % order.length]);
+};
+window.edOvBold = line => {
+  if (!edCanEdit() || !edTitleBoxOn()) return;
+  const key = line ? "title_bold2" : "title_bold";
+  edSnap("ovbold" + line);
+  edDesignSet(key, edIsBold(edDesign()[key]) ? "false" : "true");
+};
+function edPalClose(){ const p = document.getElementById("edpal"); if (p) p.style.display = "none"; edPalT = null; }
+window.edPalOpen = (ev, line, kind) => {
+  ev.stopPropagation();
+  if (!edCanEdit()) return;
+  const p = document.getElementById("edpal"); if (!p) return;
+  if (p.style.display !== "none" && edPalT && edPalT.line === line && edPalT.kind === kind){ edPalClose(); return; }
+  edPalT = { line, kind };
+  const d = edDesign();
+  const key = kind === "txt" ? (line ? "title_color2" : "title_color") : (line ? "title_box_color2" : "title_box_color");
+  const cur = String(d[key] || "").toUpperCase();
+  const pal = paletteColors();   // 채널 모달과 같은 팔레트(기본 9색 + 채널들이 쓰는 색)
+  document.getElementById("edpalhd").textContent = `제목 ${line + 1}줄 ${kind === "txt" ? "글자색" : "배경색"}`;
+  document.getElementById("edpalsw").innerHTML = pal.map(c =>
+    `<b style="background:${esc(c)}" class="${c.toUpperCase() === cur ? "on" : ""}" title="${esc(c)}"
+        onclick="edPalPick('${esc(c)}')"></b>`).join("");
+  const ci = document.getElementById("edpalc"); if (ci) ci.value = /^#[0-9A-F]{6}$/.test(cur) ? cur : "#FFFFFF";
+  const r = ev.currentTarget.getBoundingClientRect(), host = p.offsetParent || document.body;
+  const hr = host.getBoundingClientRect();
+  p.style.left = (r.left - hr.left) + "px"; p.style.top = (r.bottom - hr.top + 6) + "px";
+  p.style.display = "";
+};
+window.edPalPick = c => {
+  if (!edPalT || !edCanEdit()) return;
+  const { line, kind } = edPalT;
+  const key = kind === "txt" ? (line ? "title_color2" : "title_color") : (line ? "title_box_color2" : "title_box_color");
+  edSnap("ovpal" + key);
+  edDesignSet(key, String(c || "").toUpperCase());
+  document.querySelectorAll("#edpalsw b").forEach(b =>
+    b.classList.toggle("on", b.title.toUpperCase() === String(c).toUpperCase()));
+};
+document.addEventListener("click", e => { if (!e.target.closest("#edpal")) edPalClose(); });
+
 function edPaneStyle(canEdit){
   const base = edBaseDesign();
   if (!edTplLoaded) edTplLoad().then(() => { if (edPane === "style") render(); });
@@ -4466,15 +4669,38 @@ function edPaneStyle(canEdit){
       <button class="mini danger" onclick="edTplDelete()" ${can("reviewer") ? "" : "disabled"}
         title="선택한 템플릿 삭제 — 이미 적용한 편들은 영향 없음">삭제</button>
     </div>
+    <div class="edaddrow" style="margin:0 0 10px">
+      <button class="pri act mini" onclick="edChTplSave()" ${can("operator") ? "" : "disabled"}
+        title="지금 화면의 유효 디자인(채널 기본 + 이 편 — 제목·자막·TTS 스타일, 작품명·플랫폼 표기 크기·위치 포함)을 이 채널의 템플릿으로 저장합니다. 이 채널의 다음 생성부터 전부 적용 · operator 권한">✓ 현재 스타일을 채널 템플릿으로 저장</button>
+      <span class="sub">이 채널의 다음 생성부터 전부 적용</span>
+    </div>
+    <div id="edchtplconfirm"></div>
     <div class="sub" style="margin-bottom:6px">비워두면 채널 기본값을 그대로 씁니다 —
       이 편에만 적용됩니다.</div>
     <div class="edrows">${ED_STYLE_FIELDS
       .filter(([k]) => edE7On() || !ED_E7_KEYS.includes(k))
       .filter(([k]) => edE10On() || !ED_E10_KEYS.includes(k))
-      .map(([k,l,ph]) => `
+      .filter(([k]) => edTitleBoxOn() || !ED_TITLEBOX_KEYS.includes(k))
+      .map(([k,l,ph]) => {
+        const cur = (edForm.design || {})[k];
+        // 박스·굵게는 값이 열거형이라 select — 채널 기본값을 첫 옵션에 적는다
+        if (k === "title_box" || k === "title_box2")
+          return `<div class="edrow3"><label>${esc(l)}</label>
+            <select id="edd_${k}" ${canEdit?"":"disabled"} onchange="edStyleSet('${k}',this.value)">
+              <option value="">채널 기본 (${esc((ED_BOX_OPTIONS.find(o => o[0] === (base[k] || "none")) || ["","없음"])[1])})</option>
+              ${ED_BOX_OPTIONS.map(([v,t]) => `<option value="${v}" ${cur === v ? "selected" : ""}>${v} — ${t}</option>`).join("")}
+            </select></div>`;
+        if (k === "title_bold" || k === "title_bold2")
+          return `<div class="edrow3"><label>${esc(l)}</label>
+            <select id="edd_${k}" ${canEdit?"":"disabled"} onchange="edStyleSet('${k}',this.value)">
+              <option value="">채널 기본 (${edIsBold(base[k]) ? "굵게" : "보통"})</option>
+              <option value="true" ${edIsBold(cur) ? "selected" : ""}>굵게</option>
+              <option value="false" ${cur !== undefined && !edIsBold(cur) ? "selected" : ""}>보통</option>
+            </select></div>`;
+        return `
       <div class="edrow3"><label>${esc(l)}</label>
         <input id="edd_${k}" placeholder="${esc(base[k] != null ? "채널: " + base[k] : ph)}"
-          ${canEdit?"":"disabled"} oninput="edStyleSet('${k}',this.value)"></div>`).join("")}
+          ${canEdit?"":"disabled"} oninput="edStyleSet('${k}',this.value)"></div>`; }).join("")}
       ${(() => {   // 얼굴 추종 크롭(engine reframe) — 켬 = 인물 확대, 끔 = 밴드에 영상 전체
         const cur = (edForm.design || {}).face_tracking;
         const baseOff = base.face_tracking === false || String(base.face_tracking) === "false";
@@ -5900,14 +6126,22 @@ function edTitleWrap(text, maxChars = 20){    // → [[원본 줄 idx, 줄 텍�
 function edTitleLines(d, text){               // → [{oi, t, size(캔버스 px)}, …]
   const s1 = Math.round(+d.title_size) || 70;
   const sizes = [s1, Math.max(1, Math.round(s1 * 90 / 70))];
+  const bx = edTitleBoxOn();   // 게이트 전엔 박스·굵게를 그리지 않는다(전송도 안 한다)
   return edTitleWrap(text).map(([oi, t]) => {
     const base = sizes[Math.min(oi, sizes.length - 1)];
     const scale = t.length <= 13 ? 1 : ED_TITLE_LEN_SCALE[Math.min(t.length, 20)];
-    return { oi, t, size: Math.max(1, Math.round(base * scale)) };
+    const size = Math.max(1, Math.round(base * scale));
+    // 줄별 배경 박스·굵게(2026-08-21) — 원본 줄(oi) 기준, 엔진 _line_specs 미러:
+    // pad = round(0.30×최종 글자 크기)(박스 있을 때만), 블록 높이에 2×pad 포함
+    const box = bx ? (d[oi === 0 ? "title_box" : "title_box2"] || "none") : "none";
+    return { oi, t, size, box,
+             boxColor: d[oi === 0 ? "title_box_color" : "title_box_color2"] || "#000000",
+             pad: box !== "none" ? Math.round(0.30 * size) : 0,
+             bold: bx && edIsBold(d[oi === 0 ? "title_bold" : "title_bold2"]) };
   });
 }
 const edTitleBlockH = lines =>
-  lines.reduce((a, l) => a + l.size, 0)
+  lines.reduce((a, l) => a + l.size + 2 * (l.pad || 0), 0)
   + Math.max(0, lines.length - 1) * ED_TITLE_LINE_SPACING;
 // 제목 블록 상단(캔버스 px) — 고정(title_y_fixed)=title_y 그대로, 자동=밴드 위 20px
 // (엔진 _dynamic_title_top, 공간 <10px 면 title_y 폴백)
@@ -5939,6 +6173,8 @@ function edStagePaint(outT){
       // 줄바꿈·줄별 크기(70/90 위계·길이 축소)·자동 배치(밴드 위) — 엔진 미러(8/21).
       // 자동 배치 기준 높이는 E8 세그먼트 전체의 최대 블록(엔진 title_total_height —
       // 세그마다 제목이 위아래로 튀지 않게 모든 세그 첫 줄이 같은 y 에서 시작).
+      // 줄별 배경 박스·굵게(2026-08-21)는 edTitleLines 가 줄마다 box·pad·bold 를 붙인다 —
+      // 박스 여백(pad)은 엔진처럼 블록 높이에 들어가 자동 배치가 박스 기준으로 밴드 위 20px.
       const _tlines = edTitleLines(d, _ttext);
       const _tblockH = _tsegs.length && seqMode
         ? Math.max(...(_tsegs.map(x => edTitleBlockH(edTitleLines(d, x.text)))))
@@ -5946,11 +6182,16 @@ function edStagePaint(outT){
       const _ttop = edTitleTopPx(d, _tblockH);
       tt.style.top = (_ttop * sc) + "px";
       tt.dataset.top = _ttop;            // 드래그 시작점 — 화면에 보이는 그 위치부터
-      const th = _tlines.map(l =>
-        `<div style="color:${esc(l.oi === 0 ? (d.title_color || "#FFFFFF")
-                                            : (d.title_color2 || "#FFFF00"))};font-size:${
-          (l.size * sc).toFixed(2)}px;line-height:1;margin-bottom:${
-          (ED_TITLE_LINE_SPACING * sc).toFixed(2)}px">${esc(l.t)}</div>`).join("");
+      const th = _tlines.map(l => {
+        const color = l.oi === 0 ? (d.title_color || "#FFFFFF") : (d.title_color2 || "#FFFF00");
+        // 박스는 글자를 감싸는 inline-block — 여백 .30em·라운드 .25em·굵게 획 .025em(엔진 비율)
+        const st = `color:${esc(color)};`
+          + (l.box !== "none" ? `background:${esc(l.boxColor)};border-radius:${
+               l.box === "round" ? ".25em" : "0"};padding:.3em;` : "")
+          + (l.bold ? "-webkit-text-stroke:.025em currentColor;" : "");
+        return `<div style="font-size:${(l.size * sc).toFixed(2)}px;line-height:1;margin-bottom:${
+          (ED_TITLE_LINE_SPACING * sc).toFixed(2)}px"><span class="ln${
+          l.box !== "none" ? " bx" : ""}" style="${st}">${esc(l.t)}</span></div>`; }).join("");
       if (tt.dataset.h !== th){ tt.dataset.h = th; tt.innerHTML = th; }
       // F-409(dc1060f): 끌면 고정 배치(title_y_fixed) — 안 끌면 엔진 자동 배치(영상 위).
       // edImagesOn 게이트 = 0057·신 어댑터 배포 표식(H2)
@@ -6084,6 +6325,7 @@ window.edStyleToolToggle = () => {
 function edOvSelSync(){
   document.querySelectorAll("#edovselseg .mini").forEach(b =>
     b.classList.toggle("on", b.dataset.t === edOvSel));
+  edTitleToolsSync();
 }
 window.edOvPick = t => { edOvSel = t; edOvSelSync(); edStagePaint(edStageT); };
 window.edOvSize = dd => {
@@ -6159,6 +6401,7 @@ window.edOvReset = () => {
   // '원래대로'에 안 돌아오던 것. 제목은 드래그가 켠 고정 배치까지 해제(edTitleAutoY 규약).
   // 회전(E7)도 같은 묶음 — 게이트 전이라도 키 삭제는 무해하다.
   (edOvSel === "title" ? ["title_size", "title_color", "title_y", "title_rotate"]
+                           .concat(["title_color2"], ED_TITLEBOX_KEYS)   // 줄별 박스·굵게·2줄 색도
                        : ["tts_size", "tts_color", "tts_y_margin", "tts_rotate"])
     .forEach(k => { delete d[k];
       const el = document.getElementById("edd_" + k); if (el) el.value = ""; });
@@ -6167,7 +6410,7 @@ window.edOvReset = () => {
     else delete d.title_y_fixed;
   }
   edForm.design = d;
-  edStagePaint(edStageT); edMark();
+  edStagePaint(edStageT); edTitleToolsSync(); edMark();
 };
 window.edSubDragDown = ev => {
   if (ev.button !== 0 || !edV3() || !edStyleTool || !edCanEdit()) return;
@@ -7306,6 +7549,11 @@ const DESIGN_FIELDS = [   // [키, 라벨, 종류] — brain channel_registry �
   ["title_color","제목 1줄 색","color"], ["title_color2","제목 2줄 색","color"],
   ["title_font","제목 폰트","font"],     ["title_size","제목 크기","num"],
   ["title_y","제목 위치 Y","num"],  ["video_y","영상 위치 Y","num"],
+  // 제목 줄별 배경 박스·굵게(ai-video 2026-08-21). box = none·round·rect, bool = true/기본
+  ["title_box","제목 1줄 배경","box"],   ["title_box_color","제목 1줄 배경색","color"],
+  ["title_bold","제목 1줄 굵게","bool"],
+  ["title_box2","제목 2줄 배경","box"],  ["title_box_color2","제목 2줄 배경색","color"],
+  ["title_bold2","제목 2줄 굵게","bool"],
   ["work_color","작품명 색","color"],    ["work_title_y","작품명 위치 Y","num"],
   ["work_font_size","작품명 크기","num"],
   ["subtitle_font","자막 폰트","font"],  ["subtitle_size","자막 크기","num"],
@@ -7356,6 +7604,8 @@ function paletteColors(){
 const DESIGN_DEFAULTS = {
   title_color: "white", title_color2: "#FFFF00", title_font: "여기어때 잘난체",
   title_size: "70 (2줄째 90)", title_y: "120", video_y: "세로 중앙",
+  title_box: "none (없음)", title_box_color: "#000000", title_bold: "보통",
+  title_box2: "none (없음)", title_box_color2: "#000000", title_bold2: "보통",
   work_color: "#FF69B4", work_title_y: "1400", work_font_size: "40",
   subtitle_font: "여기어때 잘난체", subtitle_size: "65",
   subtitle_color: "프리셋 색 자동", subtitle_y_margin: "380",
@@ -7368,7 +7618,8 @@ const DESIGN_DEFAULTS = {
   platform_align: "left (왼쪽 상단)",
 };
 const DESIGN_GROUPS = [
-  ["제목", ["title_color","title_color2","title_font","title_size","title_y"]],
+  ["제목", ["title_color","title_color2","title_font","title_size","title_y",
+           "title_box","title_box_color","title_bold","title_box2","title_box_color2","title_bold2"]],
   ["작품명", ["work_color","work_title_y","work_font_size"]],
   ["자막", ["subtitle_font","subtitle_size","subtitle_color","subtitle_y_margin","subtitle_style"]],
   ["TTS", ["tts_color","tts_size","tts_y_margin"]],
@@ -7443,6 +7694,16 @@ function chModalHtml(ch){
         ${opts.map(([val, lab]) => `<option value="${esc(val)}" ${v === val ? "selected" : ""}>${esc(lab)}</option>`).join("")}
       </select>`;
     }
+    if (t === "box")
+      return `<select id="df_${k}">
+        <option value="">기본(없음)</option>
+        ${ED_BOX_OPTIONS.map(([val, lab]) => `<option value="${val}" ${v === val ? "selected" : ""}>${val} — ${lab}</option>`).join("")}
+      </select>`;
+    if (t === "bool")
+      return `<select id="df_${k}">
+        <option value="">기본(보통)</option>
+        <option value="true" ${v === "true" ? "selected" : ""}>굵게</option>
+      </select>`;
     const picker = t === "color"
       ? `<input type="color" class="cpick" list="dfpal" value="${/^#[0-9a-fA-F]{6}$/.test(v) ? esc(v) : "#ffffff"}"
            oninput="$('#df_${k}').value=this.value;dfDiffUpdate('${slug}')" title="색 선택 — 팔레트 포함">` : "";
@@ -7557,7 +7818,8 @@ window.chSave = slug => {
   for (const [k,,t] of DESIGN_FIELDS){
     const v = ($("#df_"+k)?.value ?? "").trim();
     if (!v) continue;
-    design[k] = (t === "num" && /^-?\d+$/.test(v)) ? parseInt(v,10) : v;
+    design[k] = (t === "num" && /^-?\d+$/.test(v)) ? parseInt(v,10)
+              : t === "bool" ? v === "true" : v;   // 굵게 스위치는 불리언으로
   }
   if ($("#df_face_tracking")?.value === "false") design.face_tracking = false;
   if ($("#df_subtitles")?.value === "false") design.subtitles = false;   // 대사 자막 끔(8/20)

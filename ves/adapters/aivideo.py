@@ -44,6 +44,13 @@ CHANNEL_DESIGN_FLAGS = {
     "title_size": "--design-title-size",
     "title_color": "--design-title-color",      # 제목 1번째 줄
     "title_color2": "--design-title-color2",    # 제목 2번째 줄
+    # 제목 줄별 배경 박스(ai-video 2026-08-21) — none(기본)·round(둥근네모)·rect(각진네모),
+    # 박스 색은 drawtext 색 문자열(#RRGGBB · black@0.6). brain 과 1:1. 편집실은
+    # editor_title_box 게이트 뒤에서 보낸다(구 엔진 argparse 크래시 방지).
+    "title_box": "--design-title-box",
+    "title_box2": "--design-title-box2",
+    "title_box_color": "--design-title-box-color",
+    "title_box_color2": "--design-title-box-color2",
     "subtitle_font": "--design-subtitle-font",  # 자막·TTS 자막 공통
     "subtitle_size": "--design-subtitle-size",
     "subtitle_color": "--design-subtitle-color",
@@ -84,10 +91,12 @@ CHANNEL_DESIGN_SWITCHES = {
     # ⚠ 편집실 자막 예외(8/17 규칙)가 이긴다 — design_for_job 이 그 편만 이 키를 뺀다.
     "subtitles": ("--no-subtitles", False),
     # F-409(dc1060f): 참이면 제목 동적 배치 대신 title_y 를 그대로 쓴다 — 편집실
-    # 제목 드래그가 이 키로 나간다. ⚠ 채널 템플릿에 넣으려면 brain
-    # CHANNEL_DESIGN_FLAGS 미러가 선행이다(1:1 규율 — 안 하면 brain 쪽 unknown-key
-    # fail-loud 에 걸린다). 지금은 편집실(edit_overrides.design) 경로 전용.
+    # 제목 드래그가 이 키로 나간다. 2026-08-21 brain CHANNEL_DESIGN_SWITCHES 에도 미러돼
+    # 채널 템플릿(편집실 '채널 템플릿으로 저장' 스냅샷)에 실릴 수 있다 — v_allowed 동반 승격.
     "title_y_fixed": ("--design-title-y-fixed", True),
+    # 제목 줄별 굵게(ai-video 2026-08-21) — true 면 같은 색 외곽선으로 획을 두껍게. brain 1:1.
+    "title_bold": ("--design-title-bold", True),
+    "title_bold2": ("--design-title-bold2", True),
 }
 
 
