@@ -777,6 +777,11 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .warnbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
     border-color:var(--serious);background:var(--surface-2)}
   .warnbar b{font-size:13.5px;color:var(--serious);white-space:nowrap}
+  /* 8/21: 경고가 아닌 알림줄(발행 중 = 정상 진행). 홈 탭 배지가 세지 않는 줄이라
+     색으로 그 사실을 말한다 — 종전엔 경고와 같은 주황이라 ⚠ 유무로만 갈렸다.
+     회색을 고른 이유: 초록은 '합격', 파랑은 '편집된 영상' 배지가 이미 쓴다. */
+  .warnbar.calm{border-color:var(--ring)}
+  .warnbar.calm b{color:var(--ink-2);font-weight:600}
   /* v3.3: 홈 채널 카드 — 작업 실행 (0024 run_channel_now) */
   .runbar{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:9px;
     padding-top:9px;border-top:1px solid var(--line)}
@@ -1470,14 +1475,15 @@ function renderHome(){
   }).join("");
   $("#page").innerHTML = `
     ${geminiBanner()}
-    ${unpub.length ? `<section class="card warnbar fold"><details ${unpubOpen ? "open" : ""}
+    ${unpub.length ? `<section class="card warnbar fold${
+      unpubBad.length ? "" : " calm"}"><details ${unpubOpen ? "open" : ""}
       ontoggle="unpubOpen=this.open">
       <summary>${unpubBad.length
         ? `<b>⚠ 합격했으나 발행되지 않은 영상이 ${unpubBad.length}건 있습니다</b>
            <span class="sub">${esc(unpubNames)} · 예약 시각이 지나면 그대로 유실됩니다${
              unpub.length > unpubBad.length ? ` · 발행 중 ${unpub.length - unpubBad.length}건` : ""}</span>`
         : `<b>합격한 영상 ${unpub.length}건이 발행 중입니다</b>
-           <span class="sub">${esc(unpubNames)} · 아직 유튜브에 올라가지 않았습니다</span>`}</summary>
+           <span class="sub">${esc(unpubNames)} · 아직 유튜브에 올라가지 않았습니다 — 곧 올라갑니다</span>`}</summary>
       <div class="body">
         <div class="sub" style="margin-bottom:8px">합격시키면 검수함에서 그 카드가 사라집니다 —
           그 뒤 발행이 죽어도 알려주는 곳이 여기뿐입니다.</div>
