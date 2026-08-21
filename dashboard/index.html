@@ -431,6 +431,30 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .edovimg.editable .rt{position:absolute;right:-7px;top:-7px;width:15px;height:15px;
           background:#3b82f6;color:#fff;border-radius:50%;font-size:10px;line-height:15px;
           text-align:center;cursor:grab;pointer-events:auto;user-select:none;font-style:normal}
+  /* 스테이지 자유 텍스트(F-411) — 중심 좌표(x·y) · ✎ 도구로 드래그 이동 · ◢ 크기 · ↻ 회전 */
+  .edovtexts{position:absolute;inset:0;pointer-events:none}
+  .edovtext{position:absolute;pointer-events:none;z-index:4;white-space:pre;font-weight:900;
+            line-height:1.1;transform:translate(-50%,-50%);text-align:center}
+  .edovtext.editable{pointer-events:auto;cursor:move;outline:1.5px dashed #ffffff88;
+            outline-offset:3px;border-radius:3px}
+  .edovtext.sel{outline:2px dashed var(--warn)}
+  .edovtext .rz,.edovtext .rt{display:none}
+  .edovtext.editable .rz{display:block;position:absolute;right:-8px;bottom:-8px;width:12px;
+            height:12px;background:var(--warn);border-radius:3px;cursor:nwse-resize;pointer-events:auto}
+  .edovtext.editable .rt{display:block;position:absolute;right:-9px;top:-9px;width:15px;
+            height:15px;background:#3b82f6;color:#fff;border-radius:50%;font-size:10px;
+            line-height:15px;text-align:center;cursor:grab;pointer-events:auto;user-select:none;
+            font-style:normal;text-shadow:none}
+  .edovtext .deg{display:none;position:absolute;left:50%;top:-22px;transform:translateX(-50%);
+            font-size:10px;font-weight:600;background:#000c;color:#fff;border-radius:4px;
+            padding:0 5px;white-space:nowrap;text-shadow:none}
+  .edovtext.rotating .deg{display:block}
+  .edoel.otxt{background:#e2a63d}               /* 텍스트 레인(F-411) — 앰버 */
+  .edtxpre{display:inline-flex;gap:6px;align-items:center;border:1px solid var(--line);
+           border-radius:999px;padding:2px 10px;font-size:12px;cursor:pointer;color:var(--ink-2)}
+  .edtxpre.on{border-color:var(--accent);color:var(--ink);
+           background:color-mix(in srgb,var(--accent) 14%,transparent)}
+  .edtxpre i{font-style:normal;font-weight:900;text-shadow:0 1px 2px #000}
   /* 재렌더 진행 스트립(F-301) */
   .edchain{margin-top:10px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;
            background:var(--surface-2);font-size:12.5px}
@@ -1718,7 +1742,7 @@ function regenBox(rid, pay){
 // 개수는 '고친 줄 수'가 아니라 **보낸 편집본에 실린 항목 수**다 — 어댑터가 세는 값이
 // 오버라이드 배열 길이라서(0067 감사 payload), 문구를 그에 맞춘다.
 const ED_KEY_KO = {clips:"구간", subtitles:"자막", title:"제목",
-                   tts:"TTS", images:"이미지", design:"디자인"};
+                   tts:"TTS", images:"이미지", texts:"텍스트", design:"디자인"};
 function editCounts(e){
   const out = [];
   if (e.clips)  out.push(`구간 ${e.clips}`);
@@ -1726,6 +1750,7 @@ function editCounts(e){
   if (e.title)  out.push("제목");
   if (e.tts)    out.push(`TTS ${e.tts}`);
   if (e.images) out.push(`이미지 ${e.images}`);
+  if (e.texts)  out.push(`텍스트 ${e.texts}`);
   if (e.design) out.push("디자인");
   return out;
 }
@@ -2081,6 +2106,8 @@ let edPrevWarned = false;      // 만료 preview 경고는 카드당 1회 — �
 let edSubColorFor = -1;        // 컬러 피커가 열린 순간의 줄 — 재생이 흘러도 그 줄에 적용
 let edPrevImages = [];         // 이전 라운드 이미지(0057 prev_images) — 시드 원본
 let edPrevTitleSegs = [];      // 이전 라운드 타임드 제목(0067 prev_title_segments) — 시드 원본
+let edPrevTexts = [];          // 이전 라운드 자유 텍스트(0071 prev_texts) — 시드 원본
+let edTxtPreset = "sfx";       // 텍스트 탭 '＋ 텍스트' 가 쓸 프리셋
 let edOvSel = "sub";           // ✎ 도구의 대상 — title(전체)|sub(그 줄)|tts(전체)
 // 일본어 편집 모드(JP-1) — localization_qa 카드는 원본 타임라인 재료가 아니라 카드
 // payload(ko_ja_pairs)가 재료다. 계약은 0038 reject_and_rerender 텍스트 치환 그대로.
@@ -2123,12 +2150,15 @@ function edResetForm(){
   const tsegs0 = (edPrevTitleSegs || []).map(x => ({
     text: String(x.text || ""), start: Number(x.start_sec) || 0,
     end: Number(x.end_sec) || 0 })).filter(x => x.text.trim());
+  // 자유 텍스트(F-411) — 이미지와 같은 규약: 이전 라운드 오버라이드(prev_texts)가 정본
+  const txts0 = (edPrevTexts || []).map(edTxtFromOv).filter(t => t.text.trim());
   edForm = { rid: edRid, title: tl.top_title || "", subs,
              dTitle: tl.top_title || "",
              dSubs: subs.map(s => ({ ...s })),
              clips0: clips.map(c => ({ ...c })), clips,
              tts0: tts.map(t => ({ ...t })), tts,
              images: imgs0.map(m => ({ ...m })), images0: imgs0,
+             texts: txts0.map(t => ({ ...t })), texts0: txts0,
              titleSegs: tsegs0.map(x => ({ ...x })),
              titleSegs0: JSON.stringify(tsegs0),
              design: {}, in: null, out: null };
@@ -2190,6 +2220,10 @@ function edResetForm(){
         src: Number(m.source_time_sec) || 0, dur: Number(m.duration_sec) || 3,
         x: Number(m.x) || 0, y: Number(m.y) || 0, w: Number(m.w) || 0.3,
         layer: m.layer, rotate: m.rotate, del: !!m.del })).filter(m => m.key);
+    // 자유 텍스트 초안(F-411) — 위치 기반 전량 교체(이미지와 동일). 삭제 표시도 되살린다.
+    if (Array.isArray(d.texts))
+      edForm.texts = d.texts.map(t => ({ ...edTxtFromOv(t), del: !!t.del }))
+        .filter(t => t.text.trim());
     // 내레이션 초안 — 전량 교체 목록을 편집 상태로 되살린다: 원본 행은 src 매칭으로
     // 문구·목소리·창을 덮고, 초안에 없는 원본 행은 '삭제됨', 매칭 안 되는 초안 행은 신규.
     const dt = d.tts;
@@ -2230,6 +2264,10 @@ const edV3 = () => (((state.ops||{}).editor_v3||{}).value === "on");
 // (이미지는 v3 스탬프를 유발하고, 스테이지 배치 도구(✎)가 v3 게이트 뒤에 있다).
 // 그 전에 켜면 업로드·배치는 되지만 보내기가 서버에서 거절된다(0054 fail-loud).
 const edImagesOn = () => (((state.ops||{}).editor_images||{}).value === "on");
+// 자유 텍스트 레이어(F-411/0071) — 켜기 전 조건: 엔진 texts[](edit_overrides.py TEXT_KEYS)
+// 전 노드 배포 + 0071 적용. 어댑터는 통과라 조건 없음. 플래그는 롤백이 아니다(승계가
+// 한 번 카드에 실린 키를 계속 보낸다) — images 와 같은 규율.
+const edTextsOn = () => (((state.ops||{}).editor_texts||{}).value === "on");
 // 회전(F-410) 플래그 — 켜기 전 조건: 엔진 69e5c06 전 노드 배포(0058 머리말).
 // dc1060f 는 images 의 rotate 를 조용히 무시한다(회전 없이 나감) — 그래서 게이트.
 // 플래그는 롤백이 아니다(editor_v3 와 동일): 이미 회전이 실린 카드의 재제출·서버
@@ -2292,6 +2330,48 @@ function edImagesChanged(){
   return a.length !== b.length || a.some((v, i) => v !== b[i]);
 }
 
+// ── 자유 텍스트(F-411) — 계약 ↔ 화면 상태 변환 ──────────────────────────
+// 화면 상태: {text, src(원본 절대초), dur, x, y(글자 중심 비율), size, color, stroke, fx,
+// rotate, font, del}. 계약(edit_overrides/v3 texts[])과 키 이름만 다르다(src/dur).
+const ED_TXT_PRESETS = {
+  sfx:  { name: "의성어·의태어", sample: "쾅!!", size: 96, color: "#FFDD00", stroke: "dark", fx: "pop",   rotate: -8 },
+  emph: { name: "강조",          sample: "???",  size: 72, color: "#FFFFFF", stroke: "dark", fx: "shake", rotate: 0 },
+  note: { name: "보조설명",      sample: "*상황 설명", size: 40, color: "#FFFFFF", stroke: "dark", fx: "none", rotate: 0 },
+  free: { name: "자유",          sample: "텍스트", size: 56, color: "#FFFFFF", stroke: "dark", fx: "none", rotate: 0 },
+};
+const ED_TXT_STROKES = [["dark","어둡게"],["none","없음"],["white","흰색"]];
+const ED_TXT_FX = [["none","없음"],["pop","튀어나옴"],["shake","흔들림"]];
+const ED_TXT_FONTS = [["Jalnan","잘난체"],["JalnanGothic","잘난체 고딕"],["mulmaru","물마루"],["Griun","경찰공평체"]];
+function edTxtFromOv(t){
+  return { text: String(t.text || ""), src: Number(t.source_time_sec) || 0,
+           dur: Number(t.duration_sec) || 1.5,
+           x: Number.isFinite(+t.x) ? +t.x : 0.5, y: Number.isFinite(+t.y) ? +t.y : 0.5,
+           size: Math.round(+t.size) || 72, color: String(t.color || "#FFFFFF").toUpperCase(),
+           stroke: t.stroke || "dark", fx: t.fx || "none",
+           rotate: Math.round(+t.rotate) || 0, font: t.font || "Jalnan", del: false };
+}
+function edTxtToOv(t, forDraft){
+  const o = { text: String(t.text).trim(), source_time_sec: +Number(t.src).toFixed(3),
+              duration_sec: +Number(t.dur).toFixed(3),
+              x: +Number(t.x).toFixed(4), y: +Number(t.y).toFixed(4),
+              size: Math.max(12, Math.min(400, Math.round(+t.size) || 72)),
+              color: String(t.color || "#FFFFFF").toUpperCase() };
+  if (t.stroke && t.stroke !== "dark") o.stroke = t.stroke;
+  if (t.fx && t.fx !== "none") o.fx = t.fx;
+  if (Math.round(+t.rotate)) o.rotate = Math.max(-180, Math.min(180, Math.round(+t.rotate)));
+  if (t.font && t.font !== "Jalnan") o.font = t.font;
+  if (forDraft && t.del) o.del = true;
+  return o;
+}
+// 텍스트가 이전 라운드(texts0)와 달라졌는가 — 이미지와 같은 규약(같으면 키 생략 = 승계,
+// 전량 삭제 = 빈 배열)
+function edTextsChanged(){
+  const sig = t => JSON.stringify(edTxtToOv(t, false));
+  const a = (edForm.texts || []).filter(t => !t.del && String(t.text).trim()).map(sig);
+  const b = (edForm.texts0 || []).map(sig);
+  return a.length !== b.length || a.some((v, i) => v !== b[i]);
+}
+
 // 구간이 원본과 달라졌는가 — 개수·순서·시각·역할·삭제 중 하나라도 다르면 참.
 function edClipsChanged(){
   const a = edClipsEff(), b = edForm.clips0;
@@ -2307,6 +2387,7 @@ function edSnapJson(){
   return JSON.stringify({ dTitle: edForm.dTitle, dSubs: edForm.dSubs,
                           clips: edForm.clips, tts: edForm.tts, design: edForm.design,
                           images: edForm.images || [],
+                          texts: edForm.texts || [],
                           titleSegs: edForm.titleSegs || [],
                           in: edForm.in, out: edForm.out });
 }
@@ -2328,6 +2409,7 @@ function edRestoreSnap(j){
   edForm.dTitle = s.dTitle; edForm.dSubs = s.dSubs; edForm.clips = s.clips;
   edForm.tts = s.tts; edForm.design = s.design;
   edForm.images = s.images || [];
+  edForm.texts = s.texts || [];
   edForm.titleSegs = s.titleSegs || [];
   edForm.in = s.in ?? null; edForm.out = s.out ?? null;
   edSel = Math.min(edSel, edForm.clips.length - 1);
@@ -2483,6 +2565,13 @@ function edCollect(forDraft){
         return o;
       });
   }
+  // 자유 텍스트(F-411) — 이미지와 같은 세 규칙: 초안은 플래그 무관 · 달라졌을 때만 ·
+  // 전량 삭제 = 빈 배열. 파일이 없어 어댑터 치환 단계도 없다(계약 그대로 나간다).
+  if ((edTextsOn() || forDraft) && edTextsChanged()){
+    const rows = forDraft ? (edForm.texts || [])
+                          : (edForm.texts || []).filter(t => !t.del && String(t.text).trim());
+    ov.texts = rows.map(t => edTxtToOv(t, forDraft));
+  }
   if (edForm.design && Object.keys(edForm.design).length){
     ov.design = { ...edForm.design };
     // 이중 안전(H2): 플래그 전엔 신 키를 절대 내보내지 않는다 — 구 어댑터 즉사 방지
@@ -2555,7 +2644,7 @@ window.edMark = () => {
   const ov = edCollect();
   const bits = [ov.title ? "제목" : null, ov.clips ? "구간" : null,
                 ov.subtitles ? "자막" : null, ov.tts ? "내레이션" : null,
-                ov.images ? "이미지" : null,
+                ov.images ? "이미지" : null, ov.texts ? "텍스트" : null,
                 ov.design ? "스타일" : null].filter(Boolean);
   const btn = document.getElementById("edsubmit");
   if (btn){
@@ -2593,6 +2682,9 @@ window.edSubmit = async () => {
   // 이미지도 같은 규약(빈 배열 = 전부 삭제, 0057) — 같은 급의 확인
   if (ov.images && !ov.images.length
       && !window.confirm("이미지를 전부 삭제한 채 다시 렌더합니다. 계속할까요?"))
+    return;
+  if (ov.texts && !ov.texts.length
+      && !window.confirm("텍스트를 전부 삭제한 채 다시 렌더합니다. 계속할까요?"))
     return;
   if (ov.clips){
     // 필드명은 오버라이드 계약 그대로(start_sec/end_sec) — 종전 c.end/c.start 는
@@ -2691,6 +2783,8 @@ window.openEditor = async (rid, kr) => {
     // 실려 있어야 재제출이 보존한다(prev_images 와 같은 이유)
     edPrevTitleSegs = Array.isArray((r.data || {}).prev_title_segments)
       ? r.data.prev_title_segments : [];
+    // 자유 텍스트(F-411/0071) — prev_images 와 같은 이유로 이전 라운드 값을 화면에 싣는다
+    edPrevTexts = Array.isArray((r.data || {}).prev_texts) ? r.data.prev_texts : [];
     edLoadAssets((r.data || {}).run_id);
   } catch (e){
     edData = { error: e.message || String(e) }; render();
@@ -3913,6 +4007,7 @@ function renderEdit(){
           </div>
           <div class="edov" id="edov">
             <div class="edovimgs" id="edovimgs"></div>
+            <div class="edovtexts" id="edovtexts"></div>
             <div class="edovtitle" id="edovtitle" onmousedown="edTitleDragDown(event)"></div>
             <div class="edovtts" id="edovtts" onmousedown="edTtsDragDown(event)"></div>
             <div class="edovsub" id="edovsub" onmousedown="edSubDragDown(event)"></div>
@@ -3940,6 +4035,8 @@ function renderEdit(){
              ["tts","내레이션 "+edForm.tts.filter(t=>!t.del).length]]
             .concat(edImagesOn()
               ? [["imgs","이미지 "+(edForm.images||[]).filter(m=>!m.del).length]] : [])
+            .concat(edTextsOn()
+              ? [["txts","텍스트 "+(edForm.texts||[]).filter(t=>!t.del).length]] : [])
             .concat([["style","스타일"]]).map(([k,l]) =>
             `<button class="edtab ${edPane===k?"on":""}" onclick="edPane='${k}';render()">${esc(l)}</button>`).join("")}
         </div>
@@ -3948,6 +4045,7 @@ function renderEdit(){
           : edPane === "subs" ? edPaneSubs(canEdit)
           : edPane === "tts" ? edPaneTts(canEdit)
           : edPane === "imgs" && edImagesOn() ? edPaneImgs(canEdit)
+          : edPane === "txts" && edTextsOn() ? edPaneTexts(canEdit)
           : edPaneStyle(canEdit)}</div>
       </div>
     </div>
@@ -4408,6 +4506,92 @@ function edPaneImgs(canEdit){
         3초로 추가됩니다</span>
     </div>` : ""}`;
 }
+
+// ── 우측 패널: 텍스트(F-411) — 대사가 아닌 글자(의성어·강조·보조설명) ──────────
+// 대사 자막 탭과 분리: 자막은 전사 보충(＋ 자막 추가)만, 여기는 자유 오브젝트. 추가는
+// 프리셋 → ＋ 텍스트(현재 커서 순간, 화면 가운데) → 왼쪽 쇼츠 화면에서 ✎ 로 끌어 놓는다.
+function edPaneTexts(canEdit){
+  const orphan = t => !edForm.clips.some(c =>
+    !c.del && t.src >= c.start - 0.5 && t.src <= c.end + 0.5);
+  const sel = edOutSel && edOutSel.t === "txt" ? edOutSel.i : -1;
+  const opts = (list, cur) => list.map(([v, l]) =>
+    `<option value="${v}" ${v === cur ? "selected" : ""}>${l}</option>`).join("");
+  const rows = (edForm.texts || []).map((t, i) => `
+    <div class="edrow2 ${t.del ? "del" : ""}" style="${i === sel ? "outline:1px solid var(--accent);border-radius:6px" : ""}"
+      onclick="edTxtPick(${i})">
+      <span class="n">${i + 1}</span>
+      <span style="cursor:pointer;font-variant-numeric:tabular-nums"
+        onclick="event.stopPropagation();edSeek(${t.src})" title="원본 이 지점으로 이동">원본 ${edFmt(t.src)}</span>
+      <input class="x" type="text" id="edtx_${i}" value="${esc(t.text)}" style="flex:1;min-width:60px;color:${esc(t.color)};font-weight:900"
+        oninput="edTxtSet(${i},'text',this.value)" ${canEdit && !t.del ? "" : "disabled"}
+        placeholder="글자">
+      <input class="tm" value="${Number(t.dur).toFixed(1)}" title="표시 길이(초)"
+        onchange="edTxtSet(${i},'dur',this.value)" ${canEdit && !t.del ? "" : "disabled"}>
+      <input class="tm" value="${t.size}" title="크기(px, 1080×1920 기준)" style="width:44px"
+        onchange="edTxtSet(${i},'size',this.value)" ${canEdit && !t.del ? "" : "disabled"}>
+      <input type="color" value="${esc(t.color)}" title="글자색" style="width:26px;height:22px;padding:0;border:1px solid var(--line);border-radius:5px;background:none"
+        oninput="edTxtSet(${i},'color',this.value)" ${canEdit && !t.del ? "" : "disabled"}>
+      <select title="등장 효과" onchange="edTxtSet(${i},'fx',this.value)" ${canEdit && !t.del ? "" : "disabled"}
+        onclick="event.stopPropagation()">${opts(ED_TXT_FX, t.fx)}</select>
+      <select title="테두리" onchange="edTxtSet(${i},'stroke',this.value)" ${canEdit && !t.del ? "" : "disabled"}
+        onclick="event.stopPropagation()">${opts(ED_TXT_STROKES, t.stroke)}</select>
+      <select title="폰트" onchange="edTxtSet(${i},'font',this.value)" ${canEdit && !t.del ? "" : "disabled"}
+        onclick="event.stopPropagation()">${opts(ED_TXT_FONTS, t.font)}</select>
+      ${Math.round(+t.rotate) ? `<span class="sub" title="회전(화면 ↻ 로 조절)">${Math.round(+t.rotate)}°</span>` : ""}
+      ${orphan(t) && !t.del ? `<span title="원본 장면이 지금 구간 목록에 없습니다 —
+        그대로 두면 렌더에서 빠집니다(내레이션 고아와 같은 규칙)">⚠</span>` : ""}
+      ${t.del
+        ? `<button class="mini" onclick="event.stopPropagation();edTxtRestore(${i})" ${canEdit ? "" : "disabled"}>되살리기</button>`
+        : `<button class="mini danger" onclick="event.stopPropagation();edTxtDel(${i})" ${canEdit ? "" : "disabled"}
+             title="이 텍스트 빼기(되살리기 가능)">✕</button>`}
+    </div>`).join("");
+  const presets = Object.entries(ED_TXT_PRESETS).map(([k, p]) =>
+    `<span class="edtxpre ${edTxtPreset === k ? "on" : ""}" onclick="edTxtPreset='${k}';render()"
+       title="크기 ${p.size}px · ${p.fx === "pop" ? "튀어나옴" : p.fx === "shake" ? "흔들림" : "효과 없음"}${p.rotate ? ` · ${p.rotate}°` : ""}">
+       <i style="color:${p.color}">${esc(p.sample)}</i>${p.name}</span>`).join(" ");
+  return `<div class="sub" style="margin-bottom:6px"><b>대사가 아닌 글자</b>(의성어·의태어·강조·보조설명)는
+      여기서 넣습니다 — 전사가 빠뜨린 대사는 자막 탭의 '＋ 자막 추가'로. 텍스트는 <b>원본 시각</b>에
+      붙고(구간을 옮겨도 그 장면을 따라감) 대사 자막 <b>위</b>에 그려집니다. 위치·크기·회전은 왼쪽 쇼츠
+      화면에서 <b>✎ 를 켜고</b> 끌어 조절(◢ 크기 · ↻ 회전 · 더블클릭 = 글자 고치기).</div>
+    ${canEdit ? `<div class="edaddrow" style="margin-bottom:6px;gap:8px">
+      <span style="display:flex;gap:5px;flex-wrap:wrap">${presets}</span>
+    </div>
+    <div class="edaddrow" style="margin-bottom:8px">
+      <button class="mini" onclick="edTxtAdd()" style="font-weight:700">＋ 텍스트</button>
+      <span class="sub">현재 커서(${edFmt(edCursor)}) 순간 · 1.5초 · 화면 가운데에 생깁니다 — 끌어서 놓으세요</span>
+    </div>` : ""}
+    <div class="edrows">${rows || '<div class="sub">텍스트 없음</div>'}</div>`;
+}
+window.edTxtAdd = () => {
+  if (!edForm || !edCanEdit()) return;
+  const p = ED_TXT_PRESETS[edTxtPreset] || ED_TXT_PRESETS.free;
+  edSnap();
+  edForm.texts = edForm.texts || [];
+  edForm.texts.push({ text: p.sample, src: +edCursor.toFixed(3), dur: 1.5, x: 0.5, y: 0.5,
+                      size: p.size, color: p.color, stroke: p.stroke, fx: p.fx,
+                      rotate: p.rotate, font: "Jalnan", del: false });
+  edOutSel = { t: "txt", i: edForm.texts.length - 1 };
+  edPane = "txts";
+  if (edV3() && !edStyleTool) edStyleTool = true;     // 바로 끌 수 있게 ✎ 를 켠다
+  render();
+  const inp = document.getElementById("edtx_" + (edForm.texts.length - 1));
+  if (inp){ inp.focus(); inp.select(); }
+};
+window.edTxtPick = i => { edOutSel = { t: "txt", i }; edOutSync(); edStagePaint(edStageT); };
+window.edTxtDel = i => { edSnap(); edForm.texts[i].del = true;
+  if (edOutSel && edOutSel.t === "txt" && edOutSel.i === i) edOutSel = null; render(); };
+window.edTxtRestore = i => { edSnap(); edForm.texts[i].del = false; render(); };
+window.edTxtSet = (i, k, v) => {
+  const t = (edForm.texts || [])[i]; if (!t) return;
+  if (k === "text"){ edSnap("txt" + i); t.text = String(v).slice(0, 60); edStagePaint(edStageT); edMark(); return; }
+  edSnap();
+  if (k === "dur") t.dur = Math.max(0.3, Math.min(60, Number(v) || 1.5));
+  else if (k === "size") t.size = Math.max(12, Math.min(400, Math.round(Number(v)) || 72));
+  else if (k === "color") t.color = String(v).toUpperCase();
+  else t[k] = v;
+  if (k === "color"){ edStagePaint(edStageT); edMark(); return; }   // 피커는 재렌더하면 닫힌다
+  render();
+};
 
 // ── 우측 패널: 스타일 ──────────────────────────────────────────────────
 // 채널 디자인 위에 이 한 편만 얹는다(빈 칸 = 채널 값 그대로).
@@ -5529,6 +5713,20 @@ function edOutHtml(){
           onmousedown="edOutElDown(event,'img',${mi},'L')"></i><i class="hR"
           onmousedown="edOutElDown(event,'img',${mi},'R')"></i></div>` });
     });
+  // X — 자유 텍스트(F-411): 이미지와 같은 조작(끌면 앵커 역산, 양끝 트리밍)
+  const xE = [];
+  if (edTextsOn())
+    (edForm.texts || []).forEach((t, xi) => {
+      if (t.del || !String(t.text).trim()) return;
+      const r = edOutPos(eff, t.src);
+      if (!r) return;
+      xE.push({ a: r.p, b: r.p + t.dur, mk: top => `<div class="edoel otxt ${selIs("txt", xi)}"
+        data-t="txt" data-i="${xi}" style="left:${px(r.p)};width:${wpx(t.dur)};${blk(top)}"
+        title="텍스트 ${xi + 1} · ${esc(String(t.text).slice(0, 30))}"
+        onmousedown="edOutElDown(event,'txt',${xi})"><i class="hL"
+          onmousedown="edOutElDown(event,'txt',${xi},'L')"></i><i class="hR"
+          onmousedown="edOutElDown(event,'txt',${xi},'R')"></i></div>` });
+    });
   // 제목 레인(E8) — 세그먼트가 있을 때만. 표시 전용(시각은 자막 탭 행에서).
   const tE = [];
   if (edE8On())
@@ -5540,9 +5738,11 @@ function edOutHtml(){
     });
   // 레인(=요소 섹션) 좌표 — 각 섹션 높이는 그 요소의 행 수가 정한다
   const tR = edLaneRows(tE);
-  const sR = edLaneRows(sE), nR = edLaneRows(nE), iR = edLaneRows(iE);
+  const sR = edLaneRows(sE), nR = edLaneRows(nE), iR = edLaneRows(iE), xR = edLaneRows(xE);
   const tTop = 46, tH = tE.length ? tR.rows * ROW + 2 : 0;
   const sTop = tTop + tH, nTop = sTop + sR.rows * ROW + 2, iTop = nTop + nR.rows * ROW + 2;
+  // 텍스트 레인(F-411)은 플래그가 켜졌을 때만 자리를 차지한다
+  const xH = edTextsOn() ? xR.rows * ROW + 2 : 0, xTop = iTop + iR.rows * ROW + 2;
   const lane = (cls, lb, top, R, E) => `<div class="edlane ${cls}"
       style="top:${top}px;height:${R.rows * ROW}px"><span class="lb">${lb}${
       R.rows > 1 ? ` <b title="겹치는 구간이 있어 ${R.rows}줄로 나눠 표시">×${R.rows}줄</b>` : ""}</span>${
@@ -5551,7 +5751,8 @@ function edOutHtml(){
     + (tE.length ? lane("t", "제목", tTop, tR, tE) : "")
     + lane("s", "자막", sTop, sR, sE)
     + lane("n", "내레이션", nTop, nR, nE)
-    + lane("i", "이미지", iTop, iR, iE);
+    + lane("i", "이미지", iTop, iR, iE)
+    + (edTextsOn() ? lane("x", "텍스트", xTop, xR, xE) : "");
   if (total > lim)
     h += `<div class="edoover" style="left:${px(lim)};width:${
       ((total - lim) / span * 100).toFixed(3)}%"></div>`;
@@ -5560,10 +5761,10 @@ function edOutHtml(){
     edSpeed() !== 1 ? `(배속 ${edSpeed()}× 반영 — 소스 ${lim.toFixed(1)}초)` : ""}"></div>`;
   h += `<div class="edocur" id="edocur"></div>`;   // 가상 미리보기(F-202) 재생 헤드
   // 겹침 행이 쌓이면 컨테이너가 함께 자란다(min-height 100px 아래로는 안 준다)
-  return `<div style="position:relative;height:${iTop + iR.rows * ROW + 2}px">${h}</div>`;
+  return `<div style="position:relative;height:${iTop + iR.rows * ROW + 2 + xH}px">${h}</div>`;
 }
 // ── V3-b: 완성본 트랙 요소 편집(자막·내레이션·이미지) ─────────────────
-let edOutSel = null;   // {t:"sub"|"tts"|"img", i} — 인스펙터·하이라이트 대상
+let edOutSel = null;   // {t:"sub"|"tts"|"img"|"txt", i} — 인스펙터·하이라이트 대상
 
 function edOutElState(t, obj){
   const { eff } = edEffList();
@@ -5598,7 +5799,7 @@ function edOutElApply(t, obj, st0, mode, d, total){
   // 내레이션·이미지 — 좌표는 원본 절대초: 출력 위치를 역산해 옮긴다(장면이 바뀐다)
   if (mode === "R"){
     obj.dur = +Math.max(0.3, Math.min(60, edQF(st0.len + d))).toFixed(3);
-  } else if (mode === "L" && t === "img"){
+  } else if (mode === "L" && (t === "img" || t === "txt")){
     const np = Math.max(0, Math.min(st0.p + st0.len - 0.3, edQF(st0.p + d)));
     const hit = edSrcAtOut(np); if (!hit) return;
     obj.dur = +Math.min(60, st0.len - (np - st0.p)).toFixed(3);   // L 쪽도 60 상한(리뷰 L4)
@@ -5687,7 +5888,8 @@ function edSubsTimingLocked(){
 function edOutSelObj(){
   const sel = edOutSel; if (!sel || !edForm) return null;
   const obj = sel.t === "sub" ? edForm.dSubs[sel.i]
-            : sel.t === "tts" ? edForm.tts[sel.i] : (edForm.images || [])[sel.i];
+            : sel.t === "tts" ? edForm.tts[sel.i]
+            : sel.t === "txt" ? (edForm.texts || [])[sel.i] : (edForm.images || [])[sel.i];
   return obj && !obj.del ? obj : null;
 }
 
@@ -5698,7 +5900,8 @@ function edInspHtml(){
       있습니다 — 블록을 끌면 이동, 양끝 핸들이 길이입니다</span>`;
   const st = edOutElState(sel.t, obj);
   const name = sel.t === "sub" ? `자막 ${sel.i + 1}`
-             : sel.t === "tts" ? `내레이션 ${sel.i + 1}` : `이미지 ${sel.i + 1}`;
+             : sel.t === "tts" ? `내레이션 ${sel.i + 1}`
+             : sel.t === "txt" ? `텍스트 ${sel.i + 1}` : `이미지 ${sel.i + 1}`;
   const ce = edCanEdit();
   const pinned = sel.t === "sub" && (obj.pin || obj.src == null);
   return `<b>${name}</b>
@@ -6296,6 +6499,48 @@ function edStagePaint(outT){
         ? `rotate(${Math.round(+m.rotate)}deg)` : "";
     });
   }
+  // 자유 텍스트(F-411) — 표시 창에 걸린 것들을 글자 중심 좌표(x·y 비율)로 그린다.
+  // 캔버스 px → 화면: sc(=H/1920). 글자색·테두리·회전·폰트는 엔진 ASS 의 근사.
+  const xc = document.getElementById("edovtexts");
+  if (xc){
+    const vis = [];
+    if (edTextsOn())
+      (edForm.texts || []).forEach((t, xi) => {
+        if (t.del || !String(t.text).trim()) return;
+        const r = edOutPos(seqMode ? eff : eff0, t.src);
+        if (r && outT >= r.p && outT < r.p + (Number(t.dur) || 0)) vis.push([xi, t]);
+      });
+    const xsel = edOutSel && edOutSel.t === "txt" ? edOutSel.i : -1;
+    const sig = vis.map(([xi, t]) => xi + ":" + t.text).join(",") + (editing ? "|e" : "") + "|" + xsel;
+    if (xc.dataset.sig !== sig){
+      xc.dataset.sig = sig;
+      xc.innerHTML = vis.map(([xi, t]) => `
+        <div class="edovtext ${editing ? "editable" : ""} ${xi === xsel ? "sel" : ""}" data-i="${xi}"
+          onmousedown="edTxtDragDown(event,${xi})" ondblclick="edTxtEditInline(event,${xi})"
+          title="${editing ? "끌어서 이동 · ◢ 크기 · ↻ 회전 · 더블클릭 = 글자 고치기" : ""}"><span class="tx">${esc(t.text)}</span><i
+          class="rz" onmousedown="edTxtResizeDown(event,${xi})"></i><i class="rt"
+          onmousedown="edTxtRotateDown(event,${xi})" ondblclick="edTxtRotateReset(event,${xi})"
+          title="잡고 돌리면 회전 · Shift = 15° 단위 · 더블클릭 = 0°">↻</i><span class="deg"></span></div>`).join("");
+    }
+    const fontOf = f => ({ Jalnan: "'Jalnan 2 TTF','여기어때 잘난체 2 TTF'", JalnanGothic: "'Jalnan Gothic TTF'",
+                           mulmaru: "Mulmaru", Griun: "'Griun PolFairness'" })[f] || "inherit";
+    vis.forEach(([xi, t]) => {
+      const el = xc.querySelector(`.edovtext[data-i="${xi}"]`); if (!el) return;
+      el.style.left = (Math.max(0, Math.min(1, +t.x || 0)) * 100) + "%";
+      el.style.top = (Math.max(0, Math.min(1, +t.y || 0)) * 100) + "%";
+      el.style.fontSize = Math.max(6, (Math.round(+t.size) || 72) * sc) + "px";
+      el.style.color = t.color || "#FFFFFF";
+      el.style.fontFamily = fontOf(t.font) + ",system-ui,sans-serif";
+      const b = Math.max(1, Math.round((Math.round(+t.size) || 72) * sc * 0.07));
+      el.style.textShadow = t.stroke === "none" ? "none"
+        : t.stroke === "white" ? `0 0 ${b}px #fff,0 0 ${b}px #fff,0 0 1px #fff`
+        : `0 2px ${b * 2}px #000c,0 0 ${b}px #000,0 0 1px #000`;
+      const rot = Math.round(+t.rotate) || 0;
+      el.style.setProperty("--r", rot + "deg");
+      el.style.transform = `translate(-50%,-50%) rotate(${rot}deg)`;
+      const dg = el.querySelector(".deg"); if (dg) dg.textContent = rot + "°";
+    });
+  }
   const tools = document.getElementById("edsubtools");
   if (tools){
     tools.style.display = editing ? "" : "none";
@@ -6591,6 +6836,105 @@ window.edImgResizeDown = (ev, mi) => {
     document.removeEventListener("mouseup", up); edMark(); };
   document.addEventListener("mousemove", move);
   document.addEventListener("mouseup", up);
+};
+
+// ── 자유 텍스트(F-411) 스테이지 조작 — 이미지와 같은 패턴(스냅샷 → 무렌더 페인트 → edMark)
+window.edTxtDragDown = (ev, xi) => {
+  if (ev.button !== 0 || !edStyleTool || !edCanEdit()) return;
+  if (ev.target.classList.contains("rz") || ev.target.classList.contains("rt")) return;
+  const t = (edForm.texts || [])[xi], st = document.getElementById("edstage");
+  if (!t || !st) return;
+  ev.preventDefault(); ev.stopPropagation();
+  edOutSel = { t: "txt", i: xi }; edOutSync();
+  const W = st.clientWidth || 270, H = st.clientHeight || 480;
+  const x0 = +t.x || 0, y0 = +t.y || 0, cx = ev.clientX, cy = ev.clientY;
+  edSnap("txtdrag" + xi);
+  const move = e => {
+    if (!e.buttons){ up(); return; }
+    t.x = +Math.max(0.02, Math.min(0.98, x0 + (e.clientX - cx) / W)).toFixed(4);
+    t.y = +Math.max(0.02, Math.min(0.98, y0 + (e.clientY - cy) / H)).toFixed(4);
+    edStagePaint(edStageT);
+  };
+  const up = () => { document.removeEventListener("mousemove", move);
+    document.removeEventListener("mouseup", up); edMark(); };
+  document.addEventListener("mousemove", move);
+  document.addEventListener("mouseup", up);
+};
+// 회전 — 글자 중심→마우스 각도의 변화량을 더한다(잡는 순간 튀지 않음). Shift = 15° 단위,
+// 0° 근처(±3°)는 스냅. 시계방향 양수(엔진 계약).
+window.edTxtRotateDown = (ev, xi) => {
+  ev.stopPropagation();
+  if (ev.button !== 0 || !edStyleTool || !edCanEdit()) return;
+  const t = (edForm.texts || [])[xi]; if (!t) return;
+  ev.preventDefault();
+  const el = ev.target.closest(".edovtext"); if (!el) return;
+  const b = el.getBoundingClientRect(), cx = b.left + b.width / 2, cy = b.top + b.height / 2;
+  const a0 = Math.atan2(ev.clientY - cy, ev.clientX - cx) * 180 / Math.PI;
+  const r0 = Math.round(+t.rotate) || 0;
+  el.classList.add("rotating");
+  edSnap("txtrot" + xi);
+  const move = e => {
+    if (!e.buttons){ up(); return; }
+    const a = Math.atan2(e.clientY - cy, e.clientX - cx) * 180 / Math.PI;
+    let rot = r0 + (a - a0);
+    rot = ((rot + 180) % 360 + 360) % 360 - 180;
+    if (e.shiftKey) rot = Math.round(rot / 15) * 15;
+    else if (Math.abs(rot) < 3) rot = 0;
+    t.rotate = Math.round(rot);
+    edStagePaint(edStageT);
+  };
+  const up = () => { document.removeEventListener("mousemove", move);
+    document.removeEventListener("mouseup", up);
+    const e2 = document.querySelector(`.edovtext[data-i="${xi}"]`); if (e2) e2.classList.remove("rotating");
+    edMark(); render(); };
+  document.addEventListener("mousemove", move);
+  document.addEventListener("mouseup", up);
+};
+window.edTxtRotateReset = (ev, xi) => {
+  ev.stopPropagation();
+  const t = (edForm.texts || [])[xi]; if (!t || !edCanEdit()) return;
+  edSnap(); t.rotate = 0; edStagePaint(edStageT); edMark(); render();
+};
+// 크기 — ◢ 가로 드래그: 1px(화면) = 1px(캔버스)/sc
+window.edTxtResizeDown = (ev, xi) => {
+  ev.stopPropagation();
+  if (ev.button !== 0 || !edStyleTool || !edCanEdit()) return;
+  const t = (edForm.texts || [])[xi], st = document.getElementById("edstage");
+  if (!t || !st) return;
+  ev.preventDefault();
+  const sc = (st.clientHeight || 480) / 1920;
+  const s0 = Math.round(+t.size) || 72, cx = ev.clientX;
+  edSnap("txtsize" + xi);
+  const move = e => {
+    if (!e.buttons){ up(); return; }
+    t.size = Math.max(12, Math.min(400, Math.round(s0 + (e.clientX - cx) / sc)));
+    edStagePaint(edStageT);
+  };
+  const up = () => { document.removeEventListener("mousemove", move);
+    document.removeEventListener("mouseup", up); edMark(); render(); };
+  document.addEventListener("mousemove", move);
+  document.addEventListener("mouseup", up);
+};
+// 더블클릭 = 글자 고치기 — 화면에서 바로(contenteditable). Enter 확정, Esc 취소.
+window.edTxtEditInline = (ev, xi) => {
+  if (!edStyleTool || !edCanEdit()) return;
+  if (ev.target.classList.contains("rt") || ev.target.classList.contains("rz")) return;
+  const t = (edForm.texts || [])[xi]; if (!t) return;
+  const el = ev.currentTarget, tx = el.querySelector(".tx"); if (!tx) return;
+  ev.preventDefault(); ev.stopPropagation();
+  const before = t.text;
+  tx.contentEditable = "true"; tx.style.outline = "1.5px solid var(--accent)"; tx.focus();
+  try { document.execCommand("selectAll", false, null); } catch (_) {}
+  const done = ok => {
+    tx.contentEditable = "false"; tx.style.outline = "";
+    const v = String(tx.textContent || "").trim().slice(0, 60);
+    if (ok && v && v !== before){ edSnap(); t.text = v; edMark(); }
+    tx.textContent = t.text; render();
+  };
+  tx.onblur = () => done(true);
+  tx.onkeydown = e => { e.stopPropagation();
+    if (e.key === "Enter"){ e.preventDefault(); tx.blur(); }
+    if (e.key === "Escape"){ tx.textContent = before; tx.blur(); } };
 };
 
 // 제목 위치(F-409, 엔진 dc1060f) — 끌면 design.title_y(위에서 px) + title_y_fixed 가
@@ -6988,6 +7332,7 @@ document.addEventListener("keydown", e => {
       const { t, i } = edOutSel;
       if (t === "sub") edDelSub(i);
       else if (t === "tts") edTtsDel(i);
+      else if (t === "txt") edTxtDel(i);
       else edImgDel(i);
       return;
     }

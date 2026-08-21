@@ -2596,7 +2596,7 @@ def test_0057_images_open_contract():
     assert "NOT LIKE 'editor_uploads/%'" in sql                    # 0056 prefix 정합
     assert r"\.(png|jpe?g)$" in sql                                # 엔진 dc1060f 실측
     assert "v_ov := v_ov - 'images'" in sql                        # 빈 배열 → 병합 후 제거
-    assert "편집 항목(title/subtitles/clips/design/tts/images)" in sql
+    assert "편집 항목(title/subtitles/clips/design/tts/images/texts)" in sql   # 0071 부터 texts 추가
     assert "'images', jsonb_array_length" in sql                   # audit 건수
     req = _live_mig("CREATE OR REPLACE FUNCTION public.request_editor_assets")
     assert req.count("'prev_images', v_gen.prev_images") == 2      # 캐시·신규 두 반환 모두
@@ -3675,3 +3675,62 @@ def test_title_box_and_bold_design_keys_emit_flags():
                      "--design-title-box-color2", "black@0.6",
                      "--design-title-bold"]
     assert aivideo.CHANNEL_DESIGN_SWITCHES["title_bold2"] == ("--design-title-bold2", True)
+
+
+# ───────── 편집실 텍스트 레이어(F-411 · 0071) ─────────
+def test_0071_editor_texts_contract():
+    """texts[](대사가 아닌 자유 글자)의 서버 계약: 편집 항목 인정 · 형태 검증(엔진 TEXT_KEYS
+    미러) · 빈 배열 = 전부 삭제(images 와 같은 규약, 두 키를 걷어낸 뒤 한 번만 '변화 없음'
+    판정) · v3 스탬프 · 감사 건수 · prev_texts 두 반환 경로 · editor_texts 게이트 시드."""
+    import pathlib
+    sql = _live_mig("CREATE OR REPLACE FUNCTION public.submit_editor_render")
+    assert "OR p_overrides ? 'texts'" in sql
+    assert "texts 는 배열이어야 합니다 (빈 배열 = 텍스트 전부 삭제)" in sql
+    assert "texts 는 최대 20개입니다" in sql
+    assert "texts[] 항목은 text 가 있는 객체여야 합니다" in sql
+    assert "texts[].text 는 60자 이하여야 합니다" in sql
+    assert "texts[]: source_time_sec·duration_sec·x·y 는 숫자여야 합니다" in sql
+    assert "texts[].size 는 12~400 px(숫자)여야 합니다" in sql
+    assert "NOT IN ('dark','none','white')" in sql and "NOT IN ('none','pop','shake')" in sql
+    assert "NOT IN ('Jalnan','JalnanGothic','mulmaru','Griun')" in sql
+    assert "'^#[0-9A-Fa-f]{6}$'" in sql
+    # 빈 배열 strip 은 images·texts 둘 다, '변화 없음' 가드는 그 **뒤** 한 번
+    assert "v_ov := v_ov - 'texts'" in sql
+    assert sql.index("v_ov := v_ov - 'images'") < sql.index("v_ov := v_ov - 'texts'") \
+        < sql.index("지울 이미지·텍스트도 없습니다")
+    assert "v_v3 := (v_ov ? 'images') OR (v_ov ? 'texts')" in sql
+    assert "'texts', jsonb_array_length(coalesce(v_ov->'texts','[]'::jsonb))" in sql
+    # 렌더 전용 오버레이 — from_step 은 clips/tts 가 없으면 render 그대로
+    assert "v_step := CASE WHEN v_ov ? 'clips' OR v_ov ? 'tts'" in sql
+    req = _live_mig("CREATE OR REPLACE FUNCTION public.request_editor_assets")
+    assert "j.params->'edit_overrides'->'texts'" in req
+    assert req.count("'prev_texts', v_gen.prev_texts") == 2       # 캐시·신규 두 반환 모두
+    mig = pathlib.Path("ves/control/migrations/0071_editor_texts.sql").read_text(encoding="utf-8")
+    assert "VALUES ('editor_texts', 'off'" in mig
+    assert "('orchestrator','0071'" in mig
+
+
+def test_dashboard_editor_texts_wired():
+    """F-411 화면: 텍스트 탭·T 레인·스테이지 배치(이동·크기·회전·인라인 편집)·수집·초안
+    왕복이 배선됐고 전부 editor_texts 플래그 뒤에 있다. 대사 자막 탭의 '＋ 자막 추가'는
+    남는다(전사 보충용) — 텍스트는 대사가 아닌 글자의 자리다."""
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert "edTextsOn" in html and "editor_texts" in html
+    assert 'id="edovtexts"' in html and "edTxtDragDown" in html
+    assert "edTxtResizeDown" in html and "edTxtRotateDown" in html and "edTxtEditInline" in html
+    assert "if ((edTextsOn() || forDraft) && edTextsChanged()){" in html
+    assert "edPrevTexts" in html and "prev_texts" in html
+    assert "texts0: txts0" in html
+    assert "texts: edForm.texts || []" in html
+    assert "if (Array.isArray(d.texts))" in html
+    assert 'lane("x", "텍스트", xTop, xR, xE)' in html
+    assert "ED_TXT_PRESETS" in html and "edTxtAdd" in html
+    assert 'edPane === "txts" && edTextsOn() ? edPaneTexts(canEdit)' in html
+    assert 'texts:"텍스트"' in html                       # 편집 배지 라벨
+    assert "＋ 자막 추가" in html                        # 대사 자막 탭의 전사 보충은 유지
+    # 계약 키 이름 그대로 나간다(어댑터 통과 — 치환 단계 없음)
+    assert "source_time_sec: +Number(t.src).toFixed(3)" in html
+    assert 'else if (t === "txt") edTxtDel(i);' in html  # Delete 키
+    py = pathlib.Path("ves/adapters/brain.py").read_text(encoding="utf-8")
+    assert '"texts": pay.get("texts") or 0' in py

@@ -340,6 +340,7 @@ def _editor_info(conn, run_id):
             "title": "title" in keys, "design": "design" in keys,
             "subs": pay.get("subs") or 0, "clips": pay.get("clips") or 0,
             "tts": pay.get("tts") or 0, "images": pay.get("images") or 0,
+            "texts": pay.get("texts") or 0,            # F-411(0071 감사 payload)
             "carried": pay.get("carried") or [],
             "resubmit": bool(pay.get("resubmit")), "note": pay.get("note")}
 
