@@ -1,9 +1,16 @@
 # E11 — KR 내레이션 TTS ElevenLabs 전환 (ai-video 엔진 발주서)
 
-> **구현 패치 동봉(2026-08-21)**: 이 디렉토리의 `e11-kr-tts-elevenlabs.patch.txt`
-> (d195cb9 기준 format-patch, 로컬 검증: 신규 11개 + 인접 114개 테스트 통과).
-> 엔진 세션은 패치를 검토·적용(`git am`)하고 테스트 재확인 후 브랜치로 푸시한다 —
-> 발주 본문은 아래 원문 그대로(패치가 곧 그 구현이다).
+> **구현 완료(2026-08-21, ai-video PR #33 = 294ab98 머지 · 구현 커밋 0271c70).**
+> 시크릿(ELEVENLABS_API_KEY)은 6대 모두 실키 확인 후 머지됨 — 배포는 §11 자동
+> 업데이트가 전파한다. 확정 계약은 발주 그대로: 모델 eleven_multilingual_v2
+> (env ELEVENLABS_MODEL_ID 로 교체 가능) · speed 0.7/0.85/1.0/1.1/1.2 ·
+> 라벨→premade voice_id 매핑(EL_VOICE_PRESETS) · 키 없음만 edge-tts 명시 폴백,
+> 4xx 즉시 실패 · run_log/checkpoint `tts_backend` 스탬프. 남은 실측(노드 1대):
+> `scripts/verify_tts_planner.py` step1b(speed 단조성)와 speed 만 바꾼 재렌더 1회.
+
+> 구현 패치 동봉(전달 기록): 이 디렉토리의 `e11-kr-tts-elevenlabs.patch.txt`
+> (d195cb9 기준 format-patch, 로컬 검증: 신규 11개 + 인접 114개 테스트 통과) —
+> 엔진 세션이 최신 main(5578c6c) 위에 그대로 적용해 PR #33 이 됐다.
 
 ai-video(rht-22/ai-video) 엔진 세션용 작업 프롬프트. 기준: d195cb9(전 노드
 last_seen 동일 — node_registry 2026-08-21 실측). 사용자 요청(8/21): "tts 는
