@@ -3526,3 +3526,63 @@ def test_0066_editor_jp_full_chain():
     assert 'edChain.jp ? jobs.localize : jobs.evaluate' in html
     assert '"localization_qa" : "publish_gate"' in html
     assert '[["localize", "재번역"]]' in html                  # 체인 스트립 칩
+
+
+def test_0067_editor_timed_title():
+    """E8(ai-video bd58078) 배선 — 타임드 제목. SQL: title.segments 기본 검증 +
+    v3 스탬프 조건 확장(엔진이 v1·v2 스탬프의 segments 를 즉시 거절한다) +
+    반환에 prev_title_segments(승계가 title 통째 교체라, 안 보이면 영영 못 지운다)."""
+    import pathlib
+    sql = _live_mig("CREATE OR REPLACE FUNCTION public.submit_editor_render")
+    assert "jsonb_typeof(p_overrides->'title'->'segments') <> 'array'" in sql
+    assert "title.segments 는 최대 20개입니다" in sql
+    assert "title.segments[]: start_sec(>=0)·end_sec(>start) 숫자가 필요합니다" in sql
+    # v3 스탬프 — segments 만 실어도 v3 로 찍혀야 엔진이 받는다(0067 의 존재 이유)
+    assert ("OR (jsonb_typeof(v_ov->'title') = 'object'"
+            " AND v_ov->'title' ? 'segments')") in sql
+    sql2 = _live_mig("CREATE OR REPLACE FUNCTION public.request_editor_assets")
+    # 머리말 1 + SELECT 별칭 1 + 반환 2곳(키·값 각 1) = 6 — 한 반환 경로만 고치는 사고 방지
+    assert sql2.count("prev_title_segments") == 6
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    # 게이트 + 위젯 + 수집(플래그 off 때 segments 미전송 — 구 스탬프 즉사 방지)
+    assert "const edE8On = () =>" in html and "editor_e8" in html
+    assert "function edTitleSegsHtml(canEdit)" in html
+    assert "function edTitleSegsBad()" in html
+    assert 'edE8On() ? edTitleSegsHtml(canEdit) : ""' in html
+    assert "ov.title.segments = tSegs.map(" in html
+    # 플래그 off + 이전 세그 존재 시 title 통째 교체로 세그가 증발하면 안 된다
+    assert "(edE8On() || forDraft)" in html
+    # 미리보기(시퀀스 모드)·완성본 타임라인 제목 레인·제출 가드
+    assert "_tsegs.find(x => outT >= x.start && outT < x.end)" in html
+    assert ".edoel.ottl" in html
+    assert 'toast("시간대별 제목: " + edTitleSegsBad(), true)' in html
+
+
+def test_dashboard_jp_cuts_e9():
+    """E9(vlp 66056fe) 배선 — 잔망루피 구간 빼기. p_edits 최상위 cuts 는 완성본
+    시간축, 엔진 검증(start≥0·end>start·겹침·≤20·80%)을 제출 전에 같은 규칙으로.
+    LOOPY 전용(SHOTCONE scene_rerender 는 cuts 계약이 없다) + 플래그 게이트."""
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert "const edJpCutsOn = () =>" in html and "editor_jp_cuts" in html
+    # 폼·스냅샷(Cmd+Z) — cuts 가 스택에 없으면 undo 한 번에 컷이 증발한다
+    assert '    cuts: [],' in html
+    assert "cuts: (f.cuts || []).map(c => ({ a: c.start, b: c.end }))" in html
+    assert "f.cuts = (o.cuts || []).map(v => ({ start: v.a, end: v.b }));" in html
+    # 위젯·검증·핸들러 — 편집 판정은 한 벌(닫힌 카드·플래그 off·SHOTCONE 차단)
+    assert "function edJpCutsEditable()" in html
+    assert "function edJpCutsBad()" in html
+    assert "전체의 80% 이상을 뺄 수는 없습니다" in html
+    assert "구간이 서로 겹칩니다" in html
+    assert "window.edJpCutAdd" in html and "window.edJpCutDel" in html
+    assert "window.edJpCutSet" in html
+    # 무렌더 갱신 — render() 는 재생 중 완성본 video 를 파괴한다
+    assert "function edJpCutsSync()" in html
+    # 수집 — 플래그·loopy 이중 게이트, start_sec/end_sec 정렬 전송
+    assert "if (edJpCutsOn() && f.loopy){" in html
+    assert "({ start_sec: +(+c.start).toFixed(3), end_sec: +(+c.end).toFixed(3) })" in html
+    # UI 게이트·타임라인 빗금(.edoover 공용)·제출 가드
+    assert "edJpCutsOn() && f.loopy && canEdit" in html
+    assert 'id="jpcuts"' in html
+    assert "const cutsOv = edJpCutsOn() && f.loopy ?" in html
+    assert 'toast("구간 빼기: " + edJpCutsBad(), true)' in html
