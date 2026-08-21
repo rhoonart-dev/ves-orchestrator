@@ -2340,8 +2340,11 @@ def test_dashboard_editor_edit_ui_wired():
     assert 'if (r.status === "waiting") return true;' in html
     # draft 분리 — 화면이 다시 그려져도 고치던 문장이 살아남는다
     assert "dTitle" in html and "dSubs" in html
-    # 자막 전량 삭제 방어
-    assert "자막을 전부 지울 수는 없습니다" in html
+    # 자막 전량 삭제 — 2026-08-21 사용자 요청으로 차단 → 확인 한 번으로 낮췄다
+    # (결과가 화면과 갈라지지 않게 어댑터 subtitles_cleared 가 --no-subtitles 를 못박는다.
+    #  test_edit_subtitles_cleared_turns_captions_off 가 그 짝)
+    assert "자막을 전부 지울 수는 없습니다" not in html
+    assert "대사 자막을 전부 삭제한 채 다시 렌더합니다" in html
     # 내레이션 탭(0047) — src 신원 매칭 · 전량 교체 수집 · 전부 삭제 확인 · orphan 경고
     assert "edPaneTts" in html and "edTtsChanged" in html
     assert "source_time_sec" in html
@@ -3363,6 +3366,101 @@ def test_edit_subtitles_turn_captions_on():
     assert "--no-subtitles" in build_argv_pure("/py", titleonly, "/s.mp4")
     # 원래 자막이 켜진 작품은 아무 영향 없다
     assert "--no-subtitles" not in build_argv_pure("/py", {"work_title": "x"}, "/s.mp4")
+
+
+def test_edit_subtitles_cleared_turns_captions_off():
+    """자막을 **전부 지워** 보내면 소스·채널 설정과 무관하게 그 편만 자막을 끈다.
+
+    2026-08-21 사용자 요청으로 편집실의 '자막을 전부 지울 수는 없습니다' 차단을 확인
+    한 번으로 낮췄다. 그런데 빈 배열은 subtitles_requested 에서 falsy 라 '자막 편집
+    안 함'과 구별되지 않는다 — 소스에 자막이 있는 편(no_subtitles 없음)은 원본 자막이
+    그대로 구워져 화면(0줄)과 결과(자막 그대로)가 갈라진다. '없음'과 '비움'을 갈라
+    비움만 --no-subtitles 로 옮긴다."""
+    from ves.adapters.aivideo import (build_argv_pure, design_for_job,
+                                      subtitles_cleared, subtitles_requested)
+    cleared = {"work_title": "피의 게임 X",
+               "edit_overrides": {"schema": "edit_overrides/v1", "subtitles": []}}
+    assert subtitles_cleared(cleared) is True
+    assert subtitles_requested(cleared) is False        # 빈 배열은 '고쳐 보냄'이 아니다
+    # 원래 자막이 켜진 작품이라도(no_subtitles 없음) 비우면 꺼진다
+    assert "--no-subtitles" in build_argv_pure("/py", cleared, "/s.mp4")
+    # 이미 꺼져 있던 편도 그대로 꺼진 채 — 플래그는 한 번만
+    off = {**cleared, "no_subtitles": True}
+    assert build_argv_pure("/py", off, "/s.mp4").count("--no-subtitles") == 1
+    # 키가 없으면(제목·구간만 고침) 종전 그대로 — 자막을 끄지 않는다
+    titleonly = {"work_title": "x",
+                 "edit_overrides": {"schema": "edit_overrides/v1",
+                                    "title": {"top_title": "새 제목"}}}
+    assert subtitles_cleared(titleonly) is False
+    assert "--no-subtitles" not in build_argv_pure("/py", titleonly, "/s.mp4")
+    assert subtitles_cleared({}) is False
+    # 채널 템플릿 '대사 자막 끔'은 비운 편에서 그대로 남는다(예외는 '고쳐 보낸' 편만)
+    assert design_for_job({"subtitles": False}, cleared) == {"subtitles": False}
+
+
+def test_channel_transcribe_backend_flag():
+    """자막 전사 백엔드(E11) — 채널 design 키 하나가 --transcribe-backend 로 나간다.
+
+    사용자 요청(2026-08-21) '자막 전사를 기본과 일레븐랩스 둘 중에 선택'. 값 오타는
+    즉시 실패다 — 조용히 무시하면 오타 난 템플릿이 엔진 기본 전사로 발행되고,
+    사람은 일레븐랩스로 바꿨다고 믿는다(registry 원칙 · _switch_value 와 같은 이유)."""
+    import pytest
+    from ves.adapters import base
+    from ves.adapters.aivideo import TRANSCRIBE_BACKENDS, channel_design_flags
+    assert TRANSCRIBE_BACKENDS == ("default", "elevenlabs")
+    assert channel_design_flags({"transcribe_backend": "elevenlabs"}, "ch") \
+        == ["--transcribe-backend", "elevenlabs"]
+    # 대소문자·공백은 정규화(손 편집 템플릿 대비 — _switch_value 와 같은 관용)
+    assert channel_design_flags({"transcribe_backend": " Default "}, "ch") \
+        == ["--transcribe-backend", "default"]
+    for bad in ("elevenlab", "whisper", "", None, True):
+        with pytest.raises(base.PermanentError):
+            channel_design_flags({"transcribe_backend": bad}, "ch")
+    # 키를 안 쓰면 플래그도 없다 — 기존 채널의 argv 는 한 글자도 안 바뀐다
+    assert channel_design_flags({"title_size": 70}, "ch") == ["--design-title-size", "70"]
+
+
+def test_0072_transcribe_backend_key_allowed():
+    """어댑터에 키를 넣고 v_allowed 를 빠뜨리면 채널 모달 저장이 거부된다(0065 실측 교훈)
+    — 이번엔 같은 판에서 함께 잇는다. 값 검증도 RPC 에 둔다: 돈이 나가는 외부 API
+    선택이라 손 편집 오타가 조용히 지나가면 안 된다."""
+    from ves.adapters.aivideo import TRANSCRIBE_BACKENDS
+    sql = _live_mig("CREATE OR REPLACE FUNCTION public.set_channel_design")
+    assert "'transcribe_backend'" in sql
+    for v in TRANSCRIBE_BACKENDS:
+        assert f"'{v}'" in sql
+    # 0069 까지의 허용 키가 살아 있어야 한다(본문 통째 재정의 규율 — 0055 교훈)
+    for k in ("'subtitles'", "'video_width'", "'title_y_fixed'", "'face_tracking'"):
+        assert k in sql
+    # 게이트는 off 로 시작한다 — 엔진 배포 전 저장이 그 채널 생성을 죽이면 안 된다
+    assert "'channel_transcribe', 'off'" in sql
+
+
+def test_dashboard_transcribe_backend_wired():
+    """채널 설정 모달의 '자막 전사' 선택 — 게이트·저장·diff·복사가 다 있어야 한다.
+
+    저장만 있고 diff·복사가 빠지면 '다른 채널에서 복사'가 전사 설정만 조용히 떨어뜨린다
+    (통째 교체 규약이라 화면에 없는 값은 저장 때 사라진다 — 8/20 subtitles 전례)."""
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert "chTranscribeOn" in html and "channel_transcribe" in html   # ops 게이트
+    assert "df_transcribe_backend" in html
+    assert "TRANSCRIBE_OPTIONS" in html and '"elevenlabs"' in html
+    assert "design.transcribe_backend = tb" in html                     # 저장
+    assert "자막 전사:" in html                                          # diff 미리보기
+    assert 'tb2.value = d.transcribe_backend || ""' in html             # 다른 채널에서 복사
+    # 게이트 off 로 입력칸이 없을 때는 지금 값을 승계한다(통째 교체 규약의 함정)
+    assert "tbEl0 ? tbEl0.value" in html
+    # 전사는 chunk_transcribe 단계 — 편집실 재렌더로는 안 바뀐다는 것을 화면이 말해야 한다
+    assert "다음 생성부터 적용" in html
+
+
+def test_dashboard_subs_cleared_notice():
+    """자막을 전부 지운 상태를 자막 탭이 먼저 알린다 — 보내기 확인창에서 처음 알면 늦다."""
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert "const cleared = edForm.dSubs.length" in html
+    assert "대사 자막 없이</b> 렌더됩니다" in html
 
 
 def test_0045_cache_requires_editing_video():

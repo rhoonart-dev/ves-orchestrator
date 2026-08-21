@@ -70,6 +70,12 @@ CHANNEL_DESIGN_FLAGS = {
     # 개방은 엔진 전 노드 배포 후 ops_config editor_e10=on (E7 과 같은 롤아웃). 채널
     # 템플릿(channels.json)에 넣으려면 brain CHANNEL_DESIGN_FLAGS 미러 선행(1:1 규율).
     "video_width": "--design-video-width",
+    # 자막 전사 백엔드(E11, 사용자 요청 2026-08-21) — 대사 자막을 무엇으로 받아쓰는가.
+    # 'default'(엔진 기본 = 로컬 Whisper 계열) | 'elevenlabs'(Scribe STT). 값 검증은
+    # _transcribe_value — 오타가 조용히 기본값으로 발행되면 안 된다(registry 원칙).
+    # 채널 단위(다음 생성부터)다: 전사는 chunk_transcribe 단계라 편집실 재렌더
+    # (from_step=resources|render)로는 다시 뜨지 않는다.
+    "transcribe_backend": "--transcribe-backend",
     "work_title_y": "--design-work-title-y",    # 작품명(하단) Y
     "work_font_size": "--design-work-font-size",
     "work_color": "--design-work-color",        # 작품명 색
@@ -111,6 +117,23 @@ def _switch_value(channel, key, v):
         f"채널 '{channel}': design 스위치 {key} 는 불리언이어야 합니다({v!r})")
 
 
+# 자막 전사 백엔드 허용값 — 엔진 --transcribe-backend choices 와 1:1 미러.
+TRANSCRIBE_BACKENDS = ("default", "elevenlabs")
+
+
+def _transcribe_value(channel, v) -> str:
+    """전사 백엔드 값 정규화 — 허용값 밖은 즉시 실패. 순수.
+
+    _switch_value 와 같은 이유다: 조용히 무시하면 오타 난 템플릿이 엔진 기본값으로
+    발행되고 아무도 모른다. 여기서 죽으면 그 채널의 다음 생성이 검수함에 남는다."""
+    sv = str(v or "").strip().lower()
+    if sv not in TRANSCRIBE_BACKENDS:
+        raise base.PermanentError(
+            f"채널 '{channel}': transcribe_backend 는 {'/'.join(TRANSCRIBE_BACKENDS)} "
+            f"중 하나여야 합니다({v!r})")
+    return sv
+
+
 def channel_design_flags(design, channel) -> list:
     """채널 'design' dict → CLI 플래그. '_' 키 무시, 모르는 키는 즉시 실패 —
     조용히 무시하면 오타 난 템플릿이 기본값으로 발행되고 아무도 모른다(registry 원칙). 순수."""
@@ -128,6 +151,8 @@ def channel_design_flags(design, channel) -> list:
             raise base.PermanentError(
                 f"채널 '{channel}': 알 수 없는 design 키 {k!r} — "
                 f"허용: {sorted(CHANNEL_DESIGN_FLAGS) + sorted(CHANNEL_DESIGN_SWITCHES)}")
+        if k == "transcribe_backend":
+            v = _transcribe_value(channel, v)
         flags += [flag, str(v)]
     return flags
 
@@ -256,6 +281,22 @@ def subtitles_requested(params: dict) -> bool:
     return bool(ov.get("subtitles"))
 
 
+def subtitles_cleared(params: dict) -> bool:
+    """편집실에서 대사 자막을 **전부 지워** 보냈는가(빈 배열). 순수 — 테스트 대상.
+
+    subtitles 는 전량 교체 규약이라 빈 배열 = '이 편은 대사 자막 없이'다. 그런데
+    subtitles_requested 는 bool([]) = False 라 이 의사표시를 '자막 편집 안 함'과
+    구별하지 못한다 — 그 상태로 흘리면 소스에 자막이 있는 편은 원본 자막이 그대로
+    구워져 **화면(0줄)과 결과(자막 그대로)가 갈라진다**(구간 전량 삭제가 조용히
+    무시되던 것과 같은 급의 거짓말). 그래서 '없음'과 '비움'을 여기서 갈라,
+    비움은 명시적으로 --no-subtitles 로 옮긴다(2026-08-21 사용자 요청으로 화면의
+    전량 삭제 차단을 확인 한 번으로 낮추면서 함께 메운 구멍).
+
+    키 자체가 없으면 False — 제목·구간만 고친 재렌더가 자막을 끄면 안 된다."""
+    ov = (params or {}).get("edit_overrides") or {}
+    return isinstance(ov.get("subtitles"), list) and not ov["subtitles"]
+
+
 def build_argv_pure(py: str, params: dict, source_path: str | None) -> list:
     p = params
     cmd = [py, "-u", "-m", "app.cli", "create_shorts",
@@ -279,7 +320,9 @@ def build_argv_pure(py: str, params: dict, source_path: str | None) -> list:
     # 자막 미제공 작품 합의(brain CLAUDE.md §5) — 다만 편집실에서 사람이 자막을 고쳐
     # 보냈으면 그 편만 자막을 켠다. 고친 문장이 화면에 안 나가면 편집실이 거짓말을 하는
     # 셈이다(2026-08-17 실측: subtitles.ass 는 바뀌는데 mp4 는 그대로였다).
-    if p.get("no_subtitles") and not subtitles_requested(p):
+    # 편집실에서 자막을 전부 지워 보낸 편은 소스·채널 설정과 무관하게 끈다(빈 배열의
+    # 의사표시 — subtitles_cleared 머리말). or 라 플래그는 한 번만 붙는다.
+    if (p.get("no_subtitles") and not subtitles_requested(p)) or subtitles_cleared(p):
         cmd += ["--no-subtitles"]
     if p.get("no_tts_subtitles"):    # 등급 J(8/13): 텍스트는 vlp 가 일본어로 그린다
         cmd += ["--no-tts-subtitles"]

@@ -2688,7 +2688,8 @@ const ED_MAX_TOTAL_SEC = 179.7;
 
 window.edSubmit = async () => {
   // 전 구간 소프트 삭제 상태는 '구간 변경 없음'으로 조용히 무시된다 — 화면(0개)과
-  // 결과(원본 구간 그대로)가 갈라지므로 자막의 전량 삭제 차단과 같은 급으로 막는다.
+  // 결과(원본 구간 그대로)가 갈라지므로 막는다. 자막의 전량 삭제는 같은 갈라짐을
+  // 어댑터(subtitles_cleared → --no-subtitles)에서 메웠으므로 확인만 받는다(아래).
   if (edForm && edForm.clips.length && !edClipsEff().length){
     toast("구간이 전부 삭제돼 있습니다 — 이대로 보내면 구간 변경이 반영되지 않습니다. 되살리거나 새로 추가하세요", true);
     return;
@@ -2698,9 +2699,14 @@ window.edSubmit = async () => {
   if (edE8On() && edTitleSegsBad()){
     toast("시간대별 제목: " + edTitleSegsBad(), true); return;
   }
-  if (ov.subtitles && !ov.subtitles.length){
-    toast("자막을 전부 지울 수는 없습니다 — 자막 없이 가려면 검수에서 반려하세요", true); return;
-  }
+  // 자막 전량 삭제 = '이 편은 대사 자막 없이'(사용자 요청 2026-08-21). 종전엔 막았다 —
+  // 빈 배열이 어댑터 subtitles_requested 에서 falsy 라 '자막 편집 안 함'으로 읽혀, 소스에
+  // 자막이 있는 편은 원본 자막이 그대로 구워질 수 있었기 때문이다(화면 0줄 ↔ 결과 그대로).
+  // 그 구멍은 어댑터 subtitles_cleared(빈 배열 = 명시적 끔 → --no-subtitles)로 메웠고,
+  // 여기는 내레이션·이미지·텍스트와 같은 급의 확인 한 번만 남긴다.
+  if (ov.subtitles && !ov.subtitles.length
+      && !window.confirm("대사 자막을 전부 삭제한 채 다시 렌더합니다 — 이 편은 자막 없이 나갑니다. 계속할까요?"))
+    return;
   // 내레이션은 빈 배열이 유효하다(전부 삭제) — 단 실수일 수 있으니 한 번 확인.
   if (ov.tts && !ov.tts.length
       && !window.confirm("내레이션을 전부 삭제한 채 다시 렌더합니다 — 음성도 하늘색 자막도 모두 빠집니다. 계속할까요?"))
@@ -4356,6 +4362,10 @@ function edPaneSubs(canEdit){
   const _ch = (state.chans||[]).find(c=>c.token_slug===(_wo.channel_slug||_rv.channel_slug));
   const tmplOff = !!_ch && (effDesign(_ch).design||{}).subtitles === false;
   const off = tmplOff || !_wo.has_subtitle;
+  // 전량 삭제(2026-08-21) — 원래 자막이 있었는데 남은 줄이 하나도 없는 상태.
+  // 보내면 --no-subtitles 로 나가므로, 그 사실을 보내기 전에 화면에서 먼저 알린다.
+  const cleared = edForm.dSubs.length
+    && !edForm.dSubs.some(s => !s.del && String(s.text).trim());
   return `${locked ? `<div class="edwarn">구간을 고쳤기 때문에 자막은 <b>대사에서 다시 맞춰집니다</b> —
       지금 고친 자막 문구는 보내지 않습니다. 구간을 먼저 확정해 렌더한 뒤 자막을 고치세요.</div>` : ""}
     ${anchorless.length ? `<div class="edwarn">⚠ <b>앵커 없는 자막 ${anchorless.length}줄</b>
@@ -4367,6 +4377,9 @@ function edPaneSubs(canEdit){
     ${off && !locked ? `<div class="edwarn">이 영상은 지금 <b>대사 자막을 넣지 않고</b> 렌더됐습니다${
       tmplOff ? " (채널 템플릿: 대사 자막 끔)" : ""} — 아래는 전사된 대사 원본.
       한 줄이라도 고쳐 보내면 <b>그 편만 자막이 켜집니다</b>.</div>` : ""}
+    ${cleared && !locked ? `<div class="edwarn">자막을 <b>전부 삭제</b>한 상태입니다 — 이대로 보내면
+      이 편은 <b>대사 자막 없이</b> 렌더됩니다(어댑터가 --no-subtitles 로 못박습니다).
+      되살리려면 아래 줄들의 '되살리기'를 누르세요.</div>` : ""}
     <div class="edcap">상단 제목 <span class="sub">— 영상 안에 그려지는 글자(줄바꿈 유지)</span></div>
     <textarea id="edtitle" rows="2" oninput="edMark()" ${canEdit ? "" : "disabled"}></textarea>
     ${edE8On() ? edTitleSegsHtml(canEdit) : ""}
@@ -8013,6 +8026,16 @@ const DESIGN_DEFAULTS = {
   platform_font_size: "40", platform_color: "white",
   platform_align: "left (왼쪽 상단)",
 };
+// 자막 전사 백엔드(E11, 사용자 요청 2026-08-21) — 대사 자막을 무엇으로 받아쓰는가.
+// 엔진 --transcribe-backend 전 노드 배포 확인 후 ops_config channel_transcribe=on 으로
+// 개방한다(구 엔진은 모르는 CLI 플래그에 argparse 즉사 — E7·E10 과 같은 롤아웃).
+// 채널 단위인 이유: 전사는 chunk_transcribe 단계라 편집실 재렌더(from_step=resources|
+// render)로는 다시 뜨지 않는다 — 고른 값은 **다음 생성부터** 적용된다.
+const chTranscribeOn = () => (((state.ops||{}).channel_transcribe||{}).value === "on");
+const TRANSCRIBE_OPTIONS = [
+  ["", "기본 (엔진 내장 전사 — 로컬 Whisper 계열)"],
+  ["elevenlabs", "일레븐랩스 Scribe (외부 API — 한국어 정확도↑, 유료·초 단위 과금)"],
+];
 const DESIGN_GROUPS = [
   ["제목", ["title_color","title_color2","title_font","title_size","title_y",
            "title_box","title_box_color","title_bold","title_box2","title_box_color2","title_bold2"]],
@@ -8114,7 +8137,11 @@ function chModalHtml(ch){
     <label title="끔 = 소스에 자막이 있어도 이 채널은 대사 자막을 그리지 않습니다. TTS 내레이션 자막은 별개. 예외: 편집실에서 자막을 고쳐 보낸 편은 그 편만 자막이 켜집니다(8/17 규칙 우선)">대사 자막<select id="df_subtitles">
         <option value="" ${d.subtitles===undefined?"selected":""}>기본(소스·작품 설정 따름)</option>
         <option value="false" ${d.subtitles===false?"selected":""}>끔(--no-subtitles)</option>
-      </select></label>`;
+      </select></label>
+    ${chTranscribeOn() ? `<label title="대사를 무엇으로 받아쓸지 — 편집실 자막 탭에 뜨는 '전사된 대사 원본'을 만드는 엔진입니다. 전사는 생성 초반(chunk_transcribe) 단계라 이 값은 다음 생성부터 적용됩니다(이미 만든 편의 재렌더에는 반영되지 않습니다)">자막 전사<select id="df_transcribe_backend">
+        ${TRANSCRIBE_OPTIONS.map(([v, l]) => `<option value="${esc(v)}" ${
+          (d.transcribe_backend || "") === v ? "selected" : ""}>${esc(l)}</option>`).join("")}
+      </select></label>` : ""}`;
   const wOvr = state.worksOvr[slug];
   const effWorks = (wOvr && wOvr.works) || ch.works || [];
   const isExt = !!EXT_PIPE[slug];
@@ -8191,6 +8218,12 @@ window.dfDiffUpdate = slug => {
   const sbEl = $("#df_subtitles");
   const sv = sbEl ? sbEl.value : "", osv = d.subtitles === false ? "false" : "";
   if (sv !== osv) diffs.push(`대사 자막: ${osv ? "끔" : "기본"} → ${sv ? "끔" : "기본"}`);
+  const tbEl = $("#df_transcribe_backend");
+  if (tbEl){
+    const tlab = v => (TRANSCRIBE_OPTIONS.find(([x]) => x === v) || ["", "기본"])[1];
+    const otb = d.transcribe_backend || "";
+    if (tbEl.value !== otb) diffs.push(`자막 전사: ${tlab(otb)} → ${tlab(tbEl.value)}`);
+  }
   const box = $("#dfdiff"); if (!box) return;
   box.innerHTML = diffs.length
     ? "저장 시 바뀌는 것: " + diffs.map(x => esc(x)).join(" · ")
@@ -8206,6 +8239,7 @@ window.dfCopyFrom = (src, slug) => {
   }
   const f = $("#df_face_tracking"); if (f) f.value = d.face_tracking === false ? "false" : "";
   const sb2 = $("#df_subtitles"); if (sb2) sb2.value = d.subtitles === false ? "false" : "";
+  const tb2 = $("#df_transcribe_backend"); if (tb2) tb2.value = d.transcribe_backend || "";
   toast(`${ch.name || src} 디자인을 불러왔습니다 — 저장 전까지 반영되지 않습니다`);
   dfDiffUpdate(slug);
 };
@@ -8219,6 +8253,14 @@ window.chSave = slug => {
   }
   if ($("#df_face_tracking")?.value === "false") design.face_tracking = false;
   if ($("#df_subtitles")?.value === "false") design.subtitles = false;   // 대사 자막 끔(8/20)
+  // 자막 전사 백엔드(E11) — 빈 값 = 미설정(엔진 기본). 게이트가 꺼져 있으면 입력칸이
+  // 없다: 그때는 지금 값을 그대로 승계한다. 저장은 통째 교체라 안 그러면 게이트를
+  // 껐다 켜는 사이의 디자인 저장 한 번에 전사 설정이 소리 없이 사라진다.
+  const tbEl0 = $("#df_transcribe_backend");
+  const chNow = (state.chans||[]).find(c => c.token_slug === slug);
+  const tb = tbEl0 ? tbEl0.value
+                   : ((chNow && effDesign(chNow).design || {}).transcribe_backend || "");
+  if (tb) design.transcribe_backend = tb;
   if (!Object.keys(design).length){ toast("설정할 값이 없습니다 — 해제를 쓰세요", true); return; }
   chEdit = null;
   rpc("set_channel_design", { p_slug: slug, p_design: design }, "저장됨 — 다음 생성부터 적용");
