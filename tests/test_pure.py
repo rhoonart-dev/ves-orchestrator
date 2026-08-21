@@ -3097,10 +3097,15 @@ def test_dashboard_editor_sub_style_wysiwyg():
     # 대상 선택형 도구(제목|자막|TTS) — 크기·색이 각 대상의 design/줄 style 로 간다
     assert 'id="edovselseg"' in html and "edOvPick" in html
     assert "edOvSize" in html and "edOvColor" in html and "edOvReset" in html
-    # 가상 시퀀스 영상 밴드(V3-a) — 실제 렌더 수식 그대로: 높이 = 화면비, 위치 = video_y
-    # (없으면 중앙), 밴드 안 cover 크롭. ⇕ 드래그·스타일 탭과 동기.
+    # 가상 시퀀스 영상 밴드(V3-a) — 실제 렌더 수식 그대로: 폭 = video_width(기본 1080),
+    # 높이 = int(폭×화면비), 위치 = video_y(없으면 중앙), 밴드 안 cover 크롭.
+    # ⇕/⇔ 드래그·스타일 탭과 동기. 8/21 정합: 기본 화면비는 엔진 DesignConfig 와 같은
+    # 1:1 — 종전 16:9 근사는 aspect_ratio 없는 채널에서 완성본과 다른 화면을 보여줬다.
     assert "edStageBandGeom" in html and "edStageBandSync" in html
-    assert "(rh / rw) * (1080 / 1920)" in html
+    assert "bhpx = Math.floor(bwpx * +m[2] / +m[1])" in html
+    assert "Math.min(1, bhpx / 1920)" in html
+    assert 'String(d.aspect_ratio || "").trim()' in html      # 기본은 빈 값 → 1:1 폴백
+    assert "16:9" not in html.split("function edStageBandGeom", 1)[1].split("}", 1)[0]
     assert "edBandDragDown" in html
     assert '"aspect_ratio",     "영상 화면비"' in html
     assert 'classList.toggle("seqfit"' in html
@@ -3586,3 +3591,56 @@ def test_dashboard_jp_cuts_e9():
     assert 'id="jpcuts"' in html
     assert "const cutsOv = edJpCutsOn() && f.loopy ?" in html
     assert 'toast("구간 빼기: " + edJpCutsBad(), true)' in html
+
+
+def test_dashboard_editor_band_parity_0821():
+    """8/21 '미리보기가 완성본과 다르다' 정합 — 미리보기가 엔진 렌더 수식을 그대로
+    쓴다: ① 밴드 기본 화면비 1:1(엔진 DesignConfig — 종전 16:9 근사는 aspect_ratio
+    없는 채널 대부분에서 완성본과 다른 화면) ② 제목 자동 배치 = 밴드 위 20px(엔진
+    _dynamic_title_top, 여백 <10px 면 title_y 폴백) ③ 제목 줄바꿈 20자 + 줄별 크기
+    (title_sizes 조립 70/90 위계 ×90/70) + 14~20자 길이 축소표 ④ 2줄 기본색 #FFFF00
+    (엔진 title_colors[1] — 종전 #FFE400 은 다른 노랑)."""
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    # ① 기본 1:1 — 파싱 실패·미지정 모두 정사각(렌더러 except → scaled_h = W 와 동일)
+    band = html.split("function edStageBandGeom", 1)[1].split("return {", 1)[0]
+    assert "bhpx = bwpx" in band and "16" not in band
+    # ② 자동 배치 — 고정(title_y_fixed)만 title_y, 아니면 밴드 위(엔진 수식 그대로)
+    assert "function edTitleTopPx" in html
+    assert "edStageBandGeom(d).vy * 1920) - blockH - 20" in html
+    assert "dyn >= 10 ? dyn : edTitleYv(d)" in html
+    # ③ 줄바꿈·줄별 크기 — 엔진 split_text_smart(20)·_scale_font_for_length 미러
+    assert "function edTitleWrap" in html and "function edTitleLines" in html
+    assert "ED_TITLE_LEN_SCALE" in html and "20:.60" in html
+    assert "Math.round(s1 * 90 / 70)" in html               # title_sizes 조립(위계 유지)
+    assert "(+d.title_size || 96)" not in html               # 구 단일 96px 근사 제거
+    # ④ 2줄 기본색 — 엔진 기본과 동일
+    assert '(d.title_color2 || "#FFFF00")' in html
+    assert "#FFE400" not in html
+    # 드래그 시작점 = 화면에 보이는 위치(자동 배치) — 잡는 순간 120px 로 튀지 않게
+    assert "tt.dataset.top = _ttop" in html
+
+
+def test_dashboard_editor_video_band_size_e10():
+    """E10 — 영상 밴드 가로 크기(design.video_width, 발주서 e10-video-band-size.md).
+    어댑터 1:1 미러 + 편집실 UI(스타일 탭·⇔ 드래그)·미리보기 반영 + editor_e10
+    게이트(H2 이중 안전: 플래그 전엔 화면에도 안 보이고 전송에서도 걷어낸다)."""
+    import pathlib
+
+    from ves.adapters.aivideo import CHANNEL_DESIGN_FLAGS
+    assert CHANNEL_DESIGN_FLAGS["video_width"] == "--design-video-width"
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    # 게이트 — 표시(edPaneStyle 필터)와 전송(edCollect) 양쪽
+    assert "const edE10On = () =>" in html and "editor_e10" in html
+    assert 'const ED_E10_KEYS = ["video_width"];' in html
+    assert "if (!edE10On()) ED_E10_KEYS.forEach(k => delete ov.design[k]);" in html
+    assert "edE10On() || !ED_E10_KEYS.includes(k)" in html
+    # 미리보기 — 밴드 폭·가로 중앙(엔진 pad_x=(W-w)//2 계약과 동일)·확대율 일반화
+    assert "Math.round(+d.video_width) || 1080" in html
+    assert "left: (1 - bandW) / 2" in html
+    assert "const bw = 9 * g.bandW, bh = 16 * g.bandH;" in html
+    # ⇔ 드래그(가로 중앙 유지 = 이동량 ×2)·스타일 탭 입력·범위 검증(엔진 320~1080)
+    assert "window.edBandWDragDown" in html and 'id="edbandw"' in html
+    assert "1080 * 2" in html
+    assert '"video_width",      "영상 가로 크기(px)"' in html
+    assert "n < 320 || n > 1080" in html

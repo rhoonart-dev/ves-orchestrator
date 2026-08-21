@@ -58,6 +58,11 @@ CHANNEL_DESIGN_FLAGS = {
     "title_rotate": "--design-title-rotate",
     "tts_rotate": "--design-tts-rotate",
     "video_speed": "--design-video-speed",
+    # E10(발주서 docs/prompts/e10-video-band-size.md): 영상 밴드 가로 크기(px, 320~1080,
+    # 미지정=1080 꽉 참 — 종전과 동일). 지금은 편집실(edit_overrides.design) 경로 전용 —
+    # 개방은 엔진 전 노드 배포 후 ops_config editor_e10=on (E7 과 같은 롤아웃). 채널
+    # 템플릿(channels.json)에 넣으려면 brain CHANNEL_DESIGN_FLAGS 미러 선행(1:1 규율).
+    "video_width": "--design-video-width",
     "work_title_y": "--design-work-title-y",    # 작품명(하단) Y
     "work_font_size": "--design-work-font-size",
     "work_color": "--design-work-color",        # 작품명 색
