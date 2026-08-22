@@ -715,7 +715,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .warnbar.fold table{min-width:640px}
   .warnbar.fold table td{white-space:nowrap}
   .warnbar.fold table .err{white-space:normal}
-  /* 0072 '사람 판단 필요' 표의 반려 사유 — 오류 문자열이 아니라 사람이 쓴 글이다.
+  /* 0074 '사람 판단 필요' 표의 반려 사유 — 오류 문자열이 아니라 사람이 쓴 글이다.
      .err(주황)로 칠하면 시스템 오류처럼 읽힌다. 길면 줄바꿈(같은 표의 나머지는 nowrap). */
   .warnbar.fold table td.note{white-space:normal;color:var(--muted);font-size:12px;max-width:340px}
   /* v3: 맥별 현재 작업 */
@@ -1161,7 +1161,7 @@ async function refresh(){
     soft(sb.from("job_queue").select("id,work_order_id,kind,status,attempt,max_attempts,node_id,error,error_class,params,run_after,created_at,updated_at,finished_at")
            .in("kind",["publish","zanmang_decision"])
            .order("updated_at",{ascending:false}).limit(200)),
-    // 0072: 재생성 상한 등으로 사람 판단에 넘어간 채 멈춘 작업지시. 해소 판정(잡이 다시
+    // 0074: 재생성 상한 등으로 사람 판단에 넘어간 채 멈춘 작업지시. 해소 판정(잡이 다시
     // 섬·새 카드·취소)까지 뷰가 한다 — 여기 잡 150건 창으로 세면 오판한다(창 밖 잡).
     soft(sb.from("stalled_work_orders").select("*").order("stalled_at",{ascending:false})),
   ]);
@@ -1361,10 +1361,10 @@ function unpublished(){
 // 서지 않는다 — 작업지시는 open 인 채 잡 없이 멈춘다. 종전 신호는 반려 직후 토스트 한 번뿐:
 // 8/22 23:12 한 입 주막 '가왕쇼'에서 사용자가 그 토스트를 놓쳤고 "카드가 사라졌다"로 인지했다.
 // 합격 후 미발행(8/17)과 같은 성질의 조용한 실패라 같은 자리(홈 경고줄)에 세운다.
-// 정본은 DB 뷰(0072 stalled_work_orders) — '아직 멈춰 있는가' 판정을 여기서 하지 않는 이유는
+// 정본은 DB 뷰(0074 stalled_work_orders) — '아직 멈춰 있는가' 판정을 여기서 하지 않는 이유는
 // 잡 조회 창(150건)에 잘리면 이미 다시 도는 건을 계속 경고하게 되기 때문이다.
 const stalled = () => state.stalls || [];
-// 사유 → 사람 말. 서버가 정본(0072 reject_review), 여기는 표시만.
+// 사유 → 사람 말. 서버가 정본(0074 reject_review), 여기는 표시만.
 const STALL_WHY = {
   retry_limit:      "다시 만들기 상한 도달",
   no_run_to_resume: "이어달릴 이전 결과 없음",
@@ -2249,7 +2249,7 @@ function renderReview(){
         const slug = wo.channel_slug || r.channel_slug;
         const d = r.status === "approved" ? chip("good","✓","합격")
                 : r.status === "rejected"
-                  // ⚑ = 이 반려로 재생성이 서지 않아 작업지시가 멈춰 있다(0072 뷰가 정본).
+                  // ⚑ = 이 반려로 재생성이 서지 않아 작업지시가 멈춰 있다(0074 뷰가 정본).
                   //     다시 돌기 시작하거나 취소되면 배지는 저절로 사라진다.
                   ? chip("crit","✕","반려") + (stallIds.has(r.id)
                       ? " " + chip("crit","⚑","사람 판단 필요") : "")
@@ -2365,7 +2365,7 @@ window.reject = async (rid, stage, regen) => {
     toast(r.regenerated
       ? `반려 — ${where} ${what} 다시 만듭니다 (${r.tries}/2)`
         + (r.note_applied && note ? " · 사유 반영됨" : "")
-      // 토스트는 놓칠 수 있다(8/22 사고) — 멈춘 건은 홈 경고줄·검수함 배지에 남는다(0072).
+      // 토스트는 놓칠 수 있다(8/22 사고) — 멈춘 건은 홈 경고줄·검수함 배지에 남는다(0074).
       // 여기서는 '어디에 남겼는지'까지 말해 준다.
       : r.reason === "retry_limit"
         ? "반려 — 다시 만들기 상한(2회) 도달 · 홈 경고줄에 '사람 판단 필요'로 세웠습니다"
@@ -2964,7 +2964,8 @@ const ED_MAX_TOTAL_SEC = 179.7;
 
 window.edSubmit = async () => {
   // 전 구간 소프트 삭제 상태는 '구간 변경 없음'으로 조용히 무시된다 — 화면(0개)과
-  // 결과(원본 구간 그대로)가 갈라지므로 자막의 전량 삭제 차단과 같은 급으로 막는다.
+  // 결과(원본 구간 그대로)가 갈라지므로 막는다. 자막의 전량 삭제는 같은 갈라짐을
+  // 어댑터(subtitles_cleared → --no-subtitles)에서 메웠으므로 확인만 받는다(아래).
   if (edForm && edForm.clips.length && !edClipsEff().length){
     toast("구간이 전부 삭제돼 있습니다 — 이대로 보내면 구간 변경이 반영되지 않습니다. 되살리거나 새로 추가하세요", true);
     return;
@@ -2974,9 +2975,14 @@ window.edSubmit = async () => {
   if (edE8On() && edTitleSegsBad()){
     toast("시간대별 제목: " + edTitleSegsBad(), true); return;
   }
-  if (ov.subtitles && !ov.subtitles.length){
-    toast("자막을 전부 지울 수는 없습니다 — 자막 없이 가려면 검수에서 반려하세요", true); return;
-  }
+  // 자막 전량 삭제 = '이 편은 대사 자막 없이'(사용자 요청 2026-08-21). 종전엔 막았다 —
+  // 빈 배열이 어댑터 subtitles_requested 에서 falsy 라 '자막 편집 안 함'으로 읽혀, 소스에
+  // 자막이 있는 편은 원본 자막이 그대로 구워질 수 있었기 때문이다(화면 0줄 ↔ 결과 그대로).
+  // 그 구멍은 어댑터 subtitles_cleared(빈 배열 = 명시적 끔 → --no-subtitles)로 메웠고,
+  // 여기는 내레이션·이미지·텍스트와 같은 급의 확인 한 번만 남긴다.
+  if (ov.subtitles && !ov.subtitles.length
+      && !window.confirm("대사 자막을 전부 삭제한 채 다시 렌더합니다 — 이 편은 자막 없이 나갑니다. 계속할까요?"))
+    return;
   // 내레이션은 빈 배열이 유효하다(전부 삭제) — 단 실수일 수 있으니 한 번 확인.
   if (ov.tts && !ov.tts.length
       && !window.confirm("내레이션을 전부 삭제한 채 다시 렌더합니다 — 음성도 하늘색 자막도 모두 빠집니다. 계속할까요?"))
@@ -4632,6 +4638,10 @@ function edPaneSubs(canEdit){
   const _ch = (state.chans||[]).find(c=>c.token_slug===(_wo.channel_slug||_rv.channel_slug));
   const tmplOff = !!_ch && (effDesign(_ch).design||{}).subtitles === false;
   const off = tmplOff || !_wo.has_subtitle;
+  // 전량 삭제(2026-08-21) — 원래 자막이 있었는데 남은 줄이 하나도 없는 상태.
+  // 보내면 --no-subtitles 로 나가므로, 그 사실을 보내기 전에 화면에서 먼저 알린다.
+  const cleared = edForm.dSubs.length
+    && !edForm.dSubs.some(s => !s.del && String(s.text).trim());
   return `${locked ? `<div class="edwarn">구간을 고쳤기 때문에 자막은 <b>대사에서 다시 맞춰집니다</b> —
       지금 고친 자막 문구는 보내지 않습니다. 구간을 먼저 확정해 렌더한 뒤 자막을 고치세요.</div>` : ""}
     ${anchorless.length ? `<div class="edwarn">⚠ <b>앵커 없는 자막 ${anchorless.length}줄</b>
@@ -4643,6 +4653,9 @@ function edPaneSubs(canEdit){
     ${off && !locked ? `<div class="edwarn">이 영상은 지금 <b>대사 자막을 넣지 않고</b> 렌더됐습니다${
       tmplOff ? " (채널 템플릿: 대사 자막 끔)" : ""} — 아래는 전사된 대사 원본.
       한 줄이라도 고쳐 보내면 <b>그 편만 자막이 켜집니다</b>.</div>` : ""}
+    ${cleared && !locked ? `<div class="edwarn">자막을 <b>전부 삭제</b>한 상태입니다 — 이대로 보내면
+      이 편은 <b>대사 자막 없이</b> 렌더됩니다(어댑터가 --no-subtitles 로 못박습니다).
+      되살리려면 아래 줄들의 '되살리기'를 누르세요.</div>` : ""}
     <div class="edcap">상단 제목 <span class="sub">— 영상 안에 그려지는 글자(줄바꿈 유지)</span></div>
     <textarea id="edtitle" rows="2" oninput="edMark()" ${canEdit ? "" : "disabled"}></textarea>
     ${edE8On() ? edTitleSegsHtml(canEdit) : ""}
@@ -4695,12 +4708,83 @@ function edPaneSubs(canEdit){
 // 절대초(신원 겸용) — 구간을 고쳐도 안 흔들리므로 자막처럼 잠그지 않는다.
 const ED_VOICES = [["ko_female","기본 여성"],["ko_female_high","밝은 여성"],
                    ["ko_male","기본 남성"],["ko_male_low","낮은 남성"]];
+// 일레븐랩스 목소리(E12, 사용자 요청 2026-08-21) — 값이 곧 계약이다:
+// 'elevenlabs:<voice_id>'. 엔진은 접두사로 갈라 ElevenLabs 로 합성하고, 사람이 읽는
+// 이름표는 여기(화면)만 든다 — 목록을 두 곳에 두면 반드시 어긋난다(E12-2).
+// voice_id 는 ElevenLabs 기본(premade) 목소리 정본. 다국어 모델이 한국어를 말하므로
+// 이름이 영어라도 한국어 내레이션에 쓴다 — 라벨은 그래서 '누구'가 아니라 '어떤 소리'다.
+// 계정 라이브러리에 담은 목소리를 더 넣으려면 이 배열에 한 줄 추가하면 된다(엔진 무관).
+const ED_EL_PREFIX = "elevenlabs:";
+// 기본 목록 = ElevenLabs 'premade'(기본) 목소리 20종. 두 가지를 알고 써야 한다:
+//   ⓐ 전부 영어권 목소리다 — 다국어 모델이 한국어를 말하긴 하지만 영어 억양이 배어난다.
+//      네이티브 한국어 목소리는 ElevenLabs '보이스 라이브러리'(계정마다 다름)에 있고,
+//      그걸 쓰려면 아래 ops_config 목록으로 갈아끼운다.
+//   ⓑ ElevenLabs 공지상 기본 목소리는 2026-12-31 만료 예정이고, 2026-03 이후에 만든
+//      계정에는 애초에 없다. 그래서 이 배열은 **바닥값**일 뿐 정본이 아니다.
+// 정본 통로: ops_config 'editor_tts_voices' = [{"id":"<voice_id>","label":"..."}, ...]
+// (더빙 경로의 ops_config.localize_voices 와 같은 규율 — 계정 자산은 코드에 안 박는다).
+const ED_EL_VOICES_DEFAULT = [
+  // — 내레이션(ElevenLabs use_case: narration)
+  ["elevenlabs:JBFqnCBsd6RMkjVDRZzb", "내레이션 · 남 · 따뜻함 (George, 영국)"],
+  ["elevenlabs:pFZP5JQG7iQjIQuC4Bku", "내레이션 · 여 · 따뜻함 (Lily, 영국)"],
+  ["elevenlabs:XrExE9yKIg1WjnnlVkGX", "내레이션 · 여 · 친근함 (Matilda, 미국)"],
+  ["elevenlabs:nPczCjzI2devNBz1zQrb", "내레이션 · 남 · 낮고 굵음 (Brian, 미국)"],
+  ["elevenlabs:TX3LPaxmHKxFdv7VOQHJ", "내레이션 · 남 · 또렷함·젊음 (Liam, 미국)"],
+  ["elevenlabs:pqHfZKP75CvOlQylNhV4", "내레이션 · 남 · 중후함 (Bill, 미국)"],
+  // — 뉴스·전달
+  ["elevenlabs:EXAVITQu4vr4xnSDxMaL", "뉴스 · 여 · 부드러움 (Sarah, 미국)"],
+  ["elevenlabs:Xb7hH8MSUJpSbSDYk0k2", "뉴스 · 여 · 단단함 (Alice, 영국)"],
+  ["elevenlabs:onwK4e9ZLuTAKqWW03F9", "뉴스 · 남 · 권위 (Daniel, 영국)"],
+  // — 대화체
+  ["elevenlabs:cgSgspJ2msm6clMCkdW9", "대화체 · 여 · 표현 풍부 (Jessica, 미국)"],
+  ["elevenlabs:cjVigY5qzO86Huf0OWal", "대화체 · 남 · 친근함 (Eric, 미국)"],
+  ["elevenlabs:iP95p4xoKVk53GoZ742B", "대화체 · 남 · 편안함 (Chris, 미국)"],
+  ["elevenlabs:IKne3meq5aSn9XLyUdCD", "대화체 · 남 · 자연스러움 (Charlie, 호주)"],
+  // — 쇼츠·SNS 톤
+  ["elevenlabs:9BWtsMINqrJLrRacOk9x", "쇼츠 · 여 · 표현 풍부 (Aria, 미국)"],
+  ["elevenlabs:FGY2WhTYpPnrIDTdsKH5", "쇼츠 · 여 · 밝고 빠름 (Laura, 미국)"],
+  ["elevenlabs:CwhRBWXzGAHq8TQ4Fs17", "쇼츠 · 남 · 자신감 (Roger, 미국)"],
+  ["elevenlabs:bIHbv24MWmeRgasZH58o", "쇼츠 · 남 · 친근함·젊음 (Will, 미국)"],
+  ["elevenlabs:SAz9YHcvj6GT2YYXdXww", "쇼츠 · 중성 · 담백함 (River, 미국)"],
+  // — 캐릭터
+  ["elevenlabs:N2lVS1w4EtoT3dr4eOWO", "캐릭터 · 남 · 강렬함 (Callum)"],
+  ["elevenlabs:XB0fDUnXU5powFXDhCwa", "캐릭터 · 여 · 나른함 (Charlotte, 스웨덴)"],
+];
+// 운영자 목록이 있으면 그것이 이긴다(위 ⓐⓑ). 깨진 JSON·이상한 항목 하나가 목소리
+// 선택을 통째로 못 쓰게 만들면 안 된다 — 조용히 기본 목록으로 떨어진다(표시 계층이라
+// fail-loud 대상이 아니다. 값 자체의 형태는 RPC 0073 이 제출 시점에 거른다).
+function edElVoices(){
+  try {
+    const rows = JSON.parse(((state.ops||{}).editor_tts_voices||{}).value || "null");
+    if (Array.isArray(rows) && rows.length){
+      const ok = rows.filter(r => r && /^[A-Za-z0-9]{16,32}$/.test(String(r.id || "")))
+                     .map(r => [ED_EL_PREFIX + r.id, String(r.label || r.id)]);
+      if (ok.length) return ok;
+    }
+  } catch (e) { /* 기본 목록으로 */ }
+  return ED_EL_VOICES_DEFAULT;
+}
+// 게이트(0073) — 엔진 E12 합성 경로 전 노드 배포 확인 후 운영자가 on.
+// 끄는 것은 **새 선택**을 막을 뿐이다: 이미 그 목소리가 실린 줄은 현재값으로 보존돼
+// 계속 나간다(editor_v3·editor_texts 와 같은 규율 — 플래그는 롤백이 아니다).
+const edElVoicesOn = () => (((state.ops||{}).editor_tts_elevenlabs||{}).value === "on");
+function edVoiceGroups(cur){
+  const g = [["기본 (edge-tts)", ED_VOICES]];
+  if (edElVoicesOn() || String(cur || "").startsWith(ED_EL_PREFIX))
+    g.push(["일레븐랩스 (재렌더 때 합성)", edElVoices()]);
+  return g;
+}
 function edVoiceSel(cur, canEdit, handler){
-  const opts = ED_VOICES.some(([v]) => v === cur)
-    ? ED_VOICES : [[cur, cur], ...ED_VOICES];       // 낯선 프리셋(chat_*)은 현재값 보존
+  const groups = edVoiceGroups(cur);
+  // 낯선 프리셋(chat_* 등 엔진 어휘)은 현재값 보존 — 편집실을 한 번 거쳤다고 사람이
+  // 안 고른 목소리로 바뀌면 안 된다. 그룹 밖 맨 위에 그대로 둔다.
+  const known = groups.some(([, vs]) => vs.some(([v]) => v === cur));
   return `<select ${canEdit?"":"disabled"} onchange="${handler}"
-    onclick="event.stopPropagation()">${opts.map(([v,l]) =>
-    `<option value="${esc(v)}" ${v===cur?"selected":""}>${esc(l)}</option>`).join("")}</select>`;
+    onclick="event.stopPropagation()">${
+    known ? "" : `<option value="${esc(cur)}" selected>${esc(cur)}</option>`}${
+    groups.map(([lab, vs]) => `<optgroup label="${esc(lab)}">${vs.map(([v,l]) =>
+      `<option value="${esc(v)}" ${v===cur?"selected":""}>${esc(l)}</option>`).join("")}</optgroup>`
+    ).join("")}</select>`;
 }
 // 속도 프리셋(사용자 8/20) — 엔진 tts.SPEED_TO_RATE 와 1:1(합성 시점에 적용되는
 // edge-tts rate). cue 단위 speed 는 edit_overrides/v2 가 원계약부터 통과시킨다.
@@ -4771,7 +4855,11 @@ function edPaneTts(canEdit){
     </div>` : ""}
     <div class="sub" style="margin-top:6px">시각은 <b>원본</b> 기준 — 구간을 옮겨도 내레이션은
       그 장면을 따라갑니다 · 고쳐 보내면 <b>음성을 새로 합성</b>합니다(재렌더 몇 분) ·
-      비우면 그 줄이 빠집니다</div>`;
+      비우면 그 줄이 빠집니다</div>
+    ${edElVoicesOn() ? `<div class="sub" style="margin-top:4px">일레븐랩스 목소리는
+      <b>영어권 기본 목소리</b>라 한국어를 말할 때 억양이 배어날 수 있습니다 — 한 줄로 먼저
+      들어보고 정하세요. 한국어 네이티브 목소리는 일레븐랩스 보이스 라이브러리에서 계정에
+      담은 뒤 <code>ops_config.editor_tts_voices</code> 에 넣으면 이 목록에 뜹니다.</div>` : ""}`;
 }
 
 // ── 우측 패널: 이미지 (F-408) ─────────────────────────────────────────
@@ -8289,6 +8377,16 @@ const DESIGN_DEFAULTS = {
   platform_font_size: "40", platform_color: "white",
   platform_align: "left (왼쪽 상단)",
 };
+// 자막 전사 백엔드(E11, 사용자 요청 2026-08-21) — 대사 자막을 무엇으로 받아쓰는가.
+// 엔진 --transcribe-backend 전 노드 배포 확인 후 ops_config channel_transcribe=on 으로
+// 개방한다(구 엔진은 모르는 CLI 플래그에 argparse 즉사 — E7·E10 과 같은 롤아웃).
+// 채널 단위인 이유: 전사는 chunk_transcribe 단계라 편집실 재렌더(from_step=resources|
+// render)로는 다시 뜨지 않는다 — 고른 값은 **다음 생성부터** 적용된다.
+const chTranscribeOn = () => (((state.ops||{}).channel_transcribe||{}).value === "on");
+const TRANSCRIBE_OPTIONS = [
+  ["", "기본 (엔진 내장 전사 — 지금까지 쓰던 것)"],
+  ["elevenlabs", "일레븐랩스 Scribe (외부 API — 한국어 정확도↑, 유료·초 단위 과금)"],
+];
 const DESIGN_GROUPS = [
   ["제목", ["title_color","title_color2","title_font","title_size","title_y",
            "title_box","title_box_color","title_bold","title_box2","title_box_color2","title_bold2"]],
@@ -8390,7 +8488,11 @@ function chModalHtml(ch){
     <label title="끔 = 소스에 자막이 있어도 이 채널은 대사 자막을 그리지 않습니다. TTS 내레이션 자막은 별개. 예외: 편집실에서 자막을 고쳐 보낸 편은 그 편만 자막이 켜집니다(8/17 규칙 우선)">대사 자막<select id="df_subtitles">
         <option value="" ${d.subtitles===undefined?"selected":""}>기본(소스·작품 설정 따름)</option>
         <option value="false" ${d.subtitles===false?"selected":""}>끔(--no-subtitles)</option>
-      </select></label>`;
+      </select></label>
+    ${chTranscribeOn() ? `<label title="대사를 무엇으로 받아쓸지 — 편집실 자막 탭에 뜨는 '전사된 대사 원본'을 만드는 엔진입니다. 전사는 생성 초반(chunk_transcribe) 단계라 이 값은 다음 생성부터 적용됩니다(이미 만든 편의 재렌더에는 반영되지 않습니다)">자막 전사<select id="df_transcribe_backend">
+        ${TRANSCRIBE_OPTIONS.map(([v, l]) => `<option value="${esc(v)}" ${
+          (d.transcribe_backend || "") === v ? "selected" : ""}>${esc(l)}</option>`).join("")}
+      </select></label>` : ""}`;
   const wOvr = state.worksOvr[slug];
   const effWorks = (wOvr && wOvr.works) || ch.works || [];
   const isExt = !!EXT_PIPE[slug];
@@ -8467,6 +8569,12 @@ window.dfDiffUpdate = slug => {
   const sbEl = $("#df_subtitles");
   const sv = sbEl ? sbEl.value : "", osv = d.subtitles === false ? "false" : "";
   if (sv !== osv) diffs.push(`대사 자막: ${osv ? "끔" : "기본"} → ${sv ? "끔" : "기본"}`);
+  const tbEl = $("#df_transcribe_backend");
+  if (tbEl){
+    const tlab = v => (TRANSCRIBE_OPTIONS.find(([x]) => x === v) || ["", "기본"])[1];
+    const otb = d.transcribe_backend || "";
+    if (tbEl.value !== otb) diffs.push(`자막 전사: ${tlab(otb)} → ${tlab(tbEl.value)}`);
+  }
   const box = $("#dfdiff"); if (!box) return;
   box.innerHTML = diffs.length
     ? "저장 시 바뀌는 것: " + diffs.map(x => esc(x)).join(" · ")
@@ -8482,6 +8590,7 @@ window.dfCopyFrom = (src, slug) => {
   }
   const f = $("#df_face_tracking"); if (f) f.value = d.face_tracking === false ? "false" : "";
   const sb2 = $("#df_subtitles"); if (sb2) sb2.value = d.subtitles === false ? "false" : "";
+  const tb2 = $("#df_transcribe_backend"); if (tb2) tb2.value = d.transcribe_backend || "";
   toast(`${ch.name || src} 디자인을 불러왔습니다 — 저장 전까지 반영되지 않습니다`);
   dfDiffUpdate(slug);
 };
@@ -8495,6 +8604,14 @@ window.chSave = slug => {
   }
   if ($("#df_face_tracking")?.value === "false") design.face_tracking = false;
   if ($("#df_subtitles")?.value === "false") design.subtitles = false;   // 대사 자막 끔(8/20)
+  // 자막 전사 백엔드(E11) — 빈 값 = 미설정(엔진 기본). 게이트가 꺼져 있으면 입력칸이
+  // 없다: 그때는 지금 값을 그대로 승계한다. 저장은 통째 교체라 안 그러면 게이트를
+  // 껐다 켜는 사이의 디자인 저장 한 번에 전사 설정이 소리 없이 사라진다.
+  const tbEl0 = $("#df_transcribe_backend");
+  const chNow = (state.chans||[]).find(c => c.token_slug === slug);
+  const tb = tbEl0 ? tbEl0.value
+                   : ((chNow && effDesign(chNow).design || {}).transcribe_backend || "");
+  if (tb) design.transcribe_backend = tb;
   if (!Object.keys(design).length){ toast("설정할 값이 없습니다 — 해제를 쓰세요", true); return; }
   chEdit = null;
   rpc("set_channel_design", { p_slug: slug, p_design: design }, "저장됨 — 다음 생성부터 적용");

@@ -1,8 +1,14 @@
 -- =====================================================================
--- 0072_reject_retry_limit_visible.sql — 재생성 상한에 걸린 반려를 화면에 남긴다 (2026-08-23)
+-- 0074_reject_retry_limit_visible.sql — 재생성 상한에 걸린 반려를 화면에 남긴다 (2026-08-23)
 --
 -- ⚠ 번호 발번: 적용 직전 `SELECT max(version) FROM applied_migrations WHERE engine='orchestrator'`
---    로 확인하고, 그 +1 로 파일명과 아래 INSERT 를 맞춘다(이 파일은 0071 다음을 가정).
+--    로 확인하고, 그 +1 로 파일명과 아래 INSERT 를 맞춘다.
+--    **발번 결과(2026-08-22): 0072 → 0074.** 이 파일은 0071 다음(0072)을 가정했으나, 그 사이
+--    0072(채널 자막 전사 백엔드)·0073(편집실 일레븐랩스 목소리)이 **먼저 적용돼**
+--    max(version)=0073 이었다. 위 규칙대로 0074 로 재발번한다 — 0072 인 채 적용했다면
+--    아래 INSERT 가 기존 0072 행과 충돌해 ON CONFLICT DO NOTHING 에 삼켜져
+--    applied_migrations 에 안 남고, updater 마이그레이션 게이트(★③, 파일명 버전 −
+--    적용 버전)가 '0072 적용됨'으로 오판해 통과시켰을 것이다(reject_review 는 구판인 채).
 --
 -- 실사고(2026-08-22 23:12 KST 실측 — 한 입 주막 HANIPJUMAK '가왕쇼' EP1,
 -- work_order 333fc58d-f292-466f-a262-6960b31ab72c):
@@ -55,7 +61,7 @@ DECLARE
     v_gen_id uuid; v_busy uuid;
     v_tries int; v_avoid jsonb; v_gen int; v_limit int := 2;
     v_step text; v_resume boolean; v_use_note boolean; v_patch jsonb;
-    v_reason text; v_stall jsonb; v_out jsonb;   -- 0072
+    v_reason text; v_stall jsonb; v_out jsonb;   -- 0074
 BEGIN
     IF NOT public.has_role(auth.uid(),'reviewer') THEN
         RAISE EXCEPTION 'permission denied'; END IF;
@@ -122,7 +128,7 @@ BEGIN
     SELECT count(*) INTO v_tries FROM public.rejected_takes
      WHERE work_order_id = v_rq.work_order_id;
 
-    -- ── 0072: 재생성이 못 서는 사유를 한자리에서 고른다 ──────────────────
+    -- ── 0074: 재생성이 못 서는 사유를 한자리에서 고른다 ──────────────────
     -- 판정 순서는 0055 의 조기 반환 넷과 같다(busy → 이어달릴 run 없음 → 체인 없음 → 상한).
     --   · '제작'·'스토리 구성' 은 같은 run 을 이어달리므로 run_id 가 없으면 대상이 없다.
     v_reason := CASE
@@ -157,7 +163,7 @@ BEGIN
     IF v_stage = '제작' THEN
         v_avoid := NULL;
     ELSE
-        -- 0072 ②: jsonb 'null'(SQL NULL 아님)도 거른다 — 안 그러면 avoid_spans 가
+        -- 0074 ②: jsonb 'null'(SQL NULL 아님)도 거른다 — 안 그러면 avoid_spans 가
         -- [null,null,null] 로 실린다(실측). IS NOT NULL 은 jsonb null 을 못 거른다.
         SELECT coalesce(jsonb_agg(scene_span), '[]'::jsonb) INTO v_avoid
           FROM public.rejected_takes
@@ -214,7 +220,7 @@ REVOKE ALL ON FUNCTION public.reject_review(uuid, text, text, boolean) FROM publ
 GRANT EXECUTE ON FUNCTION public.reject_review(uuid, text, text, boolean) TO authenticated;
 COMMENT ON FUNCTION public.reject_review(uuid, text, text, boolean) IS
   '반려 + 재생성(0019·0021·0055). 재생성이 못 서면(상한·체인 없음) 카드 payload.stalled 에
-   ''사람 판단 필요'' 를 남긴다(0072) — 카드는 rejected 라 검수함에서 사라지기 때문.';
+   ''사람 판단 필요'' 를 남긴다(0074) — 카드는 rejected 라 검수함에서 사라지기 때문.';
 
 -- ── ③ 지금도 멈춰 있는 작업지시 — 홈 경고줄·검수함 배지의 정본 ──────────
 -- 스탬프는 사건 기록(지우지 않는다). '아직 멈춰 있는가' 는 조회 시점에 판정한다.
@@ -248,7 +254,7 @@ WITH (security_invoker = true) AS
             WHERE n.work_order_id = rq.work_order_id
               AND n.created_at > rq.created_at);
 COMMENT ON VIEW public.stalled_work_orders IS
-  '재생성이 못 서서 사람 판단으로 넘어간 채 아직 멈춰 있는 작업지시(0072).
+  '재생성이 못 서서 사람 판단으로 넘어간 채 아직 멈춰 있는 작업지시(0074).
    해소 조건: 작업지시 취소·완료 / 대기·실행 잡이 다시 섬 / 뒤에 새 검수 카드가 생김.';
 GRANT SELECT ON public.stalled_work_orders TO authenticated;
 
@@ -291,5 +297,5 @@ UPDATE public.review_queue rq
                       AND n.created_at > rq.created_at);
 
 INSERT INTO public.applied_migrations(engine, version, applied_by)
-VALUES ('orchestrator','0072','claude (재생성 상한 반려를 홈 경고줄·검수함에 세운다 — HANIPJUMAK 가왕쇼 8/22 · avoid_spans jsonb null 필터)')
+VALUES ('orchestrator','0074','claude (재생성 상한 반려를 홈 경고줄·검수함에 세운다 — HANIPJUMAK 가왕쇼 8/22 · avoid_spans jsonb null 필터)')
 ON CONFLICT DO NOTHING;
