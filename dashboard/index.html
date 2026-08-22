@@ -4804,10 +4804,7 @@ function edPaneTts(canEdit){
   const cf = edConflicts();
   const rows = edForm.tts.map((t, i) => {
     const orphan = edTtsOrphan(t) && !t.del;
-    const o0 = edTts0For(t);
-    // 문구·목소리·속도를 고침 — 저장된 음성은 수정 전 합성본(voice 만 바꿔도 옛 음성이다)
-    const stale = !o0 || t.text !== o0.text || t.voice !== o0.voice
-      || (t.speed || "normal") !== (o0.speed || "normal");
+    const mode = edTtsPlayMode(t);   // "stored" | "live" | "stale" | null — ▶ 가 무엇을 들려줄지
     return `
     <div class="ednrow ${i===edTtsSel?"sel":""} ${t.del?"deleted":""}" onclick="edTtsPick(${i})">
       <div class="hd">
@@ -4817,9 +4814,13 @@ function edPaneTts(canEdit){
         <span>창 ${t.dur.toFixed(1)}s</span>
         ${edVoiceSel(t.voice, canEdit && !t.del, `edTtsVoice(${i},this.value)`)}
         ${edSpeedSel(t.speed, canEdit && !t.del, `edTtsSpeed(${i},this.value)`)}
-        ${t.key && !t.del ? `<button class="mini" onclick="event.stopPropagation();edTtsPlay(${i})"
-            title="${stale ? "저장된 음성 미리듣기 — 수정 전 합성본입니다. 고친 문구·위치·목소리는 재렌더 후 합성됩니다"
-                           : "합성된 음성 미리듣기"}">▶${stale ? "·구본" : ""}</button>` : ""}
+        ${mode ? `<button class="mini" id="edttsplay${i}"
+            onclick="event.stopPropagation();edTtsPlay(${i})"
+            title="${mode === "live"
+              ? "이 목소리·속도로 지금 합성해 들려줍니다 — 완성본과 같은 설정입니다"
+              : mode === "stale"
+              ? "저장된 음성 — 수정 전 합성본입니다. 고친 문구·목소리는 재렌더 후 합성됩니다"
+              : "합성된 음성 미리듣기"}">▶${mode === "stale" ? "·구본" : ""}</button>` : ""}
         ${cf.ttsCut.has(i) && !t.del ? `<span class="sub" title="창이 구간 끝을 넘습니다 — 렌더에서 잘리거나 다음 장면 위에서 재생됩니다">⚠창</span>` : ""}
         ${t.isNew ? `<span style="color:#87CEEB">신규</span>` : ""}
         <span style="margin-left:auto"></span>
@@ -4857,9 +4858,11 @@ function edPaneTts(canEdit){
       그 장면을 따라갑니다 · 고쳐 보내면 <b>음성을 새로 합성</b>합니다(재렌더 몇 분) ·
       비우면 그 줄이 빠집니다</div>
     ${edElVoicesOn() ? `<div class="sub" style="margin-top:4px">일레븐랩스 목소리는
-      <b>영어권 기본 목소리</b>라 한국어를 말할 때 억양이 배어날 수 있습니다 — 한 줄로 먼저
-      들어보고 정하세요. 한국어 네이티브 목소리는 일레븐랩스 보이스 라이브러리에서 계정에
-      담은 뒤 <code>ops_config.editor_tts_voices</code> 에 넣으면 이 목록에 뜹니다.</div>` : ""}`;
+      <b>영어권 기본 목소리</b>라 한국어를 말할 때 억양이 배어날 수 있습니다 — 목소리를 고른 뒤
+      <b>▶ 를 누르면 그 자리에서 합성해</b> 들려줍니다(완성본과 같은 설정). 기본(edge-tts)
+      목소리는 재렌더 후에만 들립니다. 한국어 네이티브 목소리는 일레븐랩스 보이스
+      라이브러리에서 계정에 담은 뒤 <code>ops_config.editor_tts_voices</code> 에 넣으면
+      이 목록이 <b>기본 20종 대신</b> 그 목록으로 바뀝니다.</div>` : ""}`;
 }
 
 // ── 우측 패널: 이미지 (F-408) ─────────────────────────────────────────
@@ -7463,27 +7466,70 @@ window.edSubStage = i => {
   edStagePaint(t);             // 영상이 없거나 로드 전이어도 유령 자막은 그 줄을 띄운다
 };
 
-// ── 내레이션 미리듣기 (F-204) ─────────────────────────────────────────
-// 저장된 합성 mp3 를 그대로 들려준다 — 합성은 엔진 소유라, 고친 문구의 음성은
-// 재렌더 후에만 존재한다(버튼 title 이 그 사실을 알린다).
+// ── 내레이션 미리듣기 (F-204 · 온디맨드 2026-08-22) ───────────────────
+// 들려줄 수 있는 소리가 둘이다.
+//   **저장본** — 직전 렌더가 합성해 둔 mp3(tts[].key). 공짜이고 완성본 그 자체다.
+//   **즉석**   — 고친 뒤(또는 새로 넣은 줄)에는 저장본이 없거나 옛 목소리다. 그때만
+//                엣지 함수 tts-preview 로 **엔진과 같은 파라미터**로 합성해 들려준다.
+// 공짜가 있으면 공짜를 쓴다 — 즉석 합성은 클릭마다 돈이 나간다.
+// 즉석은 `elevenlabs:` 목소리에만 된다. 기본(edge-tts) 라벨은 voice_id 매핑을 엔진이
+// 들고 있어서, 여기서 재현하면 정본이 둘이 된다(registry 원칙) — 재렌더 후에만 들린다.
 let edTtsAudio = null, edTtsPlayGen = 0;
+// 같은 문구·목소리·속도를 다시 눌러도 다시 합성하지 않는다(재클릭에 재과금 금지).
+const _edTtsCache = new Map();
 function edTtsStop(){
   ++edTtsPlayGen;                            // await 중인 재생 요청도 물린다(이중 재생 방지)
   if (edTtsAudio){ edTtsAudio.pause(); edTtsAudio = null; }
 }
+// 이 줄의 ▶ 가 무엇을 들려주는가 — 없으면 버튼 자체를 안 낸다.
+function edTtsPlayMode(t){
+  if (!t || t.del) return null;
+  const o0 = edTts0For(t);
+  // 문구·목소리·속도를 고쳤으면 저장본은 수정 전 합성본이다(voice 만 바꿔도 옛 음성).
+  const stale = !o0 || t.text !== o0.text || t.voice !== o0.voice
+    || (t.speed || "normal") !== (o0.speed || "normal");
+  if (t.key && !stale) return "stored";
+  if (edElVoicesOn() && String(t.voice || "").startsWith(ED_EL_PREFIX)) return "live";
+  return t.key ? "stale" : null;
+}
 window.edTtsPlay = async i => {
   const t = edForm && edForm.tts[i];
-  if (!t || !t.key) return;
+  const mode = edTtsPlayMode(t);
+  if (!mode) return;
   // 같은 줄 재클릭 = 정지(토글) — 정지 수단이 '다른 ▶' 뿐이면 끌 방법이 없다
   if (edTtsAudio && edTtsAudio._i === i && !edTtsAudio.paused){ edTtsStop(); return; }
   edTtsStop();
   const gen = edTtsPlayGen;
+  const btn = document.getElementById(`edttsplay${i}`);
   try {
-    const url = await signedUrl("ves-outputs", t.key, 900);
+    let url;
+    if (mode === "live"){
+      const ck = `${t.voice}|${t.speed || "normal"}|${t.text}`;
+      url = _edTtsCache.get(ck);
+      if (!url){
+        if (btn) btn.textContent = "합성 중…";
+        const { data, error } = await sb.functions.invoke("tts-preview", {
+          body: { text: t.text, voice: t.voice, speed: t.speed || "normal" } });
+        if (gen !== edTtsPlayGen) return;
+        if (error){
+          // 함수가 4xx/5xx 면 supabase-js 가 본문을 error.context 에 둔다 — 우리 메시지를 살린다
+          let msg = error.message;
+          try { const j = await error.context.json(); if (j && j.error) msg = j.error; } catch (_){}
+          throw new Error(msg);
+        }
+        if (!data || !data.audio) throw new Error((data && data.error) || "빈 응답");
+        url = `data:${data.mime || "audio/mpeg"};base64,${data.audio}`;
+        _edTtsCache.set(ck, url);
+        if (data.truncated) toast(`미리듣기는 앞 ${data.chars}자만 합성합니다`);
+      }
+    } else {
+      url = await signedUrl("ves-outputs", t.key, 900);
+    }
     if (gen !== edTtsPlayGen) return;        // 그 사이 다른 재생·정지가 이겼다
     edTtsAudio = new Audio(url); edTtsAudio._i = i;
     edTtsAudio.play().catch(() => toast("미리듣기를 재생할 수 없습니다", true));
   } catch (e){ toast("미리듣기 실패: " + e.message, true); }
+  finally { if (btn && btn.textContent === "합성 중…") btn.textContent = "▶"; }
 };
 
 // ── 충돌 검사 (F-205) — 출력 시간축 기준 ─────────────────────────────

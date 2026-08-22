@@ -3888,3 +3888,62 @@ def test_dashboard_editor_texts_wired():
     assert 'else if (t === "txt") edTxtDel(i);' in html  # Delete 키
     py = pathlib.Path("ves/adapters/brain.py").read_text(encoding="utf-8")
     assert '"texts": pay.get("texts") or 0' in py
+
+
+def test_tts_preview_function_matches_engine_synthesis():
+    """온디맨드 미리듣기는 **엔진과 같은 파라미터**로 합성해야 한다.
+
+    미리듣기가 완성본과 다른 소리를 내면 미리듣기가 거짓말이 된다 — 사람은 A 를 듣고
+    골랐는데 B 가 발행된다. 아래 값은 ai-video `app/modules/tts.py _synthesize_elevenlabs`
+    의 복제본이라, 엔진이 바꾸면 이 테스트가 먼저 깨져야 한다(다른 레포라 실물 대조는
+    못 한다 — 그래서 값을 여기 못 박는다).
+    """
+    import pathlib
+    ts = pathlib.Path("supabase/functions/tts-preview/index.ts").read_text(encoding="utf-8")
+    # 속도 라벨 → voice_settings.speed (엔진 EL_SPEED)
+    for label, val in (("very_slow", "0.7"), ("slow", "0.85"),
+                       ("normal", "1.0"), ("fast", "1.1"), ("very_fast", "1.2")):
+        assert f"{label}: {val}" in ts, f"속도 {label} 이 엔진 값과 다르다"
+    assert '"eleven_multilingual_v2"' in ts          # 엔진 EL_MODEL_ID 기본값
+    assert '"mp3_44100_128"' in ts                   # 엔진 EL_OUTPUT_FORMAT
+    assert "EL_STABILITY = 0.5" in ts                # 엔진 voice_settings.stability
+    assert "EL_SIMILARITY = 0.75" in ts              # 엔진 voice_settings.similarity_boost
+    # 라벨 목소리는 합성하지 않는다 — EL_VOICE_PRESETS 를 복제하면 정본이 둘이 된다
+    assert "VOICE_PREFIX = \"elevenlabs:\"" in ts
+    assert "/^[A-Za-z0-9]{16,32}$/" in ts            # 0073·엔진과 같은 형태 검증
+
+
+def test_tts_preview_function_is_gated_and_authed():
+    """돈이 나가는 통로다 — 아무나, 아무 때나 눌러선 안 된다."""
+    import pathlib
+    ts = pathlib.Path("supabase/functions/tts-preview/index.ts").read_text(encoding="utf-8")
+    assert "auth.getUser()" in ts and "user_roles" in ts       # 호출자 JWT 로 신원 확인
+    assert 'ALLOWED_ROLES = ["reviewer", "operator", "admin"]' in ts
+    assert "editor_tts_elevenlabs" in ts                       # 게이트 off 면 합성도 안 한다
+    assert "MAX_CHARS = 300" in ts                             # 긴 텍스트로 크레딧이 새지 않게
+    # 키가 없으면 즉시 실패 — 조용히 넘어가면 '왜 안 되지'가 된다
+    assert "ELEVENLABS_API_KEY" in ts and "503" in ts
+
+
+def test_dashboard_tts_preview_on_demand():
+    """편집실 ▶ 는 저장본이 맞을 때만 저장본을 쓰고, 아니면 즉석 합성한다.
+
+    사용자 보고(8/22): '목소리 선택해도 미리보기에서 안 나와'. 저장본만 틀던 시절엔
+    맞는 동작이었지만 안내문은 '한 줄로 먼저 들어보고 정하세요'라고 말하고 있었다.
+    """
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert "function edTtsPlayMode(t)" in html
+    # 공짜(저장본)가 맞으면 공짜를 쓴다 — 즉석은 클릭마다 과금이다
+    assert 'if (t.key && !stale) return "stored";' in html
+    assert 'sb.functions.invoke("tts-preview"' in html
+    assert "_edTtsCache" in html                    # 같은 문구·목소리 재클릭에 재과금 금지
+    # 기본(edge-tts) 라벨은 즉석 합성 대상이 아니다 — 엔진이 매핑 정본이다
+    assert 'String(t.voice || "").startsWith(ED_EL_PREFIX)' in html
+    # 함수가 돌려준 한국어 사유가 토스트까지 살아 와야 한다
+    assert "error.context.json()" in html
+    # 사실과 어긋나던 안내문은 사라졌다
+    assert "한 줄로 먼저" not in html
+    assert "▶ 를 누르면 그 자리에서 합성해" in html
+    # editor_tts_voices 는 기본 목록에 '더하는' 게 아니라 '대체'한다 — 안내가 그렇게 말해야 한다
+    assert "기본 20종 대신" in html
