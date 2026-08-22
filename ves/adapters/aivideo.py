@@ -272,11 +272,16 @@ def _brain_json(cfg, name):
 def subtitles_requested(params: dict) -> bool:
     """편집실에서 사람이 대사 자막을 고쳐 보냈는가. 순수 — 테스트 대상.
 
-    지금 모든 소스가 has_subtitle=false 라 planner 가 no_subtitles=true 를 넣고, 엔진은
-    대사 자막을 아예 굽지 않는다(subtitle_segments.json·subtitles.ass 는 만들어지지만
-    렌더 입력에서 빠진다). 그 상태에서 편집실 자막 수정을 받으면 파일만 바뀌고 영상은
-    그대로다 — 사람 눈에는 '고쳤는데 안 바뀌는' 버그로 보인다. 그래서 자막을 고쳐 보낸
-    그 편만 자막을 켠다. 사용자 결정(2026-08-17): 평상시는 지금대로, 손대면 켜진다."""
+    2026-08-17 당시 활성 소스가 전부 has_subtitle=false 라 planner 가 no_subtitles=true 를
+    넣었고, 엔진은 대사 자막을 아예 굽지 않았다(subtitle_segments.json·subtitles.ass 는
+    만들어지지만 렌더 입력에서 빠진다). 그 상태에서 편집실 자막 수정을 받으면 파일만
+    바뀌고 영상은 그대로다 — 사람 눈에는 '고쳤는데 안 바뀌는' 버그로 보인다. 그래서
+    자막을 고쳐 보낸 그 편만 자막을 켠다. 사용자 결정(2026-08-17).
+
+    ⚠ '전부 false' 전제는 더는 참이 아니다 — 2026-08-21 실측: 활성 소스 532개 중
+    has_subtitle=true 가 371개, 최근 14일 generate 315건 중 no_subtitles=false 가 23건.
+    그 7% 에서는 이 함수가 False 를 내도 --no-subtitles 가 안 붙는다. 자막 전량 삭제의
+    의사표시를 subtitles_cleared 가 따로 받아야 하는 이유가 그것이다(아래)."""
     ov = (params or {}).get("edit_overrides") or {}
     return bool(ov.get("subtitles"))
 

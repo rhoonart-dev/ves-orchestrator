@@ -3347,7 +3347,8 @@ def test_edit_subtitles_turn_captions_on():
     """자막을 고쳐 보내면 그 편만 --no-subtitles 를 뗀다.
 
     2026-08-17 실측: 활성 소스 486개가 전부 has_subtitle=false 라 모든 영상이
-    --no-subtitles 로 렌더된다. 그 상태에서 편집실 자막 수정을 받으면 subtitles.ass 만
+    --no-subtitles 로 렌더됐다(2026-08-21 재실측으로 그 전제는 깨졌다 —
+    subtitles_requested 머리말·test_edit_subtitles_cleared_turns_captions_off 참고). 그 상태에서 편집실 자막 수정을 받으면 subtitles.ass 만
     바뀌고 mp4 는 그대로여서, 사람 눈에는 '고쳤는데 안 바뀌는' 버그로 보인다.
     사용자 결정: 평상시는 지금대로, 사람이 손대면 그 편만 켠다."""
     from ves.adapters.aivideo import build_argv_pure, subtitles_requested

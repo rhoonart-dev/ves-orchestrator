@@ -27,6 +27,18 @@
 -- 적용 순서: DB 먼저 무해하다 — ①은 지금 아무도 안 보내는 어휘의 형태 검사이고,
 -- ②는 이미 통과하던 형태를 명문화할 뿐이다. 목소리 개방은 엔진(ai-video E12)
 -- 전 노드 배포 확인 후 ops_config editor_tts_elevenlabs = on.
+--
+-- ⚠ 단, ②(자막 전량 삭제)에는 **화면보다 어댑터가 먼저**라는 조건이 하나 더 붙는다.
+-- 대시보드는 main 머지 즉시 자동 배포되는데(.github/workflows/dashboard-deploy.yml)
+-- 어댑터는 updater(★③, version_watch 시간당 1회)를 타고 노드에 늦게 도착한다. 그
+-- 사이에 자막을 전부 지워 보내면, 구 어댑터는 빈 배열을 '자막 편집 안 함'으로 읽어
+-- --no-subtitles 를 안 붙인다 — 화면 0줄 ↔ 결과 자막 그대로가 재현된다.
+-- 2026-08-21 실측으로 그 창은 비어 있지 않다: 활성 소스 532개 중 has_subtitle=true 가
+-- 371개, 최근 14일 generate 315건 중 no_subtitles=false 가 23건(7%). 나머지 93% 는
+-- no_subtitles=true 라 구 어댑터도 결과가 맞는다.
+-- 그래서 순서는 **이 마이그레이션 적용 → 머지 → node_registry 6/6 새 sha 확인 →
+-- 그때 검수자에게 '자막 전량 삭제'를 안내**다. DB 를 먼저 적용해야 updater 의
+-- 마이그레이션 게이트가 노드 갱신을 막지 않는다(0049 머리말의 'DB 먼저' 규율).
 -- 짝: dashboard 편집실 내레이션 탭(ED_EL_VOICES·edVoiceSel 그룹 select) ·
 --     ves/adapters/aivideo.py(subtitles_cleared)
 -- =====================================================================
