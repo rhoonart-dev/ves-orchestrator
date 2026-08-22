@@ -68,3 +68,28 @@ generate(TTL 300s)는 최대 ~75초 안에 멈춘다.
   ~$60/월) 추가 상향 검토. 컴퓨트 변경은 수 분 재시작 수반 — 사용자 확인 후 실행.
 - 보조: PostgREST 풀은 Management API `PATCH /v1/projects/{ref}/postgrest` 의 `db_pool`
   로 축소 가능하나 REST 동시성 저하 트레이드오프. storage_admin 풀은 사용자 설정 불가.
+
+## 9. 반려 재생성 상한 — 홈 '사람 판단 필요' 경고줄 (0072)
+
+증상: 검수 카드를 반려했는데 카드만 사라지고 후속 잡이 하나도 서지 않는다.
+작업지시는 `status='open'` 인 채 잡 없이 멈춘다.
+
+원인(설계대로): 반려 재생성은 같은 작업지시에서 **2회까지**다(0019 ③ — 구 scene_loop
+정책 계승). 3번째 반려부터 `reject_review` 는 `{regenerated:false, reason:'retry_limit'}`
+로 끝난다. 2026-08-22 23:12 KST 한 입 주막 '가왕쇼' EP1 에서 사용자가 반려 직후 토스트를
+놓쳐 "카드가 사라졌다"로 인지한 것이 이 상태다.
+
+확인:
+```sql
+-- 지금 사람 판단으로 넘어간 채 멈춰 있는 작업지시 (홈 경고줄·검수함 ⚑ 배지의 정본)
+SELECT channel_slug, work_title, episode, reason, stage, tries, stalled_at, note
+  FROM public.stalled_work_orders ORDER BY stalled_at DESC;
+```
+
+조치(둘 중 하나 — 자동 재생성은 더 일어나지 않는다):
+- **이 편을 포기**: 홈 경고줄의 [작업지시 취소](`cancel_work_order`) — 회차 슬롯이 돌아오고
+  대기·실행 잡과 남은 검수 카드도 함께 닫힌다.
+- **다시 만들기**: 홈 채널 카드의 [작업 실행](`run_channel_now`) 으로 새로 한 편.
+
+해소는 자동이다 — 그 작업지시에 대기·실행 잡이 다시 서거나, 새 검수 카드가 생기거나,
+작업지시가 취소되면 뷰에서 빠진다(경고줄·배지도 같이 사라진다).
