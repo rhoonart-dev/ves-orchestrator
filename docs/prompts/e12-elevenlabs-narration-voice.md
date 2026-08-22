@@ -10,6 +10,67 @@ ai-video(rht-22/ai-video) 엔진 세션용 작업 프롬프트. 사용자 요청
 `ves/adapters/localize.py` 가 `--voice=<voice_id>` 로 넘긴다. 같은 계정·같은
 `voice_id` 어휘를 KR 내레이션에도 연다.
 
+## ⚠ 배포 특성 — 회귀 0 이 안전장치다
+
+ai-video 는 `deployments.auto_update=true` 이고 핀이 없다. **main 에 머지하면 version_watch
+(시간당 1회)가 새 sha 를 보고 맥미니 6대가 다음 claim 경계에서 자동으로 갱신한다.**
+되돌리는 절차는 RUNBOOK §1 에 있지만, 애초에 안 깨지게 만드는 게 전제다.
+
+**플래그/접두사가 없는 실행은 한 글자도 달라지면 안 된다.** 지금 돌고 있는 모든 작업이
+그 경로다. 이건 요청이 아니라 배포 조건이다.
+
+## E12-0. 먼저 확인할 것 (막힘 지점 후보)
+
+⚠ **이 저장소에서 elevenlabs.io 로 나가는 길이 막혀 있어 계정 상태를 못 봤다.**
+구현 시작 전에 실키로 `GET /v1/voices` 를 한 번 찍고 보고해라. 이유:
+
+1. ElevenLabs 공지상 **기본(premade) 목소리는 2026-12-31 만료 예정**이고,
+   **2026-03 이후에 만든 계정에는 애초에 없다.** 대시보드가 들고 있는 기본 목록이
+   이 계정에서 이미 죽어 있을 수 있다.
+2. 기본 목소리는 전부 영어권이다 — 다국어 모델이 한국어를 말하긴 하지만
+   **영어 억양이 배어난다.** 네이티브 한국어 목소리는 보이스 라이브러리에 있다:
+   `GET /v1/shared-voices?language=ko&category=professional` 로 찾아
+   `POST /v1/voices/add/{public_user_id}/{voice_id}` 로 계정에 담는다(무료 요금제는
+   라이브러리 API 불가). 담은 voice_id 는 **엔진 수정 없이** 오케스트레이터
+   `ops_config.editor_tts_voices` 에 넣으면 그대로 목록에 뜬다.
+3. 완전 폐기된 legacy 목소리(Rachel·Adam·Josh 등)는 요청이 **성공하는 것처럼 보이면서
+   다른 목소리로 갈아치워진다.** 대시보드 기본 목록에서 이미 제외했다 — 엔진에서도
+   특별 취급하지 마라, 그냥 쓰지 않으면 된다.
+
+## 🛑 계약 불일치 — 엔진은 이 발주서와 다르게 구현했다 (2026-08-22 확인)
+
+**이 발주서를 그대로 읽지 마라.** 아래 '계약' 절이 정하는 `elevenlabs:{voice_id}` 접두사
+규약은 **엔진에 없다.** ai-video 는 이 문서가 쓰이기 전에 이미 다른 설계로 머지했다
+(`0271c70`, 294ab98 로 전 노드 배포 완료):
+
+| | 이 발주서 | 실제 엔진(`app/modules/tts.py`) |
+|---|---|---|
+| voice 값 | `elevenlabs:{voice_id}` 접두사 신설 | **라벨 그대로**(`ko_female` 등) — "라벨 계약은 종전과 동일" |
+| voice_id 표 | 대시보드가 든다 | **엔진이 든다** (`EL_VOICE_PRESETS`, 라벨 8종) |
+| 모르는 값 | 엔진이 즉시 실패 | `EL_VOICE_PRESETS.get(voice, 기본)` — **조용히 ko_female 로 폴백** |
+| 백엔드 선택 | 접두사로 | 키가 있으면 자동 (`elevenlabs > edge-tts > silence`) |
+
+엔진이 아는 라벨은 8종이다 — `ko_female`·`ko_female_high`·`ko_male`·`ko_male_low` +
+`chat_emma`·`chat_brian`·`chat_seraphina`·`chat_florian`. 각각 premade voice_id 에 매핑돼
+있고, KR 내레이션은 **이미 ElevenLabs 로 합성되고 있다**(294ab98 배포 이후).
+
+### 지금 무엇이 위험한가
+
+오케스트레이터 대시보드는 `elevenlabs:<20자 id>` 값 20종을 내보내도록 이미 머지돼 있다
+(0073 + `ED_EL_VOICES_DEFAULT`). 게이트 `ops_config.editor_tts_elevenlabs` 가 `off` 라
+지금은 아무도 그 값을 못 고르지만, **켜는 순간 모든 선택이 조용히 ko_female 로 떨어진다** —
+이 발주서가 가장 경계한 실패 모드 그대로다. **게이트를 켜기 전에 아래 중 하나를 정해야 한다.**
+
+1. **오케스트레이터를 엔진에 맞춘다** — 대시보드 목록을 엔진의 8라벨로 바꾸고 0073 의
+   `elevenlabs:` 형태 검증을 걷어낸다. 목소리 폭은 8종으로 제한되고, 늘리려면 엔진을 고쳐야 한다.
+2. **엔진이 접두사를 받게 한다** — `elevenlabs:{voice_id}` 를 라벨 조회보다 먼저 처리하고,
+   모르는 라벨은 폴백 대신 즉시 실패로 바꾼다. 목록의 정본이 대시보드로 오고
+   `ops_config.editor_tts_voices` 로 계정 라이브러리(한국어 네이티브 목소리)까지 열린다.
+3. **둘 다** — 8라벨은 그대로 두고 접두사를 추가 어휘로 받는다(하위호환 + 확장 둘 다).
+
+**선택 전까지 `editor_tts_elevenlabs` 를 켜지 마라.** 아래 절들은 3안(또는 2안)을 전제로
+쓰였으므로, 1안으로 가면 이 문서는 폐기하고 오케스트레이터 쪽을 고치는 것이 작업이 된다.
+
 ## 계약 (오케스트레이터가 이 형태로 보낸다)
 
 `edit_overrides.tts[].voice` 는 지금도 **불투명 문자열 통과**다 — RPC·어댑터 어디에도
@@ -60,24 +121,6 @@ voice = "ko_female" | "ko_male" | … (지금 그대로, edge-tts)
     같은 문구를 재렌더할 때 소리가 미묘하게 달라지는 게 문제면 `seed` 를 고정해라.
   · 엔드포인트: `POST /v1/text-to-speech/{voice_id}`, 헤더 `xi-api-key`.
 - 실패 분류: 401·403·없는 voice_id = permanent, 429·5xx·네트워크 = transient.
-
-## E12-0. 먼저 확인할 것 (막힘 지점 후보)
-
-⚠ **이 저장소에서 elevenlabs.io 로 나가는 길이 막혀 있어 계정 상태를 못 봤다.**
-구현 시작 전에 실키로 `GET /v1/voices` 를 한 번 찍고 보고해라. 이유:
-
-1. ElevenLabs 공지상 **기본(premade) 목소리는 2026-12-31 만료 예정**이고,
-   **2026-03 이후에 만든 계정에는 애초에 없다.** 대시보드가 들고 있는 기본 목록이
-   이 계정에서 이미 죽어 있을 수 있다.
-2. 기본 목소리는 전부 영어권이다 — 다국어 모델이 한국어를 말하긴 하지만
-   **영어 억양이 배어난다.** 네이티브 한국어 목소리는 보이스 라이브러리에 있다:
-   `GET /v1/shared-voices?language=ko&category=professional` 로 찾아
-   `POST /v1/voices/add/{public_user_id}/{voice_id}` 로 계정에 담는다(무료 요금제는
-   라이브러리 API 불가). 담은 voice_id 는 **엔진 수정 없이** 오케스트레이터
-   `ops_config.editor_tts_voices` 에 넣으면 그대로 목록에 뜬다.
-3. 완전 폐기된 legacy 목소리(Rachel·Adam·Josh 등)는 요청이 **성공하는 것처럼 보이면서
-   다른 목소리로 갈아치워진다.** 대시보드 기본 목록에서 이미 제외했다 — 엔진에서도
-   특별 취급하지 마라, 그냥 쓰지 않으면 된다.
 
 ## E12-2. 목소리 목록의 정본은 어디인가 (소)
 
