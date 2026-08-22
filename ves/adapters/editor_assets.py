@@ -147,8 +147,15 @@ def timeline_from_plan(edit_plan: dict, segments: list | None = None,
     for j, sg in enumerate(segments or []):
         st = float(sg.get("start_sec") or 0)
         en = float(sg.get("end_sec") or 0)
-        subs.append({"idx": j, "edited_start": round(st, 3), "edited_end": round(en, 3),
-                     "source_sec": _to_source_sec(st, clips), "text": sg.get("text") or ""})
+        row = {"idx": j, "edited_start": round(st, 3), "edited_end": round(en, 3),
+               "source_sec": _to_source_sec(st, clips), "text": sg.get("text") or ""}
+        # E13-2b(엔진 dd986af): 일레븐랩스 전사가 확신이 낮았던 줄에만 붙는 표시.
+        # 검수자가 **어디를 먼저 볼지** 알려 주는 것이 이 키의 존재 이유라, 여기서
+        # 떨어뜨리면 엔진이 판정해 놓고 아무도 못 보는 값이 된다. 붙은 줄에만 싣는다
+        # — 종전 판(내장 전사·구 실행)의 payload 는 한 바이트도 안 바뀐다.
+        if sg.get("low_confidence"):
+            row["low_confidence"] = True
+        subs.append(row)
     return {"schema": "editor_timeline/v1",
             "duration_sec": round(float(duration_sec or 0), 3),
             "top_title": layout.get("top_title") or "",

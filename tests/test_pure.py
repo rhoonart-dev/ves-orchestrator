@@ -3947,3 +3947,44 @@ def test_dashboard_tts_preview_on_demand():
     assert "▶ 를 누르면 그 자리에서 합성해" in html
     # editor_tts_voices 는 기본 목록에 '더하는' 게 아니라 '대체'한다 — 안내가 그렇게 말해야 한다
     assert "기본 20종 대신" in html
+
+
+def test_editor_timeline_carries_low_confidence():
+    """엔진이 표시한 저확신 줄이 편집실까지 살아 와야 한다(E13-2b).
+
+    엔진(ai-video dd986af)은 subtitle_segments.json 의 그 줄에만 low_confidence=true 를
+    붙인다. 그 키의 존재 이유가 '검수자가 어디를 먼저 볼지'인데, timeline_from_plan 이
+    네 키만 추려 담으면 엔진이 판정해 놓고 **아무도 못 보는 값**이 된다.
+    붙은 줄에만 싣는다 — 종전 판(내장 전사·구 실행)의 payload 는 안 바뀐다.
+    """
+    from ves.adapters.editor_assets import timeline_from_plan
+    plan = {"timeline": [{"clip_start_sec": 0, "clip_end_sec": 10, "role": "build"}]}
+    segs = [{"start_sec": 1.0, "end_sec": 3.0, "text": "확신 있는 줄"},
+            {"start_sec": 4.0, "end_sec": 6.0, "text": "謝 謝", "low_confidence": True}]
+    subs = timeline_from_plan(plan, segs, 10)["subtitles"]
+    assert len(subs) == 2
+    assert "low_confidence" not in subs[0], "표시 없는 줄에 키가 생기면 안 된다"
+    assert subs[1]["low_confidence"] is True
+    # 종전 키는 그대로
+    for k in ("idx", "edited_start", "edited_end", "source_sec", "text"):
+        assert k in subs[0] and k in subs[1]
+
+
+def test_editor_timeline_low_confidence_absent_by_default():
+    """내장 전사(default 백엔드)는 이 키를 안 만든다 — 회귀 0."""
+    from ves.adapters.editor_assets import timeline_from_plan
+    plan = {"timeline": [{"clip_start_sec": 0, "clip_end_sec": 5, "role": "build"}]}
+    subs = timeline_from_plan(plan, [{"start_sec": 0.5, "end_sec": 2.0, "text": "가"}], 5)["subtitles"]
+    assert subs[0] == {"idx": 0, "edited_start": 0.5, "edited_end": 2.0,
+                       "source_sec": subs[0]["source_sec"], "text": "가"}
+
+
+def test_dashboard_shows_low_confidence_subtitles():
+    """편집실이 저확신 줄을 **찾아 준다** — 스무 줄을 눈으로 훑게 하지 않는다."""
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert "lowConf: !!s.low_confidence" in html          # 재료 → 폼
+    assert "전사가 확신하지 못한 자막" in html            # 요약 배너(몇 번 줄인지까지)
+    assert "s.lowConf ?" in html                          # 줄마다 배지
+    # 값은 안 바꾼다 — 임계로 자르면 멀쩡한 대사가 사라진다(실측 3건 중 2건이 정상)
+    assert "값은 그대로 두었습니다" in html

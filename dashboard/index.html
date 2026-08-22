@@ -2422,6 +2422,9 @@ function edResetForm(){
   const subs = (tl.subtitles || []).map(s => ({
     start: Number(s.edited_start) || 0, end: Number(s.edited_end) || 0,
     src: s.source_sec, text: s.text || "",
+    // E13-2b — 일레븐랩스 전사가 확신이 낮았던 줄. 표시일 뿐 값은 안 바꾼다
+    // (임계로 자르면 멀쩡한 대사가 사라진다 — 실측 저확신 3건 중 2건이 정상이었다).
+    lowConf: !!s.low_confidence,
     // 줄 스타일(v3) — 재료 타임라인이 내려주면 보여주고, 없으면 채널 기본값으로 그린다
     style: s.style && typeof s.style === "object" ? { ...s.style } : undefined,
   }));
@@ -4642,11 +4645,19 @@ function edPaneSubs(canEdit){
   // 보내면 --no-subtitles 로 나가므로, 그 사실을 보내기 전에 화면에서 먼저 알린다.
   const cleared = edForm.dSubs.length
     && !edForm.dSubs.some(s => !s.del && String(s.text).trim());
+  // E13-2b — 전사가 확신하지 못한 줄. 스무 줄 중 세 줄을 찾으라고 눈으로 훑게 하지
+  // 않는다(그러라고 엔진이 표시해 준 값이다). 값은 안 건드린다 — 임계로 자르면
+  // 멀쩡한 대사가 사라진다.
+  const lowConf = edForm.dSubs.map((s, i) => s.lowConf && !s.del ? i : -1).filter(i => i >= 0);
   return `${locked ? `<div class="edwarn">구간을 고쳤기 때문에 자막은 <b>대사에서 다시 맞춰집니다</b> —
       지금 고친 자막 문구는 보내지 않습니다. 구간을 먼저 확정해 렌더한 뒤 자막을 고치세요.</div>` : ""}
     ${anchorless.length ? `<div class="edwarn">⚠ <b>앵커 없는 자막 ${anchorless.length}줄</b>
       (${anchorless.map(i => i + 1).join("·")}번) — 구간 변경과 함께 보내면 이 줄들은
       옛 시간축 시각 그대로 박혀 <b>어긋날 수 있습니다</b>. 비우거나, 렌더 후 고치세요.</div>` : ""}
+    ${lowConf.length ? `<div class="edwarn">◆ <b>전사가 확신하지 못한 자막 ${lowConf.length}줄</b>
+      (${lowConf.map(i => i + 1).join("·")}번) — 일레븐랩스 전사가 낮은 확신으로 받은
+      구간입니다. 시각을 눌러 원본을 들어 보고 맞는지 확인하세요. <b>값은 그대로 두었습니다</b>
+      — 확신도만으로 지우면 멀쩡한 대사가 사라집니다.</div>` : ""}
     ${orphans.length ? `<div class="edwarn">⚠ 자막 ${orphans.length}줄
       (${orphans.map(i => i + 1).join("·")}번)의 <b>원본 장면이 구간에서 빠져</b> 있습니다 —
       그대로 두면 옆 장면 위에 얹혀 렌더될 수 있습니다. 줄을 비우거나 구간을 되살리세요.</div>` : ""}
@@ -4682,6 +4693,9 @@ function edPaneSubs(canEdit){
           canEdit && !locked && !s.del ? "" : "disabled"}>
         ${s.pin ? `<span title="시각 고정 — 구간을 바꿔도 이 줄은 완성본 시각 그대로.
           완성본 트랙에서 선택해 '앵커 복원'으로 되돌립니다">📌</span>` : ""}
+        ${s.lowConf ? `<span style="color:var(--warn)" title="전사가 확신하지 못한 줄입니다 —
+          일레븐랩스 전사가 이 구간을 낮은 확신으로 받았습니다. 원본을 눌러 들어 보고
+          맞는지 확인하세요(값은 그대로 두었습니다)">◆</span>` : ""}
         ${edV3() && canEdit && !s.del ? `<button class="mini" ${
             s.style && Object.keys(s.style).length ? 'style="color:var(--warn)"' : ""}
             onclick="edSubStage(${i})"
@@ -4733,7 +4747,6 @@ const ED_EL_VOICES_DEFAULT = [
   ["elevenlabs:nPczCjzI2devNBz1zQrb", "내레이션 · 남 · 낮고 굵음 (Brian, 미국)"],
   ["elevenlabs:TX3LPaxmHKxFdv7VOQHJ", "내레이션 · 남 · 또렷함·젊음 (Liam, 미국)"],
   ["elevenlabs:pqHfZKP75CvOlQylNhV4", "내레이션 · 남 · 중후함 (Bill, 미국)"],
-  ["elevenlabs:pNInz6obpgDQGcFmaJgB", "내레이션 · 남 · 단호함 (Adam, 미국)"],
   // — 뉴스·전달
   ["elevenlabs:EXAVITQu4vr4xnSDxMaL", "뉴스 · 여 · 부드러움 (Sarah, 미국)"],
   ["elevenlabs:Xb7hH8MSUJpSbSDYk0k2", "뉴스 · 여 · 단단함 (Alice, 영국)"],
