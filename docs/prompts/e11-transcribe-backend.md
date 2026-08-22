@@ -107,7 +107,7 @@ Body:    multipart/form-data
 ## 완료 보고에 명시할 것
 
 커밋 sha · 플래그 이름과 choices 그대로 · 자격증명 환경변수 이름 · 실패 분류 표 ·
-E11-3 실측 4항목. 오케스트레이터 파트(어댑터·RPC·화면)는 이미 있으므로, 전 노드
+E11-3 실측 5항목. 오케스트레이터 파트(어댑터·RPC·화면)는 이미 있으므로, 전 노드
 `last_seen_sha` 확인 후 `ops_config channel_transcribe = on` 만 남는다.
 
 먼저 `chunk_transcribe` 호출부와 `subtitle_segments.json` 생성 경로, `app/cli.py`
