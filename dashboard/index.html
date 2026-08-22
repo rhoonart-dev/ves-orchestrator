@@ -160,6 +160,18 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .lg{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--muted);
       margin-right:11px}
   .lg .chdot{width:10px;height:10px}
+  /* 지난 날짜 신호등 — 머리글의 날짜 컨트롤과 '마감 기록' 안내 줄 */
+  .bdate{display:inline-flex;align-items:center;gap:4px;margin-left:9px;vertical-align:-2px;
+    border:1px solid var(--line);border-radius:9px;padding:2px 5px;background:var(--surface-2);
+    text-transform:none;letter-spacing:0;font-weight:400}
+  .bdate.on{border-color:var(--accent)}
+  .bdate input{padding:2px 6px;font-size:12px;border-radius:6px;color-scheme:inherit}
+  .bdate button{padding:1px 7px;font-size:12px;border-radius:6px;line-height:1.35}
+  .pastbar{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin:0 0 9px;
+    border:1px dashed var(--line);border-radius:9px;padding:7px 10px;font-size:12px;
+    color:var(--ink-2)}
+  .pastbar .sp{flex:1}
+  .pastbar .why{color:var(--muted)}
   /* 피드 */
   .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px}
   .fcard{background:var(--surface-2);border:1px solid var(--ring);border-radius:10px;
@@ -703,6 +715,9 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .warnbar.fold table{min-width:640px}
   .warnbar.fold table td{white-space:nowrap}
   .warnbar.fold table .err{white-space:normal}
+  /* 0072 '사람 판단 필요' 표의 반려 사유 — 오류 문자열이 아니라 사람이 쓴 글이다.
+     .err(주황)로 칠하면 시스템 오류처럼 읽힌다. 길면 줄바꿈(같은 표의 나머지는 nowrap). */
+  .warnbar.fold table td.note{white-space:normal;color:var(--muted);font-size:12px;max-width:340px}
   /* v3: 맥별 현재 작업 */
   .nowgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(215px,1fr));gap:10px}
   .now{background:var(--surface-2);border:1px solid var(--ring);border-radius:10px;padding:10px 12px}
@@ -1114,7 +1129,7 @@ const soft = p => p.then(r => r.error ? { data: [] } : r).catch(() => ({ data: [
 async function refresh(){
   if (!(await sb.auth.getSession()).data.session) return;
   const [nodes, deps, jobs, reviews, events, wos, srcs, chans,
-         arts, metas, judges, clips, snaps, srcCh, ops, drafts, pubs] = await Promise.all([
+         arts, metas, judges, clips, snaps, srcCh, ops, drafts, pubs, stalls] = await Promise.all([
     sb.from("node_registry").select("*").order("node_id"),
     sb.from("deployments").select("*").order("engine"),
     sb.from("job_queue").select("id,work_order_id,kind,status,attempt,max_attempts,node_id,error,error_class,required_caps,params,run_after,created_at,updated_at,finished_at").order("updated_at",{ascending:false}).limit(150),
@@ -1146,6 +1161,9 @@ async function refresh(){
     soft(sb.from("job_queue").select("id,work_order_id,kind,status,attempt,max_attempts,node_id,error,error_class,params,run_after,created_at,updated_at,finished_at")
            .in("kind",["publish","zanmang_decision"])
            .order("updated_at",{ascending:false}).limit(200)),
+    // 0072: 재생성 상한 등으로 사람 판단에 넘어간 채 멈춘 작업지시. 해소 판정(잡이 다시
+    // 섬·새 카드·취소)까지 뷰가 한다 — 여기 잡 150건 창으로 세면 오판한다(창 밖 잡).
+    soft(sb.from("stalled_work_orders").select("*").order("stalled_at",{ascending:false})),
   ]);
   const ovr = await soft(sb.from("channel_design_overrides").select("*"));   // 0014 이전엔 빈 배열
   const plans = await soft(sb.from("channel_plan_overrides").select("*"));   // 0016 이전엔 빈 배열
@@ -1173,7 +1191,7 @@ async function refresh(){
             snaps:snaps.data||[], runToClip, judgeByClip, clipById, artByWo, jobsByWo, reviewByWo,
             srcCh:srcCh.data||[], eps:buildEpMap(srcs.data||[], srcCh.data||[]),
             ops:Object.fromEntries((ops.data||[]).map(o=>[o.key,o])),
-            drafts:drafts.data||[], pubJobs:pubs.data||[],
+            drafts:drafts.data||[], pubJobs:pubs.data||[], stalls:stalls.data||[],
             wo:Object.fromEntries((wos.data||[]).map(w=>[w.id,w])),
             jobById:Object.fromEntries((jobs.data||[]).map(j=>[j.id,j])),
             legacyOk: !!(metas.data||[]).length || !!(clips.data||[]).length };
@@ -1215,16 +1233,17 @@ function woVideoId(wo){
   const run = woRun(wo); const cid = run && state.runToClip[run];
   const c = cid && state.clipById[cid]; return c && c.video_external_id || null;
 }
-function woStatus(wo){
+// cx = 지난 날짜 컨텍스트(buildPastBoard). 없으면 지금(state) — 기존 호출부는 그대로다.
+function woStatus(wo, cx){
   // 우선순위: 실패 > 검수대기 > 반려 > 발행/예약 > 합격 > 진행 > 대기
-  const js = state.jobsByWo[wo.id] || [];
-  const rv = state.reviewByWo[wo.id];
+  const js = (cx ? cx.jobsByWo : state.jobsByWo)[wo.id] || [];
+  const rv = (cx ? cx.reviewByWo : state.reviewByWo)[wo.id];
   // 발행 잡은 전체 잡 창(150건)에서 못 찾으면 발행 전용 창(200건)에서 한 번 더 찾는다.
   // 하룻밤 지나면 발행 잡이 150건 밖으로 밀려 '발행됐다'가 안 보이고 그 앞 단계인 검수
   // 합격에서 멈춘다 — 8/20 실측: 엔딩순삭 8/18 작업분이 8/19 19:00 에 발행까지 끝났는데
   // 신호등 생성 칸은 '합격' 이었다. 공개 칸(chPubDot)이 이미 쓰는 그 목록이다.
   const pub = js.find(j => j.kind === "publish")
-    || (state.pubJobs||[]).find(j => j.kind === "publish" && j.work_order_id === wo.id);
+    || ((cx ? cx.pubJobs : state.pubJobs)||[]).find(j => j.kind === "publish" && j.work_order_id === wo.id);
   if (js.some(j => ["failed","dead"].includes(j.status))) return "failed";
   if (rv && rv.status === "waiting") return "review";
   if (rv && rv.status === "rejected") return "rejected";
@@ -1261,10 +1280,13 @@ const plannedOpen = j => {
   return !!(j.status === "succeeded" && at
             && kstDay(at) !== kstDay(j.finished_at || j.updated_at));
 };
-function chPubDot(slug){
-  const today = kstDay();
-  const mine = (state.pubJobs||[]).filter(j => j.kind === "publish"
-    && (state.wo[j.work_order_id]||{}).channel_slug === slug);
+function chPubDot(slug, cx){
+  const today = cx ? cx.day : kstDay();
+  // 지난 날짜 모드에선 '지금'이 그날 23:59:59 다 — 그때 아직 안 열린 예약은 그날엔 노랑이었다.
+  const nowMs = cx ? cx.now : Date.now();
+  const dayW = cx ? "그날" : "오늘";
+  const mine = ((cx ? cx.pubJobs : state.pubJobs)||[]).filter(j => j.kind === "publish"
+    && ((cx ? cx.wo : state.wo)[j.work_order_id]||{}).channel_slug === slug);
   const todays = mine.filter(j => pubDayOf(j) === today);
   if (todays.some(j => ["failed","dead"].includes(j.status) && !isResolved(j, mine)))
     return ["bad","발행 실패"];
@@ -1273,7 +1295,7 @@ function chPubDot(slug){
   if (done.length){
     // 오늘 예약분이라도 시각 전이면 노랑, 열렸으면 초록 — 점은 실제 공개 시각에 켜진다.
     const opened = done.filter(j => { const at = (j.params||{}).publish_at;
-      return !at || new Date(at).getTime() <= Date.now(); });
+      return !at || new Date(at).getTime() <= nowMs; });
     const planned = opened.filter(plannedOpen);
     const unverified = opened.length && planned.length === opened.length
       ? `${kstDay(planned[0].finished_at || planned[0].updated_at).slice(5).replace("-","/")} 승인분의 예약 시각(${
@@ -1282,13 +1304,13 @@ function chPubDot(slug){
         })으로 판정한 초록입니다. 유튜브에서 일정을 옮겼다면 실제 공개는 이와 다릅니다 — 채널에서 확인하세요.`
       : "";
     return opened.length
-      ? ["ok","발행됨", opened.length > 1 ? `오늘 ${opened.length}건 공개` : "", unverified]
-      : ["wait","예약됨", "오늘 " + new Date(done[0].params.publish_at)
+      ? ["ok","발행됨", opened.length > 1 ? `${dayW} ${opened.length}건 공개` : "", unverified]
+      : ["wait","예약됨", dayW + " " + new Date(done[0].params.publish_at)
           .toLocaleTimeString("ko-KR",{timeZone:"Asia/Seoul",hour12:false,hour:"2-digit",minute:"2-digit"}) + " 공개"];
   }
   // 오늘 공개분이 없다 — 다가오는 예약만 알려준다(초록은 공개 당일에만 켜진다).
   const next = mine.filter(j => j.status === "succeeded" && (j.params||{}).publish_at
-      && new Date(j.params.publish_at).getTime() > Date.now())
+      && new Date(j.params.publish_at).getTime() > nowMs)
     .sort((a,b) => a.params.publish_at < b.params.publish_at ? -1 : 1)[0];
   if (next) return ["wait",
     kstDay(next.params.publish_at).slice(5).replace("-","/") + " 예약", next.params.publish_at];
@@ -1334,6 +1356,24 @@ function unpublished(){
     .sort((a,b) => (b.bad - a.bad) || (a.rv.decided_at < b.rv.decided_at ? 1 : -1));
 }
 
+// ───────── 사람 판단으로 넘어간 채 멈춘 작업지시 (8/22 사고) ─────────
+// 반려 재생성이 상한(2회)에 걸리면 검수 카드는 rejected 로 **사라지는데** 후속 잡은 하나도
+// 서지 않는다 — 작업지시는 open 인 채 잡 없이 멈춘다. 종전 신호는 반려 직후 토스트 한 번뿐:
+// 8/22 23:12 한 입 주막 '가왕쇼'에서 사용자가 그 토스트를 놓쳤고 "카드가 사라졌다"로 인지했다.
+// 합격 후 미발행(8/17)과 같은 성질의 조용한 실패라 같은 자리(홈 경고줄)에 세운다.
+// 정본은 DB 뷰(0072 stalled_work_orders) — '아직 멈춰 있는가' 판정을 여기서 하지 않는 이유는
+// 잡 조회 창(150건)에 잘리면 이미 다시 도는 건을 계속 경고하게 되기 때문이다.
+const stalled = () => state.stalls || [];
+// 사유 → 사람 말. 서버가 정본(0072 reject_review), 여기는 표시만.
+const STALL_WHY = {
+  retry_limit:      "다시 만들기 상한 도달",
+  no_run_to_resume: "이어달릴 이전 결과 없음",
+  no_chain:         "되살릴 제작 체인 없음",
+};
+const stallNamesOf = xs => xs.slice(0,3)
+    .map(x => (chName(x.channel_slug || "") + " " + (x.work_title || "")).trim()).join(" · ")
+  + (xs.length > 3 ? ` 외 ${xs.length - 3}건` : "");
+
 // ───────── 탭 셸 ─────────
 const TABS = [["home","홈"],["review","검수함"],["edit","편집실"],["feed","영상 피드"],
               ["sources","소스 창고"],
@@ -1365,7 +1405,10 @@ function homeAlerts(){
   // 예비 키로 도는 중이라는 사실 자체가 '확인 필요 1건'. 막힌 잡이 있으면 그 건수로 센다.
   const gem = (geminiSlot() === "fallback" || quota) ? Math.max(quota, 1) : 0;
   if (gem) why.push(quota ? `Gemini 쿼터로 막힌 잡 ${quota}건` : "Gemini 예비 키로 도는 중");
-  return { n: bad + gem, why: why.join(" · ") };
+  // 재생성 상한에 걸려 멈춘 건 — 배너를 늘렸으니 배지도 같이 늘린다(위 주석의 규율).
+  const stall = stalled().length;
+  if (stall) why.push(`사람 판단 필요 ${stall}건`);
+  return { n: bad + gem + stall, why: why.join(" · ") };
 }
 function render(){
   // 검수함 입력 보존(운영 결정 8/13): 재렌더가 쓰던 메모·공개방식·예약시각을 지우지 않는다.
@@ -1398,6 +1441,258 @@ let boardOpen = null;
 // 기억하지 않으면 표를 읽는 도중 접혀 버린다(검수함 입력 보존과 같은 이유).
 let unpubOpen = false;
 let quotaOpen = false;
+let stallOpen = false;
+// ───────── 홈: 지난 날짜 신호등 (구 대시보드 '마감 기록' 계승) ─────────
+// 구 대시보드는 서버가 매일 23:55 에 저장한 스냅샷을 그대로 다시 그렸다. 여기엔 서버가 없지만
+// job_events(전이 로그)와 review_queue.decided_at 에 그날 일이 통째로 남아 있어, 고른 날짜의
+// **23:59:59(KST) 시점**을 그 자리에서 되짚는다 — 스냅샷을 새로 쌓지 않아도 되고 기록이 시작된
+// 2026-08-06 까지 닿는다(구 스냅샷은 8/5부터, 구 시스템이 살아 있던 동안만 쌓였다).
+// '지금 상태'를 보여주면 안 된다: 8/18 에 실패했다가 8/19 에 다시 만들어 통과한 건이 8/18 칸에서
+// 초록이면 그날 무슨 일이 있었는지 못 읽는다 — 신호등을 되짚어 보는 이유가 바로 그것이다.
+const BOARD_MIN_DATE = "2026-08-06";        // work_orders·job_events 기록 시작
+const PAST_JOB_COLS = "id,work_order_id,kind,status,attempt,max_attempts,node_id,error,error_class,required_caps,params,run_after,created_at,updated_at,finished_at";
+let boardDate = null;         // null = 오늘(라이브)
+let boardPast = null;         // 되짚어 만든 그날의 컨텍스트 (한 날짜만 들고 있는다)
+let boardPastState = "live";  // live | loading | ok | error
+let boardPastErr = "";
+const boardCx = () => (boardDate && boardPastState === "ok"
+                       && boardPast && boardPast.day === boardDate) ? boardPast : null;
+const kstStart = d => new Date(d + "T00:00:00.000+09:00");
+const kstEnd   = d => new Date(d + "T23:59:59.999+09:00");   // KST 는 고정 +09, 서머타임 없음
+const dayShift = (d, n) => { const t = kstStart(d); t.setUTCDate(t.getUTCDate() + n); return kstDay(t); };
+
+// 날짜 이동. 15초 자동 갱신이 render() 를 다시 부르므로 결과는 boardPast 에 담아 두고
+// 다시 받지 않는다 — 오늘로 돌아오면 라이브 state 로 그린다.
+window.boardGo = async (v) => {
+  const today = kstDay();
+  let d = (!v || v === "today" || v >= today) ? null : v;
+  if (d && d < BOARD_MIN_DATE) d = BOARD_MIN_DATE;
+  boardDate = d; boardOpen = null;
+  if (!d){ boardPastState = "live"; render(); return; }
+  if (boardPast && boardPast.day === d){ boardPastState = "ok"; render(); return; }
+  boardPastState = "loading"; boardPastErr = ""; render();
+  try { boardPast = await buildPastBoard(d); boardPastState = "ok"; }
+  catch (e){ boardPast = null; boardPastErr = e.message || String(e); boardPastState = "error"; }
+  render();
+};
+
+// 그날 23:59:59 시점의 잡·검수·작업지시를 모아 신호등이 읽을 수 있는 모양으로 돌려준다.
+async function buildPastBoard(d){
+  const e = kstEnd(d), sI = kstStart(d).toISOString(), eI = e.toISOString();
+  const q = async pr => { const r = await pr; if (r.error) throw new Error(r.error.message); return r.data || []; };
+  const [wosA, wosB, pubs, autos, revsA, revsB] = await Promise.all([
+    // 그날까지의 작업지시 — 그날 몫과, 그날 몫이 없는 채널의 '마지막 작업분' 배지용 이전 분까지
+    q(sb.from("work_orders").select("*").lt("created_at", eI)
+        .order("created_at",{ascending:false}).limit(150)),
+    q(sb.from("work_orders").select("*").eq("service_date", d)),
+    // 공개 점은 발행 날짜로 판정한다 — 그날 열린 편의 발행 잡은 며칠 전에 만들어졌을 수 있다
+    q(sb.from("job_queue").select(PAST_JOB_COLS).in("kind",["publish","zanmang_decision"])
+        .lt("created_at", eI).order("created_at",{ascending:false}).limit(300)),
+    q(sb.from("job_queue").select(PAST_JOB_COLS).eq("kind","zanmang_autopilot")
+        .gte("created_at", sI).lt("created_at", eI).limit(50)),
+    q(sb.from("review_queue").select("*").lt("created_at", eI)
+        .order("created_at",{ascending:false}).limit(300)),
+    // 그날 아직 결정이 안 나 있던 건 — 며칠씩 묵은 대기가 위 창(최근 300건) 밖으로 밀릴 수 있다
+    q(sb.from("review_queue").select("*").lt("created_at", eI)
+        .or("decided_at.is.null,decided_at.gte." + eI)
+        .order("created_at",{ascending:false}).limit(500)),
+  ]);
+  const rvById = {};
+  for (const r of revsA.concat(revsB)) rvById[r.id] = r;
+  const revs = Object.values(rvById).sort((a, b) => a.created_at < b.created_at ? 1 : -1);
+  const wo = {};
+  for (const w of wosA.concat(wosB)) wo[w.id] = w;
+  // 발행 잡이 가리키는 창 밖 옛 작업지시는 따로 데려온다 — 채널을 모르면 공개 점이 안 켜진다
+  const miss = [...new Set(pubs.map(x => x.work_order_id).filter(x => x && !wo[x]))].slice(0, 200);
+  if (miss.length) for (const w of await q(sb.from("work_orders").select("*").in("id", miss))) wo[w.id] = w;
+  const wos = Object.values(wo).sort((a, b) => a.created_at < b.created_at ? 1 : -1);
+  // 잡을 데려올 작업지시: 그날 몫 전부 + 채널별 가장 최근 한 건(배지·상세용, 라이브의 woRecent)
+  const need = new Set(), seen = new Set();
+  for (const w of wos){
+    if (w.status === "cancelled") continue;
+    if (kstDay(w.service_date || w.created_at) === d) need.add(w.id);
+    if (!seen.has(w.channel_slug)){ seen.add(w.channel_slug); need.add(w.id); }
+  }
+  const ids = [...need], raw = [];
+  for (let i = 0; i < ids.length; i += 40)
+    raw.push(...await q(sb.from("job_queue").select(PAST_JOB_COLS)
+      .in("work_order_id", ids.slice(i, i + 40)).limit(1000)));
+  const byId = {};
+  for (const x of raw.concat(pubs, autos)) byId[x.id] = x;
+  const all = Object.values(byId);
+  // 그 뒤 한 번이라도 바뀐 잡만 전이 로그를 뒤진다 — 대부분은 그날 안에서 끝나 있어 행이 곧 답이다
+  const moved = all.filter(x => new Date(x.created_at) <= e
+    && new Date(x.updated_at || x.created_at) > e);
+  const lastEv = {};
+  for (let i = 0; i < moved.length; i += 50)
+    for (const ev of await q(sb.from("job_events").select("job_id,to_status,at")
+        .in("job_id", moved.slice(i, i + 50).map(x => x.id))
+        .lte("at", eI).order("at",{ascending:true}))) lastEv[ev.job_id] = ev;   // 오름차순 → 마지막이 남는다
+  // 그날의 마지막 말로 행을 다시 쓴다. 취소는 job_events 에 안 남지만(RPC 가 행만 갱신) 취소된
+  // 잡은 updated_at 이 그 시각이라 '안 바뀜' 경로로 그대로 들어온다.
+  const asOf = x => {
+    if (new Date(x.created_at) > e) return null;                      // 그때는 없던 잡
+    if (new Date(x.updated_at || x.created_at) <= e) return x;        // 그 뒤 안 바뀜 = 그날 그대로
+    const ev = lastEv[x.id], st = ev ? ev.to_status : "pending", at = ev ? ev.at : x.created_at;
+    const done = ["succeeded","failed","dead","cancelled"].includes(st);
+    return { ...x, status: st, updated_at: at, finished_at: done ? at : null };
+  };
+  const newest = (a, b) => (a.updated_at || a.created_at) < (b.updated_at || b.created_at) ? 1 : -1;
+  const jobs = all.map(asOf).filter(Boolean).sort(newest);   // 라이브와 같은 최신순
+  const nowJobs = all.slice().sort(newest);                  // 원본(지금 상태) — 상세의 '지금은' 줄용
+  const jobsByWo = {}, nowByWo = {}, reviewByWo = {}, nowRvByWo = {};
+  for (const x of jobs)    if (x.work_order_id) (jobsByWo[x.work_order_id] = jobsByWo[x.work_order_id] || []).push(x);
+  for (const x of nowJobs) if (x.work_order_id) (nowByWo[x.work_order_id] = nowByWo[x.work_order_id] || []).push(x);
+  // 검수함: 그날 이후에 내려진 결정은 그날엔 아직 없던 일이다 — 대기로 되돌린다
+  const reviews = revs.map(r => (r.decided_at && new Date(r.decided_at) <= e)
+    ? r : { ...r, status: "waiting", decided_at: null, decided_by: null });
+  for (const r of reviews) if (r.work_order_id && !reviewByWo[r.work_order_id]) reviewByWo[r.work_order_id] = r;
+  for (const r of revs)    if (r.work_order_id && !nowRvByWo[r.work_order_id]) nowRvByWo[r.work_order_id] = r;
+  const isPub = x => ["publish","zanmang_decision"].includes(x.kind);
+  const waiting = reviews.filter(r => r.status === "waiting");
+  const pubJobs = jobs.filter(isPub);
+  const cx = { day: d, now: e.getTime(), wos, wo, jobs, jobsByWo, reviewByWo, pubJobs, waiting,
+    // 구 대시보드 '마감 기록' 줄이 말하던 숫자 — 그날 화면 위 타일과 같은 규칙으로 센다
+    kpi: { wait: waiting.length,
+           fail: jobs.filter(x => ["failed","dead"].includes(x.status)
+             && kstDay(x.finished_at || x.updated_at) === d && !isResolved(x, jobs)).length,
+           pub: pubJobs.filter(x => x.kind === "publish" && x.status === "succeeded"
+             && pubDayOf(x) === d).length,
+           wos: wos.filter(w => w.status !== "cancelled"
+             && kstDay(w.service_date || w.created_at) === d).length } };
+  // 상세에서 '그날 이 일은 결국 어떻게 됐나'를 같이 말하기 위한 현재 상태 컨텍스트(같은 행의 원본)
+  cx.nowCx = { day: kstDay(), now: Date.now(), wos, wo, jobs: nowJobs, jobsByWo: nowByWo,
+               reviewByWo: nowRvByWo, pubJobs: nowJobs.filter(isPub),
+               waiting: revs.filter(r => r.status === "waiting") };
+  return cx;
+}
+
+// 머리글의 날짜 컨트롤 — 보드를 지배하는 컨트롤이라 구 대시보드처럼 보드 옆에 붙인다
+function boardDateCtlHtml(){
+  const today = kstDay(), sel = boardDate || today;
+  return `<span class="bdate${boardDate ? " on" : ""}" title="지난 날짜의 신호등 — 그날 23:59(KST) 기준으로 되짚습니다">
+    <button class="mini" title="하루 전"${sel <= BOARD_MIN_DATE ? " disabled" : ""}
+      onclick="boardGo('${esc(dayShift(sel, -1))}')">‹</button>
+    <input type="date" value="${esc(sel)}" min="${BOARD_MIN_DATE}" max="${esc(today)}"
+      onchange="boardGo(this.value)">
+    <button class="mini" title="하루 뒤"${sel >= today ? " disabled" : ""}
+      onclick="boardGo('${esc(dayShift(sel, 1))}')">›</button>
+    ${boardDate ? `<button class="mini" onclick="boardGo('today')">오늘</button>` : ""}</span>`;
+}
+
+function boardSectionHtml(){
+  const today = kstDay(), sel = boardDate || today;
+  const md = x => esc(String(x).slice(5).replace("-", "/"));
+  const cx = boardCx();
+  const hint = boardDate
+    ? `그날 23:59:59(KST) 시점으로 되짚은 기록 — 그 뒤에 일어난 일은 넣지 않습니다
+       · 카드를 누르면 그날 진행과 지금 결과를 함께 봅니다`
+    : `오늘(KST) 기준 · 오늘 작업이 없으면 마지막 작업분을 날짜 배지와 함께 표시
+       · 공개 점은 만든 날이 아니라 실제 공개된 날(발행·예약 시각)에 켜짐`;
+  const body = !boardDate || (cx && boardPastState === "ok")
+    ? `${cx ? `<div class="pastbar"><b>${esc(sel)} 마감 기록</b>
+        <span class="why">작업지시 ${cx.kpi.wos} · 검수 대기 ${cx.kpi.wait} · 그날 실패 ${cx.kpi.fail}
+          · 그날 공개 ${cx.kpi.pub}${cx.kpi.wos ? "" :
+            " — 그날 작업지시가 없습니다(이 오케스트레이터의 작업 기록은 2026-08-10부터입니다)"}</span>
+        <span class="sp"></span>
+        <button class="mini" onclick="boardGo('today')">오늘로 돌아가기</button></div>` : ""}
+       <div class="board">${boardHtml(cx) || '<div class="empty">channels_mirror 비어 있음</div>'}</div>`
+    : boardPastState === "loading" ? `<div class="empty">${esc(sel)} 되짚는 중…</div>`
+    : `<div class="empty">그날 기록을 불러오지 못했습니다 — ${esc(boardPastErr)}
+        <button class="mini" onclick="boardGo('${esc(sel)}')">다시 시도</button>
+        <button class="mini" onclick="boardGo('today')">오늘로</button></div>`;
+  return `<section class="card">
+    <h2>채널 신호등 — ${boardDate ? md(sel) + " 마감(KST) 기준" : "오늘(KST) 기준"}${boardDateCtlHtml()}</h2>
+    <div style="margin-bottom:8px">
+      <span class="lg"><span class="chdot ok"></span>완료</span>
+      <span class="lg"><span class="chdot wait"></span>대기</span>
+      <span class="lg"><span class="chdot run"></span>진행</span>
+      <span class="lg"><span class="chdot rej"></span>반려</span>
+      <span class="lg"><span class="chdot bad"></span>실패</span>
+      <span class="lg"><span class="chdot none"></span>없음</span>
+      <span class="sub">${hint}</span></div>
+    ${body}</section>`;
+}
+
+// 신호등 카드 본문 — cx 가 있으면 그날 마감 기준, 없으면 오늘 라이브.
+function boardHtml(cx){
+  const today = cx ? cx.day : kstDay();
+  const dayW = cx ? "그날" : "오늘";
+  const j = (cx ? cx.jobs : state.jobs) || [];
+  const isToday = ts => ts && kstDay(ts) === today;   // 지난 날짜 모드에선 "그날치인가"
+  const waiting = cx ? cx.waiting : (state.reviews||[]).filter(r => r.status === "waiting");
+  // 오늘(KST) 작업이 있으면 구 규칙 그대로 오늘 기준. 없으면 "마지막 작업분"을
+  // 날짜 배지와 함께 보여준다(취소분 제외) — 신호등·잡·검수함 불일치 방지(운영 피드백 8/9).
+  const alive = ((cx ? cx.wos : state.wos)||[]).filter(w => w.status !== "cancelled");
+  const woToday = ch => alive.filter(w =>
+    w.channel_slug === ch.token_slug && (kstDay(w.service_date||w.created_at) === today));
+  const woRecent = ch => alive.find(w => w.channel_slug === ch.token_slug);
+  return (state.chans||[]).map(ch => {
+    // 전용 파이프라인 채널(잔망루피): 작업지시 대신 오늘의 자동화 잡 상태를 보여준다.
+    // 신호등 통일(운영 요청 8/14): 다른 채널과 같은 두 칸(생성·공개)·같은 점 색·같은
+    // 라벨 어휘 — 종전 '자동화/예약제' 특수 표기는 칸 제목이 달라 스캔이 끊기고,
+    // 공개 칸이 항상 초록(정보 0)이었다. 검수 대기도 이제 다른 채널처럼 노란 점으로 보인다.
+    if (EXT_PIPE[ch.token_slug]){
+      const auto = j.filter(x => x.kind === "zanmang_autopilot" && isToday(x.created_at));
+      const decs = j.filter(x => x.kind === "zanmang_decision" && isToday(x.created_at)
+        && !["skip","rerender"].includes((x.params||{}).action || "publish"));
+      const latest = a => a.find(x => x.status === "running")
+        || a.slice().sort((x,y) => new Date(y.updated_at||y.created_at) - new Date(x.updated_at||x.created_at))[0];
+      const lqWait = waiting.some(r => r.kind === "localization_qa" && r.channel_slug === ch.token_slug);
+      const zj = latest(auto);
+      const [gc, gl] = (zj && zj.status === "running") ? ["run","진행 중"]
+        : (zj && ["failed","dead"].includes(zj.status)) ? ["bad","실패"]
+        : lqWait ? ["wait","검수 대기"]
+        : (zj && zj.status === "succeeded") ? ["ok", dayW + " 완료"]
+        : zj ? ["wait","대기"] : ["none","없음"];
+      const up = latest(decs);
+      const [pc, pl] = !up ? ["none","없음"]
+        : ["failed","dead"].includes(up.status) ? ["bad","발행 실패"]
+        : up.status === "succeeded"
+          ? ((((up.params||{}).privacy) || "schedule") === "schedule"
+              ? ["wait","예약됨"] : ["ok","업로드됨"])
+          : ["wait","발행 대기"];
+      return `<div class="bch"><div class="bchL">
+          <div class="bchName">${chAvatarHtml(ch.token_slug, 18)}<span>${esc(ch.name || ch.token_slug)}</span></div>
+          <div class="bchWork" title="${esc(EXT_PIPE[ch.token_slug])}">${esc(EXT_PIPE[ch.token_slug])}</div></div>
+        <div class="dots">
+          <div class="dcol${gc === "none" ? " dim" : ""}"><span class="dcap">생성</span><span class="chdot ${gc}" title="${esc(gl)}"></span><span class="dlab">${esc(gl)}</span></div>
+          <div class="dcol${pc === "none" ? " dim" : ""}"><span class="dcap">공개</span><span class="chdot ${pc}" title="${dayW} 승인·업로드분 — 예약 업로드는 19:00 JST 슬롯"></span><span class="dlab">${esc(pl)}</span></div>
+        </div></div>`;
+    }
+    const ws = woToday(ch);
+    const cur = ws.length ? ws[0] : woRecent(ch);
+    // 신호등은 '오늘 이 일이 일어났나' 만 추적한다(운영 결정 8/20). 오늘 작업지시가 없으면
+    // 지난 작업분 상태로 색을 켜지 않는다 — f0f6de1(8/9)의 폴백 표시는 여기서 되돌린다.
+    // 어제 것이 오늘 것과 같은 초록으로 보여 '오늘 잘 굴러갔다' 로 읽혔다(엔딩순삭 8/18 '합격').
+    // 지난 작업분은 왼쪽 '마지막 MM/DD' 배지로만 알리고, 상태는 행을 눌러 상세에서 본다.
+    const st = ws.length && cur ? woStatus(cur, cx) : "none";
+    const [gc, gl] = GEN_DOT[st] || GEN_DOT.none;
+    // 공개 칸은 작업지시가 아니라 발행 날짜로 판정한다 — cur(생성일 기준)와 무관.
+    const [pc, pl, pt, punv] = chPubDot(ch.token_slug, cx);
+    const dateBadge = cur && !ws.length
+      ? `<span class="fpill fp-mut" title="${dayW} 작업지시가 없습니다 — 마지막 작업지시는 ${
+          esc(kstDay(cur.service_date||cur.created_at))}. 신호등은 ${dayW} 것만 표시하므로 회색입니다(행을 누르면 그 작업분 상세)">마지막 ${
+          esc(kstDay(cur.service_date||cur.created_at).slice(5).replace("-","/"))}</span>` : "";
+    const open = boardOpen === ch.token_slug;
+    // v3: 작업 이력 없는 채널도 "왜 없는지"를 말해준다 (JP 대기 / 소스 준비됨 / 소스 인입 대기)
+    const noWo = JP_SLUGS.has(ch.token_slug) ? "일본 채널 · 가동 대기"
+      : ((state.srcs||[]).some(s => (ch.works||[]).includes(s.work_title) && s.is_active !== false)
+         ? "소스 준비됨 · 다음 회차 합류" : "소스 인입 대기 중");
+    return `<div class="bch" onclick="boardOpen=boardOpen==='${esc(ch.token_slug)}'?null:'${esc(ch.token_slug)}';render()">
+      <div class="bchL">
+        <div class="bchName">${chAvatarHtml(ch.token_slug, 18)}<span title="${esc(ch.name || ch.token_slug)}">${esc(ch.name || ch.token_slug)}</span></div>
+        <div class="bchWork" title="${cur ? esc(cur.work_title) : noWo}">${cur ? esc(cur.work_title) : noWo}</div>
+        ${dateBadge}${punv ? `<span class="fpill fp-wait" title="${esc(punv)}">예약 기준</span>` : ""}
+      </div>
+      <div class="dots">
+        <div class="dcol${gc === "none" ? " dim" : ""}"><span class="dcap">생성</span><span class="chdot ${gc}" title="${esc(gl)}"></span><span class="dlab">${esc(gl)}</span></div>
+        <div class="dcol${pc === "none" ? " dim" : ""}"><span class="dcap">공개</span><span class="chdot ${pc}" title="${esc(punv || pt || pl)}"></span><span class="dlab">${esc(pl)}</span></div>
+      </div></div>` +
+      (open ? `<div class="bdetail">${cur ? chainHtml(cur, cx)
+              : `<span class="sub">${chLinkHtml(ch.token_slug)} · 최근 작업지시 없음</span>`}${cx ? "" : runBox(ch.token_slug)}</div>` : "");
+  }).join("");
+}
 function renderHome(){
   const j = state.jobs||[], today = kstDay();
   const isToday = ts => ts && kstDay(ts) === today;
@@ -1436,77 +1731,6 @@ function renderHome(){
     }).join("") : `<div class="idle">${nd.status === "active" ? "쉬는 중 — 다음 일감 대기" : "작업 안 받음"}</div>`;
     return `<div class="now"><div class="hd"><b>${esc(nd.node_id)}</b>${chip(cls,ic,lb)}</div>${body}</div>`;
   }).join("");
-  // 오늘(KST) 작업이 있으면 구 규칙 그대로 오늘 기준. 없으면 "마지막 작업분"을
-  // 날짜 배지와 함께 보여준다(취소분 제외) — 신호등·잡·검수함 불일치 방지(운영 피드백 8/9).
-  const alive = (state.wos||[]).filter(w => w.status !== "cancelled");
-  const woToday = ch => alive.filter(w =>
-    w.channel_slug === ch.token_slug && (kstDay(w.service_date||w.created_at) === today));
-  const woRecent = ch => alive.find(w => w.channel_slug === ch.token_slug);
-  const board = (state.chans||[]).map(ch => {
-    // 전용 파이프라인 채널(잔망루피): 작업지시 대신 오늘의 자동화 잡 상태를 보여준다.
-    // 신호등 통일(운영 요청 8/14): 다른 채널과 같은 두 칸(생성·공개)·같은 점 색·같은
-    // 라벨 어휘 — 종전 '자동화/예약제' 특수 표기는 칸 제목이 달라 스캔이 끊기고,
-    // 공개 칸이 항상 초록(정보 0)이었다. 검수 대기도 이제 다른 채널처럼 노란 점으로 보인다.
-    if (EXT_PIPE[ch.token_slug]){
-      const auto = j.filter(x => x.kind === "zanmang_autopilot" && isToday(x.created_at));
-      const decs = j.filter(x => x.kind === "zanmang_decision" && isToday(x.created_at)
-        && !["skip","rerender"].includes((x.params||{}).action || "publish"));
-      const latest = a => a.find(x => x.status === "running")
-        || a.slice().sort((x,y) => new Date(y.updated_at||y.created_at) - new Date(x.updated_at||x.created_at))[0];
-      const lqWait = waiting.some(r => r.kind === "localization_qa" && r.channel_slug === ch.token_slug);
-      const zj = latest(auto);
-      const [gc, gl] = (zj && zj.status === "running") ? ["run","진행 중"]
-        : (zj && ["failed","dead"].includes(zj.status)) ? ["bad","실패"]
-        : lqWait ? ["wait","검수 대기"]
-        : (zj && zj.status === "succeeded") ? ["ok","오늘 완료"]
-        : zj ? ["wait","대기"] : ["none","없음"];
-      const up = latest(decs);
-      const [pc, pl] = !up ? ["none","없음"]
-        : ["failed","dead"].includes(up.status) ? ["bad","발행 실패"]
-        : up.status === "succeeded"
-          ? ((((up.params||{}).privacy) || "schedule") === "schedule"
-              ? ["wait","예약됨"] : ["ok","업로드됨"])
-          : ["wait","발행 대기"];
-      return `<div class="bch"><div class="bchL">
-          <div class="bchName">${chAvatarHtml(ch.token_slug, 18)}<span>${esc(ch.name || ch.token_slug)}</span></div>
-          <div class="bchWork" title="${esc(EXT_PIPE[ch.token_slug])}">${esc(EXT_PIPE[ch.token_slug])}</div></div>
-        <div class="dots">
-          <div class="dcol${gc === "none" ? " dim" : ""}"><span class="dcap">생성</span><span class="chdot ${gc}" title="${esc(gl)}"></span><span class="dlab">${esc(gl)}</span></div>
-          <div class="dcol${pc === "none" ? " dim" : ""}"><span class="dcap">공개</span><span class="chdot ${pc}" title="오늘 승인·업로드분 — 예약 업로드는 19:00 JST 슬롯"></span><span class="dlab">${esc(pl)}</span></div>
-        </div></div>`;
-    }
-    const ws = woToday(ch);
-    const cur = ws.length ? ws[0] : woRecent(ch);
-    // 신호등은 '오늘 이 일이 일어났나' 만 추적한다(운영 결정 8/20). 오늘 작업지시가 없으면
-    // 지난 작업분 상태로 색을 켜지 않는다 — f0f6de1(8/9)의 폴백 표시는 여기서 되돌린다.
-    // 어제 것이 오늘 것과 같은 초록으로 보여 '오늘 잘 굴러갔다' 로 읽혔다(엔딩순삭 8/18 '합격').
-    // 지난 작업분은 왼쪽 '마지막 MM/DD' 배지로만 알리고, 상태는 행을 눌러 상세에서 본다.
-    const st = ws.length && cur ? woStatus(cur) : "none";
-    const [gc, gl] = GEN_DOT[st] || GEN_DOT.none;
-    // 공개 칸은 작업지시가 아니라 발행 날짜로 판정한다 — cur(생성일 기준)와 무관.
-    const [pc, pl, pt, punv] = chPubDot(ch.token_slug);
-    const dateBadge = cur && !ws.length
-      ? `<span class="fpill fp-mut" title="오늘 작업지시가 없습니다 — 마지막 작업지시는 ${
-          esc(kstDay(cur.service_date||cur.created_at))}. 신호등은 오늘 것만 표시하므로 회색입니다(행을 누르면 그 작업분 상세)">마지막 ${
-          esc(kstDay(cur.service_date||cur.created_at).slice(5).replace("-","/"))}</span>` : "";
-    const open = boardOpen === ch.token_slug;
-    // v3: 작업 이력 없는 채널도 "왜 없는지"를 말해준다 (JP 대기 / 소스 준비됨 / 소스 인입 대기)
-    const noWo = JP_SLUGS.has(ch.token_slug) ? "일본 채널 · 가동 대기"
-      : ((state.srcs||[]).some(s => (ch.works||[]).includes(s.work_title) && s.is_active !== false)
-         ? "소스 준비됨 · 다음 회차 합류" : "소스 인입 대기 중");
-    return `<div class="bch" onclick="boardOpen=boardOpen==='${esc(ch.token_slug)}'?null:'${esc(ch.token_slug)}';render()">
-      <div class="bchL">
-        <div class="bchName">${chAvatarHtml(ch.token_slug, 18)}<span title="${esc(ch.name || ch.token_slug)}">${esc(ch.name || ch.token_slug)}</span></div>
-        <div class="bchWork" title="${cur ? esc(cur.work_title) : noWo}">${cur ? esc(cur.work_title) : noWo}</div>
-        ${dateBadge}${punv ? `<span class="fpill fp-wait" title="${esc(punv)}">예약 기준</span>` : ""}
-      </div>
-      <div class="dots">
-        <div class="dcol${gc === "none" ? " dim" : ""}"><span class="dcap">생성</span><span class="chdot ${gc}" title="${esc(gl)}"></span><span class="dlab">${esc(gl)}</span></div>
-        <div class="dcol${pc === "none" ? " dim" : ""}"><span class="dcap">공개</span><span class="chdot ${pc}" title="${esc(punv || pt || pl)}"></span><span class="dlab">${esc(pl)}</span></div>
-      </div></div>` +
-      (open ? `<div class="bdetail">${cur ? chainHtml(cur)
-              : `<span class="sub">${chLinkHtml(ch.token_slug)} · 최근 작업지시 없음</span>`}${runBox(ch.token_slug)}</div>` : "");
-  }).join("");
   const snaps = (state.snaps||[]).map(s => {
     const k = (s.payload||{}).kpis || {};
     return `<tr><td class="num">${esc(s.snapshot_date||"")}</td>
@@ -1543,6 +1767,30 @@ function renderHome(){
         <div class="err">${esc(x.job.error)}</div></details>` : ""}</td>
       <td>${retry}</td></tr>`;
   }).join("");
+  // 사람 판단으로 넘어간 채 멈춘 작업지시(8/22 사고) — 합격 후 미발행과 같은 결의 경고줄.
+  // 조치는 둘뿐이라 그대로 적는다: 취소해서 회차 슬롯을 돌려주거나, 새로 한 편 만들거나.
+  const stall = stalled();
+  const stallRows = stall.map(x => {
+    const lb = STALL_WHY[x.reason] || "다시 만들지 못함";
+    const cancel = can("operator")
+      ? `<button class="mini" data-wo="${esc(x.work_order_id)}"
+           onclick="armed(this,'작업지시 취소',()=>rpc('cancel_work_order',
+             {p_wo:this.dataset.wo,p_note:'재생성 상한 — 사람 판단으로 취소'},'작업지시 취소됨'))"
+           title="이 편을 포기하고 회차 슬롯을 돌려줍니다 — 대기·실행 잡과 검수 카드도 함께 닫힙니다"
+           >작업지시 취소</button>`
+      : '<span class="sub">operator 권한 필요</span>';
+    return `<tr><td>${esc(chName(x.channel_slug || ""))}</td>
+      <td>${esc(x.work_title || "—")}${x.episode != null ? ` ${x.episode}회차` : ""}</td>
+      <td>${chip("crit","⚑",lb)}${x.tries
+        // tries 는 rejected_takes 누적(이번 반려 포함)이라 상한 2 에서 3 이 된다 —
+        // '3/2' 로 적으면 고장으로 읽힌다. 반려 횟수와 상한을 따로 적는다.
+        ? ` <span class="sub">반려 ${x.tries}회${
+            x.reason === "retry_limit" ? ` · 상한 ${x.retry_limit || 2}회` : ""}</span>` : ""}</td>
+      <td>${esc(x.stage || "")}</td>
+      <td class="num" title="${esc(x.stalled_at || "")}">${ago(x.stalled_at)}</td>
+      <td class="note">${esc((x.note || "").slice(0,120)) || '<span class="sub">—</span>'}</td>
+      <td>${cancel}</td></tr>`;
+  }).join("");
   $("#page").innerHTML = `
     ${geminiBanner()}
     ${unpub.length ? `<section class="card warnbar fold${
@@ -1560,21 +1808,24 @@ function renderHome(){
         <div class="tblwrap"><table class="unpub"><tr><th>채널</th><th>작품</th><th>합격</th><th>발행</th>
           <th>예약</th><th>오류</th><th></th></tr>${unpubRows}</table></div>
       </div></details></section>` : ""}
+    ${stall.length ? `<section class="card warnbar fold"><details ${stallOpen ? "open" : ""}
+      ontoggle="stallOpen=this.open">
+      <summary><b>⚑ 사람 판단이 필요한 작업지시가 ${stall.length}건 있습니다</b>
+        <span class="sub">${esc(stallNamesOf(stall))} · 반려 후 다시 만들기가 서지 않아
+          검수 카드가 닫힌 채 멈췄습니다 — 그냥 두면 이 편은 만들어지지 않습니다</span></summary>
+      <div class="body">
+        <div class="sub" style="margin-bottom:8px">반려 재생성은 같은 맥에서 <b>2회까지</b>입니다.
+          그 뒤로는 자동으로 다시 만들지 않습니다 — 여기서부터가 사람 몫입니다.
+          이 편을 포기하려면 <b>작업지시 취소</b>(회차 슬롯이 돌아옵니다), 다시 만들려면
+          아래 채널 카드의 <b>작업 실행</b>으로 새로 한 편 만드세요.</div>
+        <div class="tblwrap"><table><tr><th>채널</th><th>작품</th><th>상태</th>
+          <th>마지막 반려 단계</th><th>멈춘 지</th><th>반려 사유</th><th></th></tr>${stallRows}</table></div>
+      </div></details></section>` : ""}
     <div class="tiles">${tiles.map(([k,v,w]) => `<div class="tile"><div class="v">${v}</div>
       <div class="k">${k}${w?` · <span style="color:var(--serious)">${w}</span>`:""}</div></div>`).join("")}</div>
     <section class="card"><h2>지금 각 맥이 하는 일</h2>
       <div class="nowgrid">${nowCards || '<div class="empty">등록된 맥 없음</div>'}</div></section>
-    <section class="card"><h2>채널 신호등 — 오늘(KST) 기준</h2>
-      <div style="margin-bottom:8px">
-        <span class="lg"><span class="chdot ok"></span>완료</span>
-        <span class="lg"><span class="chdot wait"></span>대기</span>
-        <span class="lg"><span class="chdot run"></span>진행</span>
-        <span class="lg"><span class="chdot rej"></span>반려</span>
-        <span class="lg"><span class="chdot bad"></span>실패</span>
-        <span class="lg"><span class="chdot none"></span>없음</span>
-        <span class="sub">오늘(KST) 기준 · 오늘 작업이 없으면 마지막 작업분을 날짜 배지와 함께 표시
-          · 공개 점은 만든 날이 아니라 실제 공개된 날(발행·예약 시각)에 켜짐</span></div>
-      <div class="board">${board || '<div class="empty">channels_mirror 비어 있음</div>'}</div></section>
+    ${boardSectionHtml()}
     ${failsToday.length ? `<section class="card"><h2>오늘 실패 상세</h2><div class="tblwrap">
       <table><tr><th>단계</th><th>작품</th><th>분류</th><th>오류</th></tr>${
       failsToday.map(x => `<tr><td>${esc(kindKo(x.kind))}</td>
@@ -1585,13 +1836,18 @@ function renderHome(){
       <div class="tblwrap"><table><tr><th>날짜</th><th>검수 대기</th><th>실패</th><th>기록 시각</th></tr>
       ${snaps || '<tr><td colspan="4" class="empty">스냅샷 없음</td></tr>'}</table></div></section>`;
 }
-function chainHtml(wo){
-  const js = (state.jobsByWo[wo.id]||[]).slice().sort((a,b)=>a.created_at<b.created_at?-1:1);
+function chainHtml(wo, cx){
+  const js = ((cx ? cx.jobsByWo : state.jobsByWo)[wo.id]||[]).slice().sort((a,b)=>a.created_at<b.created_at?-1:1);
+  // 지난 날짜 모드: 사슬은 그날 23:59 시점이다. 그 일이 결국 어떻게 끝났는지는 따로 말해준다 —
+  // 되짚은 화면만 보면 "실패한 채로 남았나" 를 알 수 없어 사람이 다시 잡을 뒤지게 된다.
+  const nowLine = cx
+    ? `<div class="sub" style="margin-top:6px">그날 23:59 기준입니다 · 지금은 <b>${
+        esc((GEN_DOT[woStatus(wo, cx.nowCx)] || GEN_DOT.none)[1])}</b></div>` : "";
   return `<b>${esc(wo.work_title)}</b> <span class="sub">${chLinkHtml(wo.channel_slug)} · ${esc(kstDay(wo.created_at))}</span>
     <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">${
     js.map(x => { const [c,i,l] = JOB_ST[x.status]||["mut","?",x.status];
       return `<span class="chip st-${c}" title="${esc((x.error||"").slice(0,200))}">
-        <span class="d"></span>${esc(kindKo(x.kind))} ${i} ${esc(l)}</span>`; }).join("") || '<span class="sub">잡 없음</span>'}</div>`;
+        <span class="d"></span>${esc(kindKo(x.kind))} ${i} ${esc(l)}</span>`; }).join("") || '<span class="sub">잡 없음</span>'}</div>${nowLine}`;
 }
 
 // ───────── Gemini 키 슬롯 (0025) ─────────
@@ -1917,7 +2173,17 @@ function renderReview(){
   // 합격시킨 뒤 깨진 건은 홈에 있다. 검수자가 사는 화면이 여기라 한 줄로 길을 낸다 —
   // 합격 순간 카드가 사라지므로, 알려주지 않으면 여기서는 영영 안 보인다(8/17 사고).
   const stuck = unpublished().filter(x => x.bad);
+  // 반려가 재생성 상한에 걸린 건(8/22 사고) — 그 카드는 rejected 로 여기서 사라진다.
+  // 사라진 자리를 남기지 않으면 검수자에겐 '없던 일'이 된다(합격 후 미발행과 같은 이유).
+  // 아래 '최근 결정' 표에서도 그 줄에 ⚑ 배지가 붙는다.
+  const stall = stalled();
+  const stallIds = new Set(stall.map(x => x.review_id));
   $("#page").innerHTML =
+    (stall.length ? `<section class="card warnbar"><b>⚑ 사람 판단이 필요한 반려가 ${stall.length}건 있습니다</b>
+      <span class="sub">${esc(stallNamesOf(stall))} — 다시 만들기 상한(2회)에 걸려 그 카드는 닫혔고,
+        이어지는 작업이 없습니다. 홈에서 취소하거나 새로 한 편 만들 수 있습니다</span>
+      <span class="right"></span>
+      <button class="mini" onclick="tab='home';render()">홈에서 보기</button></section>` : "") +
     (stuck.length ? `<section class="card warnbar"><b>⚠ 합격했으나 발행되지 않은 영상이 ${stuck.length}건 있습니다</b>
       <span class="sub">${esc(stuck.slice(0,3).map(x =>
         chName(x.rv.channel_slug || "") + " " +
@@ -1982,7 +2248,12 @@ function renderReview(){
         const wo = state.wo[r.work_order_id] || {};
         const slug = wo.channel_slug || r.channel_slug;
         const d = r.status === "approved" ? chip("good","✓","합격")
-                : r.status === "rejected" ? chip("crit","✕","반려") : chip("mut","–",r.status);
+                : r.status === "rejected"
+                  // ⚑ = 이 반려로 재생성이 서지 않아 작업지시가 멈춰 있다(0072 뷰가 정본).
+                  //     다시 돌기 시작하거나 취소되면 배지는 저절로 사라진다.
+                  ? chip("crit","✕","반려") + (stallIds.has(r.id)
+                      ? " " + chip("crit","⚑","사람 판단 필요") : "")
+                : chip("mut","–",r.status);
         // '합격'만 찍고 끝내면 발행이 죽어도 초록 체크로 보인다 — 8/17 한 입 주막이 그랬다.
         // 결정 옆에 그 결정의 결말을 붙인다.
         const pj = r.status === "approved" ? pubJobOf(r) : null;
@@ -2094,12 +2365,17 @@ window.reject = async (rid, stage, regen) => {
     toast(r.regenerated
       ? `반려 — ${where} ${what} 다시 만듭니다 (${r.tries}/2)`
         + (r.note_applied && note ? " · 사유 반영됨" : "")
+      // 토스트는 놓칠 수 있다(8/22 사고) — 멈춘 건은 홈 경고줄·검수함 배지에 남는다(0072).
+      // 여기서는 '어디에 남겼는지'까지 말해 준다.
       : r.reason === "retry_limit"
-        ? "반려 — 다시 만들기 상한(2회) 도달, 사람 판단이 필요합니다"
+        ? "반려 — 다시 만들기 상한(2회) 도달 · 홈 경고줄에 '사람 판단 필요'로 세웠습니다"
         : r.reason === "no_run_to_resume"
           ? "반려 — 이어달릴 이전 결과가 없습니다. '영상 분석'으로 다시 시도해 주세요"
-          : "반려만 기록했습니다 — 다시 만들지 않음",
-      r.reason === "retry_limit" || r.reason === "no_run_to_resume");
+            + " · 홈 경고줄에 '사람 판단 필요'로 세웠습니다"
+          : r.stalled
+            ? "반려 — 다시 만들지 못했습니다 · 홈 경고줄에 '사람 판단 필요'로 세웠습니다"
+            : "반려만 기록했습니다 — 다시 만들지 않음",
+      !!r.stalled || r.reason === "retry_limit" || r.reason === "no_run_to_resume");
   }
 };
 
