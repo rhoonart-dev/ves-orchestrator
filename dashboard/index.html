@@ -4723,6 +4723,8 @@ const ED_EL_PREFIX = "elevenlabs:";
 //      계정에는 애초에 없다. 그래서 이 배열은 **바닥값**일 뿐 정본이 아니다.
 // 정본 통로: ops_config 'editor_tts_voices' = [{"id":"<voice_id>","label":"..."}, ...]
 // (더빙 경로의 ops_config.localize_voices 와 같은 규율 — 계정 자산은 코드에 안 박는다).
+// 2026-08-22 계정 실물 대조로 정리 — Aria·Charlotte 는 이 계정에 없어 합성 때 404 였다.
+// (일레븐랩스는 계정마다 보이는 premade 가 다르다 — 문서 목록을 믿지 말고 /v1/voices 로 본다)
 const ED_EL_VOICES_DEFAULT = [
   // — 내레이션(ElevenLabs use_case: narration)
   ["elevenlabs:JBFqnCBsd6RMkjVDRZzb", "내레이션 · 남 · 따뜻함 (George, 영국)"],
@@ -4731,6 +4733,7 @@ const ED_EL_VOICES_DEFAULT = [
   ["elevenlabs:nPczCjzI2devNBz1zQrb", "내레이션 · 남 · 낮고 굵음 (Brian, 미국)"],
   ["elevenlabs:TX3LPaxmHKxFdv7VOQHJ", "내레이션 · 남 · 또렷함·젊음 (Liam, 미국)"],
   ["elevenlabs:pqHfZKP75CvOlQylNhV4", "내레이션 · 남 · 중후함 (Bill, 미국)"],
+  ["elevenlabs:pNInz6obpgDQGcFmaJgB", "내레이션 · 남 · 단호함 (Adam, 미국)"],
   // — 뉴스·전달
   ["elevenlabs:EXAVITQu4vr4xnSDxMaL", "뉴스 · 여 · 부드러움 (Sarah, 미국)"],
   ["elevenlabs:Xb7hH8MSUJpSbSDYk0k2", "뉴스 · 여 · 단단함 (Alice, 영국)"],
@@ -4741,14 +4744,14 @@ const ED_EL_VOICES_DEFAULT = [
   ["elevenlabs:iP95p4xoKVk53GoZ742B", "대화체 · 남 · 편안함 (Chris, 미국)"],
   ["elevenlabs:IKne3meq5aSn9XLyUdCD", "대화체 · 남 · 자연스러움 (Charlie, 호주)"],
   // — 쇼츠·SNS 톤
-  ["elevenlabs:9BWtsMINqrJLrRacOk9x", "쇼츠 · 여 · 표현 풍부 (Aria, 미국)"],
   ["elevenlabs:FGY2WhTYpPnrIDTdsKH5", "쇼츠 · 여 · 밝고 빠름 (Laura, 미국)"],
   ["elevenlabs:CwhRBWXzGAHq8TQ4Fs17", "쇼츠 · 남 · 자신감 (Roger, 미국)"],
   ["elevenlabs:bIHbv24MWmeRgasZH58o", "쇼츠 · 남 · 친근함·젊음 (Will, 미국)"],
+  ["elevenlabs:hpp4J3VqNfWAUOO0d1Us", "쇼츠 · 여 · 밝고 따뜻 (Bella, 미국)"],
   ["elevenlabs:SAz9YHcvj6GT2YYXdXww", "쇼츠 · 중성 · 담백함 (River, 미국)"],
   // — 캐릭터
   ["elevenlabs:N2lVS1w4EtoT3dr4eOWO", "캐릭터 · 남 · 강렬함 (Callum)"],
-  ["elevenlabs:XB0fDUnXU5powFXDhCwa", "캐릭터 · 여 · 나른함 (Charlotte, 스웨덴)"],
+  ["elevenlabs:SOYHLrjzK2X1ezoPC6cr", "캐릭터 · 남 · 사납고 강함 (Harry)"],
 ];
 // 운영자 목록이 있으면 그것이 이긴다(위 ⓐⓑ). 깨진 JSON·이상한 항목 하나가 목소리
 // 선택을 통째로 못 쓰게 만들면 안 된다 — 조용히 기본 목록으로 떨어진다(표시 계층이라
