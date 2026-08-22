@@ -69,7 +69,7 @@ generate(TTL 300s)는 최대 ~75초 안에 멈춘다.
 - 보조: PostgREST 풀은 Management API `PATCH /v1/projects/{ref}/postgrest` 의 `db_pool`
   로 축소 가능하나 REST 동시성 저하 트레이드오프. storage_admin 풀은 사용자 설정 불가.
 
-## 9. 반려 재생성 상한 — 홈 '사람 판단 필요' 경고줄 (0072)
+## 9. 반려 재생성 상한 — 홈 '사람 판단 필요' 경고줄 (0074)
 
 증상: 검수 카드를 반려했는데 카드만 사라지고 후속 잡이 하나도 서지 않는다.
 작업지시는 `status='open'` 인 채 잡 없이 멈춘다.
