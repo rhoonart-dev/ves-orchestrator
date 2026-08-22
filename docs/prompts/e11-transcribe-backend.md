@@ -16,6 +16,15 @@ ai-video(rht-22/ai-video) 엔진 세션용 작업 프롬프트. 사용자 요청
   `set_channel_design` v_allowed + 값 검증 + `ops_config.channel_transcribe='off'` 시드
 - 대시보드 채널 설정 모달 '자막 전사' 선택칸 (게이트 `channel_transcribe` 뒤)
 
+## ⚠ 배포 특성 — 회귀 0 이 안전장치다
+
+ai-video 는 `deployments.auto_update=true` 이고 핀이 없다. **main 에 머지하면 version_watch
+(시간당 1회)가 새 sha 를 보고 맥미니 6대가 다음 claim 경계에서 자동으로 갱신한다.**
+되돌리는 절차는 RUNBOOK §1 에 있지만, 애초에 안 깨지게 만드는 게 전제다.
+
+**플래그/접두사가 없는 실행은 한 글자도 달라지면 안 된다.** 지금 돌고 있는 모든 작업이
+그 경로다. 이건 요청이 아니라 배포 조건이다.
+
 ## 계약 (이대로 구현해라 — 오케스트레이터가 이미 이 형태로 보낸다)
 
 ```
