@@ -104,6 +104,12 @@ CHANNEL_DESIGN_SWITCHES = {
     # 제목 줄별 굵게(ai-video 2026-08-21) — true 면 같은 색 외곽선으로 획을 두껍게. brain 1:1.
     "title_bold": ("--design-title-bold", True),
     "title_bold2": ("--design-title-bold2", True),
+    # E15 스타일 구성(ai-video, 2026-08-23): true 면 스토리 구성 뒤 AI 가 편 단위 연출
+    # (효과 텍스트·자막 강조·스티커·타임드 제목·회전/배속·TTS 톤)을 구성해 그대로 렌더한다.
+    # 미지정 = 단계 자체가 없다(엔진 회귀 0). 채널 단위인 이유는 transcribe_backend 와 같다 —
+    # style 은 silence_cut 뒤 단계라 편집실 재렌더(from_step=resources|render)로는 다시 뜨지
+    # 않는다(체크포인트를 그대로 재적용). 개방은 엔진 전 노드 배포 후 ops_config channel_style=on.
+    "style_compose": ("--style-compose", True),
 }
 
 
@@ -164,10 +170,20 @@ def design_for_job(design, params):
     템플릿 subtitles:'끔'을 일반 디자인 플래그 경로로 그냥 흘리면 build_argv_pure 의
     subtitles_requested 가드를 우회한다 — 사람이 자막을 고쳐 보낸 편에 --no-subtitles
     가 그대로 붙어 '고쳤는데 안 나가는' 편집실 거짓말이 재발한다. 그래서 자막을 고쳐
-    보낸 잡에서는 이 키만 빼고 나머지 디자인은 그대로 둔다."""
-    if subtitles_requested(params) and (design or {}).get("subtitles") is False:
-        return {k: v for k, v in design.items() if k != "subtitles"}
-    return design
+    보낸 잡에서는 이 키만 빼고 나머지 디자인은 그대로 둔다.
+
+    E15 배포 게이트(8/23): `style_compose` 는 **엔진에 없던 새 CLI 플래그**라 구 엔진
+    노드에 가면 argparse 로 즉사한다. 대시보드는 ops_config channel_style 뒤에서만
+    저장하게 해 뒀지만 채널 정본(channels.json)은 손으로도 고치므로, 실행 직전
+    한 번 더 본다(enrich_params 가 params.style_compose_allowed 로 실어 준다).
+    **키가 없으면 꺼짐** — 게이트를 못 읽었는데 새 플래그를 보내면 그게 사고다
+    (base.ops_on 과 같은 판단, d6f49db 의 --rebuild·--description 과 같은 구도)."""
+    d = design or {}
+    if d.get("style_compose") is not None and not (params or {}).get("style_compose_allowed"):
+        d = {k: v for k, v in d.items() if k != "style_compose"}
+    if subtitles_requested(params) and d.get("subtitles") is False:
+        return {k: v for k, v in d.items() if k != "subtitles"}
+    return d
 
 
 def effective_design(override, file_design):
@@ -194,8 +210,13 @@ def edit_design(base_design, edit):
 
 
 def enrich_params(cfg, conn, job):
-    """실행 직전(관제 저장 즉시 다음 잡부터): channel_design_overrides → params.design_override."""
+    """실행 직전(관제 저장 즉시 다음 잡부터): channel_design_overrides → params.design_override.
+
+    E15(8/23): 새 CLI 플래그 `--style-compose` 의 배포 게이트도 여기서 읽는다 —
+    게이트 조회는 conn 이 있는 훅에서 하고 build_argv 는 순수하게 둔다(d6f49db 규약).
+    design_for_job 이 이 값을 보고 키를 걷어낸다."""
     p = dict(job.get("params") or {})
+    p["style_compose_allowed"] = base.ops_on(conn, "channel_style")
     if not p.get("channel_slug"):
         return p
     with conn.cursor() as c:
