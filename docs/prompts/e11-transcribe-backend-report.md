@@ -185,7 +185,7 @@ if (cur.end_sec - cur.start_sec) < min_duration_sec and gap <= max_gap_sec:
 **이건 elevenlabs 전용 결함이 아니다.** `merge_subtitle_segments` 는 두 백엔드 공통 경로다.
 다만 Scribe 는 word 단위 경계라 고립된 짧은 cue 가 훨씬 자주 생겨 **이 구멍을 드러낸다.**
 
-### 필요한 것
+### 필요한 것 → **발주서 `e14-subtitle-min-display.md`**
 
 시간 하한이 아니라 **읽기 속도 하한**이다. 10번은 0.72초로 0.6 하한을 넘기지만 25자/초라
 못 읽는다(한국어 자막 관례는 대략 12~14자/초). 다음 cue 시작을 침범하지 않는 선에서
