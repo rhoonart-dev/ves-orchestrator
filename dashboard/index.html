@@ -2948,7 +2948,7 @@ window.edMark = () => {
     el.classList.toggle("empty", !el.value.trim());
     // 창 길이 대비 예상 발화 길이 — 넘치면 엔진이 뜻을 지키며 줄여 재합성한다는 예고.
     // 속도 프리셋(8/20)이 있으면 그만큼 빨라진/느려진 길이로 근사한다.
-    const e = edTtsEst(t.text) / (ED_SPEED_FACTOR[t.speed] || 1), over = e > t.dur;
+    const e = edTtsEst(t.text) / edSpeedFactor(t), over = e > t.dur;
     const bar = document.getElementById("edtfb_" + i);
     if (bar){ bar.style.width = Math.min(100, e / t.dur * 100) + "%";
               bar.classList.toggle("over", over); }
@@ -4805,12 +4805,23 @@ function edVoiceSel(cur, canEdit, handler){
       `<option value="${esc(v)}" ${v===cur?"selected":""}>${esc(l)}</option>`).join("")}</optgroup>`
     ).join("")}</select>`;
 }
-// 속도 프리셋(사용자 8/20) — 엔진 tts.SPEED_TO_RATE 와 1:1(합성 시점에 적용되는
-// edge-tts rate). cue 단위 speed 는 edit_overrides/v2 가 원계약부터 통과시킨다.
+// 속도 프리셋(사용자 8/20) — 다섯 단은 두 백엔드에 공통이다. cue 단위 speed 는
+// edit_overrides/v2 가 원계약부터 통과시킨다.
 const ED_SPEEDS = [["very_slow","아주 느리게"],["slow","느리게"],["normal","보통 속도"],
                    ["fast","빠르게"],["very_fast","아주 빠르게"]];
-// 발화 길이 게이지용 배율 — 엔진 rate(-25%~+25%)의 근사
+// 발화 길이 게이지용 배율 — **백엔드마다 다르다**(사용자 요청 2026-08-23). 같은 다섯 단을
+// edge-tts 는 rate(−25%~+25%)로, 일레븐랩스는 voice_settings.speed(범위 0.7~1.2)로 누른다.
+// 한 표로 뭉뚱그리면 끝단에서 게이지가 거짓말을 한다 — very_fast 를 1.25 로 치면 실제보다
+// 4% 짧게 잡아, 창을 넘는 줄을 '들어간다'고 말한다(넘치면 엔진이 문구를 줄여 다시 쓴다).
+// ⚠ EL 표는 엣지 함수 supabase/functions/tts-preview 의 EL_SPEED 와 **같아야 한다**(그쪽이
+// 엔진 _synthesize_elevenlabs 의 복제본이다). 테스트가 두 파일의 값 일치를 검사한다.
+// 게이지는 어차피 근사다 — 실제 fit 은 엔진이 mp3 실측으로 한다. E12-3 ①(실측 보고)이
+// 오면 그 숫자로 다시 맞춘다.
 const ED_SPEED_FACTOR = { very_slow: 0.75, slow: 0.9, normal: 1, fast: 1.1, very_fast: 1.25 };
+const ED_EL_SPEED_FACTOR = { very_slow: 0.7, slow: 0.85, normal: 1, fast: 1.1, very_fast: 1.2 };
+// 이 줄의 목소리가 쓰는 배율 — 갈림은 여기 한 곳뿐이다
+const edSpeedFactor = t =>
+  (edPvAble(t.voice) ? ED_EL_SPEED_FACTOR : ED_SPEED_FACTOR)[t.speed || "normal"] || 1;
 function edSpeedSel(cur, canEdit, handler){
   const c = ED_SPEEDS.some(([v]) => v === cur) ? cur : "normal";
   return `<select ${canEdit?"":"disabled"} onchange="${handler}"

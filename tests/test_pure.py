@@ -2804,7 +2804,8 @@ def test_dashboard_editor_kr_polish_0820():
     assert "const ED_SPEEDS" in html and "edSpeedSel" in html and "window.edTtsSpeed" in html
     assert 'voice: t.voice, speed: t.speed || "normal",' in html
     assert 'speed: c.speed || "normal"' in html            # 재료 타임라인 → 폼
-    assert "ED_SPEED_FACTOR[t.speed]" in html
+    # 8/23 부터 게이지 배율은 백엔드마다 갈린다(edSpeedFactor) — 반영된다는 사실은 그대로
+    assert "edSpeedFactor(t)" in html and "const ED_SPEED_FACTOR" in html
     assert '(t.speed || "normal") !== (o.speed || "normal")' in html
     # 미리보기 — 밴드 클리핑 박스 + 확대율 근사 + 해상도 도착 시 재동기 + 크롭 토글
     assert 'id="edbandbox"' in html and "function edStageZoom" in html
@@ -3553,6 +3554,41 @@ def test_dashboard_seq_preview_narration_sound():
     # 줄의 ▶ 와 미리보기가 같은 판정(edTtsStale)을 쓴다 — 갈라지면 버튼은 '구본'이라는데
     # 미리보기는 새 소리를 내는 일이 생긴다
     assert "function edTtsStale(t){" in html
+
+
+def test_dashboard_speed_gauge_per_backend():
+    """발화 길이 게이지 배율은 **백엔드마다 다르다** (사용자 요청 2026-08-23).
+
+    같은 다섯 단을 edge-tts 는 rate(−25%~+25%)로, 일레븐랩스는 voice_settings.speed
+    (0.7~1.2)로 누른다. 한 표로 뭉뚱그리면 끝단에서 게이지가 거짓말을 한다 — very_fast
+    를 1.25 로 치면 실제보다 4% 짧게 잡아, 창을 넘는 줄을 '들어간다'고 말한다."""
+    import pathlib
+    import re
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    ts = pathlib.Path("supabase/functions/tts-preview/index.ts").read_text(encoding="utf-8")
+
+    def table(text, pat):
+        m = re.search(pat, text, re.S)
+        assert m, f"표를 찾지 못했다: {pat}"
+        return {k: float(v) for k, v in re.findall(r"(\w+):\s*([\d.]+)", m.group(1))}
+
+    # 게이지가 실제로 갈림을 쓴다 — 표만 만들어 두고 안 쓰면 아무것도 안 바뀐다
+    assert "const edSpeedFactor = t =>" in html
+    assert "edTtsEst(t.text) / edSpeedFactor(t)" in html
+    assert "edPvAble(t.voice) ? ED_EL_SPEED_FACTOR : ED_SPEED_FACTOR" in html
+
+    # edge-tts 표는 한 글자도 안 바뀐다 — 접두사 없는 줄의 게이지가 달라지면 회귀다
+    assert table(html, r"const ED_SPEED_FACTOR = \{(.*?)\};") == {
+        "very_slow": 0.75, "slow": 0.9, "normal": 1.0, "fast": 1.1, "very_fast": 1.25}
+    # EL 표 = 엣지 함수(=엔진 _synthesize_elevenlabs 복제본)의 EL_SPEED 와 값이 같아야 한다.
+    # 갈라지면 게이지가 '완성본이 낼 길이'가 아닌 다른 숫자를 말한다.
+    assert (table(html, r"const ED_EL_SPEED_FACTOR = \{(.*?)\};")
+            == table(ts, r"const EL_SPEED: Record<string, number> = \{(.*?)\};"))
+    # 화면의 다섯 단이 두 표 모두에 있어야 한다 — 없는 단은 배율 1(=보통)로 조용히 떨어진다
+    m = re.search(r"const ED_SPEEDS = \[(.*?)\];", html, re.S)
+    for lab in re.findall(r'\["(\w+)"', m.group(1)):
+        assert f"{lab}:" in html.split("const ED_SPEED_FACTOR")[1][:400], f"edge 표에 없는 단: {lab}"
+        assert f"{lab}:" in html.split("const ED_EL_SPEED_FACTOR")[1][:400], f"EL 표에 없는 단: {lab}"
 
 
 def test_tts_preview_fn_mirrors_engine_contract():
