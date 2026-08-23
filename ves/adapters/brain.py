@@ -203,6 +203,23 @@ class Publish:
     def resource(cfg, job):
         return "yt_upload:_global"
 
+    # 게이트: --description 을 모르는 구 publish_youtube.py 는 argparse 로 즉사한다 —
+    # 발행 잡이 통째로 실패하면 그날 발행이 멈춘다. brain 전 노드 배포를 확인한 뒤
+    # ops_config publish_localized_meta=on (E7·E10 과 같은 롤아웃). 꺼져 있으면 키를
+    # 걷어내 종전 경로 그대로 — 일본어 카드는 한국어 제목이 나가지만 발행은 산다.
+    @staticmethod
+    def enrich_params(cfg, conn, job):
+        p = dict(job.get("params") or {})
+        if not any(p.get(k) for k in ("publish_title", "publish_description",
+                                      "publish_tags")):
+            return p
+        if base.ops_on(conn, "publish_localized_meta"):
+            return p
+        print("[publish] publish_localized_meta 꺼짐 — 현지화판 제목·설명을 보내지 않는다")
+        for k in ("publish_title", "publish_description", "publish_tags"):
+            p.pop(k, None)
+        return p
+
     @staticmethod
     def build_argv(cfg, job):
         p = job["params"]
@@ -224,6 +241,18 @@ class Publish:
         if p.get("episode") is not None:
             # 설명란 '<작품명> N화' 줄 — 없으면 스크립트가 '회차 미상' 경고(8/11 실측)
             argv += ["--episode", str(p["episode"])]
+        # 현지화판 메타(2026-08-23) — JP 카드에서만 채워진다(approve_and_publish 가
+        # localization_qa 카드 payload 에서 옮겨 담는다). 없으면 종전과 완전히 동일:
+        # brain 이 clip_metadata 의 **한국어** top_title 과 한국어 작품명으로 조립한다.
+        # 그것이 일본어 채널(ショトコン)에 한국어 제목·해시태그가 그대로 올라가던 원인이다
+        # (실측 clip 606a7e5c: title '몸만 오면 된다더니 …', #혜미리예채파).
+        if p.get("publish_title"):
+            argv += ["--title", str(p["publish_title"])]
+        if p.get("publish_description"):
+            argv += ["--description", str(p["publish_description"])]
+        tags = [str(t).strip() for t in (p.get("publish_tags") or []) if str(t).strip()]
+        if tags:
+            argv += ["--hashtags", *tags]
         if p.get("publish_at"):
             argv += ["--publish-at", p["publish_at"]]   # TODO(Phase 2): 스크립트에 추가 필요
         return argv

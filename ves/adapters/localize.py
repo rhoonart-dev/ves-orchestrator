@@ -22,14 +22,22 @@ from ves.storage.supabase_storage import Store
 
 
 def scene_rerender_argv(ai_py: str, engine: str, job_dir: str,
-                        overrides_path: str | None = None) -> list:
+                        overrides_path: str | None = None,
+                        rebuild: bool = False) -> list:
     """scene_rerender 호출 argv — localize_run 은 **ai-video venv** 로 돈다(런타임 의존
     google-genai·edge-tts 가 그 venv 에 있고, 재렌더도 같은 엔진을 부른다).
     overrides_path(8/14 반려-수정 재렌더): 검수함에서 고친 텍스트 JSON — 엔진이 L1 번역에
-    병합해 고친 본으로 L3+ 를 다시 돈다. 순수 — 테스트 대상."""
+    병합해 고친 본으로 L3+ 를 다시 돈다.
+
+    rebuild(2026-08-23, 편집실 재렌더): 한국어 백업·번역 캐시를 지금 job 디렉토리 상태로
+    갱신하고 L1·L2 를 다시 돌리게 한다. 이것이 없어서 편집실에서 고친 한국어 자막·제목·
+    구간이 일본어판에 **한 글자도** 반영되지 않았다(SHOTCONE 혜미리예채파 실측 — 새 검수
+    카드의 ko_ja_pairs 가 직전 카드와 바이트 단위로 동일했다). 순수 — 테스트 대상."""
     argv = [ai_py, f"{engine}/scripts/localize_run.py", "--job-dir", job_dir]
     if overrides_path:
         argv += ["--overrides", str(overrides_path)]
+    if rebuild:
+        argv += ["--rebuild"]
     return argv
 
 
@@ -276,8 +284,14 @@ def _run_scene_rerender(cfg, conn, job, deps):
         ov_path = pathlib.Path(run_dir) / "localize_overrides.json"
         ov_path.write_text(json.dumps(p["overrides"], ensure_ascii=False, indent=2),
                            encoding="utf-8")
+    # 편집실 재렌더(0075)에서만 참 — planner 정상 체인은 이 키가 없다(첫 현지화라
+    # 무효화할 캐시도 없다). 값 검증: 불리언 외에는 켜지 않는다(오타로 전량 재번역이
+    # 도는 것을 막는다 — 재번역은 Gemini Pro 호출 + 텔롭 재추출이라 싸지 않다).
+    # 게이트: --rebuild 를 모르는 구 localize_run.py 는 argparse 로 즉사한다. vlp 전 노드
+    # 배포를 확인한 뒤 ops_config editor_jp_rebuild=on (E7·E10 과 같은 롤아웃).
+    rebuild = p.get("rebuild") is True and base.ops_on(conn, "editor_jp_rebuild")
     argv = scene_rerender_argv(ai_py, eng, str(run_dir),
-                               str(ov_path) if ov_path else None)
+                               str(ov_path) if ov_path else None, rebuild=rebuild)
     r = subprocess.run(argv, cwd=eng, env=dict(os.environ),
                        capture_output=True, text=True, timeout=3600 * 2)
     meta_path = pathlib.Path(run_dir) / "localize_ja" / "metadata.json"
@@ -308,6 +322,9 @@ def _run_scene_rerender(cfg, conn, job, deps):
     _enqueue_qa(conn, job, {"run_id": run_id, "preview_key": out_key,
                             "bucket": "ves-localized", "mode": "scene_rerender",
                             "youtube_title": meta.get("youtube_title"),
+                            # 발행 해시태그(2026-08-23) — 없으면 brain 이 한국어 작품명으로
+                            # 태그를 만든다(일본어 채널에 #혜미리예채파 가 올라가던 경로).
+                            "tags": meta.get("tags"),
                             "youtube_title_ko": meta.get("youtube_title_ko"),   # 한글 대역(8/14)
                             "description": meta.get("description"),
                             "description_ko": meta.get("description_ko"),

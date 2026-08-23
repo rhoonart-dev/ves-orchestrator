@@ -247,6 +247,26 @@ def classify_by_patterns(stderr: str, stdout: str = "") -> str:
 _REGISTRY: dict = {}
 
 
+def ops_on(conn, key: str, default: bool = False) -> bool:
+    """ops_config 스위치가 켜져 있는가. 'on' 만 참 — 그 밖의 값·없는 키는 default.
+
+    새 CLI 플래그를 엔진에 보내기 시작할 때 쓴다. 구 엔진은 모르는 플래그에 argparse 로
+    **즉사**하므로(0069 머리말 --design-title-box 전례), 오케스트레이터가 먼저 배포되면
+    그 사이 잡이 통째로 실패한다. 게이트를 앞에 두면 배포 순서가 결과를 바꾸지 않는다.
+    조회 실패는 '꺼짐'으로 — 게이트가 못 읽혔다고 새 플래그를 보내면 그게 사고다."""
+    try:
+        with conn.cursor() as c:
+            c.execute("SELECT value FROM public.ops_config WHERE key=%s", (key,))
+            row = c.fetchone()
+    except Exception as e:  # noqa: BLE001
+        print(f"[ops] {key} 조회 실패({e}) — 꺼짐으로 취급")
+        return False
+    if not row:
+        return default
+    v = row["value"] if isinstance(row, dict) else row[0]
+    return str(v or "").strip().lower() == "on"
+
+
 def register(kind: str, module) -> None:
     _REGISTRY[kind] = module
 

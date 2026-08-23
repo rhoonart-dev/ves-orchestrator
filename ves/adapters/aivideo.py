@@ -17,6 +17,7 @@ import glob
 import json
 import pathlib
 import re
+import shutil
 
 from ves import config as cfgmod
 from ves.adapters import base
@@ -553,6 +554,37 @@ def _write_edit_overrides(run_dir, overrides) -> pathlib.Path | None:
     return p
 
 
+def job_design_flags(cfg, params) -> list:
+    """이 잡이 실제로 쓸 --design-* 플래그. 채널 템플릿 → 관제 오버라이드 → 편집실 스타일 순.
+
+    build_argv 와 parse_result 가 **같은 값**을 봐야 해서 여기로 모았다 — parse_result 는
+    이 목록을 run_dir 에 남기고(design_cli.json), 현지화 재렌더가 그것으로 디자인을
+    복원한다(_write_design_cli 머리말)."""
+    rec = _channel_record(cfg, params.get("channel_name"))
+    design = effective_design(params.get("design_override"), (rec or {}).get("design"))
+    design = edit_design(design, (params.get("edit_overrides") or {}).get("design"))
+    design = design_for_job(design, params)  # 편집실 자막 예외 — 자막 고친 편은 템플릿 '끔' 무시
+    return channel_design_flags(design, params.get("channel_name"))
+
+
+# 현지화 재렌더가 읽는 '이 런이 쓴 디자인' 파일. 정본은 엔진이 run_log.design_cli 에
+# 남기는 값이지만(ai-video), 그 배포를 기다리지 않고 같은 정보를 여기서도 남긴다 —
+# vlp l4_render 는 run_log 를 먼저 보고 없으면 이 파일을 쓴다.
+# 이게 없으면 일본어 완성본이 채널 화면비·제목 스타일을 통째로 잃는다(엔진 기본값으로
+# 그려진다 — 2026-08-23 SHOTCONE: aspect_ratio 13:9 가 완성본에서 1:1).
+DESIGN_CLI_FILE = "design_cli.json"
+
+
+def _write_design_cli(run_dir, flags) -> None:
+    """run_dir/design_cli.json 기록. 실패해도 잡을 죽이지 않는다 — 이 파일이 없으면
+    현지화가 경고를 남기고 종전처럼 그릴 뿐, 한국어 산출물은 이미 정상이다."""
+    try:
+        (pathlib.Path(run_dir) / DESIGN_CLI_FILE).write_text(
+            json.dumps(list(flags), ensure_ascii=False, indent=2), encoding="utf-8")
+    except OSError as e:
+        print(f"[aivideo] design_cli.json 기록 실패({run_dir}): {e}")
+
+
 def _build_argv_fresh(cfg, job):
     p = job["params"]
     if p.get("edit_overrides") and not p.get("resume_run_id"):
@@ -567,11 +599,7 @@ def _build_argv_fresh(cfg, job):
     argv = build_argv_pure(cfgmod.engine_py(cfg, "ai_video"), p, src)
     # 채널 템플릿(채널 정체성): 관제 오버라이드(0014) > channels.json "design" (registry 규약)
     # 편집실 스타일(0044)은 그보다 위 — 사람이 이 한 편에 대해 지금 고른 값이다.
-    rec = _channel_record(cfg, p.get("channel_name"))
-    design = effective_design(p.get("design_override"), (rec or {}).get("design"))
-    design = edit_design(design, (p.get("edit_overrides") or {}).get("design"))
-    design = design_for_job(design, p)   # 편집실 자막 예외 — 자막 고친 편은 템플릿 '끔' 무시
-    argv += channel_design_flags(design, p.get("channel_name"))
+    argv += job_design_flags(cfg, p)
     # 로고(가이드 자동화): 작품 카드에 branding.logo 가 있으면 scene_loop 과 같은 플래그
     card = _brain_json(cfg, "works.json").get(p.get("work_title"))
     argv += branding_flags(card, _brain_json(cfg, "loop_policy.json"))
@@ -581,11 +609,86 @@ def _build_argv_fresh(cfg, job):
     return argv
 
 
+# ───────── 현지화가 덮어쓴 run_dir 되돌리기 (2026-08-23) ─────────
+# JP 체인의 localize(vlp localize_run.py L3)는 run_dir 안의 이 파일들을 **일본어로 덮어쓴다**
+# (원본은 localize_backup_ko/ 에 보존). 그래서 같은 run 을 다시 generate 하면 — 편집실
+# 재렌더든 '제작' 반려 재생성이든 — 한국어 원본이 아니라 일본어판 위에서 렌더가 돈다:
+# 제목이 일본어로 박힌 '한국어 원본'이 나오고, 편집실이 여는 재료(editor_assets 가 읽는
+# edit_plan.json·subtitle_segments.json)도 일본어다. 이어달리기 전에 한국어로 되돌린다.
+# 파일 목록은 vlp BACKUP_FILES 와 1:1 미러 — work_title.txt 만 뺀다(언어 무관이고,
+# vlp 가 백업본을 우선 읽는다).
+LOCALIZE_BACKUP_DIR = "localize_backup_ko"
+LOCALIZE_KO_FILES = ("subtitle_segments.json", "edit_plan.json",
+                     "checkpoint_story.json", "checkpoint_resources.json", "title.txt")
+
+
+def ko_restore_names(available) -> list:
+    """백업에 실제로 있는 파일만 복원 대상으로. 순수 — 테스트 대상."""
+    have = set(available or ())
+    return [n for n in LOCALIZE_KO_FILES if n in have]
+
+
+def ko_restore_audio(resources, run_dir, available) -> list:
+    """되돌릴 (백업 파일명, 대상 절대경로) 목록. 순수 — 테스트 대상.
+
+    vlp l3t_tts 는 내레이션 mp3 를 일본어로 **덮어쓰고** 한국어 원본을 백업 디렉토리에
+    같은 파일명으로 남긴다. 체크포인트만 되돌리고 mp3 를 두면 '한국어 원본'에 일본어
+    내레이션이 섞인다. run_dir 밖을 가리키는 경로는 제외한다 — 낡은 체크포인트가 남의
+    디렉토리를 가리킬 수 있고, 그 경우 조용히 남의 파일을 덮어쓰게 된다."""
+    have = set(available or ())
+    root = pathlib.Path(run_dir).resolve()
+    out = []
+    for c in (resources or {}).get("tts_cue_files") or []:
+        raw = (c or {}).get("path")
+        if not raw:
+            continue
+        dest = pathlib.Path(raw)
+        if not dest.is_absolute():
+            dest = root / dest
+        try:
+            dest = dest.resolve()
+            dest.relative_to(root)
+        except (OSError, ValueError):
+            continue
+        if dest.name in have:
+            out.append((dest.name, str(dest)))
+    return out
+
+
+def restore_ko_baseline(run_dir) -> list:
+    """현지화가 덮어쓴 파일을 한국어 백업에서 되돌린다. 되돌린 이름 목록(없으면 빈 목록).
+
+    KR 채널에는 백업 디렉토리가 없으므로 통째로 무동작이다(회귀 0)."""
+    backup = pathlib.Path(run_dir) / LOCALIZE_BACKUP_DIR
+    if not backup.is_dir():
+        return []
+    available = [p.name for p in backup.iterdir() if p.is_file()]
+    names = ko_restore_names(available)
+    for n in names:
+        shutil.copy2(backup / n, pathlib.Path(run_dir) / n)
+    restored = list(names)
+    res_path = pathlib.Path(run_dir) / "checkpoint_resources.json"
+    if "checkpoint_resources.json" in names and res_path.exists():
+        try:
+            resources = json.loads(res_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            resources = {}
+        for name, dest in ko_restore_audio(resources, run_dir, available):
+            shutil.copy2(backup / name, dest)
+            restored.append(name)
+    return restored
+
+
 def resume_argv(cfg, job, partial_run_id, default_step=None):
     """★⑦ 재시도는 이어달리기 — 같은 run_id 로 마지막 체크포인트부터."""
     argv = _build_argv_fresh(cfg, job)
     outdir = (job["params"].get("outdir") or "outputs")
     run_dir = pathlib.Path(cfgmod.engine_dir(cfg, "ai_video")) / outdir / partial_run_id
+    # 이 run 이 한 번이라도 현지화를 거쳤으면 한국어 원본으로 되돌리고 시작한다 —
+    # 체크포인트 선택(아래)보다 앞이어야 복원된 파일이 판정에 쓰인다.
+    ko = restore_ko_baseline(run_dir)
+    if ko:
+        print(f"[aivideo] 현지화본 → 한국어 원본 복원 {len(ko)}개: {', '.join(sorted(set(ko)))}")
     step = resolve_resume_step((job["params"] or {}).get("from_step"),
                                glob.glob(str(run_dir / "checkpoint_*.json")), default_step)
     argv += ["--job-id", partial_run_id]
@@ -615,6 +718,10 @@ def parse_result(cfg, job, stdout):
     if not provenance_ok(run_log):   # R8: provenance 없이 succeeded 불가
         raise base.PermanentError(
             f"provenance 불완전(provenance.git_sha/config 스냅샷 없음) — R8 (run={rid})")
+
+    # 이 렌더가 쓴 디자인을 run_dir 에 남긴다 — 현지화 재렌더가 복원할 유일한 근거다.
+    # 성공한 렌더에 대해서만(위 R8 게이트 뒤) 기록해야 실패한 런의 디자인이 남지 않는다.
+    _write_design_cli(run_dir, job_design_flags(cfg, job["params"]))
 
     # 장면 구간 기록(0019) — 반려 회피·중복 판정의 근거. 구 시스템 edit_plan 계약 계승.
     span = None
