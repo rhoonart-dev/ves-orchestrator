@@ -7,6 +7,8 @@
 - 검수 흐름 = **자동 렌더 → 편집실 사후 수정** (현행 검수함·반려-재렌더 루프 그대로)
 - 현지화(vlp)는 **이관 기획이 아니다** — 다른 세션에서 진행 중인 작업과
   충돌하지 않게 하는 **제약 조건**으로만 다룬다(§9).
+- 모델 정책 = **Pro 는 영상 분석(analyze_chunk)에만**, 그 외 전 호출은 Flash 최신
+  (`gemini-3.6-flash`) — E15 와 같이 나가는 정리 작업 포함(§6 모델 사용 정책).
 
 ## 1. 배경 — 지금 있는 편집 요소와 빈자리
 
@@ -142,9 +144,41 @@ v3 어휘의 부분집합 + design 부분집합. **좌표는 전부 원본 절�
 
 ## 6. LLM 실행 설계
 
-- **모델: Flash** — 스토리 구성과 같은 축(창작 조합, 정밀 분석 아님). CLAUDE.md 모델
-  규칙 준수. ⚠ Flash 모델명은 현재 한 대만 `gemini-3.6-flash`(로컬 미푸시), 나머지는
-  `gemini-3-flash-preview` — E15 발주 전에 정본 확정 필요(§13).
+- **모델: Flash 최신** — 스토리 구성과 같은 축(창작 조합, 정밀 분석 아님). 아래
+  모델 사용 정책을 따른다.
+
+### 모델 사용 정책 (사용자 결정 8/23 — E15 와 같이 나가는 정리)
+
+**원칙: Pro 는 영상을 실제로 보는 호출 = `analyze_chunk`(청크 영상 분석) 하나뿐.
+나머지 텍스트-온리 호출은 전부 Flash 최신(`gemini-3.6-flash`).**
+
+코드 실측(2026-08-23) — 지금 Pro(`model_name`)를 쓰는 곳이 영상 분석 외 2곳 더 있다:
+
+| 호출 | 단계 | 지금 | 앞으로 |
+|------|------|------|--------|
+| `analyze_chunk` — 청크 영상 분석 | gemini | Pro | **Pro (유일)** |
+| `extract_relationships` — 후보 관계 추출 | graph | Pro | **Flash 로 전환** |
+| `research_work` / `_search_with_grounding` — 작품 리서치(구글 검색 그라운딩) | research | Pro | **Flash 로 전환** |
+| `analyze_video_intent` — 스크리닝 | story 계열 | Flash | Flash |
+| `compose_story_with_context` — 스토리 구성 | story | Flash | Flash |
+| `shorten_text` — 제목 단축·TTS fit 재작성 | story·resources | Flash | Flash |
+| `choose_beat_drops` — 비트 컷 선택 | story 후처리 | Flash | Flash |
+| 스타일 구성 (E15 신설) | style | — | Flash |
+
+- 구현은 `gemini_client.py`·`work_researcher.py` 의 `model_name` → `flash_model_name`
+  참조 교체 — 분기 없이 참조만 바꾼다. `GEMINI_MODEL_NAME` 은 이후 **영상 분석 전용**
+  노브가 된다. CLAUDE.md 모델 표(Pro=정밀 분석 / Flash=스크리닝·스토리)도
+  **Pro=영상 분석 전용 / Flash=그 외 전부**로 갱신.
+- **모델명 정본 확인(§13-1 해소)**: `gemini-3.6-flash` 는 이미 main 에 커밋돼 있다
+  (5178b11) — auto_update 로 전 노드가 이 기본값으로 돈다. CLAUDE.md 의
+  "이 머신 로컬 변경·미푸시" 각주가 낡았으니 같은 커밋에서 지운다.
+- 곁다리: `GeminiConfig` dataclass 기본값이 `model_name="gemini-3.5-flash"` 로
+  남아 있다(금지 모델·팩토리가 늘 덮어써서 무해했지만) — env 기본값과 같은 값으로
+  정리한다.
+- **검증**: ① 리서치는 google_search 그라운딩 경로라 Flash 전환 후 그라운딩 동작·
+  출처 품질을 실측 1회 확인(안 되면 리서치만 Pro 잔류 + 사유 기록). ② 관계 추출은
+  같은 에피소드 Pro/Flash A/B 1회 — edge 수·품질이 크게 무너지면 보고 후 결정.
+  ③ 전환분은 run_log `steps[].models` (provenance 기록)로 편별 추적 가능.
 - 입력: storyline(클립·role·pacing_note·character_focus) · 확정 타임라인(클립별
   원본 구간↔편집 시각 표) · 선택 구간 전사(대사+시각) · 청크 분석의 감정/하이라이트
   신호 · tts cue 목록 · editorial(권리사 지침 — avoid 는 하드 필터로도) · 채널 스타일
@@ -240,12 +274,13 @@ v3 어휘의 부분집합 + design 부분집합. **좌표는 전부 원본 절�
 
 ## 13. 발주 전 확정할 것 (열린 질문)
 
-1. **Flash 모델명 정본** — `gemini-3.6-flash` 통일 푸시가 먼저인가, E15 가
-   `GEMINI_FLASH_MODEL_NAME` 만 따르면 되는가.
-2. **스티커 초기 세트** — 소싱(자체 제작? 무료 라이선스팩?)·수량·목록. 라이선스
+~~1. Flash 모델명 정본~~ — **해소(8/23)**: `gemini-3.6-flash` 가 main 에 이미
+커밋돼 있음을 코드 실측으로 확인, 모델 정책은 §6 으로 확정(Pro=영상 분석 전용).
+
+1. **스티커 초기 세트** — 소싱(자체 제작? 무료 라이선스팩?)·수량·목록. 라이선스
    확인 없이는 번들 금지.
-3. **채널 스타일 프로파일 어휘** — 초기엔 연출 강도(`low/mid/high`) 한 키만
+2. **채널 스타일 프로파일 어휘** — 초기엔 연출 강도(`low/mid/high`) 한 키만
    제안(ops_config → design 키 `style_profile`). 세분화(이모지 허용·색 취향)는
    실측 후.
-4. **subtitle_styles 의 y·rotate 개방 여부** — 강조가 size·color 만으로 충분하면
+3. **subtitle_styles 의 y·rotate 개방 여부** — 강조가 size·color 만으로 충분하면
    위치·회전은 사람 전용으로 남기는 쪽이 안전(자막 가독성). 파일럿에서 결정 제안.
