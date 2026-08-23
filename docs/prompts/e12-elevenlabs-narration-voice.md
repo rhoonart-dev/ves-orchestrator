@@ -68,9 +68,11 @@ ai-video 는 `deployments.auto_update=true` 이고 핀이 없다. **main 에 머
 
 ### 오케스트레이터 쪽은 이미 이 형태다 — 고치지 마라
 
-`elevenlabs:<영숫자 16~32자>` 형태 검증(0073)·대시보드 목록 20종·게이트
-`ops_config.editor_tts_elevenlabs`(현재 `off`) 모두 머지·배포 완료다.
-**이 작업이 끝나고 전 노드 배포를 확인한 뒤에** 운영자가 게이트를 켠다.
+`elevenlabs:<영숫자 16~32자>` 형태 검증(0073)·대시보드 목소리 목록·게이트
+`ops_config.editor_tts_elevenlabs` 모두 머지·배포 완료다.
+게이트는 **2026-08-22 on** — 엔진 E12(`1f480ff`)를 `e99cf6a` 로 6대 배포 확인한 뒤
+운영자가 켰고, 같은 날 `ops_config.editor_tts_voices` 에 한국어 네이티브 12종을
+계정 라이브러리에서 담아 넣었다(목록 32종).
 
 ## 계약 (오케스트레이터가 이 형태로 보낸다)
 
@@ -93,13 +95,16 @@ voice = "ko_female" | "ko_male" | … (지금 그대로, edge-tts)
   사람은 바꿨다고 믿은 채 종전 소리로 발행된다.
 - `speed`(`very_slow`…`very_fast`)는 두 백엔드 모두에서 살아야 한다. edge-tts 는
   `tts.SPEED_TO_RATE`(rate −25%~+25%), ElevenLabs 는 `voice_settings.speed` 로
-  **같은 체감**이 나게 맞추고, 매핑 표를 보고에 실어라. 편집실의 발화 길이 게이지
-  (`ED_SPEED_FACTOR` = 0.75/0.9/1/1.1/1.25)가 그 근사를 쓴다 — 크게 어긋나면
-  게이지가 거짓말을 한다.
+  **같은 체감**이 나게 맞추고, 매핑 표를 보고에 실어라. 편집실의 발화 길이 게이지가
+  그 근사를 쓴다 — 크게 어긋나면 게이지가 거짓말을 한다.
   ⚠ **`voice_settings.speed` 의 범위는 0.7~1.2 다**(0~2 아님). 편집실의 다섯 단은
-  그 안으로 눌러 담아야 하고, `very_slow` 0.75 · `very_fast` 1.2 가 자연스러운
-  대응이다 — 끝단이 edge-tts 만큼 안 벌어지면 그 사실을 보고해라(게이지 배율을
-  이쪽에서 고쳐야 한다).
+  그 안으로 눌러 담아야 한다.
+  **(2026-08-23)** 게이지 배율은 이제 백엔드마다 갈린다 — edge-tts `ED_SPEED_FACTOR`
+  = 0.75/0.9/1/1.1/1.25 · 일레븐랩스 `ED_EL_SPEED_FACTOR` = 0.7/0.85/1/1.1/1.2 이고,
+  뒤엣것은 엣지 함수 `supabase/functions/tts-preview` 의 `EL_SPEED`(= 엔진
+  `_synthesize_elevenlabs` 복제본) 미러다. **엔진의 실제 매핑이 이 다섯 값과 다르면
+  그것부터 보고해라** — 화면·엣지 함수·엔진 셋이 같은 표를 봐야 게이지도 미리듣기도
+  완성본을 말한다.
 
 ## E12-1. 합성 경로 분기 (중)
 
@@ -134,7 +139,8 @@ voice = "ko_female" | "ko_male" | … (지금 그대로, edge-tts)
 한국어 내레이션 3줄로 다음을 보고하라.
 
 1. `elevenlabs:` 목소리 1종 × speed 3단(slow·normal·fast) — 실제 발화 길이가
-   편집실 게이지 근사(0.9/1/1.1)와 얼마나 벌어지는가.
+   편집실 게이지 근사와 얼마나 벌어지는가. 일레븐랩스 줄의 게이지는 **0.85/1/1.1** 을
+   쓴다(edge-tts 줄은 종전대로 0.9/1/1.1).
 2. 같은 cue 를 두 번 렌더 — 캐시가 두 번째 합성을 막는가(요금 0).
 3. 접두사 없는 종전 프리셋 실행이 **완전히 같은지**(회귀 0).
 4. 잘못된 voice_id 를 넣었을 때 즉시 실패하는가(조용한 폴백 없음).
@@ -155,8 +161,14 @@ speed 매핑 표 · 캐시 키 · 실패 분류 표 · E12-3 실측 5항목.
   `edVoiceSel` 그룹 select (게이트 `ops_config.editor_tts_elevenlabs`)
 - `ves/control/migrations/0073_editor_tts_voice_vocab.sql` —
   `submit_editor_render` 의 `tts[].voice` 형태 검증 + 게이트 시드
+- (2026-08-23) **재렌더 전 미리듣기** — 엣지 함수 `supabase/functions/tts-preview` 가
+  `elevenlabs:` 목소리를 즉석 합성하고, 편집실 ▶ 와 가상 미리보기(🔊 내레이션)가 그
+  소리를 낸다. ⚠ 이 함수의 합성 파라미터는 **엔진 `_synthesize_elevenlabs` 의 복제본**이다
+  (모델·voice_settings·speed 매핑). 엔진에서 그 값을 바꾸면 **여기도 같이 바꿔라** —
+  안 바꾸면 미리듣기가 완성본과 다른 소리를 내고, 사람은 그 소리를 믿고 목소리를 고른다.
+  E12-3 ①(speed 매핑 실측)의 결과가 지금 값과 다르면 그것도 같이 반영한다.
 
-전 노드 `last_seen_sha` 확인 후 `editor_tts_elevenlabs = on` 만 남는다.
+게이트는 2026-08-22 에 켜졌다(위 '고치지 마라' 절).
 
 먼저 `tts.py` 의 합성·캐시 경로와 `SPEED_TO_RATE`, `checkpoint_resources` 의
 `tts_cue_files` 생성부를 읽고 계약을 확정한 뒤 구현해라.
