@@ -2552,13 +2552,16 @@ def test_tts_from_checkpoints_carries_audio_file():
 
 
 def test_dashboard_tts_preview_and_conflicts():
-    """F-204 미리듣기(저장된 합성본만 — 새 문구는 재렌더 후) · F-205 충돌 검사(자막↔
-    내레이션 겹침·원본 구간 중복·창 경계 이탈)."""
+    """F-204 미리듣기 · F-205 충돌 검사(자막↔내레이션 겹침·원본 구간 중복·창 경계 이탈).
+
+    2026-08-23: 미리듣기가 '저장된 합성본만' 이 아니게 됐다(즉석 합성 — 아래
+    test_dashboard_tts_preview_now_voice). 그래도 **라벨은 정직해야 한다**: 즉석 합성이
+    불가능한 기본(edge-tts) 목소리 줄은 여전히 구본이라고 말해야 한다."""
     import pathlib
     html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
-    assert "edTtsPlay" in html and '"key": c.key' not in html  # 키는 timeline.tts 에서
+    assert "edTtsPlayRow" in html and '"key": c.key' not in html  # 키는 timeline.tts 에서
     assert "edConflicts" in html and "ttsClash" in html
-    assert "재렌더 후 합성" in html                            # 정직한 라벨
+    assert "▶·구본" in html and "재렌더 후에만 존재합니다" in html   # 정직한 라벨
     sql = pathlib.Path("ves/control/migrations/0049_editor_tts_audio.sql").read_text(encoding="utf-8")
     assert "tts_gen" in sql and ">= 1" in sql                  # 세대 마커 캐시 판정
 
@@ -3500,6 +3503,93 @@ def test_dashboard_elevenlabs_voice_picker():
     assert "editor_tts_voices" in html and "function edElVoices()" in html
     # 영어권 목소리라는 사실을 화면이 말해야 한다 — 한국어에 억양이 배어난다
     assert "영어권 기본 목소리" in html
+
+
+def test_dashboard_tts_preview_now_voice():
+    """편집실 ▶ 는 **지금 고른 목소리**를 들려줘야 한다 (사용자 요청 2026-08-23).
+
+    종전엔 직전 렌더의 mp3 하나뿐이었다 — 목소리를 바꿔 놓고 옛 소리를 들으며 고르고
+    있었고, 새로 넣은 줄은 key 가 없어 버튼조차 없었다. 이제 셋으로 갈린다:
+    안 고침=저장본(요금 0) · 고침+일레븐랩스=즉석 합성 · 고침+기본 목소리=구본."""
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert "async function edTtsSynth" in html
+    assert 'sb.functions.invoke("tts-preview"' in html
+    assert "function edTtsPlaySpec" in html
+    for kind in ('kind: "saved"', 'kind: "now"', 'kind: "old"'):
+        assert kind in html, f"미리듣기 갈래 {kind} 가 없다"
+    # 즉석 합성은 게이트·권한·목소리 셋을 다 본다(엣지 함수도 같은 둘을 다시 본다 — R15)
+    assert 'const edTtsPvOn = () => edElVoicesOn() && can("reviewer")' in html
+    assert 'const edPvAble = v => String(v || "").startsWith(ED_EL_PREFIX)' in html
+    # 같은 (문구·목소리·속도)는 다시 만들지 않는다 — 크레딧은 글자 수로 나간다
+    assert "edPvCache" in html and "function edPvPut" in html
+    assert "URL.revokeObjectURL" in html          # 상한을 넘긴 objectURL 은 회수한다
+    # 함수의 한국어 오류(키 없음·게이트·권한)를 꺼내 보여준다 — 안 꺼내면 화면엔
+    # "non-2xx status code" 만 뜨고 사람은 무엇을 고쳐야 하는지 모른다
+    assert "await error.context.json()" in html
+    # 목소리·문구를 고치는 즉시 버튼이 바뀐다 — render 를 다시 돌리면 편집 중 DOM 이 날아간다
+    assert "edTtsBtnSync(t, i);" in html
+    # 넣기 전에 들어보기(추가 줄) — 시각·창을 정하기 전에 목소리부터 고르는 게 순서다
+    assert "window.edTtsAddPv" in html and 'id="edndpv"' in html
+
+
+def test_dashboard_seq_preview_narration_sound():
+    """가상 미리보기가 내레이션을 **함께** 들려준다 — 화면만 맞고 소리가 없으면 반쪽이다.
+
+    ⚠ 구본은 섞지 않는다: 하늘색 자막은 새 문구인데 소리가 옛 문구면 미리보기가
+    거짓말을 한다. 들려줄 수 없는 줄은 소리 없이 지나간다."""
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert "function edSeqAudioSync" in html
+    assert "if (edSeqSnd) edSeqAudioSync(eff, outT);" in html      # 재생 틱에 물려 있다
+    assert "window.edSeqSndToggle" in html and 'id="edsndbtn"' in html
+    # 예열 — 닿는 순간 합성하면(1~2초) 첫 몇 마디가 잘린다
+    assert "function edSeqWarm()" in html and "edSeqWarm();" in html
+    # 영상이 멈추면 소리도 멈추고, 카드를 바꿔도 남지 않는다
+    assert "function edSeqAudioStop()" in html
+    assert html.count("edSeqAudioStop();") >= 3   # edTtsStop · edSeqStop · 토글 끄기
+    # 들려줄 수 있는 것만 — 구본(kind: old)은 null 로 떨어진다
+    assert 'if (s.kind === "saved") return await signedUrl' in html
+    # 줄의 ▶ 와 미리보기가 같은 판정(edTtsStale)을 쓴다 — 갈라지면 버튼은 '구본'이라는데
+    # 미리보기는 새 소리를 내는 일이 생긴다
+    assert "function edTtsStale(t){" in html
+
+
+def test_tts_preview_fn_mirrors_engine_contract():
+    """엣지 함수 tts-preview 의 합성 파라미터는 엔진(ai-video app/modules/tts.py) 복제본이다.
+
+    값이 곧 계약이다 — 어긋나면 미리듣기가 완성본과 **다른 소리**를 내고, 사람은 그
+    소리를 믿고 목소리를 고른다. 엔진이 바꾸면 이 테스트와 함수를 함께 고쳐라."""
+    import pathlib
+    import re
+    ts = pathlib.Path("supabase/functions/tts-preview/index.ts").read_text(encoding="utf-8")
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    # 모델: eleven_v3 는 speed·similarity_boost 를 안 받아 속도 프리셋이 죽는다(E12)
+    assert "eleven_multilingual_v2" in ts
+    assert "mp3_44100_128" in ts
+    assert "EL_STABILITY = 0.5" in ts and "EL_SIMILARITY = 0.75" in ts
+    # speed 5단 — ElevenLabs voice_settings.speed 범위는 0.7~1.2(0~2 아님)
+    for lab, val in (("very_slow", "0.7"), ("slow", "0.85"), ("normal", "1.0"),
+                     ("fast", "1.1"), ("very_fast", "1.2")):
+        assert f"{lab}: {val}" in ts, f"speed 매핑 {lab} 가 엔진과 다르다"
+    # 화면의 속도 프리셋을 함수가 전부 알아야 한다 — 모르는 단은 조용히 normal 로 떨어진다
+    m = re.search(r"const ED_SPEEDS = \[(.*?)\];", html, re.S)
+    assert m, "ED_SPEEDS 를 찾지 못했다"
+    for lab in re.findall(r'\["(\w+)"', m.group(1)):
+        assert f"{lab}:" in ts, f"화면에는 있고 함수엔 없는 속도 단: {lab}"
+    # 라벨→voice_id 표는 엔진 것 하나뿐이다 — 여기 복제하면 정본이 둘이 된다(E12-2).
+    # 주석의 언급은 괜찮고, **실행되는 코드**에 없어야 한다.
+    code = "\n".join(l for l in ts.splitlines() if not l.lstrip().startswith("//"))
+    assert "ko_female" not in code
+    assert "elevenlabs:" in ts and "[A-Za-z0-9]{16,32}" in ts   # 0073 과 같은 형태 검증
+    # 게이트·권한·시크릿 — 셋 다 함수가 다시 본다(화면 검증은 방어선이 아니다)
+    assert "editor_tts_elevenlabs" in ts
+    assert "ALLOWED_ROLES" in ts and '"reviewer"' in ts
+    assert "ELEVENLABS_API_KEY" in ts and "503" in ts           # 키 없으면 조용히 넘어가지 않는다
+    # CORS — 대시보드는 CloudFront(다른 오리진)다. OPTIONS 를 안 받으면 브라우저가 본
+    # 요청을 아예 안 보내고 함수 로그에도 아무것도 안 남는다(2026-08-23 v2 의 구멍)
+    assert 'req.method === "OPTIONS"' in ts
+    assert "access-control-allow-origin" in ts and "access-control-allow-headers" in ts
 
 
 def test_0073_tts_voice_vocab_and_subs_contract():

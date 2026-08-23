@@ -68,9 +68,11 @@ ai-video 는 `deployments.auto_update=true` 이고 핀이 없다. **main 에 머
 
 ### 오케스트레이터 쪽은 이미 이 형태다 — 고치지 마라
 
-`elevenlabs:<영숫자 16~32자>` 형태 검증(0073)·대시보드 목록 20종·게이트
-`ops_config.editor_tts_elevenlabs`(현재 `off`) 모두 머지·배포 완료다.
-**이 작업이 끝나고 전 노드 배포를 확인한 뒤에** 운영자가 게이트를 켠다.
+`elevenlabs:<영숫자 16~32자>` 형태 검증(0073)·대시보드 목소리 목록·게이트
+`ops_config.editor_tts_elevenlabs` 모두 머지·배포 완료다.
+게이트는 **2026-08-22 on** — 엔진 E12(`1f480ff`)를 `e99cf6a` 로 6대 배포 확인한 뒤
+운영자가 켰고, 같은 날 `ops_config.editor_tts_voices` 에 한국어 네이티브 12종을
+계정 라이브러리에서 담아 넣었다(목록 32종).
 
 ## 계약 (오케스트레이터가 이 형태로 보낸다)
 
@@ -155,8 +157,14 @@ speed 매핑 표 · 캐시 키 · 실패 분류 표 · E12-3 실측 5항목.
   `edVoiceSel` 그룹 select (게이트 `ops_config.editor_tts_elevenlabs`)
 - `ves/control/migrations/0073_editor_tts_voice_vocab.sql` —
   `submit_editor_render` 의 `tts[].voice` 형태 검증 + 게이트 시드
+- (2026-08-23) **재렌더 전 미리듣기** — 엣지 함수 `supabase/functions/tts-preview` 가
+  `elevenlabs:` 목소리를 즉석 합성하고, 편집실 ▶ 와 가상 미리보기(🔊 내레이션)가 그
+  소리를 낸다. ⚠ 이 함수의 합성 파라미터는 **엔진 `_synthesize_elevenlabs` 의 복제본**이다
+  (모델·voice_settings·speed 매핑). 엔진에서 그 값을 바꾸면 **여기도 같이 바꿔라** —
+  안 바꾸면 미리듣기가 완성본과 다른 소리를 내고, 사람은 그 소리를 믿고 목소리를 고른다.
+  E12-3 ①(speed 매핑 실측)의 결과가 지금 값과 다르면 그것도 같이 반영한다.
 
-전 노드 `last_seen_sha` 확인 후 `editor_tts_elevenlabs = on` 만 남는다.
+게이트는 2026-08-22 에 켜졌다(위 '고치지 마라' 절).
 
 먼저 `tts.py` 의 합성·캐시 경로와 `SPEED_TO_RATE`, `checkpoint_resources` 의
 `tts_cue_files` 생성부를 읽고 계약을 확정한 뒤 구현해라.

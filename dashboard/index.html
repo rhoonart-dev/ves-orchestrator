@@ -2403,6 +2403,10 @@ let edUndo = [], edRedo = [], edSnapTag = "", edSnapAt = 0;
 // 스테이지(좌측 9:16 쇼츠 화면) 모드 — prev: 완성본 mp4, seq: 가상 시퀀스(원본을 이어 재생).
 // 원본 스크럽은 모드가 아니라 타임라인 아래 상설 플레이어(#edsrcv)다.
 let edStageMode = "prev", edSeq = null, edPrevKey = null, edPrevBucket = null, edPrevT = 0;
+// 가상 미리보기의 내레이션 소리(E12-P) — 화면은 하늘색 자막으로 '언제 무엇이 나오는지'를
+// 이미 그린다. 소리가 없으면 고른 목소리를 영상 흐름 속에서 들어볼 수 없다(줄 단위 ▶ 로는
+// "이 줄이 저 장면 위에서 어떻게 들리는가"를 알 수 없다). edSeqCue = 지금 울리는 줄.
+let edSeqSnd = true, edSeqAudio = null, edSeqCue = -1, edSeqAudioGen = 0;
 let edStyleTool = false, edStageCur = -1, edStageT = 0;   // WYSIWYG: 화면에 떠 있는 자막 줄
 let edPrevWarned = false;      // 만료 preview 경고는 카드당 1회 — 렌더마다 토스트 금지
 let edSubColorFor = -1;        // 컬러 피커가 열린 순간의 줄 — 재생이 흘러도 그 줄에 적용
@@ -2744,6 +2748,16 @@ function edTts0For(t){
   return edForm.tts0.find(o => Math.abs(o.src - t.src) < 0.0005);
 }
 
+// 저장된 mp3 가 '지금 화면의 그 줄'인가 — 문구·목소리·속도 중 하나만 달라도 옛 음성이다
+// (voice 만 바꿔도 그렇다). 창(dur)은 안 본다: 창을 좁히면 엔진이 문구를 줄여 다시 쓰지만
+// 그건 문구 변경으로 이미 잡힌다. 줄의 ▶ 와 가상 미리보기가 이 하나를 같이 쓴다 —
+// 판정이 갈라지면 버튼은 '구본'이라는데 미리보기는 새 소리를 내는 일이 생긴다.
+function edTtsStale(t){
+  const o = edTts0For(t);
+  return !o || t.text !== o.text || t.voice !== o.voice
+      || (t.speed || "normal") !== (o.speed || "normal");
+}
+
 // 내레이션이 원본과 달라졌는가 — 삭제·신규·문구·목소리·속도·창 중 하나라도.
 function edTtsChanged(){
   if (edForm.tts.length !== edForm.tts0.length) return true;
@@ -2942,6 +2956,8 @@ window.edMark = () => {
     if (lab) lab.innerHTML = over
       ? `예상 ${e.toFixed(1)}s <span class="fitnote">— 창(${t.dur.toFixed(1)}s)보다 길어 AI가 줄여 다시 씁니다</span>`
       : `예상 ${e.toFixed(1)}s / 창 ${t.dur.toFixed(1)}s`;
+    // 문구·목소리·속도를 고치는 순간 ▶ 가 틀 것이 바뀐다 — 라벨만 갈아 끼운다
+    edTtsBtnSync(t, i);
   });
   const ov = edCollect();
   const bits = [ov.title ? "제목" : null, ov.clips ? "구간" : null,
@@ -3076,7 +3092,7 @@ window.openEditor = async (rid, kr) => {
   edZoom = 1; edTlScroll = 0; edKbHelp = false;
   edStageMode = "prev"; edSeq = null; edPrevKey = null; edPrevBucket = null; edPrevT = 0;
   edStyleTool = false; edStageCur = -1; edStageT = 0;
-  edPrevWarned = false; edSubColorFor = -1; edOvSel = "sub"; edOutSel = null;
+  edPrevWarned = false; edPvWarned = false; edSubColorFor = -1; edOvSel = "sub"; edOutSel = null;
   edTtsStop();
   // 같은 카드 재진입이면 체인 상태를 지키고(스트립·잠금·새 카드 감지), 다른 카드면 버린다
   if (!edChain || edChain.rid !== rid){ edChain = null; clearTimeout(edChainTimer); }
@@ -4265,6 +4281,9 @@ function renderEdit(){
           <button class="mini ${edStageMode === "seq" ? "on" : ""}" id="edseqbtn"
             onclick="edSeqToggle()" ${hasVideo ? "" : "disabled"}
             title="고친 구간 순서대로 이어 재생하며 제목·자막을 겹쳐 봅니다(근사)">▶ 가상 미리보기</button>
+          ${edForm.tts.some(t => !t.del) ? `<button class="mini ${edSeqSnd ? "on" : ""}"
+            id="edsndbtn" onclick="edSeqSndToggle()"
+            title="가상 미리보기에서 내레이션을 함께 들려줍니다 — 안 고친 줄은 저장된 음성, 고친 줄은 지금 고른 목소리로 즉석 합성합니다(기본 edge-tts 목소리로 고친 줄은 재렌더 후에만 들립니다)">🔊 내레이션</button>` : ""}
           ${edV3() && canEdit ? `<button class="mini ${edStyleTool ? "on" : ""}"
             id="edstylebtn" onclick="edStyleToolToggle()"
             title="화면의 제목·자막·하늘색(내레이션)을 끌어 위치를 바꾸고, 아래 도구로 크기·색을 바꿉니다. 자막은 그 줄만, 제목·내레이션은 이 편 전체">✎ 위치·크기·색</button>` : ""}
@@ -4799,15 +4818,49 @@ function edSpeedSel(cur, canEdit, handler){
     ED_SPEEDS.map(([v,l]) =>
     `<option value="${esc(v)}" ${v===c?"selected":""}>${esc(l)}</option>`).join("")}</select>`;
 }
+// ── 줄 단위 미리듣기 버튼 (F-204 + 즉석 합성) ──────────────────────────────
+// 한 줄에서 지금 들을 수 있는 것은 셋 중 하나다. 어느 것인지 **버튼이 먼저 말한다** —
+// 종전엔 늘 '저장된 mp3' 하나뿐이라, 목소리를 바꿔 놓고 옛 소리를 들으며 고르고 있었다.
+//   saved : 고친 게 없다 → 직전 렌더의 mp3 = 완성본과 같은 소리(요금 0)
+//   now   : 고쳤다 + 일레븐랩스 목소리 → 지금 고른 목소리·속도·문구로 즉석 합성
+//   old   : 고쳤는데 기본(edge-tts) 목소리 → 합성 정본이 엔진에만 있어 구본만 들린다
+// 즉석 합성은 게이트(ops_config.editor_tts_elevenlabs)와 권한을 둘 다 본다 — 엣지 함수도
+// 같은 둘을 다시 본다(화면 검증은 UX 일 뿐 방어선이 아니다 — R15).
+const edTtsPvOn = () => edElVoicesOn() && can("reviewer");
+const edPvAble = v => String(v || "").startsWith(ED_EL_PREFIX);
+function edTtsPlaySpec(t){
+  if (!t || t.del) return null;
+  if (!edTtsStale(t) && t.key)
+    return { kind: "saved", label: "▶",
+             title: "합성된 음성 미리듣기 — 완성본에 실린 그 소리입니다" };
+  if (edTtsPvOn() && edPvAble(t.voice) && String(t.text || "").trim())
+    return { kind: "now", label: "▶ 지금 목소리",
+             title: "지금 고른 목소리·속도·문구로 즉석 합성해 들려줍니다 — 엔진과 같은 설정이라 완성본도 이 소리입니다" };
+  if (t.key)
+    return { kind: "old", label: "▶·구본",
+             title: "저장된 음성 미리듣기 — 수정 전 합성본입니다. 기본(edge-tts) 목소리의 새 소리는 재렌더 후에만 존재합니다" };
+  return null;
+}
+// 버튼은 늘 자리를 지킨다(들을 게 없을 때만 숨김) — 문구를 적거나 목소리를 바꾸는 즉시
+// edMark 가 라벨만 갈아 끼울 수 있어야 해서다(render 를 다시 돌리면 편집 중 DOM 이 날아간다).
+function edTtsPlayBtn(t, i){
+  const s = edTtsPlaySpec(t);
+  return `<button class="mini" id="edtpv_${i}" ${s ? "" : `style="display:none"`}
+    onclick="event.stopPropagation();edTtsPlayRow(${i})"
+    title="${s ? s.title : ""}">${s ? s.label : "▶"}</button>`;
+}
+function edTtsBtnSync(t, i){
+  const b = document.getElementById("edtpv_" + i);
+  if (!b || (edTtsBusy && edTtsBusy.btnId === "edtpv_" + i)) return;   // 합성 중 라벨은 그대로
+  const s = edTtsPlaySpec(t);
+  b.style.display = s ? "" : "none";
+  if (s){ b.textContent = s.label; b.title = s.title; }
+}
 function edPaneTts(canEdit){
   const orphans = edForm.tts.filter(t => !t.del && edTtsOrphan(t)).length;
   const cf = edConflicts();
   const rows = edForm.tts.map((t, i) => {
     const orphan = edTtsOrphan(t) && !t.del;
-    const o0 = edTts0For(t);
-    // 문구·목소리·속도를 고침 — 저장된 음성은 수정 전 합성본(voice 만 바꿔도 옛 음성이다)
-    const stale = !o0 || t.text !== o0.text || t.voice !== o0.voice
-      || (t.speed || "normal") !== (o0.speed || "normal");
     return `
     <div class="ednrow ${i===edTtsSel?"sel":""} ${t.del?"deleted":""}" onclick="edTtsPick(${i})">
       <div class="hd">
@@ -4817,9 +4870,7 @@ function edPaneTts(canEdit){
         <span>창 ${t.dur.toFixed(1)}s</span>
         ${edVoiceSel(t.voice, canEdit && !t.del, `edTtsVoice(${i},this.value)`)}
         ${edSpeedSel(t.speed, canEdit && !t.del, `edTtsSpeed(${i},this.value)`)}
-        ${t.key && !t.del ? `<button class="mini" onclick="event.stopPropagation();edTtsPlay(${i})"
-            title="${stale ? "저장된 음성 미리듣기 — 수정 전 합성본입니다. 고친 문구·위치·목소리는 재렌더 후 합성됩니다"
-                           : "합성된 음성 미리듣기"}">▶${stale ? "·구본" : ""}</button>` : ""}
+        ${t.del ? "" : edTtsPlayBtn(t, i)}
         ${cf.ttsCut.has(i) && !t.del ? `<span class="sub" title="창이 구간 끝을 넘습니다 — 렌더에서 잘리거나 다음 장면 위에서 재생됩니다">⚠창</span>` : ""}
         ${t.isNew ? `<span style="color:#87CEEB">신규</span>` : ""}
         <span style="margin-left:auto"></span>
@@ -4851,15 +4902,19 @@ function edPaneTts(canEdit){
       <input class="tm" id="ednttd" placeholder="길이(초)" value="3.0">
       <span id="edndvsel">${edVoiceSel("ko_female", true, "")}</span>
       <input id="edntt" placeholder="새 내레이션 문구 — 그 장면 위에 얹힙니다">
+      ${edTtsPvOn() ? `<button class="mini" id="edndpv" onclick="edTtsAddPv()"
+        title="적은 문구를 고른 목소리로 먼저 들어봅니다 — 넣기 전에 확인용(일레븐랩스 목소리만)">▶ 들어보기</button>` : ""}
       <button class="mini" onclick="edTtsAdd()">＋ 내레이션 추가</button>
     </div>` : ""}
     <div class="sub" style="margin-top:6px">시각은 <b>원본</b> 기준 — 구간을 옮겨도 내레이션은
       그 장면을 따라갑니다 · 고쳐 보내면 <b>음성을 새로 합성</b>합니다(재렌더 몇 분) ·
       비우면 그 줄이 빠집니다</div>
     ${edElVoicesOn() ? `<div class="sub" style="margin-top:4px">일레븐랩스 목소리는
-      <b>영어권 기본 목소리</b>라 한국어를 말할 때 억양이 배어날 수 있습니다 — 한 줄로 먼저
-      들어보고 정하세요. 한국어 네이티브 목소리는 일레븐랩스 보이스 라이브러리에서 계정에
-      담은 뒤 <code>ops_config.editor_tts_voices</code> 에 넣으면 이 목록에 뜹니다.</div>` : ""}`;
+      <b>영어권 기본 목소리</b>라 한국어를 말할 때 억양이 배어날 수 있습니다 —
+      <b>▶ 지금 목소리</b>로 <b>재렌더 전에</b> 들어보고 정하세요(가상 미리보기의
+      🔊 내레이션 도 같은 소리를 냅니다). 한국어 네이티브 목소리는 일레븐랩스 보이스
+      라이브러리에서 계정에 담은 뒤 <code>ops_config.editor_tts_voices</code> 에 넣으면
+      이 목록에 뜹니다.</div>` : ""}`;
 }
 
 // ── 우측 패널: 이미지 (F-408) ─────────────────────────────────────────
@@ -6634,6 +6689,7 @@ function edSeqStart(){
     edStageBtnsSync();
   }
   edSeq = { k: 0 };
+  edSeqWarm();                                 // 닿기 전에 미리 합성 — 첫 마디가 잘리지 않게
   const b = document.getElementById("edseqbtn"); if (b) b.textContent = "⏹ 미리보기 중";
   const nt = document.getElementById("edovnote"); if (nt) nt.style.display = "";
   edStageLoad(eff[0].c.start, true);
@@ -6641,6 +6697,7 @@ function edSeqStart(){
 function edSeqStop(){
   if (!edSeq) return;
   edSeq = null;
+  edSeqAudioStop();                     // 영상이 멈췄는데 내레이션만 계속 울면 안 된다
   ++edStageGen; edStageSeeking = false; // 진행 중이던 파일 전환 로드를 물린다 — 안 올리면
                                         // 정지 뒤에 로드가 끝나며 원본을 통제 없이 재생한다
   const v = document.getElementById("edvid");
@@ -6666,6 +6723,7 @@ function edSeqTick(srcT){
   if (srcT < e.c.start - 1.5){ edSeqStop(); return; }
   const outT = e.off + (srcT - e.c.start);
   edStagePaint(outT);
+  if (edSeqSnd) edSeqAudioSync(eff, outT);     // 하늘색 자막이 뜨는 그 순간에 소리도 낸다
   const oc = document.getElementById("edocur");
   if (oc){ oc.style.display = "";
     oc.style.left = (outT / Math.max(total, 59.7 * edSpeed()) * 100).toFixed(3) + "%"; }
@@ -7463,28 +7521,175 @@ window.edSubStage = i => {
   edStagePaint(t);             // 영상이 없거나 로드 전이어도 유령 자막은 그 줄을 띄운다
 };
 
-// ── 내레이션 미리듣기 (F-204) ─────────────────────────────────────────
-// 저장된 합성 mp3 를 그대로 들려준다 — 합성은 엔진 소유라, 고친 문구의 음성은
-// 재렌더 후에만 존재한다(버튼 title 이 그 사실을 알린다).
-let edTtsAudio = null, edTtsPlayGen = 0;
+// ── 내레이션 미리듣기 (F-204 → 즉석 합성, 사용자 요청 2026-08-23) ────────
+// 종전엔 **직전 렌더의 mp3** 하나뿐이었다. 목소리를 바꾸면 그 파일은 옛 목소리라
+// '▶·구본'이 됐고, 새로 넣은 줄은 key 가 없어 버튼조차 없었다 — 목소리 30여 종을 열어
+// 놓고 "먼저 들어보고 정하세요"라고 안내하면서 들을 방법이 없었다. 이제 엣지 함수
+// tts-preview 가 **지금 고른 목소리·속도·문구**로 즉석 합성한다(정본:
+// supabase/functions/tts-preview — 합성 파라미터는 엔진 app/modules/tts.py 의 복제본이라
+// 여기서 들리는 소리가 완성본의 소리다).
+//
+// 왜 화면이 직접 합성하지 않나: ElevenLabs 키를 브라우저에 둘 수 없다(R12).
+// 왜 노드(엔진)가 아닌가: claim→실행→업로드는 빈 큐에서 180초 뒤라 '미리듣기'가 아니다.
+// 라벨 목소리(ko_female 등)는 라벨→voice_id 표가 엔진에만 있어 여기서 못 만든다 —
+// 복제하면 정본이 둘이 된다(E12-2). 그 줄은 종전대로 구본을 튼다.
+let edTtsAudio = null, edTtsPlayGen = 0, edTtsBusy = null;   // edTtsBusy = 합성 중인 버튼
 function edTtsStop(){
   ++edTtsPlayGen;                            // await 중인 재생 요청도 물린다(이중 재생 방지)
   if (edTtsAudio){ edTtsAudio.pause(); edTtsAudio = null; }
+  edSeqAudioStop();                          // 카드를 바꿔도 내레이션이 남아 울지 않게
 }
-window.edTtsPlay = async i => {
-  const t = edForm && edForm.tts[i];
-  if (!t || !t.key) return;
-  // 같은 줄 재클릭 = 정지(토글) — 정지 수단이 '다른 ▶' 뿐이면 끌 방법이 없다
-  if (edTtsAudio && edTtsAudio._i === i && !edTtsAudio.paused){ edTtsStop(); return; }
+
+// 같은 (문구·목소리·속도)는 다시 만들지 않는다 — 크레딧은 글자 수로 나가고, 줄을 오가며
+// 비교하는 것이 이 기능의 쓰임새다. 세션 안에서만 산다(새로고침하면 없다).
+const ED_PV_MAX = 32;
+const edPvCache = new Map();
+function edPvPut(k, url){
+  edPvCache.set(k, url);
+  while (edPvCache.size > ED_PV_MAX){       // 오래된 것부터 — objectURL 은 놓으면 새는 자원
+    const old = edPvCache.keys().next().value, u = edPvCache.get(old);
+    edPvCache.delete(old);
+    try { URL.revokeObjectURL(u); } catch (e){ /* 이미 회수됨 */ }
+  }
+}
+async function edTtsSynth(text, voice, speed){
+  const txt = String(text || "").trim();
+  const k = `${voice}|${speed || "normal"}|${txt}`;
+  const hit = edPvCache.get(k); if (hit) return hit;
+  const { data, error } = await sb.functions.invoke("tts-preview",
+    { body: { text: txt, voice, speed: speed || "normal" } });
+  if (error){
+    // 함수는 왜 안 되는지 한국어로 말한다(키 없음·게이트·권한·일레븐랩스 오류). 그런데
+    // supabase-js 는 그 본문을 error.context(Response)에 넣고 message 로는 상태줄만 준다 —
+    // 꺼내 쓰지 않으면 화면엔 "non-2xx status code" 만 뜨고 사람은 무엇을 고칠지 모른다.
+    let msg = error.message || String(error);
+    try { const j = await error.context.json(); if (j && j.error) msg = j.error; }
+    catch (e){ /* 본문이 없으면 상태줄 그대로 */ }
+    throw new Error(msg);
+  }
+  if (!data || !data.audio) throw new Error("합성 결과가 비었습니다");
+  const bin = atob(data.audio), buf = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+  const url = URL.createObjectURL(new Blob([buf], { type: data.mime || "audio/mpeg" }));
+  if (data.truncated) toast(`문구가 길어 앞 ${data.chars}자만 합성했습니다 — 미리듣기 한도입니다`);
+  edPvPut(k, url);
+  return url;
+}
+
+// 한 슬롯만 운다 — 같은 슬롯 재클릭은 정지(토글)다. 정지 수단이 '다른 ▶' 뿐이면 끌 수 없다.
+async function edTtsRun(slot, btnId, label, getUrl){
+  if (edTtsAudio && edTtsAudio._slot === slot && !edTtsAudio.paused){ edTtsStop(); return; }
   edTtsStop();
+  if (edSeq) edSeqStop();                    // 미리듣기와 영상이 겹쳐 나오면 안 된다
   const gen = edTtsPlayGen;
+  const btn = btnId ? document.getElementById(btnId) : null;
+  if (btn){ edTtsBusy = { btnId, gen }; btn.textContent = "합성 중…"; }
   try {
-    const url = await signedUrl("ves-outputs", t.key, 900);
+    const url = await getUrl();
     if (gen !== edTtsPlayGen) return;        // 그 사이 다른 재생·정지가 이겼다
-    edTtsAudio = new Audio(url); edTtsAudio._i = i;
+    edTtsAudio = new Audio(url); edTtsAudio._slot = slot;
     edTtsAudio.play().catch(() => toast("미리듣기를 재생할 수 없습니다", true));
-  } catch (e){ toast("미리듣기 실패: " + e.message, true); }
+  } catch (e){
+    if (gen === edTtsPlayGen) toast("미리듣기 실패: " + (e.message || e), true);
+  } finally {
+    // 라벨은 늘 되돌린다(그 버튼의 제 라벨이다). 표식은 **내 차례일 때만** 지운다 —
+    // 그 사이 다른 재생이 시작됐으면 그쪽이 '합성 중…' 을 쓰고 있다.
+    if (btn) btn.textContent = label;
+    if (edTtsBusy && edTtsBusy.gen === gen) edTtsBusy = null;
+  }
+}
+window.edTtsPlayRow = i => {
+  const t = edForm && edForm.tts[i]; if (!t) return;
+  const s = edTtsPlaySpec(t); if (!s) return;
+  if (s.kind === "now")
+    edTtsRun("now" + i, "edtpv_" + i, s.label, () => edTtsSynth(t.text, t.voice, t.speed));
+  else
+    edTtsRun("key" + i, "edtpv_" + i, s.label, () => signedUrl("ves-outputs", t.key, 900));
 };
+// 넣기 전에 들어보기 — 시각·창을 정하기 전에 목소리부터 고르는 게 사람의 순서다
+window.edTtsAddPv = () => {
+  const voice = (document.querySelector("#edndvsel select") || {}).value || "";
+  const text = (($("#edntt") || {}).value || "").trim();
+  if (!text){ toast("들어볼 문구를 먼저 적으세요", true); return; }
+  if (!edPvAble(voice)){
+    toast("기본(edge-tts) 목소리는 재렌더 후에만 들을 수 있습니다 — 일레븐랩스 목소리를 고르세요", true);
+    return;
+  }
+  edTtsRun("add", "edndpv", "▶ 들어보기", () => edTtsSynth(text, voice, "normal"));
+};
+
+// ── 가상 미리보기의 내레이션 소리 ─────────────────────────────────────────
+//   · 안 고친 줄 = 직전 렌더의 mp3(완성본과 같은 소리, 요금 0)
+//   · 고친 줄   = 지금 고른 목소리로 즉석 합성(일레븐랩스 목소리만)
+//   · 기본 목소리로 고친 줄 = **소리 없이 지나간다**. 구본을 틀면 화면의 하늘색 자막은
+//     새 문구인데 소리는 옛 문구가 되어, 미리보기가 거짓말을 한다.
+// 배속(E7)은 영상에만 건다 — 엔진이 cue 를 배속 전에 얹는지 확인하기 전이라, 모르는 것을
+// 흉내내면 그것도 거짓말이다(확인되면 여기 playbackRate 한 줄이다).
+let edPvWarned = false;            // 실패 경고는 카드당 1회 — 줄마다 토스트가 쌓이면 못 본다
+function edSeqAudioStop(){
+  ++edSeqAudioGen; edSeqCue = -1;
+  if (edSeqAudio){ edSeqAudio.pause(); edSeqAudio = null; }
+}
+window.edSeqSndToggle = () => {
+  edSeqSnd = !edSeqSnd;
+  const b = document.getElementById("edsndbtn");
+  if (b) b.classList.toggle("on", edSeqSnd);
+  if (!edSeqSnd){ edSeqAudioStop(); return; }
+  if (edSeq) edSeqWarm();
+};
+// 이 줄을 지금 들려줄 수 있는 URL — 없으면 null(그 줄은 소리 없이 지나간다)
+async function edCueUrl(t){
+  const s = edTtsPlaySpec(t);
+  if (!s) return null;
+  if (s.kind === "now") return await edTtsSynth(t.text, t.voice, t.speed);
+  if (s.kind === "saved") return await signedUrl("ves-outputs", t.key, 900);
+  return null;
+}
+// 재생이 그 줄에 닿기 전에 미리 만들어 둔다 — 합성은 1~2초 걸려서, 닿는 순간 만들면 첫
+// 몇 마디가 잘린다. 타임라인 순서로 하나씩(동시에 쏘면 요금·레이트리밋만 튄다).
+function edSeqWarm(){
+  if (!edSeqSnd || !edForm) return;
+  const { eff } = edEffList();
+  const list = edForm.tts.filter(t => !t.del && edOutPos(eff, t.src));
+  (async () => {
+    for (const t of list){
+      if (!edSeq || !edSeqSnd) return;       // 미리보기를 껐으면 남은 합성도 하지 않는다
+      try { await edCueUrl(t); }
+      catch (e){
+        if (!edPvWarned){ edPvWarned = true;
+          toast("내레이션 미리듣기 실패: " + (e.message || e), true); }
+      }
+    }
+  })();
+}
+// 지금 순간에 걸린 줄을 튼다 — 줄이 바뀌는 순간에만 손댄다(매 틱 재생이 아니다)
+function edSeqAudioSync(eff, outT){
+  let idx = -1, pos = 0;
+  edForm.tts.some((t, i) => {
+    if (t.del) return false;
+    const r = edOutPos(eff, t.src);
+    if (r && outT >= r.p && outT < r.p + t.dur){ idx = i; pos = outT - r.p; return true; }
+    return false;
+  });
+  if (idx === edSeqCue) return;
+  edSeqCue = idx;
+  if (edSeqAudio){ edSeqAudio.pause(); edSeqAudio = null; }
+  const gen = ++edSeqAudioGen;
+  if (idx < 0) return;
+  edCueUrl(edForm.tts[idx]).then(url => {
+    if (!url || gen !== edSeqAudioGen || !edSeq || !edSeqSnd) return;
+    const a = new Audio(url);
+    const go = () => {
+      if (gen !== edSeqAudioGen) return;     // 늦게 끝난 로드가 지난 줄을 되살리면 안 된다
+      // 줄 중간부터 들어왔으면(클릭 점프) 그만큼 건너뛴다 — 처음부터 틀면 자막과 어긋난다
+      if (pos > 0.2 && isFinite(a.duration))
+        a.currentTime = Math.min(pos, Math.max(0, a.duration - 0.05));
+      a.play().catch(() => {});
+    };
+    edSeqAudio = a;
+    if (a.readyState > 0) go(); else a.addEventListener("loadedmetadata", go, { once: true });
+  }).catch(() => { /* 한 줄 실패가 재생을 끊지 않는다 — 예열이 이미 알렸다 */ });
+}
 
 // ── 충돌 검사 (F-205) — 출력 시간축 기준 ─────────────────────────────
 // 자막↔내레이션 같은 순간 겹침, 원본 구간 중복(같은 장면 2회), 내레이션 창의
