@@ -4146,3 +4146,28 @@ def test_0075_localized_publish_meta_and_patches():
     assert sql.count("RAISE EXCEPTION") >= 4
     assert "0075 검증 실패" in sql
     assert "('orchestrator','0075'" in sql
+
+
+def test_job_design_flags_is_single_source(monkeypatch):
+    """build_argv 와 parse_result 가 **같은** 디자인을 봐야 한다 — parse_result 가 남기는
+    design_cli.json 이 실제 렌더와 어긋나면 현지화가 엉뚱한 디자인으로 복원한다."""
+    from ves.adapters import aivideo
+    monkeypatch.setattr(aivideo, "_channel_record",
+                        lambda cfg, name: {"design": {"aspect_ratio": "13:9",
+                                                      "face_tracking": False}})
+    params = {"channel_name": "ショトコン",
+              "edit_overrides": {"design": {"title_y": 160}}}
+    got = aivideo.job_design_flags(None, params)
+    assert got[got.index("--design-aspect-ratio") + 1] == "13:9"
+    assert got[got.index("--design-title-y") + 1] == "160"   # 편집실 스타일이 위에 얹힌다
+    assert "--no-reframe" in got
+
+
+def test_write_design_cli_records_and_survives_bad_dir(tmp_path, capsys):
+    """현지화 재렌더가 디자인을 복원할 유일한 근거 — 다만 기록 실패로 잡을 죽이지 않는다."""
+    from ves.adapters.aivideo import DESIGN_CLI_FILE, _write_design_cli
+    _write_design_cli(str(tmp_path), ["--design-aspect-ratio", "13:9"])
+    assert json.loads((tmp_path / DESIGN_CLI_FILE).read_text(encoding="utf-8")) == \
+        ["--design-aspect-ratio", "13:9"]
+    _write_design_cli(str(tmp_path / "없는" / "경로"), ["--design-video-y", "440"])
+    assert "design_cli.json 기록 실패" in capsys.readouterr().out

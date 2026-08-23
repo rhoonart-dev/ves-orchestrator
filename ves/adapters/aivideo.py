@@ -554,6 +554,37 @@ def _write_edit_overrides(run_dir, overrides) -> pathlib.Path | None:
     return p
 
 
+def job_design_flags(cfg, params) -> list:
+    """이 잡이 실제로 쓸 --design-* 플래그. 채널 템플릿 → 관제 오버라이드 → 편집실 스타일 순.
+
+    build_argv 와 parse_result 가 **같은 값**을 봐야 해서 여기로 모았다 — parse_result 는
+    이 목록을 run_dir 에 남기고(design_cli.json), 현지화 재렌더가 그것으로 디자인을
+    복원한다(_write_design_cli 머리말)."""
+    rec = _channel_record(cfg, params.get("channel_name"))
+    design = effective_design(params.get("design_override"), (rec or {}).get("design"))
+    design = edit_design(design, (params.get("edit_overrides") or {}).get("design"))
+    design = design_for_job(design, params)  # 편집실 자막 예외 — 자막 고친 편은 템플릿 '끔' 무시
+    return channel_design_flags(design, params.get("channel_name"))
+
+
+# 현지화 재렌더가 읽는 '이 런이 쓴 디자인' 파일. 정본은 엔진이 run_log.design_cli 에
+# 남기는 값이지만(ai-video), 그 배포를 기다리지 않고 같은 정보를 여기서도 남긴다 —
+# vlp l4_render 는 run_log 를 먼저 보고 없으면 이 파일을 쓴다.
+# 이게 없으면 일본어 완성본이 채널 화면비·제목 스타일을 통째로 잃는다(엔진 기본값으로
+# 그려진다 — 2026-08-23 SHOTCONE: aspect_ratio 13:9 가 완성본에서 1:1).
+DESIGN_CLI_FILE = "design_cli.json"
+
+
+def _write_design_cli(run_dir, flags) -> None:
+    """run_dir/design_cli.json 기록. 실패해도 잡을 죽이지 않는다 — 이 파일이 없으면
+    현지화가 경고를 남기고 종전처럼 그릴 뿐, 한국어 산출물은 이미 정상이다."""
+    try:
+        (pathlib.Path(run_dir) / DESIGN_CLI_FILE).write_text(
+            json.dumps(list(flags), ensure_ascii=False, indent=2), encoding="utf-8")
+    except OSError as e:
+        print(f"[aivideo] design_cli.json 기록 실패({run_dir}): {e}")
+
+
 def _build_argv_fresh(cfg, job):
     p = job["params"]
     if p.get("edit_overrides") and not p.get("resume_run_id"):
@@ -568,11 +599,7 @@ def _build_argv_fresh(cfg, job):
     argv = build_argv_pure(cfgmod.engine_py(cfg, "ai_video"), p, src)
     # 채널 템플릿(채널 정체성): 관제 오버라이드(0014) > channels.json "design" (registry 규약)
     # 편집실 스타일(0044)은 그보다 위 — 사람이 이 한 편에 대해 지금 고른 값이다.
-    rec = _channel_record(cfg, p.get("channel_name"))
-    design = effective_design(p.get("design_override"), (rec or {}).get("design"))
-    design = edit_design(design, (p.get("edit_overrides") or {}).get("design"))
-    design = design_for_job(design, p)   # 편집실 자막 예외 — 자막 고친 편은 템플릿 '끔' 무시
-    argv += channel_design_flags(design, p.get("channel_name"))
+    argv += job_design_flags(cfg, p)
     # 로고(가이드 자동화): 작품 카드에 branding.logo 가 있으면 scene_loop 과 같은 플래그
     card = _brain_json(cfg, "works.json").get(p.get("work_title"))
     argv += branding_flags(card, _brain_json(cfg, "loop_policy.json"))
@@ -691,6 +718,10 @@ def parse_result(cfg, job, stdout):
     if not provenance_ok(run_log):   # R8: provenance 없이 succeeded 불가
         raise base.PermanentError(
             f"provenance 불완전(provenance.git_sha/config 스냅샷 없음) — R8 (run={rid})")
+
+    # 이 렌더가 쓴 디자인을 run_dir 에 남긴다 — 현지화 재렌더가 복원할 유일한 근거다.
+    # 성공한 렌더에 대해서만(위 R8 게이트 뒤) 기록해야 실패한 런의 디자인이 남지 않는다.
+    _write_design_cli(run_dir, job_design_flags(cfg, job["params"]))
 
     # 장면 구간 기록(0019) — 반려 회피·중복 판정의 근거. 구 시스템 edit_plan 계약 계승.
     span = None
