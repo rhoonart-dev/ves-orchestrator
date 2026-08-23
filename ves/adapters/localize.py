@@ -287,7 +287,9 @@ def _run_scene_rerender(cfg, conn, job, deps):
     # 편집실 재렌더(0075)에서만 참 — planner 정상 체인은 이 키가 없다(첫 현지화라
     # 무효화할 캐시도 없다). 값 검증: 불리언 외에는 켜지 않는다(오타로 전량 재번역이
     # 도는 것을 막는다 — 재번역은 Gemini Pro 호출 + 텔롭 재추출이라 싸지 않다).
-    rebuild = p.get("rebuild") is True
+    # 게이트: --rebuild 를 모르는 구 localize_run.py 는 argparse 로 즉사한다. vlp 전 노드
+    # 배포를 확인한 뒤 ops_config editor_jp_rebuild=on (E7·E10 과 같은 롤아웃).
+    rebuild = p.get("rebuild") is True and base.ops_on(conn, "editor_jp_rebuild")
     argv = scene_rerender_argv(ai_py, eng, str(run_dir),
                                str(ov_path) if ov_path else None, rebuild=rebuild)
     r = subprocess.run(argv, cwd=eng, env=dict(os.environ),

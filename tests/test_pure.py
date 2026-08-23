@@ -4206,3 +4206,70 @@ def test_editor_assets_restores_korean_before_reading(monkeypatch, tmp_path):
         pass
     assert seen["plan"]["layout"]["top_title"] == "몸만 오면 된다더니"
     assert seen["segs"][0]["text"] == "너무 예뻐요"
+
+
+# ───────── 배포 순서 게이트 (2026-08-23) ─────────
+# 구 엔진은 모르는 CLI 플래그에 argparse 로 즉사한다(0069 --design-title-box 전례).
+# 오케스트레이터가 엔진보다 먼저 배포되면 그 사이 잡이 통째로 실패하므로 게이트를 앞에 둔다.
+
+class _FakeConn:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def cursor(self):
+        conn = self
+
+        class _C:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def execute(self, sql, args):
+                self.row = conn.rows.get(args[0])
+
+            def fetchone(self):
+                return {"value": self.row} if self.row is not None else None
+        return _C()
+
+
+class _DeadConn:
+    def cursor(self):
+        raise RuntimeError("DB 끊김")
+
+
+def test_ops_on_only_true_for_on():
+    from ves.adapters import base
+    conn = _FakeConn({"a": "on", "b": "off", "c": "ON ", "d": "true"})
+    assert base.ops_on(conn, "a") is True
+    assert base.ops_on(conn, "c") is True          # 공백·대문자 관용
+    assert base.ops_on(conn, "b") is False
+    assert base.ops_on(conn, "d") is False         # 'on' 만 참 — 'true' 는 오타로 본다
+    assert base.ops_on(conn, "없는키") is False
+
+
+def test_ops_on_treats_db_failure_as_off(capsys):
+    """조회가 실패했다고 새 플래그를 보내면 그게 사고다 — 꺼짐으로 떨어진다."""
+    from ves.adapters import base
+    assert base.ops_on(_DeadConn(), "editor_jp_rebuild") is False
+    assert "꺼짐으로 취급" in capsys.readouterr().out
+
+
+def test_publish_enrich_strips_localized_keys_when_gate_off():
+    from ves.adapters.brain import Publish
+    params = {"clip_id": "c1", "publish_title": "手ぶらでOK",
+              "publish_description": "何でも…", "publish_tags": ["ヘミリイェチェパ"]}
+    off = Publish.enrich_params(None, _FakeConn({}), {"params": params})
+    for k in ("publish_title", "publish_description", "publish_tags"):
+        assert k not in off
+    on = Publish.enrich_params(None, _FakeConn({"publish_localized_meta": "on"}),
+                               {"params": params})
+    assert on["publish_title"] == "手ぶらでOK"
+
+
+def test_publish_enrich_is_noop_for_korean_cards():
+    """한국어 카드는 키 자체가 없다 — 게이트 조회조차 하지 않는다(_DeadConn 이 증거)."""
+    from ves.adapters.brain import Publish
+    params = {"clip_id": "c1", "episode": 3}
+    assert Publish.enrich_params(None, _DeadConn(), {"params": params}) == params

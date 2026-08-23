@@ -203,6 +203,23 @@ class Publish:
     def resource(cfg, job):
         return "yt_upload:_global"
 
+    # 게이트: --description 을 모르는 구 publish_youtube.py 는 argparse 로 즉사한다 —
+    # 발행 잡이 통째로 실패하면 그날 발행이 멈춘다. brain 전 노드 배포를 확인한 뒤
+    # ops_config publish_localized_meta=on (E7·E10 과 같은 롤아웃). 꺼져 있으면 키를
+    # 걷어내 종전 경로 그대로 — 일본어 카드는 한국어 제목이 나가지만 발행은 산다.
+    @staticmethod
+    def enrich_params(cfg, conn, job):
+        p = dict(job.get("params") or {})
+        if not any(p.get(k) for k in ("publish_title", "publish_description",
+                                      "publish_tags")):
+            return p
+        if base.ops_on(conn, "publish_localized_meta"):
+            return p
+        print("[publish] publish_localized_meta 꺼짐 — 현지화판 제목·설명을 보내지 않는다")
+        for k in ("publish_title", "publish_description", "publish_tags"):
+            p.pop(k, None)
+        return p
+
     @staticmethod
     def build_argv(cfg, job):
         p = job["params"]
