@@ -4171,3 +4171,38 @@ def test_write_design_cli_records_and_survives_bad_dir(tmp_path, capsys):
         ["--design-aspect-ratio", "13:9"]
     _write_design_cli(str(tmp_path / "없는" / "경로"), ["--design-video-y", "440"])
     assert "design_cli.json 기록 실패" in capsys.readouterr().out
+
+
+def test_editor_assets_restores_korean_before_reading(monkeypatch, tmp_path):
+    """편집실이 여는 재료는 현지화가 덮어쓴 run_dir 에서 나온다 — 그대로 읽으면
+    '원본(한국어) 편집실'이 일본어 제목·자막을 원문이라며 보여준다(2026-08-23).
+    복원이 **읽기보다 먼저** 일어나는지를 못박는다 — 순서가 뒤집히면 조용히 일본어가 뜬다."""
+    from ves.adapters import editor_assets
+
+    run = tmp_path / "작품_abc123"
+    (run / "localize_backup_ko").mkdir(parents=True)
+    (run / "localize_backup_ko" / "edit_plan.json").write_text(
+        json.dumps({"layout": {"top_title": "몸만 오면 된다더니"}}), encoding="utf-8")
+    (run / "localize_backup_ko" / "subtitle_segments.json").write_text(
+        json.dumps([{"start_sec": 0, "end_sec": 1, "text": "너무 예뻐요"}]), encoding="utf-8")
+    # 현지화가 덮어쓴 상태
+    (run / "edit_plan.json").write_text(
+        json.dumps({"layout": {"top_title": "手ぶらでOK"}}), encoding="utf-8")
+    (run / "subtitle_segments.json").write_text(
+        json.dumps([{"start_sec": 0, "end_sec": 1, "text": "すごくきれい"}]), encoding="utf-8")
+
+    seen = {}
+
+    def _stop(run_dir, video_path):
+        seen["plan"] = json.loads((run / "edit_plan.json").read_text(encoding="utf-8"))
+        seen["segs"] = json.loads((run / "subtitle_segments.json").read_text(encoding="utf-8"))
+        return None            # 여기서 PermanentError 로 빠져나온다 — 무거운 인코딩 전
+
+    monkeypatch.setattr(editor_assets, "pick_scrub_source", _stop)
+    try:
+        editor_assets.run(_CfgStub(), None, {"params": {"run_id": "작품_abc123",
+                                                        "run_dir": str(run)}}, None)
+    except Exception:
+        pass
+    assert seen["plan"]["layout"]["top_title"] == "몸만 오면 된다더니"
+    assert seen["segs"][0]["text"] == "너무 예뻐요"
