@@ -138,14 +138,52 @@ opencv-python>=4.9.0.80,<5   # 5.x 는 번들 haarcascade 를 제거해 얼굴�
 합친다(contrib 는 base 의 상위집합). 어느 쪽이든 **선택을 requirements 에 적어야**
 한다 — `deps_probe.py` 가 이 조합을 검사해 경고한다.
 
-### 2-4. 아직 못 잰 것 (노드에서)
+### 2-4. 노드 실측 (macmini · darwin · py3.12.13 · 2026-08-23)
 
-| 항목 | 어떻게 | 왜 여기서 못 하나 |
-|---|---|---|
-| 첫 설치 소요 | `deps_probe.py --resolve … --install` | 맥 arm64 휠·회선·디스크가 달라 리눅스 값이 무의미 |
-| 실제 디스크 | 같은 명령의 `venv_bytes` | 위와 같음 |
-| 실패 복구 | 일부러 깨진 requirements 로 갱신 → 노드 상태 확인 | DB·워커 필요 |
-| paddlepaddle arm64 동작 | `import paddle` 스모크 | 8/12 에 초기화 실패로 하루 처리량이 0 이 된 이력이 있다 |
+`scripts/requirements-localize-probe.txt` 로 실제 노드에서 잰 값이다.
+
+| 항목 | 결과 |
+|---|---|
+| **해석** | ✅ **통과** — 165개(신규 42 · 변경 21 · 다운그레이드 3). arm64 에서 `ResolutionImpossible` 없음 ⇒ §2-1 의 리눅스 실패는 측정 도구 한계가 맞았다 |
+| **디스크** | 현재 venv **1.8 GiB** → 후보 **3.1 GiB** (**+1.3 GiB/노드**, 6대면 +8 GiB) |
+| 설치 시간 | 36초 — **쓸 수 없는 값**(아래 ⚠) |
+| **paddlepaddle arm64** | ✅ **`import paddle` 3.3.1 성공** — route B 이관의 전제가 풀렸다 |
+| import 스모크 | cv2·paddle·paddleocr·rapidocr·torch(2.13.0)·torchaudio(2.11.0)·demucs(4.1.0)·faster_whisper·skimage **전부 OK** |
+| 실패 복구 | ⏳ 미실시 (일부러 깨진 requirements 로 갱신 → 노드 상태 확인 — DB·워커 필요) |
+
+⚠ **36초는 캐시가 더운 값이라 타임아웃 근거로 쓸 수 없다.** 3.1 GiB 를 36초에 깔 수는
+없다 — `--resolve` 와 기존 설치가 pip HTTP 캐시를 이미 채워 놨다. 여기에 "3배"를 적용해
+`PIP_TIMEOUT_SEC=108` 로 잡으면 **새로 깐 노드가 첫 갱신에서 전부 타임아웃**한다.
+도구에 `--cold`(`--no-cache-dir`)를 넣었고, 그 값이 나오기 전까지는 **현재 기본
+3600초를 유지**한다.
+
+### 2-5. 🛑 cv2 실측 — 이름 비교로는 안 보이는 다운그레이드
+
+스모크가 잡았다. 해석표와 런타임이 어긋난다:
+
+| | 버전 |
+|---|---|
+| 해석표 `opencv-python` | 4.14.0.94 |
+| 해석표 `opencv-contrib-python` | 4.10.0.84 |
+| **실제 `cv2.__version__`** | **4.10.0** ⇒ contrib 가 이겼다 |
+
+즉 `cv2` 가 **4.14 → 4.10 으로 내려앉는다.** 그런데 이 다운그레이드는 §2-2 의
+다운그레이드 3건(numpy·opt-einsum·pyyaml)에 **안 들어 있다** — 두 배포판은 패키지
+**이름이 달라서** 버전 비교가 성립하지 않기 때문이다. `find_conflicts` 가 공존을
+경고하고 `--smoke` 의 `cv2_winner` 가 승자를 지목해야만 보인다.
+
+**권고(확정): 옵션 ③ — `opencv-contrib-python` 하나로 합친다.**
+contrib 는 base 의 상위집합이고 `cv2/data/haarcascades` 도 함께 싣는다(얼굴검출
+전제 충족). 둘을 같이 두면 *설치 순서*가 버전을 정하는데, 그건 requirements 어디에도
+안 적히는 우연이다. 상한(`<5`)은 남는 한 패키지에 그대로 옮긴다.
+
+### 2-6. numpy 다운그레이드
+
+`numpy 2.5.1 → 2.3.5`. 신규 42개보다 이쪽이 위험하다 — 지금 도는 **deepface(얼굴검출)·
+opencv·faster-whisper 가 전부 그 numpy 위에서** 돈다. 스모크에서 셋 다 import 는
+되지만, import 가 곧 동작은 아니다. P1~P4 에서 requirements 를 실제로 바꾸기 전에
+**얼굴검출·전사 산출을 A/B 로 확인**해야 한다(`localize_ab.py` 가 아니라 기존
+`test_e1*` 회귀 + 실렌더 1편).
 
 ---
 
@@ -268,12 +306,24 @@ python -m scripts.deps_probe --resolve requirements.txt --install  # 시간·용
 |---|---|
 | 파일별 이관/합치기/폐기 판정표 | ✅ §1 |
 | 의존성 용량·해석 | ✅ §2 (리눅스 한계 명시) |
-| 의존성 시간·복구 실측 | ⏳ **노드에서** — 도구 동봉(§4-2) |
+| 의존성 해석·디스크·스모크 | ✅ §2-4 노드 실측 — 해석 통과 · +1.3 GiB/노드 · **paddle arm64 OK** |
+| 의존성 콜드 설치 시간 | ⏳ `--cold` 로 재측정 필요(36초는 캐시 웜) |
+| 실패 복구 실측 | ⏳ 노드에서 (DB·워커 필요) |
 | A/B 하네스 | ✅ §4-1 |
 | updater 확인·보강 | ✅ §3 (요구된 것은 확인이었고, 결함이 나와 보강까지 했다) |
 
-**P1 로 넘어가기 전에 사람이 할 일 하나** — 노드 한 대에서
-`python -m scripts.deps_probe --resolve requirements.txt --install` 을 돌려
-§2-4 네 줄을 채워 주세요. 특히 **paddlepaddle 이 arm64 에서 import 되는지**가
-route B(인페인팅) 이관의 전제입니다. 안 되면 기획서 §10-1 완충책 ④대로
-rapidocr 기본으로 뒤집습니다.
+**P0 의 큰 질문 두 개가 다 풀렸다:**
+
+1. **paddlepaddle 이 arm64 에서 도는가** → ✅ 된다. 기획서 §10-1 완충책 ④(rapidocr 로
+   뒤집기)는 **발동하지 않는다.** route B 이관을 계획대로 진행한다.
+2. **의존성이 감당 가능한가** → 노드당 +1.3 GiB. 6대면 +8 GiB. 감당 가능하다.
+
+**남은 것은 P1 을 막지 않는다** — 콜드 설치 시간과 실패 복구 실측은 requirements 를
+실제로 바꾸는 **P4** 의 전제지, P1(rerender 계층 이관, 추가 의존성 0)의 전제가 아니다.
+따라서 **P1 을 지금 시작한다.**
+
+P4 전에 반드시 끝낼 것:
+- `--cold` 설치 시간 → `PIP_TIMEOUT_SEC` 확정 (그때까지 기본 3600 유지)
+- opencv 를 contrib 하나로 합치기(§2-5) + 상한 이설
+- numpy 2.3.5 위에서 얼굴검출·전사 산출 A/B (§2-6)
+- 일부러 깨진 requirements 로 갱신 → 노드가 `disabled` 로 멈추고 자동 복귀하지 않는지 확인(§3 보강 검증)
