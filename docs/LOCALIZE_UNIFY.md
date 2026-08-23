@@ -3,10 +3,25 @@
 > 사용자 지시(8/23): "ai-video 에 video-localization-project 기능을 이관한다. 잔망루피는
 > 이관된 기능만 쓰되 롱폼→쇼츠 추출도 가능하게, 혜미리예채파는 다른 채널과 동일하게 돌되
 > 현지화만 이관 기능으로. ves-orchestrator 에서 홈·편집실에 다른 채널처럼 보이고 편집도
-> 되게, 일본어 옆에 한국어 원문도 보이게."
+> 되게, 일본어 옆에 한국어 원문도 보이게. 잔망루피 쇼츠는 옛날 것부터 최신까지 주기적으로
+> 자동 수집해 두고 쓸 수 있게."
 >
 > 이 문서가 **이관의 정본 기획서**다. 단계별 발주서(`docs/prompts/e15~`)는 여기서 파생된다.
-> 코드 한 줄 옮기기 전에 §7(회귀 0 계약)과 §9(위험)을 먼저 읽을 것.
+> 코드 한 줄 옮기기 전에 §8(회귀 0 계약)과 §10(위험)을 먼저 읽을 것.
+
+---
+
+## 한눈에 보기
+
+| | 지금 | 이관 후 |
+|---|---|---|
+| 엔진 | ai-video + vlp(이름 셋·진입점 넷) | **ai-video 하나** |
+| 잔망루피 | 작업지시 없음 · 전용 자동화 · SQLite 원장 · 편집실 거절 | **작업지시 있음 · 사람이 지시 · PG 아카이브 · 편집실 개방** |
+| 혜미리예채파 | 정상 채널 + vlp 재렌더 | **결과 동일, 엔진만 ai-video** |
+| KR 채널 20개 | — | **아무것도 안 바뀐다** |
+| 현지화 모드 | scene_rerender / level B / level J / dub | **rerender · overlay 둘** |
+| 잔망루피 소재 | 하루 스캔분 중 자동 선별 1편 | **채널 전량(~1,100편) 아카이브에서 사람이 고른다** |
+| 편집실 번역 | 한국어만 고침(재번역) | **줄 단위로 ko(재번역)·ja(확정) 선택 · KO 항상 병기** |
 
 ---
 
@@ -16,8 +31,11 @@
 |---|---|---|
 | 1 | OCR·인페인팅·더빙 모델 등 무거운 의존성 | **ai-video 본체 requirements 에 전부 포함** — 6대 어느 노드에서나 어느 채널이든 처리 가능 |
 | 2 | 잔망루피 자동화(스캔→채점→자동선별→자동승인→예약업로드) | **사람이 지시하는 방식으로 전환.** 롱폼은 다른 채널과 동일하게, 쇼츠는 원본을 그대로 쓰되 현지화만 |
-| 3 | 롱폼 원본 유입 경로 | **유튜브 채널 롱폼 자동 수집** |
+| 3 | 롱폼 원본 유입 경로 | **유튜브 채널 자동 수집** |
 | 4 | 편집실 번역 수정 방식 | **줄 단위로 둘 다** — 한국어를 고치면 그 줄만 재번역, 일본어를 직접 고치면 그대로 확정 |
+| 5 | 잔망루피 쇼츠 보관 | **옛날 것부터 최신까지 전량, 주기적 자동 수집해 보관 → 필요할 때 꺼내 쓴다** |
+| 6 | 채널 정본 | 사용자가 `channels.json` 전문 제공 — §6-7 델타 확정 |
+| 7 | 수집 주기·보관 기간 | **기본값으로 진행**(§6-3 표) |
 
 ---
 
@@ -32,7 +50,7 @@
 | (미사용) | `localize(level=B)` | vlp `src.process_video` (OCR→인페인팅→재합성) | — |
 | (미사용) | `localize(level=J)` | vlp `src.convert_short` | — |
 
-즉 `localize` 어댑터 하나가 **네 갈래**로 갈라지고, 그 중 둘은 죽은 경로다.
+`localize` 어댑터 하나가 **네 갈래**로 갈라지고 그중 둘은 죽은 경로다.
 `ORCHESTRATOR_INTEGRATION.md` 가 "이름이 셋"이라 부른 문제가 코드에도 그대로 있다.
 
 ### 1-2. 두 채널의 비대칭 — 이관의 진짜 이유
@@ -44,7 +62,7 @@
 | 홈 화면 | 다른 채널과 동일 | `EXT_PIPE` 예외 — "오늘의 자동화 잡" 만 보여준다 |
 | 편집실 | 0066 로 KR 전체 개방(편집→재렌더→재번역) | **거절**된다 (`submit_editor_render`: "작업지시 없는 카드는 편집실 대상이 아닙니다(잔망루피 등)") |
 | 검수 카드 | `localization_qa` | `localization_qa` + `zanmang_video_id`(0026 전용 규약) |
-| 원장 | PG(job_queue/review_queue) | **SQLite `outputs/autopilot.db`** + PG 미러(0034/0036) |
+| 소재 관리 | `sources` 테이블(정상) | **SQLite `outputs/autopilot.db`** + PG 미러(0034/0036) |
 
 **잔망루피가 이질적인 근본 원인은 "ai-video 런이 없다"이고, 그건 입력이 남의 완성본이기
 때문이다.** 그래서 E9 발주서는 편집실을 여는 대신 vlp 에 컷 기능을 따로 넣었다 —
@@ -58,8 +76,21 @@
   `src/dub.py`(faster-whisper ASR → 트랜스크리에이션 → ElevenLabs 클론 보이스 →
   Demucs 보컬 분리 → 믹스 → 자막 번인)뿐이다.
 - Level B/BJ(인페인팅·병기)와 `convert_short`(등급 J)는 코드는 있으나 운영 부하가 0 이다.
-- ⇒ 이관 우선순위는 **① scene_rerender · ② dub** 이고, OCR·인페인팅은 그 다음이다.
-  (사용자 결정 1 에 따라 의존성은 처음부터 다 넣되, 검증 순서는 사용량을 따른다.)
+- ⇒ 이관 우선순위는 **① rerender · ② dub** 이고, OCR·인페인팅은 그 다음이다.
+  (결정 1 에 따라 의존성은 처음부터 다 넣되, 검증 순서는 사용량을 따른다.)
+
+### 1-4. 이미 절반 만들어져 있는 것 (재사용)
+
+| 조각 | 위치 | 상태 |
+|---|---|---|
+| 채널 전량 나열 | vlp `src/scout.py` | **완성.** YouTube Data API v3, `UUSH…` 쇼츠 플레이리스트 트릭, 채널 전량 ~1,100편이 **46유닛(일일 무료 쿼터의 0.5%)** |
+| 원장 Postgres 백엔드 | vlp `src/ledger.py` `pick_backend` | **절반.** `loopy` 스키마·이중 백엔드까지 있고 전환만 안 켰다 |
+| 원장 PG 미러 | 0034·0036 마이그레이션 | 있다 |
+| 컷 잘라내기 | vlp `engine/cuts.py`(E9) | 완성 — 계약 그대로 이관 |
+| 줄 스타일·타이밍 오버라이드 | vlp `engine/render.py`(E5 JP-2) | 완성 — 편집실 계약이라 동작 동일 유지 |
+| KR 편집실 → 재번역 체인 | 0066 | 완성 — 호출 대상만 바꾸면 된다 |
+
+⇒ **전량 아카이브는 새로 만드는 게 아니라 이미 있는 스카우트를 스케줄러로 올리는 일이다.**
 
 ---
 
@@ -71,7 +102,7 @@
 따르는 계(系):
 - 엔진 진입점은 `python -m app.cli` 하나. 어댑터는 argv 만 만든다.
 - `video-localization-project` 는 이관 완료 후 **동결**(read-only 참조·이력 보존).
-  ⚠ 동결 전까지 vlp 를 계속 배포한다 — 컷오버는 플래그 뒤에서 병행한다(§8).
+  ⚠ 동결 전까지 vlp 를 계속 배포한다 — 컷오버는 플래그 뒤에서 병행한다(§9).
 - 채널이 늘어도 코드는 안 늘어난다: `localize` 프로필 한 덩이를 추가할 뿐이다
   (사용자: "물론 이후에 추가될 수도 있어").
 
@@ -87,13 +118,13 @@ app/localize/
   spec.py          채널 현지화 프로필 파싱·검증 (design.localize → LocalizeSpec)
   collect.py       L0 수집·백업        (localize_backup_ko/ — 재실행해도 이중 번역 없음)
   telop.py         L2·L2b 텔롭 추출·타이밍 프레임 대조 (Gemini Pro 1장=1콜 규약)
-  translate.py     L1 문맥 통번역 + 용어집 강제 + response_schema + **줄 단위 캐시**
+  translate.py     L1 문맥 통번역 + 용어집 강제 + response_schema + 줄 단위 캐시
   apply.py         L3 데이터 계층 교체 (subtitle_segments·checkpoint_story·
                                         checkpoint_resources·edit_plan)
-  narration.py     L3t 일본어 내레이션 재합성 (tts.py 재사용 — 아래 3-4)
+  narration.py     L3t 일본어 내레이션 재합성 (tts.py 재사용 — 3-4)
   rerender.py      L4 재렌더 + 텔롭 ASS 번인 (gen_flags 복원)
   meta.py          L5 유튜브 제목·설명·해시태그 + ko_ja_pairs
-  overrides.py     편집실 오버라이드 병합 (줄 단위 ko/ja 선택 — §6)
+  overrides.py     편집실 오버라이드 병합 (줄 단위 ko/ja 선택 — §7)
   external/        완성본 입력 경로(잔망루피 쇼츠)
     detect.py      OCR (paddleocr → rapidocr 폴백)
     mask.py        마스크 기하
@@ -118,16 +149,16 @@ app/localize/
 | **`rerender`** | ai-video job 디렉토리(체크포인트) | 애초에 안 그린다 | gen_flags 복원 → 프레임 단위 | 혜미리예채파 · 잔망루피 **롱폼** |
 | **`overlay`** | 완성 mp4 한 개 (외부 소스) | 인페인팅으로 지우거나(replace) 병기(bilingual)하거나 그대로(subtitle) | 해당 없음(원본 시간축) | 잔망루피 **쇼츠** |
 
-기존 등급 표기 A/B/BJ/C/BC 는 **`overlay` 안의 `route`** 로 강등된다
+기존 등급 A/B/BJ/C/BC 는 **`overlay` 안의 `route`** 로 강등된다
 (`rerender` 에는 등급이 없다 — 등급 J·B 를 `mode` 와 섞어 쓰던 혼선의 근원).
 
-| route | inpaint | render_mode | dub |
-|---|---|---|---|
-| A | ✗ | subtitle | ✗ |
-| B | ✓ | replace | ✗ |
-| BJ | ✗ | bilingual | ✗ |
-| C | ✓ | replace | ✓ |
-| BC | ✓ | clean | ✓ |
+| route | inpaint | render_mode | dub | 뜻 |
+|---|---|---|---|---|
+| A | ✗ | subtitle | ✗ | 무변환 — 자막 트랙만 |
+| B | ✓ | replace | ✗ | 화면 한글 지우고 일본어 재합성 |
+| BJ | ✗ | bilingual | ✗ | 한글 두고 일본어 병기 |
+| **C** | ✓ | replace | ✓ | **더빙 — 잔망루피 실운영 라우트** |
+| BC | ✓ | clean | ✓ | 더빙 + 더빙자막이 자막 담당 |
 
 ### 3-3. CLI 계약
 
@@ -147,7 +178,7 @@ python -m app.cli create_shorts … --localize ja
   (E11·E13 이 세운 게이트 규약 — KR 채널 20개의 회귀 0 조건).
 - 허용값 밖은 argparse `choices` 로 **즉시 실패**. 조용히 기본값으로 떨어지면
   사람은 일본어판을 만든 줄 알고 한국어판을 발행한다.
-- 성공 마커·산출 규약은 **지금 것을 그대로 승계**한다 —
+- 성공 마커·산출 규약은 **지금 것을 그대로 승계** —
   `<job>/localize_ja/metadata.json`, `<job>/shorts.mp4` 교체본,
   한국어 원본은 `localize_backup_ko/`·`shorts_ko.mp4`.
   ⇒ 어댑터·검수함·편집실이 컷오버 순간에 안 깨진다.
@@ -156,17 +187,20 @@ python -m app.cli create_shorts … --localize ja
 
 | vlp 쪽 | ai-video 쪽 | 이관 후 |
 |---|---|---|
-| `engine/llm.py` (Gemini 호출) | `app/modules/gemini_client.py` | **ai-video 것으로 합친다** — 모델 규칙(pro/flash 2종 고정)이 CLAUDE.md 에 못박혀 있다 |
+| `engine/llm.py` (Gemini 호출) | `app/modules/gemini_client.py` | **ai-video 것으로** — 모델 규칙(pro/flash 2종 고정)이 CLAUDE.md 에 못박혀 있다 |
 | `src/dub.py` 의 ElevenLabs 합성 | `app/modules/tts.py` (E11·E12: 프리셋·speed·캐시·실패 분류) | **ai-video `tts.py` 를 정본으로**, dub 은 보이스·타이밍 로직만 남긴다. `elevenlabs:{voice_id}` 접두사(E12)가 이미 클론 보이스를 받는다 |
-| `src/dub.py` 의 faster-whisper 전사 | `app/modules/speech.py` · `stt_elevenlabs.py`(E11·E13) | **ai-video 전사 계층 재사용** — 백엔드 선택(`--transcribe-backend`)·keyterms·표기 보정이 공짜로 따라온다 |
+| `src/dub.py` 의 faster-whisper 전사 | `app/modules/speech.py` · `stt_elevenlabs.py`(E11·E13) | **ai-video 전사 계층 재사용** — 백엔드 선택·keyterms·표기 보정이 공짜로 따라온다 |
 | `engine/render.py` 의 ASS 조립 | `app/modules/subtitle.py` · `subtitle_styles.py`(E5·E14) | **ai-video 것으로.** 단 `style_ass_tags`/`validate_line_style` 는 편집실 계약이라 **동작 동일** 유지 |
 | `engine/common.py` ffmpeg 탐색 | `app/modules/ffmpeg_utils.py`(E13 곁다리) | ai-video 것으로 |
 | `engine/cuts.py` | (없음) | `localize/external/cuts.py` 로 이관, E9 계약 유지 |
+| `src/scout.py` | (없음) | **오케스트레이터 스케줄러로**(§6-3) — 엔진이 아니라 관제의 일이다 |
+| `src/ledger.py` | (없음) | **PG 아카이브 테이블로**(§6-3) |
+| `src/autopilot.py` 의 자동 선별·승인 | (없음) | **폐기** (결정 2) |
 
 ⚠ **합치기가 곧 회귀 위험이다.** 특히 자막 조립: ai-video `merge_subtitle_segments` 에는
 E14 노출 하한이 붙어 있고 vlp `render.py` 에는 없다. 잔망루피 자막 타이밍이 조용히
 움직이면 안 되므로, `overlay` 경로는 **E14 후처리를 명시적으로 끄고 시작**해
-A/B 로 확인한 뒤 켠다(§7).
+A/B 로 확인한 뒤 켠다(§8).
 
 ### 3-5. 채널 현지화 프로필 (design 키 확장)
 
@@ -176,12 +210,12 @@ A/B 로 확인한 뒤 켠다(§7).
 ```json
 "localize": {
   "locale": "ja",
-  "mode": "rerender",              // rerender | overlay
+  "mode": "overlay",               // rerender | overlay
   "route": "C",                    // overlay 전용
-  "work": "혜미리예채파",           // works.json 조회 키 — ⚠ 내부 키, 절대 번역 안 함
+  "work": "잔망루피 유튜브 숏폼",    // works.json 조회 키 — ⚠ 내부 키, 절대 번역 안 함
   "voice": "elevenlabs:<voice_id>",
   "narration": "ja",               // ja | keep — 내레이션 TTS 를 일본어로 재합성할지
-  "audio": "keep",                 // keep | dub — 원본 대사 오디오 처리
+  "audio": "dub",                  // keep | dub — 원본 대사 오디오 처리
   "subtitle_font": "…", "title_font": "…", "telop_font": "…"
 }
 ```
@@ -191,67 +225,122 @@ A/B 로 확인한 뒤 켠다(§7).
 
 ---
 
-## 4. 채널별 동작
-
-### 4-1. 혜미리예채파 — 결과는 그대로, 엔진만 바뀐다
+## 4. 혜미리예채파 (SHOTCONE) — 결과는 그대로, 엔진만 바뀐다
 
 - 파이프라인 `shorts_jp_localized` 유지. 체인 `generate → … → localize(rerender)` 유지.
 - 편집실 0066 체인(편집 → ai-video 재렌더 → 재번역) 그대로. **호출 대상만** vlp
   `localize_run.py` → ai-video `app.cli localize` 로 바뀐다.
+- `publish_privacy: unlisted` 유지 — 일본어 품질을 사람이 확인하고 Studio 에서 공개.
 - **완료 판정 = 회귀 0.** 같은 job 디렉토리에 구·신 엔진을 돌려
   ① 최종 mp4 길이·프레임 해시 ② `subtitle_segments.json` 바이트 ③ `metadata.json`
   (youtube_title·description·ko_ja_pairs) 를 대조한다. 번역문은 LLM 이라 비결정적이므로
   **캐시된 translation.json 을 고정 입력으로 넣어** 렌더 계층만 대조한다.
 
-### 4-2. 잔망루피 — 두 갈래, 둘 다 사람이 지시한다
+---
 
-**(a) 쇼츠 현지화** — 기본. 원본은 그대로 쓰고 현지화만.
+## 5. 잔망루피 (LOOPY) — 아카이브 + 두 갈래
+
+### 5-1. 전체 그림
 
 ```
-사람이 쇼츠 지정(유튜브 URL) → work_order(pipeline=shorts_jp_overlay)
+                    ┌──────────────────────────────────────┐
+   유튜브            │  loopy_scout (매일 1회, 관제 스케줄러) │
+   @zanmangloopy ───▶│  채널 전량 나열 → 길이로 두 선반에 분류 │
+                    └────────────┬─────────────┬───────────┘
+                                 │             │
+                    ≤ 61초 ──────▼             ▼────── > 61초
+              ┌────────────────────┐   ┌────────────────────┐
+              │ 쇼츠 아카이브       │   │ 롱폼 소스           │
+              │ external_shorts    │   │ sources            │
+              │ 전량·영구 보관      │   │ 신규분·30일 보관     │
+              └─────────┬──────────┘   └─────────┬──────────┘
+                        │ 사람이 고른다             │ 사람이 작업카드로 지시
+                        ▼                        ▼
+          work_order(shorts_jp_overlay)   work_order(shorts_jp_localized)
+                        │                        │
+              acquire → localize(overlay)   acquire → generate → localize(rerender)
+                        │                        │
+                        └──────────┬─────────────┘
+                                   ▼
+                    localization_qa 검수 카드 → 편집실 → 발행(사람 공개)
+```
+
+**수집기는 하나, 선반이 둘이다.** `scout.py` 가 이미 길이를 알고 있으므로
+(`parse_iso8601_duration`) 분류는 규칙 한 줄이다. 쇼츠 요청과 롱폼 요청을 같은
+기계로 답한다.
+
+### 5-2. (a) 쇼츠 현지화 — 기본 갈래
+
+```
+사람이 아카이브에서 쇼츠 선택 → work_order(pipeline=shorts_jp_overlay)
   → acquire(yt-dlp 다운로드) → localize(mode=overlay, route=C)
   → upload_artifacts → localization_qa 검수 카드 → 편집실 → 발행
 ```
 - ai-video 생성 파이프라인(분석·스토리·클립 선정)을 **안 탄다.** 사용자 지시대로
   "ai-video 기능은 거의 안 쓰고 이관된 기능만" 이 그대로 성립한다.
-- 그럼에도 **작업지시(work_order)가 생긴다** — 이것이 홈·편집실 동등화의 열쇠다(§5-2).
-- 폐기: `autopilot.auto_select`·`auto_approve`·`force_route`·SQLite 원장·
-  `zanmang_daily`·`zanmang_autopilot` 잡·`scan`/`score`/`report`.
-  ⚠ 원장의 **발행 이력(uploaded/url/published_at)은 PG 로 이관**한다 — 지우면
-  같은 영상을 두 번 올린다.
+- 그럼에도 **작업지시(work_order)가 생긴다** — 이것이 홈·편집실 동등화의 열쇠다(§6-2).
+- 폐기: `autopilot.auto_select`·`auto_approve`·`force_route`·`zanmang_daily`·
+  `zanmang_autopilot` 잡·`score`/`report`.
+  ⚠ **`scan` 은 폐기가 아니라 승격**된다(§6-3). 발행 이력(uploaded/url/published_at)도
+  반드시 이관한다 — 지우면 같은 영상을 두 번 올린다.
 
-**(b) 롱폼 → 쇼츠** — 확장.
+### 5-3. (b) 롱폼 → 쇼츠 — 확장 갈래
 
 ```
-yt_longform_watch(신설) → 채널 롱폼 자동 수집 → sources 등록
-  → 사람이 작업카드로 지시 → 일반 채널과 완전 동일한 generate
-  → localize(mode=rerender) → 검수 → 발행
+loopy_scout 롱폼 선반 → sources 등록 → 사람이 작업카드로 지시
+  → 일반 채널과 완전 동일한 generate → localize(mode=rerender) → 검수 → 발행
 ```
-- 이 갈래에서는 잔망루피가 **혜미리예채파와 같은 코드 경로**를 탄다.
-  화면에 한국어가 애초에 안 그려지므로 인페인팅이 불필요하다(품질도 더 낫다).
+- 이 갈래에서 잔망루피는 **혜미리예채파와 같은 코드 경로**를 탄다.
+  화면에 한국어가 애초에 안 그려지므로 인페인팅이 불필요하고 품질도 더 낫다.
 - 자동 수집은 **소스 등록까지만**이다. 무엇을 만들지는 사람이 정한다(결정 2).
 
-### 4-3. 다른 KR 채널 20여 개
+### 5-4. 쇼츠 아카이브 — 무엇을 얼마나 들고 있는가 (결정 5)
 
-**아무것도 바뀌지 않는다.** `localize` 키가 없으면 코드 경로가 종전과 동일하다.
-이것이 이 이관의 최상위 제약이다.
+**2층 구조.** 메타는 전량 영구, 파일은 필요할 때.
+
+| 층 | 무엇 | 범위 | 언제 | 어디에 | 크기(추정) |
+|---|---|---|---|---|---|
+| **① 메타 카탈로그** | video_id·제목·길이·조회수·좋아요·댓글수·공개일·썸네일 URL | **전량(~1,100편) 영구** | 최초 1회 전량 백필 + 매일 증분 | PG `external_shorts` | 행당 ~1KB → **~1MB** |
+| **② 원본 파일** | 실제 mp4 | 쓰기로 정한 것 + 최신 50편 미리받기 | 지정 시 `acquire`, 최신분은 야간 프리페치 | `ves-sources`(내용주소 sha256) | 편당 5~15MB |
+
+- **전량 파일 다운로드는 하지 않는다.** 1,100편 × 10MB ≈ 11GB 를 받아도 실제로 쓰는 건
+  극히 일부고, 고빈도 다운로드는 차단 위험이 있다(vlp README 가 ytdlp 백엔드를
+  "ToS 그레이존 + 고빈도 시 차단 리스크" 로 명시). 대신 **최신 50편만 야간에 미리
+  받아** 사람이 고르자마자 바로 돌 수 있게 한다.
+- 지표(조회수·좋아요)는 **매일 갱신**한다. 아카이브가 단순 목록이 아니라 "무엇이
+  일본에서 먹힐까" 를 사람이 판단하는 자료이기 때문이다. 폐기하는 것은 **자동 선별**
+  이지 **선별을 돕는 신호**가 아니다.
+- 상태 표시: `사용 안 함 / 준비됨(파일 있음) / 작업중 / 발행됨`. 발행분은 아카이브에서
+  회색 처리되고 다시 못 고른다(중복 발행 방지 — 구 원장의 state 를 이관해 계승).
+
+### 5-5. 수집 주기·보관 (결정 7 = 기본값)
+
+| 항목 | 기본값 | 근거 |
+|---|---|---|
+| 수집 주기 | **매일 1회 03:00 KST** | API 46유닛(무료 쿼터의 0.5%)이라 매일 전량 재나열해도 무료. 생성 피크(09:00 planner)와 겹치지 않는다 |
+| 최초 백필 | **전량 1회** | 사용자 요청 "옛날 것부터" |
+| 쇼츠 메타 보관 | **영구** | 1MB 다 — 지울 이유가 없다 |
+| 쇼츠 파일 보관 | **90일 미사용 시 정리**(발행분 제외) | `diskgc`·`storage_gc` 정책에 편입 |
+| 롱폼 수집 | **신규분만** | 기본값 유지 |
+| 롱폼 파일 보관 | **30일** | 편당 수 GB — 기본값 유지 |
+| 백엔드 | **YouTube Data API v3 우선**, 키 없으면 yt-dlp | 정확한 지표 + 차단 위험 회피 |
 
 ---
 
-## 5. ves-orchestrator
+## 6. ves-orchestrator
 
-### 5-1. 파이프라인 3종으로 정리
+### 6-1. 파이프라인 3종으로 정리
 
 | pipeline | 체인 | 채널 |
 |---|---|---|
-| `shorts_kr` | acquire → generate → upload_artifacts → ingest → evaluate → publish_gate | KR 채널 |
+| `shorts_kr` | acquire → generate → upload_artifacts → ingest → evaluate → publish_gate | KR 채널 20개 |
 | `shorts_jp_localized` | 위 + `localize(rerender)` | 혜미리예채파 · 잔망루피 롱폼 |
 | `shorts_jp_overlay` **(신설)** | acquire → localize(overlay) → upload_artifacts → localization_qa | 잔망루피 쇼츠 |
 
 `zanmang_autopilot` 은퇴. `ves/adapters/zanmang.py`·`zanmang_decision.py`·
 `ves/scheduler/zanmang_daily.py` 는 컷오버 완료 후 삭제.
 
-### 5-2. 잔망루피에 작업지시를 준다 = 홈·편집실 동등화
+### 6-2. 잔망루피에 작업지시를 준다 = 홈·편집실 동등화
 
 한 줄 요약: **`work_order_id` 가 없어서 막히던 것이 전부 열린다.**
 
@@ -261,61 +350,83 @@ yt_longform_watch(신설) → 채널 롱폼 자동 수집 → sources 등록
 
   | 편집 항목 | rerender(혜미리예채파·잔망 롱폼) | overlay(잔망 쇼츠) |
   |---|---|---|
-  | 구간(clips) | ✓ 원본 타임라인 | △ 완성본 컷 잘라내기(E9 `cuts`) |
+  | 구간(clips) | ✓ 원본 타임라인에서 자유 편집 | △ 완성본 컷 잘라내기(E9 `cuts`) |
   | 자막·대사 문구 | ✓ | ✓ |
   | 번역문(ja) | ✓ | ✓ |
   | 제목 | ✓ 번인 + 유튜브 | 유튜브 제목만(번인 제목이 없다) |
-  | TTS 내레이션 | ✓ | ✓(더빙 라인) |
+  | TTS·더빙 라인 | ✓ | ✓ |
   | 이미지 오버레이·디자인 | ✓ | ✗ |
 
   화면은 **같은 편집실**을 쓰고 지원 안 되는 탭만 감춘다(지금처럼 별도 JP 화면을 두지 않는다).
 
-### 5-3. 롱폼 자동 수집 — `ves/scheduler/yt_longform_watch.py` (신설)
+### 6-3. 쇼츠·롱폼 수집기 — `ves/scheduler/loopy_scout.py` (신설)
 
-- 기존 `source_watch`·`drive_watch` 와 같은 자리. 채널별 유튜브 채널ID를 받아
-  신규 롱폼을 `sources` 에 등록한다(내용주소 sha256 캐시 규약 §9-2 준수).
-- 다운로드는 스케줄러가 아니라 `acquire` 잡이 한다(디스크·네트워크 캡).
-- 보관: 롱폼은 편당 수 GB 다 — `storage_gc`·`diskgc` 정책에 롱폼 전용 보존 기간을 넣는다.
+vlp `src/scout.py` 를 **오케스트레이터로 승격**한다. 엔진이 아니라 관제의 일이다
+(무엇을·언제·어디서 = 오케스트레이터 소관이라는 §0 원칙).
+
+- 백엔드·플레이리스트 트릭·쿼터 처리는 **그대로 이식**한다(검증된 코드).
+- 길이로 두 선반에 분류: `≤ 61초` → `external_shorts`, 그 외 → `sources`.
+- 파일 다운로드는 스케줄러가 아니라 `acquire` 잡이 한다(디스크·네트워크 캡 준수).
 - ⚠ 저작권: 잔망루피 원본은 라이선스 확보 전제(© ICONIX 등). 자동 수집은
   **수집까지만**이고 발행은 사람이 승인한다 — 지금의 유예 창 정책을 그대로 유지한다.
 
-### 5-4. 편집실 통일 (§6 에서 계약 상술)
+### 6-4. 편집실 통일 (§7 에서 계약 상술)
 
 - `edJpMode`(loopy/shotcone 분기) 흡수 → 카드 종류가 아니라 **`localize.mode`** 로 갈린다.
 - 모든 자막·제목·내레이션 줄에 **KO 원문 병기**(사용자 지시).
 - 줄 단위 `ko`/`ja` 선택 편집(결정 4).
 
-### 5-5. 마이그레이션 (0075~)
+### 6-5. 대시보드 — 아카이브 화면 (신설)
+
+홈에 잔망루피 채널 카드가 다른 채널처럼 서고, 거기서 **"소재 고르기"** 로 들어간다.
+
+- 썸네일 격자 + 제목·길이·조회수·좋아요·공개일·상태.
+- 정렬: 조회수 / 최신 / 오래된 순. 필터: 미사용만 / 준비됨만 / 길이.
+- 선택 → `enqueue_localize_short(video_id)` RPC → work_order + 체인 생성.
+- 발행분은 회색 + 발행 링크 표시.
+
+### 6-6. 마이그레이션 (0075~)
 
 | # | 내용 |
 |---|---|
 | 0075 | `channel_design_overrides.localize` 키 개방 + 검증(mode/route/locale 화이트리스트) |
 | 0076 | `shorts_jp_overlay` 파이프라인 수용 — `run_channel_now`·planner RPC |
-| 0077 | 잔망루피 work_order 발급 경로(쇼츠 지정 RPC `enqueue_localize_short`) |
-| 0078 | `submit_editor_render` — overlay 카드 수용, 지원 항목 화이트리스트 |
-| 0079 | `localize_lines` 오버라이드 계약(줄 단위 ko/ja) + 검증 |
-| 0080 | 잔망루피 원장(0034/0036 미러) → 정본 테이블 승격 · 발행 이력 이관 |
+| 0077 | `external_shorts` 아카이브 테이블 + 구 원장(0034/0036 미러) 데이터 이관 + 조회 RPC |
+| 0078 | `enqueue_localize_short` RPC — 아카이브에서 고른 한 편으로 work_order + 체인 |
+| 0079 | `submit_editor_render` — overlay 카드 수용, 지원 항목 화이트리스트 |
+| 0080 | `localize_lines` 오버라이드 계약(줄 단위 ko/ja) + 검증 |
 | 0081 | 컷오버 후 정리 — `zanmang_*` RPC·`EXT_PIPE`·`ops_config.zanmang_pipeline` 제거 |
 
-### 5-6. 어댑터 정리
+### 6-7. brain `channels.json` 델타 (확정 — 사용자 제공 정본 기준)
 
-- `ves/adapters/localize.py`: 네 갈래 → **두 갈래(rerender/overlay)**, 둘 다 ai-video CLI.
-  `scene_rerender_argv`·`localize_argv`·`dub_argv`·`convert_argv` → `localize_argv` 하나.
-- `_restore_run_dir`(번들 복원)은 rerender 전용으로 유지 — overlay 는 job 디렉토리가 없다.
-- 노드 어피니티: rerender 는 지금처럼 생성 노드 핀. overlay 는 **캡 불필요**
-  (의존성이 전 노드에 깔리므로 `localize` 캡=mm-06 전담이 사라진다 — 결정 1의 이득).
+LOOPY 항목만 바뀐다. 다른 20개 채널은 **한 글자도 안 바뀐다.**
 
-### 5-7. brain 리포 (이 세션 범위 밖 — 확인 필요)
+```diff
+   "token_slug": "LOOPY",
+   "name": "まいにちじゃんまんるぴー",
+   "channel_id": "UCWCgKyOwROcvTuMJZm8nZ2Q",     ← 발행 대상(JP) 채널. 그대로
+   "country": "JP",
+-  "pipeline": "zanmang_autopilot",
++  "pipeline": "shorts_jp_overlay",
++  "source": {
++    "youtube_handle": "@zanmangloopy",           ← 원 채널(KR). vlp config 에만 있던 값을 정본으로
++    "collect": ["shorts", "longform"],
++    "shorts_pipeline":   "shorts_jp_overlay",
++    "longform_pipeline": "shorts_jp_localized"
++  },
++  "publish_privacy": "unlisted",                 ← SHOTCONE 과 같은 유예 창 정책
+```
 
-채널 정본 `channels.json` 은 brain(`ai-improvement-edit-video`)에 있고 planner 가 읽는다.
-잔망루피의 `pipeline` 값 변경은 **brain 수정**이 필요하다. 이 리포는 현재 세션에
-붙어 있지 않으므로 §10 미결로 남긴다.
+⚠ **`source.youtube_handle` 이 신설 필드다.** 지금은 원 채널이 vlp
+`config/pipeline.config.yaml` 의 `channel_handle` 에만 있어서, 관제가 "이 채널의 소재가
+어디서 오는가" 를 모른다. 정본으로 올려야 수집기가 채널 설정만 보고 돈다
+(다른 JP 채널이 추가돼도 코드가 안 늘어난다 — §2 의 계).
 
 ---
 
-## 6. 편집실 계약 — KO/JA 병기 + 줄 단위 선택 (결정 4)
+## 7. 편집실 계약 — KO/JA 병기 + 줄 단위 선택 (결정 4)
 
-### 6-1. 자료: `ko_ja_pairs` 를 편집실 정본으로 승격
+### 7-1. 자료: `ko_ja_pairs` 를 편집실 정본으로 승격
 
 지금은 검수 카드의 참고 표시용(40건 상한)이다. 이관 후에는 편집 대상 자료가 된다.
 
@@ -324,16 +435,16 @@ yt_longform_watch(신설) → 채널 롱폼 자동 수집 → sources 등록
   "start": 34.2, "end": 36.0,
   "ko": "이거 진짜 미쳤다",
   "ja": "これマジでヤバい",
-  "src": "engine|ko_edited|ja_edited",     // 이 줄이 어디서 확정됐는가
+  "src": "engine|ko_edited|ja_edited",
   "use": true }
 ```
 
 - `src` 가 화면에 보인다 — 검수자가 "이 줄은 내가 일본어를 직접 고친 줄" 을 안다.
 - 상한 40건 해제(편집 자료이므로 전량). 크면 `editor_assets` 처럼 별 테이블로.
 
-### 6-2. 제출 오버라이드
+### 7-2. 제출 오버라이드
 
-`edit_overrides.localize.lines[]` — 기존 `edit_overrides` 스키마에 **새 키로만** 얹는다
+`edit_overrides.localize.lines[]` — 기존 스키마에 **새 키로만** 얹는다
 (구 엔진은 모르는 최상위 키를 무시한다 — E6-0·E9 와 같은 구도).
 
 ```json
@@ -353,7 +464,7 @@ yt_longform_watch(신설) → 채널 롱폼 자동 수집 → sources 등록
    다시 돌면 된다. 비용·시간이 한 자릿수 배 차이라 화면이 소요 시간을 다르게 안내한다.
    - overlay(잔망 쇼츠)는 `ko` 수정도 더빙 재합성을 부르므로 어느 쪽이든 전체 재실행이다.
 
-### 6-3. 줄 단위 번역 캐시 (요금)
+### 7-3. 줄 단위 번역 캐시 (요금)
 
 `sha1(ko + glossary_ver + model + 문맥키)` → `<job>/localize_<locale>/tcache/{key}.json`.
 안 고친 줄은 재번역하지 않는다. E12 가 TTS 에서 같은 이유로 캐시를 넣었고,
@@ -363,76 +474,82 @@ yt_longform_watch(신설) → 채널 롱폼 자동 수집 → sources 등록
 
 ---
 
-## 7. 회귀 0 계약 — 절대 안 변해야 하는 것
+## 8. 회귀 0 계약 — 절대 안 변해야 하는 것
 
 | # | 대상 | 판정 방법 |
 |---|---|---|
-| 1 | KR 채널 20여 개 | `localize` 키 없는 실행은 필터그래프 문자열·자막 바이트가 종전과 동일. 기존 `tests/test_e1*` 가 이미 고정한 값을 그대로 쓴다 |
+| 1 | KR 채널 20개 | `localize` 키 없는 실행은 필터그래프 문자열·자막 바이트가 종전과 동일. 기존 `tests/test_e1*` 가 고정한 값을 그대로 쓴다 |
 | 2 | 혜미리예채파 최근 5편 | 같은 job + 고정 translation.json → mp4 길이·프레임 해시·SRT 바이트 동일 |
-| 3 | 잔망루피 최근 10편 | 구·신 더빙 산출의 **CER·라우드니스(-16 LUFS)·세그먼트 정렬 리포트** 대조. 목소리는 같은 voice_id 라 동일해야 한다 |
+| 3 | 잔망루피 최근 10편 | 구·신 더빙 산출의 **CER·라우드니스(-16 LUFS)·세그먼트 정렬 리포트** 대조. 같은 voice_id 라 목소리가 같아야 한다 |
 | 4 | 내부 키 | `works.json` 키·`channels.json works`·DB `works.title` 은 한국어 유지. **laeebly 완전일치 조회 키** — 일본어로 바꾸면 권리 조회가 통째로 실패한다 |
-| 5 | 발행 안전장치 | 자동 공개 없음. 업로드는 비공개/미등록, 공개는 사람. `qa=hold` 자동 승인 금지 |
-| 6 | 라이선스 게이트 | `propainter` 는 `propainter_commercial_ack=true` 없으면 차단. XTTS 가중치(비상업)는 상업 채널 기본값에서 제외 |
-| 7 | 자막 하한(E14) | overlay 경로는 처음에 **끄고** 시작 — 잔망루피 자막 타이밍이 조용히 움직이면 안 된다. A/B 후 켠다 |
+| 5 | 발행 이력 | 구 원장의 uploaded/url/published_at 전량 이관. 이관 검증 전에는 아카이브에서 선택 불가 |
+| 6 | 발행 안전장치 | 자동 공개 없음. 업로드는 unlisted, 공개는 사람. `qa=hold` 자동 승인 금지 |
+| 7 | 라이선스 게이트 | `propainter` 는 `propainter_commercial_ack=true` 없으면 차단. XTTS 가중치(비상업)는 상업 채널 기본값에서 제외 |
+| 8 | 자막 하한(E14) | overlay 경로는 처음에 **끄고** 시작 — 잔망루피 자막 타이밍이 조용히 움직이면 안 된다 |
 
 A/B 하네스: `scripts/localize_ab.py --job A --job B --diff` (E11 `e11_transcribe_ab` 와 같은 형).
 
 ---
 
-## 8. 단계 (완료 판정 포함)
+## 9. 단계 (완료 판정 포함)
 
-| P | 내용 | 완료 판정 |
-|---|---|---|
-| **P0** | 이관 인벤토리 확정 + A/B 하네스 + 의존성 실측 | vlp 파일별 이관/합치기/폐기 판정표. 6대 pip sync 용량·소요·실패 복구 실측치 |
-| **P1** | `rerender` 계층 이관 (§3-1 상단 9개 모듈) | 혜미리예채파 5편 회귀 0(§7-2). 어댑터는 아직 vlp 를 부른다(엔진만 준비) |
-| **P2** | 어댑터 컷오버(rerender) | `ops_config.localize_engine='ai-video'` 플래그로 전환. 되돌리기 1줄 |
-| **P3** | `overlay` 계층 이관 (external/*) | 잔망루피 10편 회귀 0(§7-3). route C·BC 우선, B·BJ·A 는 그 다음 |
-| **P4** | 오케스트레이터 통일 (0075~0078) | 잔망루피가 홈에서 다른 채널과 같은 카드로 보이고, 편집실이 열린다 |
-| **P5** | 편집실 KO/JA 통일 + 줄 단위 재번역 (0079) | 한 줄만 고친 라운드가 그 줄만 재번역하고 요금이 그만큼만 나온다 |
-| **P6** | 롱폼 자동 수집 + 잔망루피 롱폼 모드 | 롱폼 1편이 사람 지시 → 쇼츠 → 현지화 → 발행까지 완주 |
-| **P7** | 구 경로 폐기 (0080·0081) | `autopilot.db` 쓰기 0. vlp 동결. `zanmang_*` 코드 삭제 |
+| P | 내용 | 완료 판정 | 되돌리기 |
+|---|---|---|---|
+| **P0** | 이관 인벤토리 + A/B 하네스 + 의존성 실측 | 파일별 이관/합치기/폐기 판정표. 6대 pip sync 용량·소요·실패 복구 실측치 | — |
+| **P1** | `rerender` 계층 이관 | 혜미리예채파 5편 회귀 0(§8-2). 어댑터는 아직 vlp 를 부른다 | 코드 미사용 |
+| **P2** | 어댑터 컷오버(rerender) | `ops_config.localize_engine='ai-video'` 로 전환 | 값 1개 되돌림 |
+| **P3** | 쇼츠 아카이브 (0077·수집기·화면) | 전량 백필 완료, 매일 증분, 화면에서 고를 수 있다 | 화면만 숨김 |
+| **P4** | `overlay` 계층 이관 | 잔망루피 10편 회귀 0(§8-3). route C·BC 우선 | 플래그 |
+| **P5** | 오케스트레이터 통일 (0075·0076·0078·0079) | 잔망루피가 홈에서 다른 채널과 같은 카드로 보이고 편집실이 열린다 | 마이그레이션 역순 |
+| **P6** | 편집실 KO/JA 통일 + 줄 단위 재번역 (0080) | 한 줄만 고친 라운드가 그 줄만 재번역하고 요금이 그만큼만 나온다 | 화면 플래그 |
+| **P7** | 롱폼 갈래 개통 | 롱폼 1편이 사람 지시 → 쇼츠 → 현지화 → 발행까지 완주 | 채널 설정 |
+| **P8** | 구 경로 폐기 (0081) | `autopilot.db` 쓰기 0. vlp 동결. `zanmang_*` 삭제 | — |
 
-각 P 는 **독립 배포 가능**하고 이전 단계로 되돌릴 수 있어야 한다
+각 P 는 **독립 배포 가능**하고 되돌릴 수 있어야 한다
 (`deployments.auto_update=true` — main 머지 = 맥미니 6대 즉시 갱신).
 
 ---
 
-## 9. 위험
+## 10. 위험
 
-### 9-1. 의존성 (결정 1의 대가) — 가장 큰 위험
+### 10-1. 의존성 (결정 1의 대가) — 가장 큰 위험
 
 `paddlepaddle`·`torch`·`torchaudio`·`demucs`·`coqui-tts` 를 본체 requirements 에 넣으면
 **6대 전부**가 받는다. 지금 실패하면 **전 채널이 멈춘다**(현재는 mm-06 만 멈춘다).
 
 완충책(발주에 반드시 포함):
 1. `updater` 의 pip sync 실패 시 **이전 venv 를 유지**하는지 먼저 확인·보강한다.
-   (부분 설치된 venv 로 계속 도는 것이 최악이다)
-2. 한 번에 넣지 않는다 — P1(추가 의존성 0) → P3(무거운 것) 순서.
+   부분 설치된 venv 로 계속 도는 것이 최악이다.
+2. 한 번에 넣지 않는다 — P1(추가 의존성 0) → P4(무거운 것) 순서.
 3. 노드 1대(카나리아)에 먼저 pin 하고 3일 주행 후 확대.
 4. paddlepaddle 은 macOS arm64 에서 이력이 나쁘다(8/12 초기화 실패로 하루 처리량 0).
    실측 실패 시 **OCR 백엔드를 rapidocr 기본 + paddleocr 선택**으로 뒤집는다.
 
-### 9-2. LLM 비결정성
-번역·텔롭 추출은 런마다 다르다. 회귀 대조는 **번역 결과를 고정 입력으로 주입**해
-렌더 계층만 본다. 번역 품질은 별도로 사람 검수·역번역 QA 로 본다.
+### 10-2. 유튜브 수집
+API 쿼터는 넉넉하나(0.5%/일) 키가 없으면 yt-dlp 폴백이고 그건 차단 위험이 있다.
+`QuotaExceeded` 는 이미 일시 장애로 분류돼 있다 — 그 계약을 유지하고,
+**연속 실패 시 아카이브를 비우지 않는다**(빈 응답 = 삭제로 오해하면 목록이 날아간다).
 
-### 9-3. 시간축
-컷·오프셋 수식을 베끼지 않는다. E13 이 남긴 교훈대로 **같은 함수**
+### 10-3. LLM 비결정성
+번역·텔롭 추출은 런마다 다르다. 회귀 대조는 **번역 결과를 고정 입력으로 주입**해
+렌더 계층만 본다. 번역 품질은 사람 검수·역번역 QA 로 따로 본다.
+
+### 10-4. 시간축
+컷·오프셋 수식을 베끼지 않는다. E13 교훈대로 **같은 함수**
 (`remap_transcript_to_edited_timeline`)를 다시 태운다. E9 `cuts` 도 같은 규칙으로 흡수.
 
-### 9-4. 이름
-이관 후 "video-localization-project" 라는 이름이 가리키는 것이 하나여야 한다.
+### 10-5. 이름
+이관 후 "video-localization-project" 가 가리키는 것이 하나여야 한다.
 README 에 동결 선언과 이관처를 못박는다.
 
 ---
 
-## 10. 미결 — 사람 확인 필요
+## 11. 미결 — 사람 확인 필요
 
 | # | 항목 | 기본값(확인 전) |
 |---|---|---|
-| 1 | brain(`ai-improvement-edit-video`) 리포 접근 — `channels.json` 의 잔망루피 pipeline 변경이 필요하다. 이 세션에 미연결 | P4 착수 전 리포 추가 |
-| 2 | 잔망루피 쇼츠 "지정" UI — 유튜브 URL 붙여넣기 / 채널 최신 목록에서 고르기 | URL 붙여넣기(가장 단순) + 목록은 P6 |
-| 3 | 잔망루피 유튜브 업로드 토큰·예약 공개(19:00 JST) 정책 유지 여부 | 유지. 단 자동 승인은 폐기 |
-| 4 | 일본어 폰트 정본 — 현재 `ArialUnicode`(macOS 복사본, untracked) | 정식 선정 후 `app/assets/fonts` 에 커밋. 그 전까지 부트스트랩 프로비저닝 유지 |
-| 5 | 롱폼 자동 수집 대상 채널ID·주기·보관 기간 | 일 1회, 신규분만, 30일 보관 |
-| 6 | 멤버명 일본어 공식 표기(리정·채원) | 현행 잠정 표기 유지(PLAN §9-4 미결 승계) |
+| 1 | brain(`ai-improvement-edit-video`) 리포 — §6-7 델타를 적용하려면 세션에 붙여야 한다 | P5 착수 전 리포 추가 |
+| 2 | 잔망루피 JP 업로드 토큰·예약 공개(19:00 JST) 유지 여부 | 유지. 단 자동 승인은 폐기 |
+| 3 | 일본어 폰트 정본 — 현재 `ArialUnicode`(macOS 복사본, untracked) | 정식 선정 후 `app/assets/fonts` 에 커밋. 그 전까지 부트스트랩 프로비저닝 유지 |
+| 4 | 멤버명 일본어 공식 표기(리정·채원) | 현행 잠정 표기 유지(PLAN §9-4 승계) |
+| 5 | 잔망루피 작품 키 `잔망루피 유튜브 숏폼` 의 laeebly 등록 여부 | 현행 유지 — 발행 경로가 이 키를 쓴다 |
