@@ -1,5 +1,5 @@
 -- ─────────────────────────────────────────────────────────────────────────────
--- 0075_channel_style_compose.sql — 채널 'design' 허용 키에 'style_compose'
+-- 0076_channel_style_compose.sql — 채널 'design' 허용 키에 'style_compose'
 --
 -- 사용자 요청(2026-08-23): "스토리 구성을 하고 나서 여러가지 영상의 요소들을 멋지게
 -- 구성하는 단계를 추가" — E15 스타일 구성 단계(기획서 docs/prompts/e15-style-compose.md).
@@ -18,6 +18,12 @@
 -- 값 검증 정본은 어댑터 _switch_value(불리언만) 이고, 여기(RPC)는 **키** 화이트리스트다.
 --
 -- 본문은 적용 시점 라이브 정의(0072 판) 베이스 + v_allowed 한 항목 델타(0065·0069·0072 전례).
+-- 0075(editor_jp_rebuild_and_localized_publish)는 set_channel_design 을 건드리지 않으므로
+-- 그 베이스가 그대로 유효하다.
+--
+-- ⚠ 번호 발번(0074 머리말 규칙): 처음 0075 로 썼다가 같은 날 다른 작업이 0075 를 먼저
+--    main 에 올려 0076 으로 재발번했다. 적용 직전 `SELECT max(version) FROM
+--    applied_migrations WHERE engine='orchestrator'` 로 다시 확인하고 그 +1 인지 볼 것.
 --
 -- 적용 순서: **엔진(ai-video --style-compose) + brain 미러 전 노드 배포 확인 →
 -- DB 적용 → ops_config channel_style = on**. 이 파일은 게이트를 off 로 만들어 두므로
@@ -58,7 +64,7 @@ DECLARE
         -- 0072: E11 자막 전사 백엔드('default'|'elevenlabs' → --transcribe-backend).
         -- 값 검증은 어댑터·엔진 — 여기는 키만 본다(다른 키와 같은 규율).
         'transcribe_backend',
-        -- 0075: E15 스타일 구성(true → --style-compose). 스토리 구성 뒤 AI 연출 단계.
+        -- 0076: E15 스타일 구성(true → --style-compose). 스토리 구성 뒤 AI 연출 단계.
         -- 불리언 스위치라 값 검증은 어댑터 _switch_value 가 한다(subtitles·title_bold 와 같은 규율).
         'style_compose'];
 BEGIN
@@ -84,7 +90,7 @@ BEGIN
         RAISE EXCEPTION 'transcribe_backend 는 default/elevenlabs 중 하나입니다: %',
             p_design->>'transcribe_backend';
     END IF;
-    -- 0075: 스타일 구성은 불리언 스위치다. 문자열 "true" 가 들어오면 어댑터는 관용하지만
+    -- 0076: 스타일 구성은 불리언 스위치다. 문자열 "true" 가 들어오면 어댑터는 관용하지만
     -- (손 편집 템플릿 대비) 화면 저장 경로는 JSON 불리언으로만 보낸다 — 숫자·임의 문자열이
     -- 조용히 '켜짐'으로 해석되지 않도록 여기서 한 번 더 막는다(AI 호출 = 돈이 나간다).
     IF p_design ? 'style_compose'
@@ -112,5 +118,5 @@ VALUES ('channel_style', 'off',
 ON CONFLICT (key) DO NOTHING;
 
 INSERT INTO public.applied_migrations(engine, version, applied_by)
-VALUES ('orchestrator','0075','claude (design 허용 키 style_compose — E15 스타일 구성 단계, channel_style 게이트)')
+VALUES ('orchestrator','0076','claude (design 허용 키 style_compose — E15 스타일 구성 단계, channel_style 게이트)')
 ON CONFLICT DO NOTHING;

@@ -4045,7 +4045,41 @@ def test_channel_style_compose_switch():
             channel_design_flags({"style_compose": bad}, "ch")
 
 
-def test_0075_style_compose_key_allowed():
+def test_style_compose_deploy_gate():
+    """새 CLI 플래그는 게이트 뒤에서만 나간다 — 구 엔진 노드는 모르는 플래그에 argparse 로
+    즉사한다(d6f49db 가 --rebuild·--description 에 세운 것과 같은 보호).
+
+    대시보드는 ops_config channel_style 뒤에서만 저장하지만 채널 정본(channels.json)은
+    손으로도 고친다 — 실행 직전 design_for_job 이 한 번 더 본다. **키가 없으면 꺼짐**:
+    게이트를 못 읽었는데 새 플래그를 보내면 그게 사고다."""
+    from ves.adapters.aivideo import channel_design_flags, design_for_job
+    d = {"style_compose": True, "title_size": 70}
+    # 게이트 off(또는 키 없음) → style_compose 만 걷히고 나머지 디자인은 그대로
+    assert design_for_job(d, {}) == {"title_size": 70}
+    assert design_for_job(d, {"style_compose_allowed": False}) == {"title_size": 70}
+    assert channel_design_flags(design_for_job(d, {}), "ch") == ["--design-title-size", "70"]
+    # 게이트 on → 그대로 통과
+    assert design_for_job(d, {"style_compose_allowed": True}) == d
+    assert "--style-compose" in channel_design_flags(
+        design_for_job(d, {"style_compose_allowed": True}), "ch")
+    # 원본 불변(부작용 금지) + 이 키가 없는 채널은 dict 를 새로 만들지도 않는다
+    assert d["style_compose"] is True
+    assert design_for_job({"title_size": 70}, {}) == {"title_size": 70}
+
+
+def test_enrich_params_reads_style_gate():
+    """게이트 조회는 conn 이 있는 훅에서 — build_argv 는 순수하게 둔다(d6f49db 규약)."""
+    import inspect
+    from ves.adapters import aivideo
+    src = inspect.getsource(aivideo.enrich_params)
+    assert 'base.ops_on(conn, "channel_style")' in src
+    assert "style_compose_allowed" in src
+    # channel_slug 가 없어도 게이트 값은 실린다(조기 반환보다 앞) — 안 그러면 그 잡만
+    # 게이트를 못 읽어 '키 없음 = 꺼짐' 으로 조용히 달라진다
+    assert src.index("style_compose_allowed") < src.index('if not p.get("channel_slug")')
+
+
+def test_0076_style_compose_key_allowed():
     """어댑터에 키를 넣고 v_allowed 를 빠뜨리면 채널 모달 저장이 거부된다(0065 교훈)."""
     sql = _live_mig("CREATE OR REPLACE FUNCTION public.set_channel_design")
     assert "'style_compose'" in sql
@@ -4059,7 +4093,7 @@ def test_0075_style_compose_key_allowed():
     # (0072 와 같은 이유로 ops_config 시딩은 그 파일에서 직접 읽는다)
     import pathlib
     mig = pathlib.Path(
-        "ves/control/migrations/0075_channel_style_compose.sql").read_text(encoding="utf-8")
+        "ves/control/migrations/0076_channel_style_compose.sql").read_text(encoding="utf-8")
     assert "'channel_style', 'off'" in mig
 
 
@@ -4093,3 +4127,260 @@ def test_style_summary_lands_on_review_card():
     # 지침 칩과 같은 로더를 쓴다(파일 찾는 규칙이 두 벌이면 언젠가 어긋난다)
     ed = inspect.getsource(brain._run_log_editorial)
     assert "_load_run_log(cfg, p)" in ed
+# ───────── 편집실 JP 재렌더 · 현지화판 발행 (0075 · 2026-08-23) ─────────
+# 실사고 정본은 0075 머리말. 요약: SHOTCONE 편집실에서 화면비·한국어 자막을 고쳐도
+# 일본어 완성본이 그대로였고(재번역 캐시·백업 고정·디자인 소실), 발행은 일본어 채널에
+# 한국어 제목·해시태그를 올렸다.
+
+class _CfgStub:
+    """engine_py/_scripts 가 읽는 것은 home 뿐 — 파일 접근은 없다(video_path 를 준다)."""
+    home = "/opt/ves"
+
+
+def _ko_backup(tmp_path, files):
+    run = tmp_path / "작품_abc123"
+    (run / "localize_backup_ko").mkdir(parents=True)
+    for name, body in files.items():
+        (run / "localize_backup_ko" / name).write_text(body, encoding="utf-8")
+    return run
+
+
+def test_ko_restore_names_only_what_backup_has():
+    """백업에 있는 것만 되돌린다 — work_title.txt 는 언어 무관이라 목록 밖."""
+    from ves.adapters.aivideo import ko_restore_names
+    assert ko_restore_names(["title.txt", "edit_plan.json", "work_title.txt", "잡것"]) == \
+        ["edit_plan.json", "title.txt"]
+    assert ko_restore_names([]) == []
+    assert ko_restore_names(None) == []
+
+
+def test_ko_restore_audio_skips_paths_outside_run_dir(tmp_path):
+    """낡은 체크포인트가 남의 디렉토리를 가리키면 조용히 그 파일을 덮어쓰게 된다 — 제외."""
+    from ves.adapters.aivideo import ko_restore_audio
+    run = str(tmp_path / "run")
+    res = {"tts_cue_files": [
+        {"path": f"{run}/tts_0.mp3"},          # 안쪽 — 대상
+        {"path": "/etc/tts_1.mp3"},            # 바깥 — 제외
+        {"path": f"{run}/../tts_2.mp3"},       # 탈출 — 제외
+        {"path": f"{run}/tts_9.mp3"},          # 백업에 없음 — 제외
+        {},                                     # path 없음
+    ]}
+    got = ko_restore_audio(res, run, ["tts_0.mp3", "tts_1.mp3", "tts_2.mp3"])
+    assert got == [("tts_0.mp3", f"{run}/tts_0.mp3")]
+
+
+def test_restore_ko_baseline_puts_korean_back(tmp_path):
+    """현지화가 덮어쓴 run_dir 을 한국어로 되돌린다 — 안 되돌리면 '한국어 원본' 재렌더가
+    일본어 제목으로 그려지고, 편집실도 일본어를 원문이라며 보여준다."""
+    from ves.adapters.aivideo import restore_ko_baseline
+    run = _ko_backup(tmp_path, {
+        "title.txt": "몸만 오면 된다더니",
+        "subtitle_segments.json": '[{"text": "너무 예뻐요"}]',
+        "checkpoint_resources.json": json.dumps(
+            {"tts_cue_files": [{"path": str(tmp_path / "작품_abc123" / "tts_0.mp3")}]}),
+    })
+    (run / "localize_backup_ko" / "tts_0.mp3").write_bytes(b"KO-AUDIO")
+    # 현지화가 덮어쓴 상태
+    (run / "title.txt").write_text("手ぶらでOK", encoding="utf-8")
+    (run / "subtitle_segments.json").write_text('[{"text": "すごくきれい"}]', encoding="utf-8")
+    (run / "checkpoint_resources.json").write_text("{}", encoding="utf-8")
+    (run / "tts_0.mp3").write_bytes(b"JA-AUDIO")
+
+    restored = restore_ko_baseline(str(run))
+    assert (run / "title.txt").read_text(encoding="utf-8") == "몸만 오면 된다더니"
+    assert "너무 예뻐요" in (run / "subtitle_segments.json").read_text(encoding="utf-8")
+    assert (run / "tts_0.mp3").read_bytes() == b"KO-AUDIO"      # 내레이션도 한국어로
+    assert "tts_0.mp3" in restored
+
+
+def test_restore_ko_baseline_is_noop_for_kr_channels(tmp_path):
+    """백업 디렉토리가 없는 한국어 채널은 통째로 무동작 — 회귀 0."""
+    from ves.adapters.aivideo import restore_ko_baseline
+    run = tmp_path / "run"; run.mkdir()
+    (run / "title.txt").write_text("그대로", encoding="utf-8")
+    assert restore_ko_baseline(str(run)) == []
+    assert (run / "title.txt").read_text(encoding="utf-8") == "그대로"
+
+
+def test_scene_rerender_argv_rebuild():
+    """--rebuild 는 편집 재렌더에서만 — 켜면 vlp 가 백업·번역 캐시를 갱신하고 재번역한다."""
+    from ves.adapters.localize import scene_rerender_argv
+    assert scene_rerender_argv("/py", "/eng", "/job") == \
+        ["/py", "/eng/scripts/localize_run.py", "--job-dir", "/job"]      # 종전 그대로
+    assert scene_rerender_argv("/py", "/eng", "/job", rebuild=True)[-1] == "--rebuild"
+    both = scene_rerender_argv("/py", "/eng", "/job", "/job/ov.json", rebuild=True)
+    assert both[-3:] == ["--overrides", "/job/ov.json", "--rebuild"]
+
+
+def test_publish_argv_carries_localized_metadata():
+    """일본어 채널 발행 — 없으면 brain 이 clip_metadata 의 **한국어** 제목으로 조립한다."""
+    from ves.adapters.brain import Publish
+
+    class _Cfg:
+        pass
+
+    job = {"params": {"clip_id": "c1", "channel_name": "ショトコン", "privacy": "private",
+                      "video_path": "/v.mp4", "episode": 1,
+                      "publish_title": "手ぶらでOKと言われたのに…",
+                      "publish_description": "何でも揃っていると…\n\n채널 ENA에서 시청 가능",
+                      "publish_tags": ["ヘミリイェチェパ", " ", "韓国バラエティ"]}}
+    argv = Publish.build_argv(_CfgStub(), job)
+    assert argv[argv.index("--title") + 1] == "手ぶらでOKと言われたのに…"
+    assert "何でも揃っていると…" in argv[argv.index("--description") + 1]
+    # 빈 태그는 걸러진다(brain hashtag_body 가 빈 해시태그를 만들지 않게)
+    assert argv[argv.index("--hashtags") + 1:] == ["ヘミリイェチェパ", "韓国バラエティ"]
+
+
+def test_publish_argv_unchanged_for_korean_channels():
+    """한국어 카드는 이 키들이 없다 — 명령이 종전과 완전히 같아야 한다(회귀 0)."""
+    from ves.adapters.brain import Publish
+    job = {"params": {"clip_id": "c1", "channel_name": "한입주막", "privacy": "unlisted",
+                      "video_path": "/v.mp4", "episode": 3}}
+    argv = Publish.build_argv(_CfgStub(), job)
+    for flag in ("--title", "--description", "--hashtags"):
+        assert flag not in argv
+
+
+def test_0075_localized_publish_meta_and_patches():
+    """0075 — 발행 메타 조각 + 두 RPC 텍스트 패치의 계약."""
+    sql = _mig("0075_editor_jp_rebuild_and_localized_publish.sql")
+    # ① payload → params 조각. 빈 값은 아예 키를 안 만든다(brain 이 종전 조립으로 떨어지게)
+    assert "CREATE OR REPLACE FUNCTION public._localized_publish_meta" in sql
+    assert "jsonb_strip_nulls" in sql
+    for k in ("'publish_title'", "'publish_description'", "'publish_tags'"):
+        assert k in sql
+    # ② publish 잡 params 병합
+    assert "|| public._localized_publish_meta(v_rq.payload)" in sql
+    # ③ JP localize 잡 rebuild 신호
+    assert "''rebuild'', true" in sql
+    # 조각을 못 찾으면 조용히 통과하면 안 된다 — 즉시 실패 + 사후 검증
+    assert sql.count("RAISE EXCEPTION") >= 4
+    assert "0075 검증 실패" in sql
+    assert "('orchestrator','0075'" in sql
+
+
+def test_job_design_flags_is_single_source(monkeypatch):
+    """build_argv 와 parse_result 가 **같은** 디자인을 봐야 한다 — parse_result 가 남기는
+    design_cli.json 이 실제 렌더와 어긋나면 현지화가 엉뚱한 디자인으로 복원한다."""
+    from ves.adapters import aivideo
+    monkeypatch.setattr(aivideo, "_channel_record",
+                        lambda cfg, name: {"design": {"aspect_ratio": "13:9",
+                                                      "face_tracking": False}})
+    params = {"channel_name": "ショトコン",
+              "edit_overrides": {"design": {"title_y": 160}}}
+    got = aivideo.job_design_flags(None, params)
+    assert got[got.index("--design-aspect-ratio") + 1] == "13:9"
+    assert got[got.index("--design-title-y") + 1] == "160"   # 편집실 스타일이 위에 얹힌다
+    assert "--no-reframe" in got
+
+
+def test_write_design_cli_records_and_survives_bad_dir(tmp_path, capsys):
+    """현지화 재렌더가 디자인을 복원할 유일한 근거 — 다만 기록 실패로 잡을 죽이지 않는다."""
+    from ves.adapters.aivideo import DESIGN_CLI_FILE, _write_design_cli
+    _write_design_cli(str(tmp_path), ["--design-aspect-ratio", "13:9"])
+    assert json.loads((tmp_path / DESIGN_CLI_FILE).read_text(encoding="utf-8")) == \
+        ["--design-aspect-ratio", "13:9"]
+    _write_design_cli(str(tmp_path / "없는" / "경로"), ["--design-video-y", "440"])
+    assert "design_cli.json 기록 실패" in capsys.readouterr().out
+
+
+def test_editor_assets_restores_korean_before_reading(monkeypatch, tmp_path):
+    """편집실이 여는 재료는 현지화가 덮어쓴 run_dir 에서 나온다 — 그대로 읽으면
+    '원본(한국어) 편집실'이 일본어 제목·자막을 원문이라며 보여준다(2026-08-23).
+    복원이 **읽기보다 먼저** 일어나는지를 못박는다 — 순서가 뒤집히면 조용히 일본어가 뜬다."""
+    from ves.adapters import editor_assets
+
+    run = tmp_path / "작품_abc123"
+    (run / "localize_backup_ko").mkdir(parents=True)
+    (run / "localize_backup_ko" / "edit_plan.json").write_text(
+        json.dumps({"layout": {"top_title": "몸만 오면 된다더니"}}), encoding="utf-8")
+    (run / "localize_backup_ko" / "subtitle_segments.json").write_text(
+        json.dumps([{"start_sec": 0, "end_sec": 1, "text": "너무 예뻐요"}]), encoding="utf-8")
+    # 현지화가 덮어쓴 상태
+    (run / "edit_plan.json").write_text(
+        json.dumps({"layout": {"top_title": "手ぶらでOK"}}), encoding="utf-8")
+    (run / "subtitle_segments.json").write_text(
+        json.dumps([{"start_sec": 0, "end_sec": 1, "text": "すごくきれい"}]), encoding="utf-8")
+
+    seen = {}
+
+    def _stop(run_dir, video_path):
+        seen["plan"] = json.loads((run / "edit_plan.json").read_text(encoding="utf-8"))
+        seen["segs"] = json.loads((run / "subtitle_segments.json").read_text(encoding="utf-8"))
+        return None            # 여기서 PermanentError 로 빠져나온다 — 무거운 인코딩 전
+
+    monkeypatch.setattr(editor_assets, "pick_scrub_source", _stop)
+    try:
+        editor_assets.run(_CfgStub(), None, {"params": {"run_id": "작품_abc123",
+                                                        "run_dir": str(run)}}, None)
+    except Exception:
+        pass
+    assert seen["plan"]["layout"]["top_title"] == "몸만 오면 된다더니"
+    assert seen["segs"][0]["text"] == "너무 예뻐요"
+
+
+# ───────── 배포 순서 게이트 (2026-08-23) ─────────
+# 구 엔진은 모르는 CLI 플래그에 argparse 로 즉사한다(0069 --design-title-box 전례).
+# 오케스트레이터가 엔진보다 먼저 배포되면 그 사이 잡이 통째로 실패하므로 게이트를 앞에 둔다.
+
+class _FakeConn:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def cursor(self):
+        conn = self
+
+        class _C:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def execute(self, sql, args):
+                self.row = conn.rows.get(args[0])
+
+            def fetchone(self):
+                return {"value": self.row} if self.row is not None else None
+        return _C()
+
+
+class _DeadConn:
+    def cursor(self):
+        raise RuntimeError("DB 끊김")
+
+
+def test_ops_on_only_true_for_on():
+    from ves.adapters import base
+    conn = _FakeConn({"a": "on", "b": "off", "c": "ON ", "d": "true"})
+    assert base.ops_on(conn, "a") is True
+    assert base.ops_on(conn, "c") is True          # 공백·대문자 관용
+    assert base.ops_on(conn, "b") is False
+    assert base.ops_on(conn, "d") is False         # 'on' 만 참 — 'true' 는 오타로 본다
+    assert base.ops_on(conn, "없는키") is False
+
+
+def test_ops_on_treats_db_failure_as_off(capsys):
+    """조회가 실패했다고 새 플래그를 보내면 그게 사고다 — 꺼짐으로 떨어진다."""
+    from ves.adapters import base
+    assert base.ops_on(_DeadConn(), "editor_jp_rebuild") is False
+    assert "꺼짐으로 취급" in capsys.readouterr().out
+
+
+def test_publish_enrich_strips_localized_keys_when_gate_off():
+    from ves.adapters.brain import Publish
+    params = {"clip_id": "c1", "publish_title": "手ぶらでOK",
+              "publish_description": "何でも…", "publish_tags": ["ヘミリイェチェパ"]}
+    off = Publish.enrich_params(None, _FakeConn({}), {"params": params})
+    for k in ("publish_title", "publish_description", "publish_tags"):
+        assert k not in off
+    on = Publish.enrich_params(None, _FakeConn({"publish_localized_meta": "on"}),
+                               {"params": params})
+    assert on["publish_title"] == "手ぶらでOK"
+
+
+def test_publish_enrich_is_noop_for_korean_cards():
+    """한국어 카드는 키 자체가 없다 — 게이트 조회조차 하지 않는다(_DeadConn 이 증거)."""
+    from ves.adapters.brain import Publish
+    params = {"clip_id": "c1", "episode": 3}
+    assert Publish.enrich_params(None, _DeadConn(), {"params": params}) == params
