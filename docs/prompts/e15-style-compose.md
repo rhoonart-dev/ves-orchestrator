@@ -1,7 +1,9 @@
-# E15 — 스타일 구성 단계(Style Compose) 기획서
+# E15 — 스타일 구성 단계(Style Compose)
 
-**상태: 기획 초안 — 발주서 아님.** 확정되면 엔진(ai-video) 발주서와 오케스트레이터
-파트로 쪼개서 나간다. 사용자 결정(2026-08-23):
+**상태: 구현 완료(2026-08-23).** 아래는 기획 원문이고, 구현하며 **코드 실측으로 뒤집힌
+두 가지**는 해당 절에 ⚠ 로 표시했다(§4 배속 · §3 variant). 계약 정본은 이제 코드다:
+ai-video `CLAUDE.md`(스타일 구성 단계 계약) · `app/modules/style_compose.py` ·
+`tests/test_e15_style_compose.py`. 사용자 결정(2026-08-23):
 
 - AI 결정 범위 = 연출 텍스트·자막 강조 + 이미지 오버레이 + 디자인 레벨 일부 + TTS 보이스/속도 (전부)
 - 검수 흐름 = **자동 렌더 → 편집실 사후 수정** (현행 검수함·반려-재렌더 루프 그대로)
@@ -61,8 +63,10 @@ design 키)을 그대로 재사용** — 새 렌더 경로를 만들지 않는�
 - `--from-step style` 재개 지원. 산출은 `checkpoint_style.json` — 편집실 재렌더
   (`from_step=resources|render`)는 이 체크포인트를 **재호출 없이 그대로 재적용**
   (재개 산출 불변 원칙, E13 사이드카와 같은 이유).
-- variant(최대 3편) **각각** 플랜 하나. v3 오버라이드의 '첫 variant 한정'과 다르다 —
-  오버라이드는 사람이 그 한 편을 고친 것이고, 스타일 플랜은 편마다의 연출이다.
+- ⚠ **구현은 첫 variant 한정이다**(기획은 variant 각각을 원했다). variant #2·#3 의
+  `RenderInputs` 는 `image_overlays`·`title_segments`·`text_subtitle_path` 를 애초에
+  받지 않는다(기존 구멍 — 편집실 오버라이드도 같은 이유로 첫 variant 한정이다).
+  variant 확대는 그 렌더 조립부를 함께 넓혀야 하는 별건으로 남겼다.
 - 게이트: **CLI `--style-compose` (기본 미지정 = 단계 자체가 없음 = 종전과 동일,
   회귀 0).** E11 `--transcribe-backend` 와 같은 규약 — 미지정 실행은 체크포인트를
   쓰지도 읽지도 않는다. 오케스트레이터는 채널 design 키 `style_compose` 를 이
@@ -104,7 +108,9 @@ v3 어휘의 부분집합 + design 부분집합. **좌표는 전부 원본 절�
   이렇게 하면 배치·렌더·편집실 재렌더가 기존 코드 그대로다.
 - `subtitle_styles` 는 v3 subtitles 와 달리 **텍스트를 싣지 않는다** — 기존 자막
   줄에 스타일만 얹는 패치다. 매칭은 앵커가 그 자막 cue 의 원본 구간 안이면 적중,
-  매칭 실패는 드롭+로그. 키는 F-407/410 넷(size·y·color·rotate)뿐.
+  매칭 실패는 드롭+로그. **키는 `size`·`color` 둘뿐이다**(§13-4 결정): v3 의 y·rotate 는
+  자막 가독성을 직접 깨뜨려 사람 전용으로 남겼다 — `STYLE_SUBTITLE_KEYS` 한 줄로 연다.
+  size 는 30~140 상한(v3 는 상한이 없다 — 사람은 보고 정한다).
 - `title_segments` 는 앵커 쌍(from/to)으로 받고, 엔진이 확정 타임라인에서 편집본
   시각으로 변환해 E8 `title.segments` 계약(겹침 거절·최대 20개·창 밖=제목 없음)으로
   넘긴다. 편집실에 보이는 어휘는 E8 그대로 — 계약이 늘지 않는다.
@@ -112,10 +118,15 @@ v3 어휘의 부분집합 + design 부분집합. **좌표는 전부 원본 절�
   바꾼다. **불변 라벨만 허용**(`ko_female`~`chat_*`, `very_slow`~`very_fast`) —
   `elevenlabs:` 접두사는 계정 종속(E12)이라 AI 산출에 금지, `_normalize_storyline_tts_cues`
   화이트리스트("LLM 산 cue")가 이미 지키는 경계와 같다. 문구(text)는 못 바꾼다.
-- `design` 개방 키는 **편 단위 연출로 의미가 있는 것만**: `video_speed`(0.8~2.0)·
-  `title_rotate`·`tts_rotate`(-180~180)·`title_box(2)`·`title_box_color(2)`·
-  `title_bold(2)`. 밴드 레이아웃(aspect_ratio·video_width·video_y)·폰트·자막
-  색 체계·플랫폼 표기는 **비개방**(채널 정체성).
+- `design` 개방 키는 **편 단위 연출로 의미가 있는 것만**: `title_rotate`·`tts_rotate`
+  (-180~180)·`title_box(2)`·`title_box_color(2)`·`title_bold(2)`. 밴드 레이아웃
+  (aspect_ratio·video_width·video_y)·폰트·자막 색 체계·플랫폼 표기는 **비개방**(채널 정체성).
+- ⚠ **`video_speed` 는 열지 않았다**(기획은 열려고 했다 — 코드 실측으로 뒤집었다).
+  배속은 렌더 효과가 아니라 **길이 예산**이다: `_speed` 가 스토리 길이 클램프·확장
+  상한에 ×S 로 곱해지는데(`pipeline` 3389·3417~3427) style 단계는 그 클램프가 **끝난
+  뒤** 돈다. 여기서 바꾸면 40~60초 정책이 이미 적용된 편의 출력 길이만 조용히 달라진다
+  (1.1배면 50초 편이 45초로 나간다). 배속을 편 단위로 열려면 style 을 클램프 앞으로
+  옮겨야 하는데, 그러면 앵커의 기준인 최종 클립이 아직 없다 → 채널 플래그로 남긴다.
 - 항목 하드캡(과연출 방지): texts ≤ 8 · images ≤ 4 · subtitle_styles ≤ 10 ·
   title_segments ≤ 5 · tts 는 기존 cue 수 이내. 초과는 앞에서부터 자르고 로그.
 
@@ -259,11 +270,17 @@ v3 어휘의 부분집합 + design 부분집합. **좌표는 전부 원본 절�
 
 ## 11. 롤아웃 순서
 
-1. ai-video: 스키마·검증·배치 + 게이트 + 테스트 → main 머지 → 전 노드 확인.
-2. 스티커 초기 세트 번들(라이선스 확정 후).
-3. ves: 어댑터 플래그 + ops_config 게이트 + 검수 카드 표시.
+1. ~~ai-video: 스키마·검증·배치 + 게이트 + 테스트~~ **완료** — 브랜치
+   `claude/ai-video-editing-planning-sid9j6`. → main 머지 → 전 노드 배포 확인.
+2. 스티커 초기 세트 번들(라이선스 확정 후 — §13-1). **지금은 목록이 비어 있고
+   그 상태로 정상 동작한다**(스티커 없이 나머지 연출만).
+3. ~~ves: 어댑터 스위치 + RPC 허용 키 + 게이트 + 대시보드 + 검수 카드~~ **완료** —
+   0075 적용 → ops_config `channel_style` = on.
 4. KR 채널 1곳 파일럿 → 실측(연출 적중/과연출 반려율·렌더 시간) → 확대.
    JP 채널은 오프 유지(§9-1).
+
+**배포 순서는 반드시 엔진 먼저다** — 구 엔진 노드는 모르는 `--style-compose` 에
+argparse 로 즉사한다(E7·E10·E11 과 같은 롤아웃).
 
 ## 12. 실측 계획
 
@@ -282,5 +299,8 @@ v3 어휘의 부분집합 + design 부분집합. **좌표는 전부 원본 절�
 2. **채널 스타일 프로파일 어휘** — 초기엔 연출 강도(`low/mid/high`) 한 키만
    제안(ops_config → design 키 `style_profile`). 세분화(이모지 허용·색 취향)는
    실측 후.
-3. **subtitle_styles 의 y·rotate 개방 여부** — 강조가 size·color 만으로 충분하면
-   위치·회전은 사람 전용으로 남기는 쪽이 안전(자막 가독성). 파일럿에서 결정 제안.
+~~3. subtitle_styles 의 y·rotate 개방 여부~~ — **결정(8/23)**: size·color 만 연다.
+위치·회전은 사람 전용(`STYLE_SUBTITLE_KEYS` 한 줄로 열 수 있게 해 뒀다).
+
+3. **variant #2·#3 연출** — 지금은 첫 variant 만 연출이 붙는다(§3). 나머지 편에도
+   붙이려면 variant 렌더 조립부가 오버레이 3종을 받도록 넓혀야 한다.

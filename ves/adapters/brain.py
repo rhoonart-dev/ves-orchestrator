@@ -167,6 +167,9 @@ class Evaluate:
                 ei = _editor_info(conn, p.get("run_id"))
                 if ei:
                     extra["editor"] = ei      # '편집된 영상' 배지(8/21)
+                st = _run_log_style(cfg, p)
+                if st:
+                    extra["style"] = st       # E15 AI 연출 요약(8/23) — 항목 수 + 사유
             except Exception as e:  # noqa: BLE001 — 칩·배지는 없어도 검수는 돌아야 한다
                 print(f"[evaluate] 검수 카드 부가 정보 수집 실패(카드는 만든다): "
                       f"{type(e).__name__} {e}")
@@ -252,20 +255,36 @@ def _find_video(cfg, run_id, outdir):
     return vids[0] if vids else None
 
 
-def _run_log_editorial(cfg, p):
-    """run_log.input → (editorial, editorial_run) — 검수 카드 지침 칩·'추가 생성' 배지의
-    데이터원(8/20). editorial 은 병합 적용본(칩), editorial_run 은 이번 실행에만 얹은
-    지시의 **원문**(배지에서 상시 지침과 구분해 보여준다 — 운영 결정 8/20).
+def _run_log_style(cfg, p):
+    """run_log steps[{step:'style'}] → 검수 카드의 AI 연출 요약(E15, 8/23).
 
-    ai-video 가 둘 다 run_log 에 남긴다(그쪽 4a3bb3a·후속). 로컬(run_dir →
-    표준 경로) 우선, 없으면 업로더가 올린 Storage 사본(run_log.json) — evaluate 가
-    생성 노드와 다른 맥에서 돌 수 있어 폴백이 필요하다(_fetch_from_storage 와 같은 이유).
-    실패는 (None, None) — 칩은 부가 정보라 검수 등록을 막지 않는다."""
+    '이 편에 AI 가 무엇을 왜 얹었는지'를 검수자가 카드에서 본다 — 안 보이면 화면의
+    스티커·효과 텍스트가 어디서 왔는지 알 길이 없다. 부가 정보라 실패는 None
+    (호출부가 통째로 try 로 감싼다 — 8/20 사고 이후 규율).
+    """
+    rl = _load_run_log(cfg, p)
+    if not rl:
+        return None
+    for step in reversed(rl.get("steps") or []):
+        if step.get("step") == "style":
+            return {k: step.get(k) for k in
+                    ("plan", "texts", "images", "subtitle_styles", "title_segments",
+                     "tts_tone", "design", "notes", "concept", "reasons")
+                    if step.get(k) not in (None, [], {})}
+    return None
+
+
+def _load_run_log(cfg, p):
+    """run_log.json 을 dict 로. 로컬(run_dir → 표준 경로) 우선, 없으면 Storage 사본.
+
+    evaluate 가 생성 노드와 다른 맥에서 돌 수 있어 폴백이 필요하다. 실패는 None —
+    이 파일을 읽는 것들(지침 칩·연출 요약)은 전부 부가 정보라 검수 등록을 막지 않는다.
+    """
     import json as _json
     import pathlib
     rid = p.get("run_id")
     if not rid:
-        return None, None
+        return None
     cands = []
     if p.get("run_dir"):
         cands.append(pathlib.Path(p["run_dir"]) / "run_log.json")
@@ -288,12 +307,26 @@ def _run_log_editorial(cfg, p):
             raw = dest.read_text(encoding="utf-8")
         except Exception as e:  # noqa: BLE001 — 부가 정보 실패는 로그만
             print(f"[evaluate] run_log 조회 실패({rid}): {e}")
-            return None, None
+            return None
     try:
-        inp = _json.loads(raw).get("input") or {}
-        return inp.get("editorial") or None, inp.get("editorial_run") or None
+        return _json.loads(raw)
     except (ValueError, AttributeError):
+        return None
+
+
+def _run_log_editorial(cfg, p):
+    """run_log.input → (editorial, editorial_run) — 검수 카드 지침 칩·'추가 생성' 배지의
+    데이터원(8/20). editorial 은 병합 적용본(칩), editorial_run 은 이번 실행에만 얹은
+    지시의 **원문**(배지에서 상시 지침과 구분해 보여준다 — 운영 결정 8/20).
+
+    ai-video 가 둘 다 run_log 에 남긴다(그쪽 4a3bb3a·후속). 파일을 찾는 규칙은
+    _load_run_log 한 곳(로컬 우선 → Storage 폴백). 실패는 (None, None) — 칩은 부가
+    정보라 검수 등록을 막지 않는다."""
+    rl = _load_run_log(cfg, p)
+    if not rl:
         return None, None
+    inp = rl.get("input") or {}
+    return inp.get("editorial") or None, inp.get("editorial_run") or None
 
 
 def _regen_info(conn, work_order_id):

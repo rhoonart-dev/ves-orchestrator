@@ -103,6 +103,12 @@ CHANNEL_DESIGN_SWITCHES = {
     # 제목 줄별 굵게(ai-video 2026-08-21) — true 면 같은 색 외곽선으로 획을 두껍게. brain 1:1.
     "title_bold": ("--design-title-bold", True),
     "title_bold2": ("--design-title-bold2", True),
+    # E15 스타일 구성(ai-video, 2026-08-23): true 면 스토리 구성 뒤 AI 가 편 단위 연출
+    # (효과 텍스트·자막 강조·스티커·타임드 제목·회전/배속·TTS 톤)을 구성해 그대로 렌더한다.
+    # 미지정 = 단계 자체가 없다(엔진 회귀 0). 채널 단위인 이유는 transcribe_backend 와 같다 —
+    # style 은 silence_cut 뒤 단계라 편집실 재렌더(from_step=resources|render)로는 다시 뜨지
+    # 않는다(체크포인트를 그대로 재적용). 개방은 엔진 전 노드 배포 후 ops_config channel_style=on.
+    "style_compose": ("--style-compose", True),
 }
 
 

@@ -3437,8 +3437,14 @@ def test_0072_transcribe_backend_key_allowed():
     # 0069 까지의 허용 키가 살아 있어야 한다(본문 통째 재정의 규율 — 0055 교훈)
     for k in ("'subtitles'", "'video_width'", "'title_y_fixed'", "'face_tracking'"):
         assert k in sql
-    # 게이트는 off 로 시작한다 — 엔진 배포 전 저장이 그 채널 생성을 죽이면 안 된다
-    assert "'channel_transcribe', 'off'" in sql
+    # 게이트는 off 로 시작한다 — 엔진 배포 전 저장이 그 채널 생성을 죽이면 안 된다.
+    # ⚠ 이 INSERT 는 **0072 파일 고유 내용**이라 _live_mig(마지막 재정의 = 지금은 0075)가
+    # 아니라 그 파일에서 읽는다. 함수 본문은 뒤 마이그레이션이 통째로 다시 쓰지만
+    # ops_config 시딩은 한 번뿐이다(0050·0057 등이 쓰는 것과 같은 파일 직독 관례).
+    import pathlib
+    mig72 = pathlib.Path(
+        "ves/control/migrations/0072_channel_transcribe_backend.sql").read_text(encoding="utf-8")
+    assert "'channel_transcribe', 'off'" in mig72
 
 
 def test_dashboard_transcribe_backend_wired():
@@ -4014,3 +4020,76 @@ def test_dashboard_editor_texts_wired():
     assert 'else if (t === "txt") edTxtDel(i);' in html  # Delete 키
     py = pathlib.Path("ves/adapters/brain.py").read_text(encoding="utf-8")
     assert '"texts": pay.get("texts") or 0' in py
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# E15 스타일 구성 (2026-08-23) — 스토리 구성 뒤 AI 연출 단계
+# ─────────────────────────────────────────────────────────────────────────
+def test_channel_style_compose_switch():
+    """채널 design 스위치 하나가 --style-compose 로 나간다(값 없는 플래그).
+
+    불리언인 이유: 엔진 플래그가 store_true 라 값이 없다. 오타·숫자가 조용히
+    '켜짐'으로 해석되면 안 된다 — AI 호출은 돈이 나간다(registry 원칙)."""
+    import pytest
+    from ves.adapters import base
+    from ves.adapters.aivideo import CHANNEL_DESIGN_SWITCHES, channel_design_flags
+    assert CHANNEL_DESIGN_SWITCHES["style_compose"] == ("--style-compose", True)
+    assert channel_design_flags({"style_compose": True}, "ch") == ["--style-compose"]
+    # 꺼짐·미지정이면 argv 는 한 글자도 안 바뀐다(엔진 회귀 0 조건)
+    assert channel_design_flags({"style_compose": False}, "ch") == []
+    assert channel_design_flags({"title_size": 70}, "ch") == ["--design-title-size", "70"]
+    # 손 편집 템플릿의 "true"/"false" 는 관용, 그 밖은 즉시 실패
+    assert channel_design_flags({"style_compose": "true"}, "ch") == ["--style-compose"]
+    for bad in (1, "on", "yes", None):
+        with pytest.raises(base.PermanentError):
+            channel_design_flags({"style_compose": bad}, "ch")
+
+
+def test_0075_style_compose_key_allowed():
+    """어댑터에 키를 넣고 v_allowed 를 빠뜨리면 채널 모달 저장이 거부된다(0065 교훈)."""
+    sql = _live_mig("CREATE OR REPLACE FUNCTION public.set_channel_design")
+    assert "'style_compose'" in sql
+    # 0072 까지의 허용 키가 살아 있어야 한다(본문 통째 재정의 규율 — 0055 교훈)
+    for k in ("'subtitles'", "'video_width'", "'title_y_fixed'", "'face_tracking'",
+              "'transcribe_backend'"):
+        assert k in sql
+    # 불리언 타입 검증도 RPC 에 둔다 — 숫자·문자열이 '켜짐'으로 새면 안 된다
+    assert "jsonb_typeof(p_design->'style_compose')" in sql
+    # 게이트는 off 로 시작한다 — 엔진 배포 전 저장이 그 채널 생성을 죽이면 안 된다.
+    # (0072 와 같은 이유로 ops_config 시딩은 그 파일에서 직접 읽는다)
+    import pathlib
+    mig = pathlib.Path(
+        "ves/control/migrations/0075_channel_style_compose.sql").read_text(encoding="utf-8")
+    assert "'channel_style', 'off'" in mig
+
+
+def test_dashboard_style_compose_wired():
+    """채널 설정 모달의 '스타일 구성' — 게이트·저장·diff·복사가 다 있어야 한다.
+
+    저장만 있고 diff·복사가 빠지면 '다른 채널에서 복사'가 이 설정만 조용히 떨어뜨린다
+    (통째 교체 규약이라 화면에 없는 값은 저장 때 사라진다 — 8/20 subtitles 전례)."""
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert "chStyleOn" in html and "channel_style" in html      # ops 게이트
+    assert "df_style_compose" in html
+    assert "design.style_compose = true" in html                # 저장(불리언)
+    assert "스타일 구성:" in html                                # diff 미리보기
+    assert 'sc2.value = d.style_compose === true' in html       # 다른 채널에서 복사
+    # 게이트 off 로 입력칸이 없을 때는 지금 값을 승계한다(통째 교체 규약의 함정)
+    assert "scEl0 ? scEl0.value" in html
+    # 스타일은 style 단계 — 편집실 재렌더로는 다시 안 뜬다는 것을 화면이 말해야 한다
+    assert "다음 생성부터 적용됩니다" in html
+
+
+def test_style_summary_lands_on_review_card():
+    """검수자가 '왜 이 스티커가 떴는지'를 카드에서 본다 — run_log steps 의 style 요약."""
+    import inspect
+    from ves.adapters import brain
+    src = inspect.getsource(brain)
+    assert "def _run_log_style" in src and "def _load_run_log" in src
+    # 부가 정보라 실패가 검수 등록을 막지 않는다(8/20 사고 규율) — try 블록 안에 있어야 한다
+    post = inspect.getsource(brain.Evaluate.post_success)
+    assert 'extra["style"] = st' in post
+    # 지침 칩과 같은 로더를 쓴다(파일 찾는 규칙이 두 벌이면 언젠가 어긋난다)
+    ed = inspect.getsource(brain._run_log_editorial)
+    assert "_load_run_log(cfg, p)" in ed
