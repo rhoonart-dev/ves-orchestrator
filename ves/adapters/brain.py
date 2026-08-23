@@ -224,6 +224,18 @@ class Publish:
         if p.get("episode") is not None:
             # 설명란 '<작품명> N화' 줄 — 없으면 스크립트가 '회차 미상' 경고(8/11 실측)
             argv += ["--episode", str(p["episode"])]
+        # 현지화판 메타(2026-08-23) — JP 카드에서만 채워진다(approve_and_publish 가
+        # localization_qa 카드 payload 에서 옮겨 담는다). 없으면 종전과 완전히 동일:
+        # brain 이 clip_metadata 의 **한국어** top_title 과 한국어 작품명으로 조립한다.
+        # 그것이 일본어 채널(ショトコン)에 한국어 제목·해시태그가 그대로 올라가던 원인이다
+        # (실측 clip 606a7e5c: title '몸만 오면 된다더니 …', #혜미리예채파).
+        if p.get("publish_title"):
+            argv += ["--title", str(p["publish_title"])]
+        if p.get("publish_description"):
+            argv += ["--description", str(p["publish_description"])]
+        tags = [str(t).strip() for t in (p.get("publish_tags") or []) if str(t).strip()]
+        if tags:
+            argv += ["--hashtags", *tags]
         if p.get("publish_at"):
             argv += ["--publish-at", p["publish_at"]]   # TODO(Phase 2): 스크립트에 추가 필요
         return argv

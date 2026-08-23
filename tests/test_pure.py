@@ -4014,3 +4014,135 @@ def test_dashboard_editor_texts_wired():
     assert 'else if (t === "txt") edTxtDel(i);' in html  # Delete 키
     py = pathlib.Path("ves/adapters/brain.py").read_text(encoding="utf-8")
     assert '"texts": pay.get("texts") or 0' in py
+
+
+# ───────── 편집실 JP 재렌더 · 현지화판 발행 (0075 · 2026-08-23) ─────────
+# 실사고 정본은 0075 머리말. 요약: SHOTCONE 편집실에서 화면비·한국어 자막을 고쳐도
+# 일본어 완성본이 그대로였고(재번역 캐시·백업 고정·디자인 소실), 발행은 일본어 채널에
+# 한국어 제목·해시태그를 올렸다.
+
+class _CfgStub:
+    """engine_py/_scripts 가 읽는 것은 home 뿐 — 파일 접근은 없다(video_path 를 준다)."""
+    home = "/opt/ves"
+
+
+def _ko_backup(tmp_path, files):
+    run = tmp_path / "작품_abc123"
+    (run / "localize_backup_ko").mkdir(parents=True)
+    for name, body in files.items():
+        (run / "localize_backup_ko" / name).write_text(body, encoding="utf-8")
+    return run
+
+
+def test_ko_restore_names_only_what_backup_has():
+    """백업에 있는 것만 되돌린다 — work_title.txt 는 언어 무관이라 목록 밖."""
+    from ves.adapters.aivideo import ko_restore_names
+    assert ko_restore_names(["title.txt", "edit_plan.json", "work_title.txt", "잡것"]) == \
+        ["edit_plan.json", "title.txt"]
+    assert ko_restore_names([]) == []
+    assert ko_restore_names(None) == []
+
+
+def test_ko_restore_audio_skips_paths_outside_run_dir(tmp_path):
+    """낡은 체크포인트가 남의 디렉토리를 가리키면 조용히 그 파일을 덮어쓰게 된다 — 제외."""
+    from ves.adapters.aivideo import ko_restore_audio
+    run = str(tmp_path / "run")
+    res = {"tts_cue_files": [
+        {"path": f"{run}/tts_0.mp3"},          # 안쪽 — 대상
+        {"path": "/etc/tts_1.mp3"},            # 바깥 — 제외
+        {"path": f"{run}/../tts_2.mp3"},       # 탈출 — 제외
+        {"path": f"{run}/tts_9.mp3"},          # 백업에 없음 — 제외
+        {},                                     # path 없음
+    ]}
+    got = ko_restore_audio(res, run, ["tts_0.mp3", "tts_1.mp3", "tts_2.mp3"])
+    assert got == [("tts_0.mp3", f"{run}/tts_0.mp3")]
+
+
+def test_restore_ko_baseline_puts_korean_back(tmp_path):
+    """현지화가 덮어쓴 run_dir 을 한국어로 되돌린다 — 안 되돌리면 '한국어 원본' 재렌더가
+    일본어 제목으로 그려지고, 편집실도 일본어를 원문이라며 보여준다."""
+    from ves.adapters.aivideo import restore_ko_baseline
+    run = _ko_backup(tmp_path, {
+        "title.txt": "몸만 오면 된다더니",
+        "subtitle_segments.json": '[{"text": "너무 예뻐요"}]',
+        "checkpoint_resources.json": json.dumps(
+            {"tts_cue_files": [{"path": str(tmp_path / "작품_abc123" / "tts_0.mp3")}]}),
+    })
+    (run / "localize_backup_ko" / "tts_0.mp3").write_bytes(b"KO-AUDIO")
+    # 현지화가 덮어쓴 상태
+    (run / "title.txt").write_text("手ぶらでOK", encoding="utf-8")
+    (run / "subtitle_segments.json").write_text('[{"text": "すごくきれい"}]', encoding="utf-8")
+    (run / "checkpoint_resources.json").write_text("{}", encoding="utf-8")
+    (run / "tts_0.mp3").write_bytes(b"JA-AUDIO")
+
+    restored = restore_ko_baseline(str(run))
+    assert (run / "title.txt").read_text(encoding="utf-8") == "몸만 오면 된다더니"
+    assert "너무 예뻐요" in (run / "subtitle_segments.json").read_text(encoding="utf-8")
+    assert (run / "tts_0.mp3").read_bytes() == b"KO-AUDIO"      # 내레이션도 한국어로
+    assert "tts_0.mp3" in restored
+
+
+def test_restore_ko_baseline_is_noop_for_kr_channels(tmp_path):
+    """백업 디렉토리가 없는 한국어 채널은 통째로 무동작 — 회귀 0."""
+    from ves.adapters.aivideo import restore_ko_baseline
+    run = tmp_path / "run"; run.mkdir()
+    (run / "title.txt").write_text("그대로", encoding="utf-8")
+    assert restore_ko_baseline(str(run)) == []
+    assert (run / "title.txt").read_text(encoding="utf-8") == "그대로"
+
+
+def test_scene_rerender_argv_rebuild():
+    """--rebuild 는 편집 재렌더에서만 — 켜면 vlp 가 백업·번역 캐시를 갱신하고 재번역한다."""
+    from ves.adapters.localize import scene_rerender_argv
+    assert scene_rerender_argv("/py", "/eng", "/job") == \
+        ["/py", "/eng/scripts/localize_run.py", "--job-dir", "/job"]      # 종전 그대로
+    assert scene_rerender_argv("/py", "/eng", "/job", rebuild=True)[-1] == "--rebuild"
+    both = scene_rerender_argv("/py", "/eng", "/job", "/job/ov.json", rebuild=True)
+    assert both[-3:] == ["--overrides", "/job/ov.json", "--rebuild"]
+
+
+def test_publish_argv_carries_localized_metadata():
+    """일본어 채널 발행 — 없으면 brain 이 clip_metadata 의 **한국어** 제목으로 조립한다."""
+    from ves.adapters.brain import Publish
+
+    class _Cfg:
+        pass
+
+    job = {"params": {"clip_id": "c1", "channel_name": "ショトコン", "privacy": "private",
+                      "video_path": "/v.mp4", "episode": 1,
+                      "publish_title": "手ぶらでOKと言われたのに…",
+                      "publish_description": "何でも揃っていると…\n\n채널 ENA에서 시청 가능",
+                      "publish_tags": ["ヘミリイェチェパ", " ", "韓国バラエティ"]}}
+    argv = Publish.build_argv(_CfgStub(), job)
+    assert argv[argv.index("--title") + 1] == "手ぶらでOKと言われたのに…"
+    assert "何でも揃っていると…" in argv[argv.index("--description") + 1]
+    # 빈 태그는 걸러진다(brain hashtag_body 가 빈 해시태그를 만들지 않게)
+    assert argv[argv.index("--hashtags") + 1:] == ["ヘミリイェチェパ", "韓国バラエティ"]
+
+
+def test_publish_argv_unchanged_for_korean_channels():
+    """한국어 카드는 이 키들이 없다 — 명령이 종전과 완전히 같아야 한다(회귀 0)."""
+    from ves.adapters.brain import Publish
+    job = {"params": {"clip_id": "c1", "channel_name": "한입주막", "privacy": "unlisted",
+                      "video_path": "/v.mp4", "episode": 3}}
+    argv = Publish.build_argv(_CfgStub(), job)
+    for flag in ("--title", "--description", "--hashtags"):
+        assert flag not in argv
+
+
+def test_0075_localized_publish_meta_and_patches():
+    """0075 — 발행 메타 조각 + 두 RPC 텍스트 패치의 계약."""
+    sql = _mig("0075_editor_jp_rebuild_and_localized_publish.sql")
+    # ① payload → params 조각. 빈 값은 아예 키를 안 만든다(brain 이 종전 조립으로 떨어지게)
+    assert "CREATE OR REPLACE FUNCTION public._localized_publish_meta" in sql
+    assert "jsonb_strip_nulls" in sql
+    for k in ("'publish_title'", "'publish_description'", "'publish_tags'"):
+        assert k in sql
+    # ② publish 잡 params 병합
+    assert "|| public._localized_publish_meta(v_rq.payload)" in sql
+    # ③ JP localize 잡 rebuild 신호
+    assert "''rebuild'', true" in sql
+    # 조각을 못 찾으면 조용히 통과하면 안 된다 — 즉시 실패 + 사후 검증
+    assert sql.count("RAISE EXCEPTION") >= 4
+    assert "0075 검증 실패" in sql
+    assert "('orchestrator','0075'" in sql
