@@ -164,6 +164,24 @@ E13 은 발주한 두 가지를 실제로 고쳤다 — **표기는 5/5 로 닫�
 
 ## 권고
 
+### 실제 적용 (2026-08-23)
+
+`ops_config.channel_transcribe = on`. 첫 전환 채널은 **HANIPJUMAK(한 입 주막 · 가왕쇼)** —
+`channel_design_overrides.design.transcribe_backend = 'elevenlabs'`. 배경음악 구간에서 내장
+whisper 가 38.54초 cue 를 내고 우승자 이름을 뭉개는 것이 이 채널 소스에서 실측됐다.
+
+주의 둘:
+
+- **다음 생성부터 적용된다.** 전사는 생성 초반 단계라 편집실 재렌더(from_step=resources|render)
+  에는 반영되지 않는다 — 0072 가 이 키를 편집실이 아니라 채널에 둔 이유가 그것이다.
+- 채널 오버라이드는 **통째 교체**(`effective_design`)라 기존 레이아웃 키 13개를 그대로 두고
+  키 하나만 더했다. 어댑터가 이 design 으로 `--transcribe-backend elevenlabs` 를 포함한
+  13쌍 플래그를 예외 없이 만드는 것까지 확인했다.
+
+첫 편 완성본에서 **자막 줄 길이**를 확인할 것 — ⑤ 에서 보류한 그 항목이다.
+
+---
+
 `channel_transcribe = on` 은 **선택칸을 화면에 띄울 뿐** 어느 채널도 바꾸지 않는다 —
 채널 템플릿의 `transcribe_backend` 는 손대기 전까지 `default` 다. 그래서 게이트 자체는
 켜도 안전하고, 실제 전환은 **배경음악이 많은 채널 한 곳부터** 한다. whisper 손실이
