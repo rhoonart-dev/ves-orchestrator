@@ -144,9 +144,9 @@ ai-video 는 엔진 레포에 런타임 상태를 쓰지 않으므로 **job 디�
 | 순수 로직 회귀 0 | ✅ 기계 대조 전 항목 동일 (§2) |
 | 단위 테스트 | ✅ vlp 것 이식 40건 · 전체 768 passed |
 | 어댑터 무변경(운영 무영향) | ✅ vlp 를 계속 부른다 |
-| **실런 회귀 0 (혜미리예채파 5편)** | ⏳ **노드에서** — 아래 |
+| **실런 회귀 0** | ✅ **1편 통과** (mm-05, 아래 §7) · 나머지 4편은 선택 |
 
-### P2 전에 사람이 할 일
+### (완료) P2 전에 사람이 할 일
 
 노드에서 최근 혜미리예채파 job 하나를 골라 **구·신 엔진을 나란히** 돌린다:
 
@@ -164,3 +164,69 @@ JOB=/path/to/outputs/<job_id>
 
 `판정: 회귀 0` 이 나오면 P2(어댑터 컷오버)로 갑니다. 이때 §4-① 대로
 `localize_ja/onscreen_refined.json` 도 함께 보시면 Flash 모델 교체의 영향까지 잡힙니다.
+
+
+---
+
+## 7. 실런 대조 결과 — mm-05 · 혜미리예채파_7e42b761 (2026-08-23)
+
+job 사본(`/tmp/abtest/…`)에 vlp 산출을 스냅샷으로 떠 두고, **같은 job 을 ai-video
+엔진으로 끝까지 돌린 뒤** 대조했다. 번역 캐시(`translation.json`·`onscreen*.json`)가
+있어 LLM 은 다시 돌지 않았다 — 설계대로 **렌더·데이터 계층만** 비교된다(§8-2).
+
+실행: L3 자막 13건·텔롭 11건 → L3t TTS 3 cue 재합성 → **L4 재렌더 11초 + 텔롭 번인**
+→ L5. 재현 플래그 `--silence-profile conservative --loudness-lufs -14`.
+
+| 항목 | 결과 |
+|---|---|
+| `render:shorts.mp4` | **길이 57.900s → 57.900s (Δ0.000s) · 샘플 프레임 12/12 일치** |
+| `data:subtitle_segments.json` | 동일 |
+| `data:edit_plan.json` · `checkpoint_story.json` | 동일 |
+| `data:checkpoint_resources.json` | 동일 |
+| `meta` (제목·설명) | 동일 |
+| `backup` | 9개 → 9개 |
+
+**판정: 회귀 0.**
+
+- 프레임 일치가 핵심이다 — 재렌더 **+ 텔롭 번인(x264 재인코딩)** 까지 거치고도 픽셀이
+  같다. L4 의 컷 재현(§같은 gen_flags)이 실제로 성립한다는 뜻이다.
+- `checkpoint_resources.json` 이 동일한 것은 예상 밖의 좋은 소식이다. edge-tts 재합성이
+  비결정적이면 `fit_actual_sec` 이 흔들릴 것으로 봤는데, 같은 입력에 같은 길이가 나왔다.
+
+### 7-1. 아직 검증되지 않은 것 — L2b(Flash 모델)
+
+이번 실런은 `onscreen_refined.json` 캐시를 썼으므로 **§4-① 의 Flash 모델 교체는
+경로를 타지 않았다.** 텔롭 타이밍 판독 품질은 여전히 미검증이다.
+
+확인하려면 캐시를 지우고 한 번 더 돌려 `onscreen_refined.json` 을 대조한다:
+
+```zsh
+cp $DST/localize_ja/onscreen_refined.json /tmp/refined_vlp.json
+rm $DST/localize_ja/onscreen_refined.json
+$PY -m app.cli localize --job-dir $DST --locale ja --skip-render
+diff <(python3 -m json.tool /tmp/refined_vlp.json) \
+     <(python3 -m json.tool $DST/localize_ja/onscreen_refined.json)
+```
+
+프레임 판독은 LLM 판단이라 **완전 일치를 기대하지 않는다.** 텔롭 개수가 유지되고
+구간이 ±1.5초(프레임 간격) 안이면 합격으로 본다. P2 컷오버를 막지는 않되,
+**결과를 보고 나서 켜는 것**이 안전하다.
+
+## 8. 실런이 드러낸 버그 4건 (전부 이번에 수정)
+
+기계 대조(§2)로는 못 잡고 **실제로 돌려야만** 나오는 것들이었다.
+
+| # | 증상 | 원인 | 성격 |
+|---|---|---|---|
+| 1 | `GEMINI_API_KEY 없음` (키가 있는 노드에서) | `spec.gemini_client` 가 ai-video 규약(레포 `.env`)을 안 봤다 — vlp 는 brain `.env` 만 폴백한다 | **이식 누락** |
+| 2 | `AttributeError: 'str' object has no attribute 'get'` | `localize_ab.pair_diff` 가 `ko_ja_pairs` 를 리스트로 가정. 실제는 dict | **도구 버그** |
+| 3 | `PermissionError: Operation not permitted` (폰트) | `_provision_fonts` 의 `copy2` 가 macOS 시스템 폰트의 SIP 플래그를 `chflags` 로 옮기려다 거부됨 | **원본에도 있던 잠복 버그** |
+| 4 | 아무것도 안 돌았는데 `판정: 회귀 0` (2회) | A/B 도구에 실행 증거 검사가 없었고, 넣은 뒤에도 `state.json`(L0 직후 기록)에 속았다 | **도구 버그 — 가장 위험** |
+
+**3번은 이관과 무관하게 남는 문제다.** 운영 노드는 폰트가 이미 `assets/`(untracked)에
+있어 이 경로를 안 타므로 여태 안 드러났다 — **새 노드 증설 때 그대로 만난다.**
+부트스트랩이 일본어 폰트를 깔지 않는다면 별건으로 처리해야 한다.
+
+**4번이 가장 위험했다.** 대조 도구가 거짓 합격을 내면 그 뒤 모든 판단이 무의미해진다.
+지금은 오케스트레이터가 성공 판정에 쓰는 것과 **같은 파일**(`localize_*/metadata.json`)의
+갱신만 증거로 인정한다.
