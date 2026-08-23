@@ -9,6 +9,7 @@ orchestrator 자신의 갱신은 pull 후 exit(42) — launchd KeepAlive 가 새
 """
 from __future__ import annotations
 
+import os
 import pathlib
 import re
 import subprocess
@@ -71,12 +72,19 @@ def check_and_update(cfg, conn) -> None:
         print(f"[updater] {eng}: {cur[:7]} → {target[:7]} 갱신 시작")
         _set_node(conn, cfg.node_id, status="draining", updating=True)
         try:
-            if not _update_engine(cfg, conn, eng, path, cur, target):
-                _set_node(conn, cfg.node_id, status="disabled", updating=False)
-                _alert(conn, cfg, f"{eng} 업데이트 실패 — 노드 disabled, 이전 sha 유지")
-                return
+            ok = _update_engine(cfg, conn, eng, path, cur, target)
+        except Exception as e:  # noqa: BLE001
+            # 예상 못 한 예외로 여기를 빠져나가면 노드가 draining+updating_since 로 남고,
+            # 다음 주기에 _reactivate_if_self_drained 가 **검증 안 된 venv 그대로 active** 로
+            # 되살린다(P0 진단 ③). 실패와 똑같이 처리해 그 경로를 막는다.
+            ok = False
+            print(f"[updater] {eng} 갱신 중 예외: {type(e).__name__} {e}")
         finally:
             _report_versions(cfg, conn)
+        if not ok:
+            _set_node(conn, cfg.node_id, status="disabled", updating=False)
+            _alert(conn, cfg, f"{eng} 업데이트 실패 — 노드 disabled, 이전 sha 유지")
+            return
         if eng == "orchestrator":
             print("[updater] 오케스트레이터 자기 갱신 — 재기동을 위해 종료(launchd KeepAlive)")
             sys.exit(SELF_UPDATE_EXIT)
@@ -100,14 +108,28 @@ def _update_engine(cfg, conn, eng, path, prev_sha, target) -> bool:
             return True  # 보수적: 지연이지 실패가 아니다
     if _git(path, "checkout", "--quiet", target).returncode != 0:
         return False
+    # pip install 은 원자적이지 않다 — 실패하면 venv 에 새 패키지가 일부 남는다.
+    # 코드만 되돌리면 '옛 코드 + 새 패키지' 라는 아무도 검증한 적 없는 조합이 된다.
+    # 그래서 두 경로(pip 실패·smoke 실패) 모두 **코드 롤백 + 이전 requirements 재설치**로
+    # 맞춘다. 복원까지 실패하면 그 사실을 따로 알린다 — 사람이 손대야 하는 상태다.
     if not _pip_sync(cfg, eng, path):
-        _git(path, "checkout", "--quiet", prev_sha)  # 롤백
+        _rollback(cfg, conn, eng, path, prev_sha, "pip sync 실패")
         return False
     if not _smoke(cfg, eng, path):
-        _git(path, "checkout", "--quiet", prev_sha)
-        _pip_sync(cfg, eng, path)  # 이전 requirements 로 복원 시도
+        _rollback(cfg, conn, eng, path, prev_sha, "smoke 실패")
         return False
     return True
+
+
+def _rollback(cfg, conn, eng, path, prev_sha, why: str) -> None:
+    """이전 sha 로 코드를 되돌리고 그 sha 의 requirements 로 venv 를 복원한다."""
+    if _git(path, "checkout", "--quiet", prev_sha).returncode != 0:
+        _alert(conn, cfg, f"{eng} {why} 후 코드 롤백 실패 — 수동 복구 필요(sha {prev_sha[:7]})")
+        return
+    if not _pip_sync(cfg, eng, path):
+        _alert(conn, cfg,
+               f"{eng} {why} 후 venv 복원 실패 — 부분 설치 상태일 수 있습니다. "
+               f"수동 복구 필요: {path}/.venv 재생성 후 requirements 재설치")
 
 
 def _required_migrations_at(path, sha, eng) -> list:
@@ -122,15 +144,25 @@ def _applied(conn, eng) -> list:
         return [r["version"] for r in c.fetchall()]
 
 
+# pip 설치 상한(초). 첫 설치가 이 시간을 넘기면 **실패로 처리**한다 —
+# 종전엔 TimeoutExpired 가 예외로 새어 나가 노드가 '부분 설치된 venv + 새 코드'로
+# 되살아났다(P0 진단 ③). 무거운 의존(torch·paddlepaddle)이 본체 requirements 로
+# 들어오면 첫 설치가 길어지므로 env 로 올릴 수 있게 뺀다.
+PIP_TIMEOUT_SEC = int(os.environ.get("VES_PIP_TIMEOUT_SEC") or 3600)
+
+
 def _pip_sync(cfg, eng, path) -> bool:
+    """requirements 설치. 성공만 True — 타임아웃도 실패다(예외로 새지 않는다)."""
     req = pathlib.Path(path) / "requirements.txt"
     if not req.exists():
         return True
     py = cfgmod.engine_py(cfg, eng) if eng != "orchestrator" else f"{path}/.venv/bin/python"
-    # 1800초(8/14): demucs 가 vlp requirements 로 들어오며 torch 첫 설치가 600초를
-    # 넘길 수 있다 — 타임아웃이 터지면 갱신 실패→노드 disabled 로 번진다.
-    r = subprocess.run([py, "-m", "pip", "install", "-q", "-r", str(req)],
-                       capture_output=True, text=True, timeout=1800)
+    try:
+        r = subprocess.run([py, "-m", "pip", "install", "-q", "-r", str(req)],
+                           capture_output=True, text=True, timeout=PIP_TIMEOUT_SEC)
+    except subprocess.TimeoutExpired:
+        print(f"[updater] pip sync 타임아웃({PIP_TIMEOUT_SEC}s) — {eng}: 실패로 처리")
+        return False
     if r.returncode != 0:
         print(f"[updater] pip sync 실패: {r.stderr[-400:]}")
     return r.returncode == 0
