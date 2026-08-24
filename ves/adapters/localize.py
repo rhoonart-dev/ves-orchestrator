@@ -41,6 +41,45 @@ def scene_rerender_argv(ai_py: str, engine: str, job_dir: str,
     return argv
 
 
+# ───────── 현지화 로그 마커 (2026-08-24) ─────────
+# stdout_tail(마지막 300자)만 남기면 관제에서 판정할 수 없는 것들이 있다. 실측: 배포 후
+# 첫 JP localize 가 성공했는데도 '재번역이 돌았는가'(--rebuild)·'디자인이 복원됐는가'를
+# 확인할 방법이 없었다 — 그 줄들은 로그 중간에 있어 꼬리에서 잘려 나간다. 판정에 쓰는
+# 단계 표시 줄만 추려 job_queue.result 에 함께 올린다.
+#
+# [L3]·[L3t]·[L5] 는 뺀다 — cue 마다 한 줄씩 나와 길고, 판정에 안 쓴다.
+LOCALIZE_MARKER_PREFIXES = ("[rebuild]", "[L0]", "[L1]", "[L2]", "[L4]")
+LOCALIZE_MARKER_MAX_LINES = 20
+LOCALIZE_MARKER_MAX_CHARS = 4000
+LOCALIZE_MARKER_LINE_CHARS = 400   # '[L4] 재렌더: <전체 명령>' 이 길다 — 그게 제일 중요하다
+
+
+def localize_markers(stdout, prefixes=LOCALIZE_MARKER_PREFIXES) -> list:
+    """현지화 로그에서 판정용 단계 표시 줄만 추린다. 순수 — 테스트 대상.
+
+    남기는 것과 그것으로 답하는 질문:
+      · '[rebuild] 캐시 폐기' · '[L0] 백업 갱신(rebuild)'  → 편집 재렌더가 원본을 새로 떴는가
+      · '[L1] 기존 번역 결과 사용' vs '[L1] {n}s — segments' → 재번역이 실제로 돌았는가
+      · '[L4] 디자인 복원(…)' vs '[L4] ⚠️ design_cli 가 없다' → 화면비·제목 스타일이 살아왔는가
+      · '[L4] 재렌더: <명령>'                                → 실제로 어떤 --design-* 로 그렸는가
+      · '[L4] 편집실 겹치기 승계'                            → 이미지·텍스트가 승계됐는가
+
+    상한 셋(줄 수·총 길이·줄 길이)은 result jsonb 가 비대해지지 않게 하는 안전장치다."""
+    out, used = [], 0
+    for raw in (stdout or "").splitlines():
+        line = raw.strip()
+        if not line.startswith(tuple(prefixes)):
+            continue
+        line = line[:LOCALIZE_MARKER_LINE_CHARS]
+        if used + len(line) > LOCALIZE_MARKER_MAX_CHARS:
+            break
+        out.append(line)
+        used += len(line)
+        if len(out) >= LOCALIZE_MARKER_MAX_LINES:
+            break
+    return out
+
+
 def localize_argv(py: str, video: str, video_id: str, params: dict) -> list:
     """process_video 호출 argv. 순수 — 테스트 대상."""
     p = params or {}
@@ -296,7 +335,11 @@ def _run_scene_rerender(cfg, conn, job, deps):
                        capture_output=True, text=True, timeout=3600 * 2)
     meta_path = pathlib.Path(run_dir) / "localize_ja" / "metadata.json"
     if r.returncode != 0 or not meta_path.exists():
-        msg = (r.stderr or r.stdout or "")[-600:]
+        # 마커를 앞에 붙인다 — 어느 단계까지 갔는지가 꼬리 600자보다 먼저 필요하다.
+        # 분류(classify_by_patterns)는 원본 stdout/stderr 로 그대로 한다.
+        marks = localize_markers(r.stdout)
+        msg = ((" · ".join(marks) + "\n---\n") if marks else "") + \
+            (r.stderr or r.stdout or "")[-600:]
         cls = base.classify_by_patterns(r.stderr or "", r.stdout or "")
         if cls == "permanent":
             raise base.PermanentError(msg)
@@ -334,6 +377,8 @@ def _run_scene_rerender(cfg, conn, job, deps):
                             "note": "\n".join(meta.get("notes") or [])[:300]})
     return {"run_id": run_id, "localized_key": out_key, "mode": "scene_rerender",
             "youtube_title": meta.get("youtube_title"),
+            # 판정용 단계 표시 — stdout_tail 로는 안 보이는 것들(localize_markers 머리말)
+            "markers": localize_markers(r.stdout),
             "stdout_tail": (r.stdout or "")[-300:]}
 
 
