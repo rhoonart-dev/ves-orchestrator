@@ -41,7 +41,9 @@ AS $function$
          WHERE e.channel_slug = p_channel
            AND e.kind = coalesce(p_kind, 'short')
            AND CASE coalesce(p_filter,'all')
-                 WHEN 'available' THEN e.state = 'discovered' AND e.dup_of IS NULL
+                 -- 'scored'(오늘의 추천)도 고를 수 있는 편이다 — 빼면 추천이
+                 -- '고를 수 있는' 목록에서 사라져 두 탭이 서로를 부정한다.
+                 WHEN 'available' THEN e.state IN ('discovered','scored') AND e.dup_of IS NULL
                                        AND e.youtube_id IS NULL
                                        AND (e.block_reason IS NULL OR e.allowed_by IS NOT NULL)
                  WHEN 'blocked'   THEN e.block_reason IS NOT NULL AND e.allowed_by IS NULL

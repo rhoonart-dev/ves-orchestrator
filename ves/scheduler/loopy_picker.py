@@ -300,19 +300,27 @@ def recent_published_dates(conn, slug: str, limit: int = 30) -> list:
         return [r["published_at"] for r in c.fetchall()]
 
 
-def write_results(conn, picked: list, blocked: list) -> None:
+def write_results(conn, scored: list, blocked: list, top_n: int = 5) -> None:
     """판정을 아카이브에 기록. **상태는 scored 까지만** 올린다.
 
     🛑 selected 이상으로 올리지 않는다 — 작업을 거는 것은 발행 경로(사람 승인)의
-    몫이고, 선별기가 상태를 밀면 승인 전에 체인이 돈다(§5-6 자동화 수준 표)."""
+    몫이고, 선별기가 상태를 밀면 승인 전에 체인이 돈다(§5-6 자동화 수준 표).
+
+    ⚠ 점수는 **막히지 않은 편 전부**에 쓰고, 상태를 scored 로 올리는 것은 상위
+    top_n 뿐이다. 상위만 점수를 가지면 대시보드 '점수순'이 top_n 개짜리 목록이 되어
+    아카이브를 훑는 쓸모가 없어진다(추천 = state, 점수 = 정렬 재료로 나눈다)."""
     with conn.cursor() as c:
-        for r in picked:
+        for i, r in enumerate(scored):
+            promote = i < top_n
             c.execute("""
                 UPDATE public.external_shorts
                    SET score = %s, scores = %s, block_reason = NULL,
-                       state = CASE WHEN state = 'discovered' THEN 'scored' ELSE state END
+                       state = CASE WHEN %s AND state = 'discovered' THEN 'scored'
+                                    WHEN NOT %s AND state = 'scored' THEN 'discovered'
+                                    ELSE state END
                  WHERE video_id = %s AND state IN ('discovered','scored')
-            """, (r["score"], json.dumps(r["scores"], ensure_ascii=False), r["video_id"]))
+            """, (r["score"], json.dumps(r["scores"], ensure_ascii=False),
+                  promote, promote, r["video_id"]))
         for r in blocked:
             # 사람이 이미 뒤집은 편(allowed_by)은 사유만 남기고 상태를 안 건드린다.
             c.execute("""
@@ -333,14 +341,17 @@ def run(conn, cfg):
         print(f"[loopy_picker] {slug} 후보 없음 — 아카이브가 비었거나 전부 진행 중")
         return
 
-    picked, blocked = rank(rows, denylist=denylist,
+    top_n = int(conf.get("top_n") or 5)
+    # top_n=len(rows) 로 부른다 — 점수는 전부 받아 쓰고(정렬 재료), 추천 표시는 상위만.
+    scored, blocked = rank(rows, denylist=denylist,
                            recent_published=recent_published_dates(conn, slug),
-                           top_n=int(conf.get("top_n") or 5))
-    write_results(conn, picked, blocked)
+                           top_n=len(rows))
+    write_results(conn, scored, blocked, top_n)
 
     top = ", ".join(f"{r.get('title') or r['video_id']}({r['score']:.3f})"
-                    for r in picked[:3])
-    print(f"[loopy_picker] {slug} 후보 {len(rows)}편 → 추천 {len(picked)} · 제외 {len(blocked)}"
+                    for r in scored[:3])
+    print(f"[loopy_picker] {slug} 후보 {len(rows)}편 → 점수 {len(scored)}"
+          f"(추천 {min(top_n, len(scored))}) · 제외 {len(blocked)}"
           f"{' · 상위 ' + top if top else ''}")
     if conf.get("automation") == "manual":
         return

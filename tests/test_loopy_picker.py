@@ -254,6 +254,25 @@ def test_write_results_only_touches_undecided_rows():
         assert "state IN ('discovered','scored')" in sql
 
 
+def test_every_clean_row_gets_a_score_but_only_top_n_is_promoted():
+    """점수는 정렬 재료(전량), 추천은 상태(상위). 상위만 점수를 가지면 '점수순'이
+    top_n 개짜리 목록이 되어 아카이브를 훑는 쓸모가 없다."""
+    rows = [{"video_id": f"v{i}", "score": 1.0 - i / 10, "scores": {}} for i in range(5)]
+    conn = _Conn()
+    loopy_picker.write_results(conn, rows, [], top_n=2)
+    assert len(conn.log) == 5                        # 전부 점수를 받는다
+    promote = [params[2] for _, params in conn.log]  # CASE WHEN %s …
+    assert promote == [True, True, False, False, False]
+
+
+def test_dropping_out_of_top_n_takes_the_recommendation_away():
+    """어제 추천이던 편이 오늘 밀리면 추천 표시가 걷혀야 한다 — 안 걷으면 추천이 쌓인다."""
+    conn = _Conn()
+    loopy_picker.write_results(conn, [{"video_id": "a", "score": 0.1, "scores": {}}], [], top_n=0)
+    sql, _ = conn.log[0]
+    assert "WHEN NOT %s AND state = 'scored' THEN 'discovered'" in sql
+
+
 def test_blocked_row_loses_its_score():
     """사유가 붙었는데 점수가 남아 있으면 추천 정렬에 다시 올라온다."""
     conn = _Conn()
