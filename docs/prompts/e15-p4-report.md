@@ -87,32 +87,54 @@ LOOPY 의 VES 활동      zanmang_decision 8건 (승인·업로드 결정만)
 
 ### 노드에서 재는 법 (mm-06)
 
+정본은 ai-video **`docs/overlay_ab_runbook.md`** 다.
+
+🛑 **이 보고서 초판에 적었던 명령은 틀렸다.** 두 가지가 잘못됐다:
+
+1. `localize_ab` 의 플래그는 `--job/--job2` 가 아니라 **`--a/--b`** 다.
+2. 애초에 **`localize_ab` 를 쓰면 안 된다** — rerender 전용이라 `shorts_ko.mp4`·
+   `localize_backup_ko/`·`metadata.json` 을 찾는데 overlay 산출에는 그 파일들이
+   **아예 없다.** 하나도 못 찾은 채 '차이 없음'을 내는 **거짓 합격**이 된다
+   (P1 노드 실측에서 두 번 당한 그 실패 모드다).
+
+그래서 overlay 전용 도구를 만들었다 — `scripts/overlay_ab.py`.
+
 ```zsh
-R=/opt/ves/engines
-AIV=$R/ai-video/.venv/bin/python
+R=/opt/ves/engines; AIV=$R/ai-video/.venv/bin/python
 cd $R/ai-video && git pull
 
-# ① 이식 대조 — vlp 가 그새 앞서갔는지부터 (P2b·E16 때 두 번 그랬다)
+# ① 이식이 vlp 를 따라잡고 있는지부터 (P2b·E16 때 두 번 앞서갔다)
 VLP_ROOT=$R/video-localization-project $AIV -m scripts.overlay_port_diff --verbose
+#   → '예상 밖 차이 0' 이 아니면 여기서 멈춘다
 
-# ② 같은 소재로 구·신 각각 (route B — 인페인팅까지, 더빙 없이 먼저)
-VID=<이미 처리한 video_id>
-SRC=<그 원본 mp4>
-cd $R/video-localization-project && .venv/bin/python -m src.process_video \
-    --video $SRC --video-id ${VID}_old --level B
-cd $R/ai-video && $AIV -m app.cli localize --mode overlay \
-    --video $SRC --video-id ${VID}_new --route B
+# ② 같은 소재로 신 엔진
+VID=<autopilot 이 이미 처리한 video_id>;  SRC=<그 원본 mp4>
+$AIV -m app.cli localize --mode overlay --video "$SRC" --video-id "${VID}_new" --route B
 
-# ③ 대조 — 프레임·자막·길이
-$AIV -m scripts.localize_ab --job $R/video-localization-project/outputs/${VID}_old \
-                            --job2 $R/ai-video/outputs/${VID}_new --diff
+# ③ 대조
+$AIV -m scripts.overlay_ab --a $R/video-localization-project/outputs/$VID \
+                           --b $R/ai-video/outputs/${VID}_new
 ```
 
-합격선(§8-3): **CER · 라우드니스(-16 LUFS) · 세그먼트 정렬**이 구본과 같아야 한다.
-route C 는 같은 `voice_id` 로 돌려 **목소리가 같은지**까지 본다.
+판정 항목(§8-3):
 
-⚠ ②에서 OCR 백엔드가 갈리면 대조가 무의미하다 — 양쪽 다 config 의 `paddleocr` 로
-돌았는지 로그에서 확인할 것.
+| 줄 | 판정 |
+|---|---|
+| 원문(OCR·탐지) | **회귀 대상** — 달라지면 번역보다 상류가 흔들린 것 |
+| 세그먼트 정렬 | **회귀 대상** — 어긋나면 자막이 딴 장면에 뜬다(허용 0.05s) |
+| 최종본 길이 · 라우드니스 | **회귀 대상**(허용 ±1.0 LUFS) |
+| 번역문 CER | 판정에서 뺀다 — LLM 비결정성. 크기만 본다 |
+
+⚠ `⚠ 못 쟀다` 가 뜨면 그 항목은 **판정에 안 들어간 것**이다(ffmpeg 이 비대화형 SSH 의
+PATH 에 없을 때). `FFMPEG_BIN`·`FFPROBE_BIN` 을 지정하고 다시 돌린다 — 라우드니스는
+판정 항목이라 빠지면 판정이 반쪽이다.
+
+⚠ **OCR 백엔드가 양쪽에서 같아야 한다**(config `detect.ocr_backend`, 기본 paddleocr).
+갈리면 대조가 무의미하다.
+
+route C(더빙)는 ②를 `--route C` 로 돌린 뒤 별도 실행이다 — 더빙은 overlay 파이프라인이
+부르지 않는다(검수 게이트 뒤 단계). `voice_id` 를 반드시 준다(안 주면 잔망루피 클론
+보이스로 떨어진다).
 
 ## 6. 남은 것
 
