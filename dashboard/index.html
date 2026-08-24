@@ -157,6 +157,14 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .chdot.run{background:var(--info)}
   .bdetail{grid-column:1/-1;background:var(--surface-2);border:1px solid var(--ring);
     border-radius:10px;padding:10px 12px}
+  /* 상세 머리줄의 '사용 회차'(8/24 결정) — 이 작업지시가 실제로 쓴 원본 회차다. 같은 카드
+     아래 '작업 실행' 문구의 자동 선택(= 다음에 만들 회차)과 다른 값이라 이름표로 가른다.
+     자리는 날짜 바로 뒤 — 오른쪽 끝에 두면 본문이 max-width:1220px 라 화면 크기와 무관하게
+     작품명에서 늘 1000px 가까이 떨어진다. */
+  .chep{font-size:10.5px;color:var(--muted);letter-spacing:.4px;font-weight:600;margin-left:4px}
+  .chepv{font-size:12px;font-weight:700;color:var(--ink);border:1px solid var(--line);
+    border-radius:999px;padding:1px 9px;background:var(--surface);
+    white-space:nowrap;margin-left:5px}
   .lg{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--muted);
       margin-right:11px}
   .lg .chdot{width:10px;height:10px}
@@ -894,6 +902,13 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
      회색을 고른 이유: 초록은 '합격', 파랑은 '편집된 영상' 배지가 이미 쓴다. */
   .warnbar.calm{border-color:var(--ring)}
   .warnbar.calm b{color:var(--ink-2);font-weight:600}
+  /* 8/23: 크레딧 소진 — 특히 예비 키까지 마르면 더 넘길 곳이 없다. 평상시 '예비 키로 도는
+     중'과 같은 주황에 두면 치명 상태가 일상 문구에 묻힌다(8/22 실측: 09:42 예비 전환 뒤
+     자정까지 아무도 못 알아챘고, 그 사이 스토리 구성이 429 를 먹고 조용히 폴백본을 만들어
+     세 채널이 반려·재생성을 반복했다). 분당 rate limit 과 달리 사람이 충전하기 전엔
+     기다려도 안 풀리므로 색을 올린다. */
+  .warnbar.crit{border-color:var(--crit)}
+  .warnbar.crit b{color:var(--crit)}
   /* v3.3: 홈 채널 카드 — 작업 실행 (0024 run_channel_now) */
   .runbar{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:9px;
     padding-top:9px;border-top:1px solid var(--line)}
@@ -1092,6 +1107,11 @@ const KIND_KO = { acquire:"소스 준비", generate:"영상 제작", upload_arti
   zanmang_autopilot:"잔망루피 자동화", zanmang_decision:"잔망루피 검수 반영",
   editor_assets:"편집실 준비", register_sources:"소스 등록" };
 const kindKo = k => KIND_KO[k] || k || "?";
+/* 회차 꼬리표 — 작품명 뒤에 흐리게 붙인다(검수함·피드와 같은 표기).
+   회차 없는 단편은 빈 문자열이라 아무것도 안 붙는다. 작업지시가 아직 안 실린
+   잡은 params.episode 로 받는다(planner 가 두 곳에 같은 값을 심는다). */
+const epTag = (...xs) => { const e = xs.find(v => v != null);
+  return e == null ? "" : ` <span class="sub">· ${esc(e)}회차</span>`; };
 /* v3: 채널 한글명 — channels_mirror 기준, 없으면 코드 그대로 */
 const chName = slug => { const c = (state.chans||[]).find(x => x.token_slug === slug);
   return (c && c.name) || slug || "?"; };
@@ -1429,9 +1449,13 @@ function homeAlerts(){
   if (bad) why.push(`합격했으나 발행 안 됨 ${bad}건`);
   // geminiBanner() 가 뜨는 조건과 같아야 한다 — 배너 없이 배지만 오르면 찾을 곳이 없다.
   const quota = (state.jobs||[]).filter(x => x.status === "pending" && x.error_class === "quota").length;
+  // 크레딧 소진은 pending 만이 아니라 running·failed 로도 서 있다(8/22 실측) — quota 카운트로는
+  // 새지 않아 배지가 0 이 될 수 있다. 배너가 뜨는 조건과 어긋나면 안 되므로 여기서 함께 센다.
+  const dead = creditDead().length;
   // 예비 키로 도는 중이라는 사실 자체가 '확인 필요 1건'. 막힌 잡이 있으면 그 건수로 센다.
-  const gem = (geminiSlot() === "fallback" || quota) ? Math.max(quota, 1) : 0;
-  if (gem) why.push(quota ? `Gemini 쿼터로 막힌 잡 ${quota}건` : "Gemini 예비 키로 도는 중");
+  const gem = (geminiSlot() === "fallback" || quota || dead) ? Math.max(quota, dead, 1) : 0;
+  if (gem) why.push(dead ? `Gemini 크레딧 소진으로 막힌 잡 ${dead}건`
+                         : quota ? `Gemini 쿼터로 막힌 잡 ${quota}건` : "Gemini 예비 키로 도는 중");
   // 재생성 상한에 걸려 멈춘 건 — 배너를 늘렸으니 배지도 같이 늘린다(위 주석의 규율).
   const stall = stalled().length;
   if (stall) why.push(`사람 판단 필요 ${stall}건`);
@@ -1754,7 +1778,8 @@ function renderHome(){
       const ch = wo.channel_slug ? chName(wo.channel_slug)
                : (x.params && x.params.channel_name) || "";
       const what = wo.work_title || (x.params && (x.params.work_title || x.params.folder_name)) || "";
-      return `<div class="what"><span class="st">${esc(kindKo(x.kind))}</span> · ${esc(what || "—")}
+      return `<div class="what"><span class="st">${esc(kindKo(x.kind))}</span> · ${esc(what || "—")}${
+        epTag(wo.episode, x.params && x.params.episode)}
         <div class="sub">${esc(ch || "")} · ${ago(x.updated_at)} 시작</div></div>`;
     }).join("") : `<div class="idle">${nd.status === "active" ? "쉬는 중 — 다음 일감 대기" : "작업 안 받음"}</div>`;
     return `<div class="now"><div class="hd"><b>${esc(nd.node_id)}</b>${chip(cls,ic,lb)}</div>${body}</div>`;
@@ -1871,7 +1896,22 @@ function chainHtml(wo, cx){
   const nowLine = cx
     ? `<div class="sub" style="margin-top:6px">그날 23:59 기준입니다 · 지금은 <b>${
         esc((GEN_DOT[woStatus(wo, cx.nowCx)] || GEN_DOT.none)[1])}</b></div>` : "";
-  return `<b>${esc(wo.work_title)}</b> <span class="sub">${chLinkHtml(wo.channel_slug)} · ${esc(kstDay(wo.created_at))}</span>
+  // 사용 회차 — 이 작업지시가 쓴 원본 회차. 이름표가 이미 단위를 말하므로 알약은 숫자만 든다
+  // ('사용 회차 2회차' 는 회차가 두 번이다). 회차 없는 단편은 통째로 안 그린다.
+  const epHtml = wo.episode == null ? ""
+    : `<span class="chep">사용 회차</span><span class="chepv">${esc(wo.episode)}</span>`;
+  // 검수 대기일 때만 붙이는 꼬리표: 검수함에는 지난 날 작업분이 함께 쌓여 있어 한 채널에도
+  // 회차가 여럿이다(채널당 3~13건·회차 최대 4종, 8/24 실측). 신호등이 가리키는 건 언제나
+  // 오늘 작업지시 한 건인데, 그 말을 안 하면 검수함을 열었을 때 어긋나 보인다.
+  const wait = (wo.episode == null || woStatus(wo, cx) !== "review") ? 0
+    : (cx ? cx.waiting : (state.reviews||[]).filter(r => r.status === "waiting"))
+        .filter(r => ((cx ? cx.wo : state.wo)[r.work_order_id] || {}).channel_slug === wo.channel_slug
+                  || r.channel_slug === wo.channel_slug).length;
+  // 1건이면 '그 중 오늘 것' 이 동어반복이다 — 여럿일 때만 말한다
+  const waitHtml = wait > 1
+    ? ` <span class="sub" title="이 채널의 검수 대기 카드 수 — 지난 날 작업분이 함께 들어 있습니다">· 검수함 ${wait}건 중 오늘 것</span>`
+    : "";
+  return `<b>${esc(wo.work_title)}</b> <span class="sub">${chLinkHtml(wo.channel_slug)} · ${esc(kstDay(wo.created_at))}</span>${epHtml}${waitHtml}
     <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">${
     js.map(x => { const [c,i,l] = JOB_ST[x.status]||["mut","?",x.status];
       return `<span class="chip st-${c}" title="${esc((x.error||"").slice(0,200))}">
@@ -1883,10 +1923,18 @@ function chainHtml(wo, cx){
 // 상한은 키가 아니라 계정에 걸리므로 예비 키는 다른 결제 계정 것이어야 한다.
 const geminiSlot = () => ((state.ops||{}).gemini_key||{}).value === "fallback"
                        ? "fallback" : "primary";
+// 크레딧 소진(8/23) — 같은 429 라도 '결제 잔액 0' 은 기다려서 풀리는 게 아니다. 분당
+// rate limit 은 재시도가 알아서 넘기지만 이건 사람이 충전할 때까지 영원히 막힌다. 문구를
+// 갈라야 하는 이유: 예비 키까지 이 상태면 자동 폴백이 갈 곳이 없다.
+// 끝난 잡(succeeded)은 제외한다 — 옛 시도의 error 원문이 그대로 남아 있어 다 센다.
+const CREDIT_RE = /prepayment credits are depleted/i;
+const creditDead = () => (state.jobs||[]).filter(j =>
+  CREDIT_RE.test(j.error || "") && j.status !== "succeeded" && j.status !== "cancelled");
 function geminiBanner(){
   const slot = geminiSlot();
   const stuck = (state.jobs||[]).filter(j => j.status === "pending" && j.error_class === "quota");
-  if (slot === "primary" && !stuck.length) return "";
+  const dead = creditDead();
+  if (slot === "primary" && !stuck.length && !dead.length) return "";
   const o = (state.ops||{}).gemini_key || {};
   const back = can("operator")
     ? `<button class="mini" onclick="rpc('set_gemini_key',{p_slot:'primary'},'주 키로 되돌렸습니다')"
@@ -1897,15 +1945,29 @@ function geminiBanner(){
   const stuckTxt = stuck.length
     ? ` · 쿼터로 대기 중인 잡 <b>${stuck.length}건</b>(${
         [...new Set(stuck.map(j => kindKo(j.kind)))].join(", ")})` : "";
-  const [title, note, act] = slot === "fallback"
+  // 크레딧이 마른 자원(GCP 프로젝트)을 이름으로 말한다 — 어디를 충전해야 하는지가
+  // 이 줄에서 바로 나와야 사람이 AI Studio 로 갈 수 있다.
+  const deadRes = [...new Set(dead.map(j => (j.params||{}).resource || "").filter(Boolean))]
+                    .map(r => r.replace(/^gemini:/, ""));
+  const deadTxt = dead.length
+    ? ` · 막힌 잡 <b>${dead.length}건</b>${deadRes.length ? ` (${esc(deadRes.join(", "))})` : ""}` : "";
+  const [title, note, act] = dead.length && slot === "fallback"
+    ? [`⚠ 예비 키까지 크레딧이 소진됐습니다 — 더 넘길 키가 없습니다`,
+       `선불 크레딧을 충전해야 생성이 재개됩니다(AI Studio 결제)${deadTxt}. 그때까지
+        재생성해도 스토리 구성이 429 를 먹고 폴백본만 나옵니다.`, back]
+    : dead.length
+    ? [`⚠ Gemini 크레딧이 소진됐습니다`,
+       `주 키로 도는 중${deadTxt}. 선불 크레딧을 충전하거나 예비 키로 넘기세요.`, go]
+    : slot === "fallback"
     ? [`⚠ Gemini 예비 키로 돌고 있습니다`,
        `${esc(o.note||"")} · ${ago(o.updated_at)}${stuckTxt}`, back]
     : [`⚠ Gemini 쿼터로 막힌 잡이 있습니다`,
        `주 키로 도는 중${stuckTxt}. 지출 상한이면 워커가 자동으로 예비 키로 넘깁니다
         — 급하면 지금 넘기세요(예비 키가 ves.env 에 있어야 합니다).`, go];
+  const cls = dead.length ? " crit" : "";
   // 막힌 잡이 없으면(예비 키로 도는 중이기만 하면) 펼칠 내용이 없다 — 종전대로 한 줄.
   if (!stuck.length)
-    return `<section class="card warnbar"><b>${title}</b><span class="sub">${note}</span>
+    return `<section class="card warnbar${cls}"><b>${title}</b><span class="sub">${note}</span>
       <span class="right"></span>${act}</section>`;
   // '잡이 있습니다'만 읽고는 무엇이 밀렸는지 알 수 없어 작업 내역 탭을 뒤져야 했다.
   // 어느 채널의 어느 작품이 언제부터 서 있는지 여기서 바로 편다(합격 후 미발행과 같은 방식).
@@ -1923,7 +1985,7 @@ function geminiBanner(){
         ? esc(at.toLocaleTimeString("ko-KR",{hour:"2-digit",minute:"2-digit"}))
         : '<span class="sub">즉시</span>'}</td></tr>`;
   }).join("");
-  return `<section class="card warnbar fold">
+  return `<section class="card warnbar fold${cls}">
     <details ${quotaOpen ? "open" : ""} ontoggle="quotaOpen=this.open">
       <summary><b>${title}</b><span class="sub">${note}</span></summary>
       <div class="body"><div class="tblwrap"><table>
@@ -9103,7 +9165,8 @@ function renderJobsTab(){
       return `<tr><td>${esc(kindKo(j.kind))}</td><td>${chip(cls,ic,lb)}</td>
         <td class="num">${j.attempt}/${j.max_attempts??3}</td>
         <td class="mono">${esc(j.node_id||"")}${pin?` <span class="sub" title="노드 고정">${esc(pin)}</span>`:""}</td>
-        <td>${esc(wo.work_title || (j.params && (j.params.work_title || j.params.folder_name)) || "")}
+        <td>${esc(wo.work_title || (j.params && (j.params.work_title || j.params.folder_name)) || "")}${
+          epTag(wo.episode, j.params && j.params.episode)}
           ${wo.channel_slug ? `<div class="sub">${esc(chName(wo.channel_slug))}</div>` : ""}</td>
         <td class="num" title="${esc(j.updated_at||"")}">${ago(j.updated_at)}</td>
         <td>${err}</td><td>${acts}</td></tr>`;
