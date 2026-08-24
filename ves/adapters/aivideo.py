@@ -77,6 +77,12 @@ CHANNEL_DESIGN_FLAGS = {
     # 채널 단위(다음 생성부터)다: 전사는 chunk_transcribe 단계라 편집실 재렌더
     # (from_step=resources|render)로는 다시 뜨지 않는다.
     "transcribe_backend": "--transcribe-backend",
+    # E17-2(ai-video, 2026-08-24, 사용자 요청): 소스에 **이미 박힌 원본 자막**을 피해 대사
+    # 자막을 위로 올린다. 'auto'(엔진 기본 — 켜짐) | 'off'(재지 않음, 종전 위치 그대로).
+    # ⚠ 이 키는 **끄는 쪽만 의미가 있다** — 엔진 기본이 auto 라 키를 안 보내도 회피가 돈다.
+    # 픽셀로 맞춰 승인된 채널(한 입 주막 계열)이 자막 위치를 지키려면 'off' 를 보낸다.
+    # 값 검증은 _subtitle_avoid_value(어댑터)·argparse choices(엔진) 두 층.
+    "subtitle_avoid_burned": "--design-subtitle-avoid-burned",
     "work_title_y": "--design-work-title-y",    # 작품명(하단) Y
     "work_font_size": "--design-work-font-size",
     "work_color": "--design-work-color",        # 작품명 색
@@ -127,6 +133,9 @@ def _switch_value(channel, key, v):
 # 자막 전사 백엔드 허용값 — 엔진 --transcribe-backend choices 와 1:1 미러.
 TRANSCRIBE_BACKENDS = ("default", "elevenlabs")
 
+# 원본 자막 회피 허용값 — 엔진 --design-subtitle-avoid-burned choices 와 1:1 미러.
+SUBTITLE_AVOID_MODES = ("auto", "off")
+
 
 def _transcribe_value(channel, v) -> str:
     """전사 백엔드 값 정규화 — 허용값 밖은 즉시 실패. 순수.
@@ -137,6 +146,19 @@ def _transcribe_value(channel, v) -> str:
     if sv not in TRANSCRIBE_BACKENDS:
         raise base.PermanentError(
             f"채널 '{channel}': transcribe_backend 는 {'/'.join(TRANSCRIBE_BACKENDS)} "
+            f"중 하나여야 합니다({v!r})")
+    return sv
+
+
+def _subtitle_avoid_value(channel, v) -> str:
+    """원본 자막 회피 값 정규화 — 허용값 밖은 즉시 실패. 순수.
+
+    _transcribe_value 와 같은 이유다(registry 원칙): 조용히 무시하면 'off' 를 쓴 줄 아는
+    채널이 회피가 켜진 채로 발행된다 — 사람이 픽셀로 맞춘 자막 위치가 그때 움직인다."""
+    sv = str(v or "").strip().lower()
+    if sv not in SUBTITLE_AVOID_MODES:
+        raise base.PermanentError(
+            f"채널 '{channel}': subtitle_avoid_burned 는 {'/'.join(SUBTITLE_AVOID_MODES)} "
             f"중 하나여야 합니다({v!r})")
     return sv
 
@@ -160,6 +182,8 @@ def channel_design_flags(design, channel) -> list:
                 f"허용: {sorted(CHANNEL_DESIGN_FLAGS) + sorted(CHANNEL_DESIGN_SWITCHES)}")
         if k == "transcribe_backend":
             v = _transcribe_value(channel, v)
+        if k == "subtitle_avoid_burned":
+            v = _subtitle_avoid_value(channel, v)
         flags += [flag, str(v)]
     return flags
 
@@ -181,6 +205,12 @@ def design_for_job(design, params):
     d = design or {}
     if d.get("style_compose") is not None and not (params or {}).get("style_compose_allowed"):
         d = {k: v for k, v in d.items() if k != "style_compose"}
+    # E17-2(8/24): `--design-subtitle-avoid-burned` 도 엔진에 새로 생긴 플래그라 같은 보호가
+    # 필요하다 — 구 엔진 노드는 모르는 플래그에 argparse 로 즉사한다. 게이트를 못 읽었으면
+    # 키를 걷는다: 엔진 기본이 'auto' 라 걷어도 회피는 돌고, 'off' 만 다음 배포로 미뤄진다.
+    if d.get("subtitle_avoid_burned") is not None and not (params or {}).get(
+            "subtitle_avoid_allowed"):
+        d = {k: v for k, v in d.items() if k != "subtitle_avoid_burned"}
     if subtitles_requested(params) and d.get("subtitles") is False:
         return {k: v for k, v in d.items() if k != "subtitles"}
     return d
@@ -217,6 +247,7 @@ def enrich_params(cfg, conn, job):
     design_for_job 이 이 값을 보고 키를 걷어낸다."""
     p = dict(job.get("params") or {})
     p["style_compose_allowed"] = base.ops_on(conn, "channel_style")
+    p["subtitle_avoid_allowed"] = base.ops_on(conn, "channel_subtitle_avoid")
     if not p.get("channel_slug"):
         return p
     with conn.cursor() as c:

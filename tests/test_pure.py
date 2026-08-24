@@ -4450,3 +4450,66 @@ def test_localize_markers_empty_input():
     assert localize_markers("") == []
     assert localize_markers(None) == []
     assert localize_markers("아무 마커도 없는 줄\n또 한 줄\n") == []
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# E17-2 원본 자막 회피 (2026-08-24) — 채널 design 키 subtitle_avoid_burned
+# ─────────────────────────────────────────────────────────────────────────
+def test_channel_subtitle_avoid_burned_flag():
+    """채널 design 키 하나가 --design-subtitle-subtitle 이 아니라
+    --design-subtitle-avoid-burned 로 나간다. 값은 auto|off 뿐이다.
+
+    ⚠ 다른 키와 반대로 **엔진 기본이 auto(켜짐)** 이다 — 이 키는 끄는 쪽만 의미가 있고,
+    조용히 무시되면 'off' 를 쓴 줄 아는 채널의 자막이 회피로 움직인다(사람이 실렌더
+    픽셀로 맞춘 위치가 그 채널의 승인 산출이다)."""
+    import pytest
+    from ves.adapters import base
+    from ves.adapters.aivideo import (
+        CHANNEL_DESIGN_FLAGS, SUBTITLE_AVOID_MODES, channel_design_flags)
+    assert CHANNEL_DESIGN_FLAGS["subtitle_avoid_burned"] == "--design-subtitle-avoid-burned"
+    assert SUBTITLE_AVOID_MODES == ("auto", "off")
+    assert channel_design_flags({"subtitle_avoid_burned": "off"}, "ch") \
+        == ["--design-subtitle-avoid-burned", "off"]
+    # 대소문자·공백은 관용(손 편집 템플릿), 허용값 밖은 즉시 실패
+    assert channel_design_flags({"subtitle_avoid_burned": " AUTO "}, "ch") \
+        == ["--design-subtitle-avoid-burned", "auto"]
+    for bad in ("on", "true", "", None, 1):
+        with pytest.raises(base.PermanentError):
+            channel_design_flags({"subtitle_avoid_burned": bad}, "ch")
+
+
+def test_subtitle_avoid_deploy_gate():
+    """새 CLI 플래그라 게이트 뒤에서만 나간다(style_compose 와 같은 보호).
+
+    게이트가 꺼져 있으면 키만 걷힌다 — 엔진 기본이 auto 라 회피는 그대로 돌고,
+    'off' 만 다음 배포로 미뤄진다."""
+    from ves.adapters.aivideo import channel_design_flags, design_for_job
+    d = {"subtitle_avoid_burned": "off", "title_size": 70}
+    assert design_for_job(d, {}) == {"title_size": 70}
+    assert design_for_job(d, {"subtitle_avoid_allowed": False}) == {"title_size": 70}
+    assert design_for_job(d, {"subtitle_avoid_allowed": True}) == d
+    assert channel_design_flags(design_for_job(d, {}), "ch") == ["--design-title-size", "70"]
+
+
+def test_0081_subtitle_avoid_key_allowed():
+    """RPC 화이트리스트도 같이 잇는다 — 0065 교훈(어댑터만 넣고 v_allowed 를 빠뜨려
+    저장이 거부됐다). 값 검증도 여기 한 층 더 있다."""
+    import pathlib
+    sql = pathlib.Path(
+        "ves/control/migrations/0081_channel_subtitle_avoid_burned.sql").read_text(encoding="utf-8")
+    assert "'subtitle_avoid_burned'];" in sql
+    assert "NOT IN ('auto','off')" in sql
+    # 게이트는 off 로 들어간다 — 전 노드 배포 확인 뒤 운영자가 켠다
+    assert "'channel_subtitle_avoid', 'off'" in sql
+    assert "'orchestrator','0081'" in sql
+
+
+def test_dashboard_subtitle_avoid_wired():
+    """화면·저장·차이보기·복사 네 곳이 함께 있어야 한다(전사 백엔드와 같은 배선)."""
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert "chSubAvoidOn" in html and "channel_subtitle_avoid" in html   # ops 게이트
+    assert "df_subtitle_avoid_burned" in html
+    assert "design.subtitle_avoid_burned = sa" in html                   # 저장
+    assert 'sa2.value = d.subtitle_avoid_burned || ""' in html           # 다른 채널에서 복사
+    assert "원본 자막 회피" in html                                        # 차이보기 라벨

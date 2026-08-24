@@ -8842,6 +8842,15 @@ const TRANSCRIBE_OPTIONS = [
 // (from_step=resources|render)로는 다시 뜨지 않는다 — **다음 생성부터** 적용된다.
 // ⚠ JP(현지화) 채널은 켜지 않는다 — 연출 텍스트가 한국어로 번인돼 vlp 가 못 지운다.
 const chStyleOn = () => (((state.ops||{}).channel_style||{}).value === "on");
+// E17-2 원본 자막 회피(2026-08-24) — 소스에 이미 박힌 자막을 피해 대사 자막을 올린다.
+// ⚠ 다른 설정과 반대로 **엔진 기본이 켜짐(auto)** 이라, 이 칸은 채널별로 **끄는** 통로다.
+// 게이트(ops_config channel_subtitle_avoid)는 엔진 --design-subtitle-avoid-burned 플래그가
+// 전 노드에 배포된 뒤 on 으로 연다(구 엔진은 모르는 CLI 플래그에 argparse 즉사).
+const chSubAvoidOn = () => (((state.ops||{}).channel_subtitle_avoid||{}).value === "on");
+const SUBTITLE_AVOID_OPTIONS = [
+  ["", "기본(자동 회피 — 원본 자막이 있으면 그 위로 올림)"],
+  ["off", "끔(자막 위치 고정 — 실렌더로 맞춘 채널)"],
+];
 const DESIGN_GROUPS = [
   ["제목", ["title_color","title_color2","title_font","title_size","title_y",
            "title_box","title_box_color","title_bold","title_box2","title_box_color2","title_bold2"]],
@@ -8951,6 +8960,10 @@ function chModalHtml(ch){
     ${chStyleOn() ? `<label title="스토리 구성이 끝난 뒤 AI 가 이 편의 연출(효과 텍스트·자막 강조·스티커·시간대별 제목·회전/배속·내레이션 톤)을 구성해 그대로 렌더합니다. 결과는 편집실에서 그대로 고칠 수 있고, 편집실이 고친 항목은 AI 것을 이깁니다. 스타일 구성은 생성 중반(style) 단계라 다음 생성부터 적용됩니다">스타일 구성<select id="df_style_compose">
         <option value="" ${d.style_compose===undefined?"selected":""}>기본(끔 — 연출 없이 종전 그대로)</option>
         <option value="true" ${d.style_compose===true?"selected":""}>켬(AI 연출 — --style-compose)</option>
+      </select></label>` : ""}
+    ${chSubAvoidOn() ? `<label title="소스에 이미 박힌 원본 자막(방송 자막·텔롭)을 피해 우리 대사 자막을 위로 올립니다. 제목과도 겹치지 않게 제목 아래까지만 올라갑니다. 엔진 기본이 '자동 회피'라 이 칸은 끄는 용도입니다 — 실렌더 픽셀로 자막 위치를 맞춘 채널만 끄세요">원본 자막 회피<select id="df_subtitle_avoid_burned">
+        ${SUBTITLE_AVOID_OPTIONS.map(([v, l]) => `<option value="${esc(v)}" ${
+          (d.subtitle_avoid_burned || "") === v ? "selected" : ""}>${esc(l)}</option>`).join("")}
       </select></label>` : ""}`;
   const wOvr = state.worksOvr[slug];
   const effWorks = (wOvr && wOvr.works) || ch.works || [];
@@ -9039,6 +9052,12 @@ window.dfDiffUpdate = slug => {
     const osc = d.style_compose === true ? "true" : "";
     if (scEl.value !== osc) diffs.push(`스타일 구성: ${osc ? "켬" : "기본(끔)"} → ${scEl.value ? "켬" : "기본(끔)"}`);
   }
+  const saEl = $("#df_subtitle_avoid_burned");
+  if (saEl){
+    const slab = v => (SUBTITLE_AVOID_OPTIONS.find(([x]) => x === v) || ["", "기본"])[1];
+    const osa = d.subtitle_avoid_burned || "";
+    if (saEl.value !== osa) diffs.push(`원본 자막 회피: ${slab(osa)} → ${slab(saEl.value)}`);
+  }
   const box = $("#dfdiff"); if (!box) return;
   box.innerHTML = diffs.length
     ? "저장 시 바뀌는 것: " + diffs.map(x => esc(x)).join(" · ")
@@ -9056,6 +9075,7 @@ window.dfCopyFrom = (src, slug) => {
   const sb2 = $("#df_subtitles"); if (sb2) sb2.value = d.subtitles === false ? "false" : "";
   const tb2 = $("#df_transcribe_backend"); if (tb2) tb2.value = d.transcribe_backend || "";
   const sc2 = $("#df_style_compose"); if (sc2) sc2.value = d.style_compose === true ? "true" : "";
+  const sa2 = $("#df_subtitle_avoid_burned"); if (sa2) sa2.value = d.subtitle_avoid_burned || "";
   toast(`${ch.name || src} 디자인을 불러왔습니다 — 저장 전까지 반영되지 않습니다`);
   dfDiffUpdate(slug);
 };
@@ -9084,6 +9104,13 @@ window.chSave = slug => {
   const sc = scEl0 ? scEl0.value === "true"
                    : ((chNow && effDesign(chNow).design || {}).style_compose === true);
   if (sc) design.style_compose = true;
+  // E17-2 원본 자막 회피 — 전사 백엔드와 같은 규약(빈 값 = 미설정 = 엔진 기본 auto).
+  // 게이트가 꺼져 있을 때 지금 값을 승계하는 이유도 같다: 저장은 통째 교체라, 안 그러면
+  // 게이트를 껐다 켜는 사이의 저장 한 번에 'off' 가 사라지고 자막이 움직인다.
+  const saEl0 = $("#df_subtitle_avoid_burned");
+  const sa = saEl0 ? saEl0.value
+                   : ((chNow && effDesign(chNow).design || {}).subtitle_avoid_burned || "");
+  if (sa) design.subtitle_avoid_burned = sa;
   if (!Object.keys(design).length){ toast("설정할 값이 없습니다 — 해제를 쓰세요", true); return; }
   chEdit = null;
   rpc("set_channel_design", { p_slug: slug, p_design: design }, "저장됨 — 다음 생성부터 적용");
