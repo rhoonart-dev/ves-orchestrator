@@ -386,6 +386,9 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .edtitletools{position:relative;display:flex;flex-direction:column;gap:4px;align-items:stretch}
   .edtitletools .ttrow{display:flex;align-items:center;gap:4px}
   .edtitletools .n{font-size:11px;color:var(--muted);font-weight:700;width:26px;flex:none}
+  /* 줄별 크기 표시(2026-08-24) — 자리수가 늘어도 버튼이 안 밀리게 고정폭 숫자 */
+  .edtitletools .n.sz{width:28px;text-align:center;color:var(--ink);
+    font-variant-numeric:tabular-nums}
   .edtitletools .mini{padding:2px 7px}
   .edtitletools .mini.shape{min-width:58px;display:inline-flex;align-items:center;gap:4px;
                             justify-content:center}
@@ -2678,6 +2681,20 @@ const edE7On = () => (((state.ops||{}).editor_e7||{}).value === "on");
 // ops_config editor_title_box=on 으로 개방(구 엔진은 모르는 --design-title-box 에 argparse 즉사,
 // 구 어댑터는 모르는 design 키에 즉시 실패). 플래그는 롤백이 아니다(E7 과 동일).
 const edTitleBoxOn = () => (((state.ops||{}).editor_title_box||{}).value === "on");
+// 제목 줄별 크기(ai-video --design-title-size2, 2026-08-24 사용자 요청) — 종전 제목 크기는
+// 1줄 기준 한 값으로 두 줄을 함께 스케일했다(title_size × 90/70). 이 키가 있으면 2줄만
+// 그 크기로 그린다. 어댑터 신 키 + 엔진 전 노드 배포 확인 후 ops_config
+// editor_title_size2=on 으로 개방(구 엔진은 모르는 CLI 플래그에 argparse 즉사 — 0082).
+const edTitleSize2On = () => (((state.ops||{}).editor_title_size2||{}).value === "on");
+// 제목 줄의 유효 크기(캔버스 px) — 2줄은 명시값이 없으면 1줄 × 90/70(엔진 cli 조립 미러).
+// 화면 미리보기·줄별 A−/A＋ 가 같은 함수를 쓴다(엔진과 어긋나면 '고쳤는데 다르게 나온다').
+const ED_TITLE_L2_RATIO = 90 / 70;
+function edTitleSizeOf(d, line){
+  const s1 = Math.round(+d.title_size) || 70;
+  if (!line) return s1;
+  const s2 = edTitleSize2On() ? Math.round(+d.title_size2) : 0;
+  return s2 > 0 ? s2 : Math.max(1, Math.round(s1 * ED_TITLE_L2_RATIO));
+}
 // 유효 배속 — 완성본 길이 표시·쇼츠 상한·가상 미리보기 재생 속도가 같은 값을 쓴다.
 // 범위 밖·비숫자는 1(엔진 검증과 동일 범위 — edStyleSet 이 입력 단계에서 거른다).
 function edSpeed(){
@@ -2987,6 +3004,7 @@ function edCollect(forDraft){
     if (!edE7On()) ED_E7_KEYS.forEach(k => delete ov.design[k]);   // E7(회전·배속)도 동일
     if (!edE10On()) ED_E10_KEYS.forEach(k => delete ov.design[k]); // E10(밴드 크기)도 동일
     if (!edTitleBoxOn()) ED_TITLEBOX_KEYS.forEach(k => delete ov.design[k]);   // 제목 박스·굵게
+    if (!edTitleSize2On()) delete ov.design.title_size2;                       // 제목 2줄 크기
     if (!Object.keys(ov.design).length) delete ov.design;
   }
   return ov;
@@ -4383,7 +4401,7 @@ function renderEdit(){
         <div class="edsubtools" id="edsubtools" style="display:none">
           <span id="edovselseg">
             <button class="mini" data-t="title" onclick="edOvPick('title')"
-              title="제목 — 크기·색은 이 편 전체(1줄 기준·1줄 색)">제목</button>
+              title="제목 — 크기·색은 이 편 전체(A−/A＋ 는 두 줄 함께, 줄별 크기는 아래 1줄·2줄 행에서)">제목</button>
             <button class="mini on" data-t="sub" onclick="edOvPick('sub')"
               title="자막 — 화면에 떠 있는 그 줄만">자막</button>
             <button class="mini" data-t="tts" onclick="edOvPick('tts')"
@@ -4401,19 +4419,25 @@ function renderEdit(){
             title="선택 대상의 크기·색·위치를 채널 기본값으로(자막은 그 줄만)">원래대로</button>
         </div>
         <!-- 제목 줄별 도구(2026-08-21) — 제목을 선택했을 때만(editor_title_box 게이트).
-             줄마다 한 행: [배경 순환(실제 스타일 미리보기)] [B 굵게] [글자색] [배경색].
-             상태 반영은 edTitleToolsSync -->
+             줄마다 한 행: [A− 크기 A＋] [배경 순환(실제 스타일 미리보기)] [B 굵게] [글자색] [배경색].
+             크기 칸은 editor_title_size2 게이트(2026-08-24) — 위 A−/A＋ 는 제목 블록 전체,
+             이쪽은 그 줄만. 상태 반영은 edTitleToolsSync -->
         <div class="edsubtools edtitletools" id="edtitletools" style="display:none">
           ${[0, 1].map(i => `<div class="ttrow">
             <span class="n">${i + 1}줄</span>
-            <button class="mini shape" id="edtbox${i}" onclick="edOvBox(${i})"
+            ${edTitleSize2On() ? `<button class="mini" onclick="edOvTitleSize(${i},-4)"
+              title="${i + 1}줄만 축소">A−</button>
+            <span class="n sz" id="edtsz${i}">–</span>
+            <button class="mini" onclick="edOvTitleSize(${i},4)"
+              title="${i + 1}줄만 확대">A＋</button>` : ""}
+            ${edTitleBoxOn() ? `<button class="mini shape" id="edtbox${i}" onclick="edOvBox(${i})"
               title="${i + 1}줄 배경: 없음 → 둥근네모 → 각진네모"><em>가</em><span class="lb">없음</span></button>
             <button class="mini bold" id="edtbold${i}" onclick="edOvBold(${i})"
               title="${i + 1}줄 굵게">B</button>
             <button class="mini cbtn" id="edttxt${i}" onclick="edPalOpen(event,${i},'txt')"
               title="${i + 1}줄 글자색"><span class="tile txt">가</span></button>
             <button class="mini cbtn" id="edtbg${i}" onclick="edPalOpen(event,${i},'box')"
-              title="${i + 1}줄 배경색"><span class="tile"></span></button>
+              title="${i + 1}줄 배경색"><span class="tile"></span></button>` : ""}
           </div>`).join("")}
           <div class="edpal" id="edpal" style="display:none">
             <div class="edpalhd" id="edpalhd"></div>
@@ -5159,6 +5183,9 @@ const ED_STYLE_FIELDS = [
   // 제목 크기·위치 — 엔진 dc1060f(F-409)부터 실효: 크기는 1줄 기준(줄 간 위계 유지
   // 스케일), 위치는 화면에서 제목을 끌면 고정 배치(title_y_fixed)로 함께 나간다.
   ["title_size",       "제목 크기(1줄 기준)", "예: 70"],
+  // 제목 2줄 크기(ai-video 2026-08-24) — 비우면 종전대로 1줄 × 90/70. 표시·전송은
+  // editor_title_size2 게이트. ✎ 의 제목 줄별 A−/A＋ 와 같은 키.
+  ["title_size2",      "제목 크기(2줄)",  "비우면 1줄 × 90/70"],
   ["title_y",          "제목 세로(위에서 px)", "화면에서 끌면 채워집니다"],
   ["title_color",      "제목 색(1줄)",   "#FFFFFF"],
   ["title_color2",     "제목 색(2줄)",   "#FFFF00"],
@@ -5195,6 +5222,8 @@ const ED_STYLE_FIELDS = [
 const ED_E7_KEYS = ["title_rotate", "tts_rotate", "video_speed"];
 // E10 키 — 같은 규약(게이트 전 화면·전송 동시 차단)
 const ED_E10_KEYS = ["video_width"];
+// 제목 2줄 크기 키 — editor_title_size2 게이트 전 화면·전송에서 함께 뺀다
+const ED_TITLESIZE2_KEYS = ["title_size2"];
 // 제목 박스·굵게 키 — editor_title_box 게이트 전 화면·전송에서 함께 뺀다
 const ED_TITLEBOX_KEYS = ["title_box", "title_box2", "title_box_color", "title_box_color2",
                           "title_bold", "title_bold2"];
@@ -5318,11 +5347,20 @@ window.edChTplCommit = async slug => {
 let edPalT = null;   // 열린 팔레트의 대상 {line, kind:'txt'|'box'}
 function edTitleToolsSync(){
   const el = document.getElementById("edtitletools"); if (!el) return;
-  const show = edV3() && edStyleTool && edOvSel === "title" && edTitleBoxOn() && edCanEdit();
+  const show = edV3() && edStyleTool && edOvSel === "title" && edCanEdit()
+            && (edTitleBoxOn() || edTitleSize2On());
   el.style.display = show ? "" : "none";
   if (!show){ edPalClose(); return; }
   const d = edDesign();
   [0, 1].forEach(i => {
+    // 그 줄의 유효 크기(px) — 2줄은 title_size2 가 없으면 1줄 × 90/70 파생값
+    const sz = document.getElementById("edtsz" + i);
+    if (sz){
+      sz.textContent = edTitleSizeOf(d, i);
+      sz.title = i && (edForm.design || {}).title_size2 == null
+        ? "1줄 크기에서 따라오는 값 — A−/A＋ 를 누르면 2줄만 이 크기로 고정됩니다"
+        : "";
+    }
     const bk = i ? "title_box2" : "title_box", bd = i ? "title_bold2" : "title_bold";
     const tc = i ? (d.title_color2 || "#FFFF00") : (d.title_color || "#FFFFFF");
     const bc = i ? (d.title_box_color2 || "#000000") : (d.title_box_color || "#000000");
@@ -5358,6 +5396,39 @@ function edDesignSet(key, val){
   if (el) el.value = d2[key] ?? "";
   edStagePaint(edStageT); edTitleToolsSync(); edMark();
 }
+// 제목 줄별 크기(2026-08-24 사용자 요청) — 위 A−/A＋ 는 제목 블록 전체를 위계 유지로
+// 스케일하고, 이쪽은 **그 줄만** 바꾼다. 1줄을 만질 때 2줄이 아직 파생값이면(title_size2
+// 없음) 그 순간의 크기를 title_size2 에 못 박는다 — 안 그러면 1줄을 키우는 순간 2줄이
+// 90/70 배율로 따라 커져 '따로 바꾼다'가 성립하지 않는다.
+window.edOvTitleSize = (line, dd) => {
+  if (!edCanEdit() || !edTitleSize2On()) return;
+  edSnap("ovtsize" + line);
+  const d = edDesign(), base = edBaseDesign();
+  const d2 = { ...(edForm.design || {}) };
+  if (!line && d2.title_size2 == null && !(Math.round(+base.title_size2) > 0))
+    d2.title_size2 = edTitleSizeOf(d, 1);
+  const key = line ? "title_size2" : "title_size";
+  const nv = Math.max(24, Math.min(200, edTitleSizeOf(d, line) + dd));
+  // 채널 기본값으로 돌아오면 오버라이드를 지운다(edOvSize 규약 — 영구 dirty 방지).
+  // 2줄의 '기본'은 채널이 title_size2 를 가졌으면 그 값, 아니면 **지금 1줄에서 파생되는 값**
+  // (지워도 화면이 그대로여야 지운 것이 맞다).
+  const bv = line
+    ? (Math.round(+base.title_size2) > 0 ? Math.round(+base.title_size2)
+       : Math.max(1, Math.round((Math.round(+(d2.title_size ?? d.title_size)) || 70) * ED_TITLE_L2_RATIO)))
+    : (Math.round(+base.title_size) || 70);
+  if (nv === bv) delete d2[key]; else d2[key] = nv;
+  // 1줄이 채널 기본으로 돌아왔는데 못 박아 둔 2줄도 그 기본에서 파생되는 값이라면 함께
+  // 지운다 — 안 지우면 화면은 채널 기본 그대로인데 오버라이드만 남아 영구 dirty.
+  if (!line && d2.title_size == null && !(Math.round(+base.title_size2) > 0)
+      && Math.round(+d2.title_size2)
+         === Math.max(1, Math.round((Math.round(+base.title_size) || 70) * ED_TITLE_L2_RATIO)))
+    delete d2.title_size2;
+  edForm.design = d2;
+  ["title_size", "title_size2"].forEach(k => {
+    const el = document.getElementById("edd_" + k); if (el) el.value = d2[k] ?? "";
+  });
+  edStagePaint(edStageT); edTitleToolsSync(); edMark();
+};
 window.edOvBox = line => {   // 없음 → 둥근네모 → 각진네모 → 없음
   if (!edCanEdit() || !edTitleBoxOn()) return;
   const key = line ? "title_box2" : "title_box";
@@ -5434,6 +5505,7 @@ function edPaneStyle(canEdit){
       .filter(([k]) => edE7On() || !ED_E7_KEYS.includes(k))
       .filter(([k]) => edE10On() || !ED_E10_KEYS.includes(k))
       .filter(([k]) => edTitleBoxOn() || !ED_TITLEBOX_KEYS.includes(k))
+      .filter(([k]) => edTitleSize2On() || !ED_TITLESIZE2_KEYS.includes(k))
       .map(([k,l,ph]) => {
         const cur = (edForm.design || {})[k];
         // 박스·굵게는 값이 열거형이라 select — 채널 기본값을 첫 옵션에 적는다
@@ -5907,10 +5979,26 @@ window.edStyleSet = (k, v) => {
       el.title = bad ? "320~1080 사이 px" : "";
     }
   }
+  // 제목 2줄 크기 — 비숫자·0 이하는 폼에 싣지 않는다(video_width 와 같은 규약: 흘리면
+  // 엔진 argparse 가 즉시 실패시켜 렌더가 낭비된다). 상한은 두지 않는다 — 1줄(title_size)
+  // 도 자유값이고, 채널 템플릿이 200 을 넘는 제목을 쓸 수 있다.
+  if (k === "title_size2"){
+    const el = document.getElementById("edd_" + k), t = String(v).trim();
+    let bad = false;
+    if (t){
+      const n = +t;
+      bad = !isFinite(n) || n <= 0;
+      if (bad) delete edForm.design[k];
+    }
+    if (el){
+      el.classList.toggle("bad", bad);
+      el.title = bad ? "0 보다 큰 px 숫자" : "";
+    }
+  }
   // 밴드 즉시 반영(제목 자동 배치가 밴드를 따라오므로 스테이지 페인트 포함)
   if (k === "aspect_ratio" || k === "video_y" || k === "video_width") edStageBandSync();
   // 제목 크기·색·위치는 유령 오버레이에 즉시 반영(자동 배치 높이가 크기를 따라간다)
-  if (["title_size", "title_color", "title_color2", "title_y"].includes(k))
+  if (["title_size", "title_size2", "title_color", "title_color2", "title_y"].includes(k))
     edStagePaint(edStageT);
   // E7 — 범위 밖·비숫자는 폼에 싣지 않는다(엔진이 즉시 실패시키는 값 — 렌더 낭비 예방).
   // 입력 도중 잠깐 스치는 미완성 값("0."·"-")에 토스트를 쏘면 시끄러워, 빨간 테두리로만.
@@ -6879,7 +6967,8 @@ const edTtsMarginV = d => Math.max(0, (+d.tts_y_margin || 580) + edTtsBandDelta(
 const edTitleYv = d => (d.title_y != null && String(d.title_y) !== "" ? +d.title_y : 120);
 // ── 제목 블록 — 엔진 미러(8/21 정합) ──────────────────────────────────
 // renderer.py 와 같은 수식: split_text_smart(20자 어절 wrap) · 줄별 크기(title_sizes
-// 조립 — --design-title-size X → [X, X×90/70], 기본 [70,90]) · 14~20자 길이 축소표 ·
+// 조립 — --design-title-size X → [X, X×90/70], --design-title-size2 Y 가 있으면 [X, Y],
+// 기본 [70,90]) · 14~20자 길이 축소표 ·
 // 자동 배치(밴드 위 20px, 여백 <10px 면 title_y 폴백). 종전 근사(단일 96px·고정
 // 120px)는 완성본과 제목 위치·크기가 크게 달랐다(사용자 8/21).
 const ED_TITLE_LEN_SCALE = { 14:.90, 15:.83, 16:.77, 17:.72, 18:.67, 19:.63, 20:.60 };
@@ -6899,8 +6988,8 @@ function edTitleWrap(text, maxChars = 20){    // → [[원본 줄 idx, 줄 텍�
   return out;
 }
 function edTitleLines(d, text){               // → [{oi, t, size(캔버스 px)}, …]
-  const s1 = Math.round(+d.title_size) || 70;
-  const sizes = [s1, Math.max(1, Math.round(s1 * 90 / 70))];
+  // 2줄 크기는 title_size2 가 있으면 그 값, 없으면 1줄 × 90/70(엔진 cli 조립과 같은 규약)
+  const sizes = [edTitleSizeOf(d, 0), edTitleSizeOf(d, 1)];
   const bx = edTitleBoxOn();   // 게이트 전엔 박스·굵게를 그리지 않는다(전송도 안 한다)
   return edTitleWrap(text).map(([oi, t]) => {
     const base = sizes[Math.min(oi, sizes.length - 1)];
@@ -7128,7 +7217,9 @@ function edStagePaint(outT){
   const tools = document.getElementById("edsubtools");
   if (tools){
     tools.style.display = editing ? "" : "none";
-    if (editing) edOvSelSync();
+    // ✎ 를 끄면 제목 줄별 도구도 같이 닫아야 한다 — edOvSelSync 안에서만 부르면 끄는
+    // 경로에서 호출이 없어 그 줄 패널만 남아 있었다(줄별 크기 A−/A＋ 를 얹으며 발견).
+    if (editing) edOvSelSync(); else edTitleToolsSync();
   }
   const col = document.getElementById("edsubcolor");
   if (col && document.activeElement !== col){   // 피커 조작 중엔 덮어쓰지 않는다
@@ -7171,10 +7262,21 @@ window.edOvSize = dd => {
   const bv = edOvSel === "title" ? (+base.title_size || 70) : (+base.tts_size || 70);
   const d2 = { ...(edForm.design || {}) };
   if (nv === bv) delete d2[key]; else d2[key] = nv;
+  // 제목 블록 전체 확대/축소 — 2줄을 따로 고정해 뒀다면(title_size2) 그 줄도 같은 비율로
+  // 함께 움직인다(줄 간 위계 유지 = 엔진 title_sizes 조립의 뜻). 고정 안 했으면 2줄은
+  // 1줄에서 파생되므로 손댈 것이 없다.
+  if (edOvSel === "title" && edTitleSize2On()
+      && (d2.title_size2 != null || Math.round(+base.title_size2) > 0)){
+    const nv2 = Math.max(24, Math.min(200, Math.round(edTitleSizeOf(d, 1) * nv / cur)));
+    if (nv2 === Math.round(+base.title_size2)) delete d2.title_size2;
+    else d2.title_size2 = nv2;
+    const e2 = document.getElementById("edd_title_size2");
+    if (e2) e2.value = d2.title_size2 ?? "";
+  }
   edForm.design = d2;
   const el = document.getElementById("edd_" + key);
   if (el) el.value = d2[key] ?? "";
-  edStagePaint(edStageT); edMark();
+  edStagePaint(edStageT); edTitleToolsSync(); edMark();
 };
 window.edOvColor = v => {
   if (!edCanEdit()) return;
@@ -7230,7 +7332,7 @@ window.edOvReset = () => {
   // '원래대로'에 안 돌아오던 것. 제목은 드래그가 켠 고정 배치까지 해제(edTitleAutoY 규약).
   // 회전(E7)도 같은 묶음 — 게이트 전이라도 키 삭제는 무해하다.
   (edOvSel === "title" ? ["title_size", "title_color", "title_y", "title_rotate"]
-                           .concat(["title_color2"], ED_TITLEBOX_KEYS)   // 줄별 박스·굵게·2줄 색도
+                           .concat(["title_color2"], ED_TITLESIZE2_KEYS, ED_TITLEBOX_KEYS)   // 줄별 크기·박스·굵게·2줄 색도
                        : ["tts_size", "tts_color", "tts_y_margin", "tts_rotate"])
     .forEach(k => { delete d[k];
       const el = document.getElementById("edd_" + k); if (el) el.value = ""; });
@@ -8764,7 +8866,10 @@ function renderArchive(){
 // ───────── 채널 템플릿 (0014: 관제 오버라이드 > 파일 정본, 저장 즉시 다음 생성부터) ─────────
 const DESIGN_FIELDS = [   // [키, 라벨, 종류] — brain channel_registry 허용 키와 1:1
   ["title_color","제목 1줄 색","color"], ["title_color2","제목 2줄 색","color"],
-  ["title_font","제목 폰트","font"],     ["title_size","제목 크기","num"],
+  ["title_font","제목 폰트","font"],     ["title_size","제목 크기(1줄)","num"],
+  // 2줄 크기 단독 지정(ai-video --design-title-size2, 2026-08-24). 비우면 종전대로
+  // 1줄 × 90/70 — DB v_allowed 는 0082 부터 이 키를 받는다.
+  ["title_size2","제목 크기(2줄)","num"],
   ["title_y","제목 위치 Y","num"],  ["video_y","영상 위치 Y","num"],
   // 제목 줄별 배경 박스·굵게(ai-video 2026-08-21). box = none·round·rect, bool = true/기본
   ["title_box","제목 1줄 배경","box"],   ["title_box_color","제목 1줄 배경색","color"],
@@ -8820,7 +8925,8 @@ function paletteColors(){
 // 엔진 기본값 (ai-video config.py DesignConfig 실측) — 빈 칸일 때 placeholder 로 노출
 const DESIGN_DEFAULTS = {
   title_color: "white", title_color2: "#FFFF00", title_font: "여기어때 잘난체",
-  title_size: "70 (2줄째 90)", title_y: "120", video_y: "세로 중앙",
+  title_size: "70 (1줄)", title_size2: "1줄 × 90/70 (기본 90)",
+  title_y: "120", video_y: "세로 중앙",
   title_box: "none (없음)", title_box_color: "#000000", title_bold: "보통",
   title_box2: "none (없음)", title_box_color2: "#000000", title_bold2: "보통",
   work_color: "#FF69B4", work_title_y: "1400", work_font_size: "40",
@@ -8853,7 +8959,7 @@ const TRANSCRIBE_OPTIONS = [
 // ⚠ JP(현지화) 채널은 켜지 않는다 — 연출 텍스트가 한국어로 번인돼 vlp 가 못 지운다.
 const chStyleOn = () => (((state.ops||{}).channel_style||{}).value === "on");
 const DESIGN_GROUPS = [
-  ["제목", ["title_color","title_color2","title_font","title_size","title_y",
+  ["제목", ["title_color","title_color2","title_font","title_size","title_size2","title_y",
            "title_box","title_box_color","title_bold","title_box2","title_box_color2","title_bold2"]],
   ["작품명", ["work_color","work_title_y","work_font_size"]],
   ["자막", ["subtitle_font","subtitle_size","subtitle_color","subtitle_y_margin","subtitle_style"]],

@@ -3918,7 +3918,11 @@ def test_dashboard_editor_band_parity_0821():
     # ③ 줄바꿈·줄별 크기 — 엔진 split_text_smart(20)·_scale_font_for_length 미러
     assert "function edTitleWrap" in html and "function edTitleLines" in html
     assert "ED_TITLE_LEN_SCALE" in html and "20:.60" in html
-    assert "Math.round(s1 * 90 / 70)" in html               # title_sizes 조립(위계 유지)
+    # title_sizes 조립 — 2줄은 title_size2 가 없을 때만 1줄 × 90/70 파생(2026-08-24 이후
+    # edTitleSizeOf 한 곳에서. 위계 유지 규약 자체는 그대로다)
+    assert "const ED_TITLE_L2_RATIO = 90 / 70;" in html
+    assert "Math.round(s1 * ED_TITLE_L2_RATIO)" in html
+    assert "const sizes = [edTitleSizeOf(d, 0), edTitleSizeOf(d, 1)];" in html
     assert "(+d.title_size || 96)" not in html               # 구 단일 96px 근사 제거
     # ④ 2줄 기본색 — 엔진 기본과 동일
     assert '(d.title_color2 || "#FFFF00")' in html
@@ -3967,6 +3971,32 @@ def test_title_box_and_bold_design_keys_emit_flags():
                      "--design-title-box-color2", "black@0.6",
                      "--design-title-bold"]
     assert aivideo.CHANNEL_DESIGN_SWITCHES["title_bold2"] == ("--design-title-bold2", True)
+
+
+# ── 제목 줄별 크기(2026-08-24, 사용자 요청) — 2줄만 따로 ──
+
+def test_title_size2_design_key_emits_flag():
+    """title_size2 는 값 플래그(--design-title-size2). 1줄(title_size)과 독립이며,
+    엔진은 주어진 줄만 title_sizes 에서 치환한다(줄별 색·박스와 같은 조립)."""
+    from ves.adapters import aivideo
+    assert aivideo.channel_design_flags({"title_size2": 120}, "T") \
+        == ["--design-title-size2", "120"]
+    assert aivideo.channel_design_flags({"title_size": 70, "title_size2": 120}, "T") \
+        == ["--design-title-size", "70", "--design-title-size2", "120"]
+
+
+def test_title_size2_gated_in_editor_and_mirrored_everywhere():
+    """게이트·4층 미러 배선 — 구 엔진 노드는 모르는 CLI 플래그에 argparse 즉사한다.
+    ① 화면이 게이트 전엔 전송 안 함 ② 어댑터 키 ③ DB v_allowed(0082) ④ 게이트 시드."""
+    import pathlib
+    from ves.adapters.aivideo import CHANNEL_DESIGN_FLAGS
+    assert "title_size2" in CHANNEL_DESIGN_FLAGS
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert 'editor_title_size2||{}).value === "on"' in html
+    assert "if (!edTitleSize2On()) delete ov.design.title_size2;" in html
+    sql = _live_mig("CREATE OR REPLACE FUNCTION public.set_channel_design")
+    assert "'title_size2'" in sql
+    assert "editor_title_size2" in sql
 
 
 # ───────── 편집실 텍스트 레이어(F-411 · 0071) ─────────

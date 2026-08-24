@@ -42,7 +42,11 @@ CHANNEL_DESIGN_FLAGS = {
     "title_y": "--design-title-y",
     "video_y": "--design-video-y",         # 영상영역 상단 Y(미지정=세로 중앙)
     "title_font": "--design-title-font",
-    "title_size": "--design-title-size",
+    "title_size": "--design-title-size",         # 1줄 기준(2줄은 ×90/70 위계 스케일)
+    # 제목 2줄 크기 단독 지정(ai-video 2026-08-24, 사용자 요청) — 주면 위 위계 스케일을
+    # 덮고 그 줄만 그 크기로 그린다. 편집실은 editor_title_size2 게이트 뒤에서 보낸다
+    # (구 엔진은 모르는 --design-title-size2 에 argparse 즉사 — title_box 와 같은 롤아웃).
+    "title_size2": "--design-title-size2",
     "title_color": "--design-title-color",      # 제목 1번째 줄
     "title_color2": "--design-title-color2",    # 제목 2번째 줄
     # 제목 줄별 배경 박스(ai-video 2026-08-21) — none(기본)·round(둥근네모)·rect(각진네모),
