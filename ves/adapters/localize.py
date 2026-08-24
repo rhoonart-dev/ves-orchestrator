@@ -35,12 +35,11 @@ ENGINE_VLP = "vlp"
 ENGINE_AIVIDEO = "ai-video"
 ENGINE_DEFAULT = ENGINE_VLP
 
-# 🛑 이식본(ai-video app/localize/)은 vlp 66056fe 기준이고, vlp 는 그 뒤 5f8c3e3 으로
-# --rebuild(편집실 JP 재렌더 · 디자인 복원 · 겹치기 승계, 147줄)를 얹었다. 따라잡기
-# 전까지는 rebuild 요청을 ai-video 로 보낼 수 없다. **이식이 끝나면 이 상수를 True 로
-# 바꾸고 아래 우회를 지운다** — 값 하나가 게이트다.
-AIVIDEO_HAS_REBUILD = False
-ENGINE_VLP_REBUILD = "vlp(rebuild-fallback)"   # 결과에 남는 표시 — 조용한 우회 금지
+# 이식본이 --rebuild 를 갖췄는지(L-P2b, ai-video d3ae0ce). vlp 1da2a16·2f338e3 의 147줄
+# (--rebuild · 디자인 복원 · 겹치기 승계)을 옮겼고 회귀 가드 23건이 지킨다. 이 값이
+# False 이던 동안은 rebuild 요청 잡만 vlp 로 우회했다 — 편집실에서 고친 한국어가
+# 일본어판에 반영되지 않는 실사고(2026-08-23 SHOTCONE)를 되살리지 않기 위해서다.
+AIVIDEO_HAS_REBUILD = True
 
 
 def pick_engine(raw, channel_slug=None) -> str:
@@ -81,7 +80,8 @@ def scene_rerender_argv(ai_py: str, engine: str, job_dir: str,
 
 
 def aivideo_localize_argv(ai_py: str, job_dir: str, locale: str = "ja",
-                          overrides_path: str | None = None) -> list:
+                          overrides_path: str | None = None,
+                          rebuild: bool = False) -> list:
     """같은 일을 하는 **ai-video 서브커맨드** argv. 순수 — 테스트 대상.
 
     산출 규약은 vlp 와 동일하다(localize_<locale>/metadata.json 성공 마커 ·
@@ -91,6 +91,8 @@ def aivideo_localize_argv(ai_py: str, job_dir: str, locale: str = "ja",
             "--locale", locale or "ja"]
     if overrides_path:
         argv += ["--overrides", str(overrides_path)]
+    if rebuild:
+        argv += ["--rebuild"]
     return argv
 
 
@@ -401,17 +403,9 @@ def _run_scene_rerender(cfg, conn, job, deps):
 
     # L-P2 컷오버: 두 엔진이 **같은 산출 규약**을 지키므로 argv·cwd 만 갈린다.
     engine_choice = _active_engine(conn, p.get("channel_slug"))
-    if engine_choice == ENGINE_AIVIDEO and rebuild and not AIVIDEO_HAS_REBUILD:
-        # 🛑 이식본은 vlp 66056fe 기준이라 --rebuild(편집실 JP 재렌더)가 아직 없다.
-        # 그대로 보내면 argparse 즉사, 빼고 보내면 **편집실에서 고친 한국어가 일본어판에
-        # 한 글자도 안 들어간다** — vlp 1da2a16 이 고친 바로 그 버그가 되살아난다.
-        # 그 한 잡만 vlp 로 돌린다. 조용히는 안 넘어간다(stdout·결과 양쪽에 남긴다).
-        print(f"[localize] ⚠ 엔진=ai-video 이지만 rebuild 요청 — 이 잡은 vlp 로 돌린다"
-              f" (이식본에 --rebuild 미이식)")
-        engine_choice = ENGINE_VLP_REBUILD
-
     if engine_choice == ENGINE_AIVIDEO:
-        argv, cwd = aivideo_localize_argv(ai_py, str(run_dir), locale, ov_arg), ai_dir
+        argv, cwd = aivideo_localize_argv(ai_py, str(run_dir), locale, ov_arg,
+                                          rebuild=rebuild), ai_dir
     else:
         argv, cwd = scene_rerender_argv(ai_py, eng, str(run_dir), ov_arg,
                                         rebuild=rebuild), eng
