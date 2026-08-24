@@ -4384,3 +4384,69 @@ def test_publish_enrich_is_noop_for_korean_cards():
     from ves.adapters.brain import Publish
     params = {"clip_id": "c1", "episode": 3}
     assert Publish.enrich_params(None, _DeadConn(), {"params": params}) == params
+
+
+# ───────── 현지화 로그 마커 (2026-08-24) ─────────
+# stdout_tail(마지막 300자)만으로는 배포 후 첫 JP localize 가 성공했는데도 '재번역이
+# 돌았는가'·'디자인이 복원됐는가'를 관제에서 판정할 수 없었다(실측). 그 줄들을 남긴다.
+
+_VLP_LOG = """=== 현지화 시작: 혜미리예채파_c517564d (혜미리예채파 → ja) === [rebuild]
+[rebuild] 캐시 폐기: translation.json, onscreen.json, refine_frames/ — 고친 한국어 원본으로 다시 번역한다
+[L0] 백업 갱신(rebuild): /opt/ves/…/localize_backup_ko
+[L0] 한국어판 보존: shorts_ko.mp4
+[L2] 업로드: shorts_ko.mp4 (24MB)
+[L1] 88s — segments 18 · telop 사용 11건 · notes 2건
+     note: Segment 3 을 문맥에 맞게 고쳤다
+[L3] 적용 완료 — 대사 18건 · 텔롭 병기 11건 (telops.ass)
+[L3t] cue 0: 'テスト' → ja-JP-NanamiNeural 3.2s (창 3.5s)
+[L3t] cue 1: 'テスト2' → ja-JP-NanamiNeural 2.1s (창 2.4s)
+[L4] 디자인 복원(design_cli.json): --design-aspect-ratio 13:9 --no-reframe
+[L4] 재렌더: create_shorts --title ショトコン --design-aspect-ratio 13:9 --design-title-font ArialUnicode
+[L4] 재렌더 완료 214s (길이 59.300s = 원본 일치)
+[L4] 텔롭 번인 완료 → shorts.mp4 (중간본 shorts_ja_notelop.mp4 보존)
+[L5] metadata.json — 제목: ヒーリング旅行だと思ったら…
+"""
+
+
+def test_localize_markers_keeps_the_deciding_lines():
+    from ves.adapters.localize import localize_markers
+    got = localize_markers(_VLP_LOG)
+    joined = "\n".join(got)
+    for must in ("[rebuild] 캐시 폐기", "[L0] 백업 갱신(rebuild)",
+                 "[L1] 88s — segments", "[L4] 디자인 복원(design_cli.json)",
+                 "[L4] 재렌더 완료 214s"):
+        assert must in joined, must
+    # cue 마다 나오는 [L3t]·[L3]·[L5] 는 판정에 안 쓰고 길기만 하다
+    for skip in ("[L3]", "[L3t]", "[L5]", "note:"):
+        assert skip not in joined, skip
+
+
+def test_localize_markers_separates_cache_reuse_from_retranslate():
+    """이 두 줄의 구분이 곧 '고친 한국어가 반영됐는가'의 답이다."""
+    from ves.adapters.localize import localize_markers
+    stale = localize_markers("[L0] 기존 백업 사용: /x\n[L1] 기존 번역 결과 사용\n")
+    assert stale == ["[L0] 기존 백업 사용: /x", "[L1] 기존 번역 결과 사용"]
+    assert "기존 번역 결과 사용" not in "\n".join(localize_markers(_VLP_LOG))
+
+
+def test_localize_markers_flags_missing_design_cli():
+    from ves.adapters.localize import localize_markers
+    got = localize_markers("[L4] ⚠️ design_cli 가 없다(옛 런) — 화면비·제목 스타일이 기본값으로\n")
+    assert got and "design_cli 가 없다" in got[0]
+
+
+def test_localize_markers_is_bounded():
+    """result jsonb 가 비대해지면 안 된다 — 줄 수·총 길이·줄 길이 상한."""
+    from ves.adapters import localize
+    flood = "\n".join(f"[L4] {'가'*900} {i}" for i in range(200))
+    got = localize.localize_markers(flood)
+    assert len(got) <= localize.LOCALIZE_MARKER_MAX_LINES
+    assert all(len(x) <= localize.LOCALIZE_MARKER_LINE_CHARS for x in got)
+    assert sum(len(x) for x in got) <= localize.LOCALIZE_MARKER_MAX_CHARS
+
+
+def test_localize_markers_empty_input():
+    from ves.adapters.localize import localize_markers
+    assert localize_markers("") == []
+    assert localize_markers(None) == []
+    assert localize_markers("아무 마커도 없는 줄\n또 한 줄\n") == []
