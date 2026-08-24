@@ -559,6 +559,32 @@ def _download_editor_upload(cfg):
     return lambda key, dest: store.download("ves-outputs", key, dest)
 
 
+def engine_overrides(ov):
+    """엔진에 넘길 오버라이드 — 오케스트레이터가 이미 플래그로 옮긴 값을 걷어낸다.
+    순수 — 테스트 대상.
+
+    대사 자막 전량 삭제(subtitles 빈 배열)의 의사표시는 두 갈래로 간다. params(DB)에는
+    그대로 남아야 라운드 승계가 이전 자막을 되살리지 않고(0073 계약), 엔진에는
+    build_argv_pure 가 --no-subtitles 로 옮긴다(subtitles_cleared). 그런데 그 빈 배열을
+    JSON 에도 같이 쓰면 엔진 validate_overrides 가 '비어 있지 않은 배열이어야 합니다'로
+    즉시 실패한다 — 같은 의사를 두 번 말하다 엔진이 한쪽을 계약 위반으로 읽는 것이다.
+
+    2026-08-24 실측: DARAMJI 원희는_스무살_b890368c 편집 재렌더(자막 전량 삭제 + 구간·
+    제목·내레이션 수정)가 3회 재시도 끝에 dead 로 떨어졌다. 사람이 고친 값이 통째로
+    사라졌고, 화면에는 '렌더 실패'만 남았다.
+
+    ⚠ clips 빈 배열은 걷어내지 않는다 — 그건 '쓸 구간이 하나도 없다'는 뜻이고, 걷어내면
+    사람이 지운 구간이 되살아난 영상이 조용히 나간다. 엔진이 크게 실패하는 편이 맞다.
+    (images·texts 빈 배열은 RPC 가 이미 병합 단계에서 걷어낸다 — 0071·0057.)
+    """
+    if not ov:
+        return ov
+    out = {k: v for k, v in ov.items()
+           if not (k == "subtitles" and isinstance(v, list) and not v)}
+    # schema 말고 남은 것이 없으면 넘길 것도 없다 — 의사는 --no-subtitles 가 이미 전했다
+    return out if any(k != "schema" for k in out) else None
+
+
 def _write_edit_overrides(run_dir, overrides) -> pathlib.Path | None:
     """오버라이드 dict → <run_dir>/edit_overrides.json. 없으면 None.
 
@@ -720,6 +746,7 @@ def resume_argv(cfg, job, partial_run_id, default_step=None):
     ov = (job["params"] or {}).get("edit_overrides")
     if ov and ov.get("images"):
         ov = localize_edit_images(ov, run_dir, _download_editor_upload(cfg))
+    ov = engine_overrides(ov)   # 플래그로 옮긴 값은 JSON 에서 뺀다(engine_overrides 머리말)
     return edit_overrides_argv(argv, _write_edit_overrides(run_dir, ov))
 
 
