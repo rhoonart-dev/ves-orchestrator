@@ -4450,3 +4450,48 @@ def test_localize_markers_empty_input():
     assert localize_markers("") == []
     assert localize_markers(None) == []
     assert localize_markers("아무 마커도 없는 줄\n또 한 줄\n") == []
+
+
+# ───────── 자막 전량 삭제가 엔진을 죽이던 것 (2026-08-24) ─────────
+# 실사고: DARAMJI 원희는_스무살_b890368c 편집 재렌더(자막 전량 삭제 + 구간 12개·제목·
+# 내레이션 5건 수정)가 3회 재시도 끝에 dead. 엔진 validate_overrides 가
+# 'subtitles 는 비어 있지 않은 배열이어야 합니다'로 즉시 실패했다. 사람이 고친 값이 통째로
+# 사라졌다. 의사표시는 params 에 남고 엔진에는 --no-subtitles 로만 가야 한다.
+
+def test_engine_overrides_drops_empty_subtitles():
+    from ves.adapters.aivideo import engine_overrides, subtitles_cleared
+    ov = {"schema": "edit_overrides/v2", "subtitles": [],
+          "clips": [{"start_sec": 1, "end_sec": 2}], "title": {"top_title": "제목"}}
+    got = engine_overrides(ov)
+    assert "subtitles" not in got                 # 엔진이 거부하는 빈 배열은 안 보낸다
+    assert got["clips"] == ov["clips"] and got["title"] == ov["title"]
+    # 의사표시는 params 에 남아 있어야 --no-subtitles 가 붙는다(두 경로가 갈라지는 지점)
+    assert subtitles_cleared({"edit_overrides": ov}) is True
+
+
+def test_engine_overrides_keeps_real_subtitles():
+    from ves.adapters.aivideo import engine_overrides
+    ov = {"schema": "edit_overrides/v1",
+          "subtitles": [{"start_sec": 0, "end_sec": 1, "text": "고침"}]}
+    assert engine_overrides(ov) == ov
+
+
+def test_engine_overrides_none_when_nothing_left_for_engine():
+    """자막만 비운 편은 엔진에 넘길 것이 없다 — 파일도 --edit-overrides 도 만들지 않는다."""
+    from ves.adapters.aivideo import edit_overrides_argv, engine_overrides
+    assert engine_overrides({"schema": "edit_overrides/v2", "subtitles": []}) is None
+    assert edit_overrides_argv(["py", "-m", "app.cli"], None) == ["py", "-m", "app.cli"]
+
+
+def test_engine_overrides_leaves_empty_clips_to_fail_loudly():
+    """구간 전량 삭제를 걷어내면 사람이 지운 구간이 되살아난 영상이 조용히 나간다.
+    엔진이 크게 실패하는 편이 맞다 — 여기서 손대지 않는다."""
+    from ves.adapters.aivideo import engine_overrides
+    ov = {"schema": "edit_overrides/v1", "clips": []}
+    assert engine_overrides(ov) == ov
+
+
+def test_engine_overrides_passthrough_for_empty_input():
+    from ves.adapters.aivideo import engine_overrides
+    assert engine_overrides(None) is None
+    assert engine_overrides({}) == {}
