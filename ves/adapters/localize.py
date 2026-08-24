@@ -21,11 +21,50 @@ from ves.adapters import base
 from ves.storage.supabase_storage import Store
 
 
+# ── 현지화 엔진 컷오버 스위치 (L-P2, 2026-08-23) ─────────────────────────
+# 발주서: docs/LOCALIZE_UNIFY.md §9 P2. rerender 현지화가 vlp 에서 ai-video 로 옮겨졌다
+# (docs/prompts/e15-p1-report.md — 실런 회귀 0 확인). 컷오버는 되돌릴 수 있어야 하므로
+# **ops_config.localize_engine 한 값**으로 가른다. 잡마다 읽으므로 워커 재시작이 필요
+# 없다(gemini_key 와 같은 규약).
+#
+#   'vlp'       — 종전 경로(기본). video-localization-project scripts/localize_run.py
+#   'ai-video'  — 새 경로. ai-video `python -m app.cli localize`
+#   {"_default":"vlp","SHOTCONE":"ai-video"}  — 채널별 JSON 맵(점진 전환)
+ENGINE_SWITCH = "localize_engine"
+ENGINE_VLP = "vlp"
+ENGINE_AIVIDEO = "ai-video"
+ENGINE_DEFAULT = ENGINE_VLP
+
+# 🛑 이식본(ai-video app/localize/)은 vlp 66056fe 기준이고, vlp 는 그 뒤 5f8c3e3 으로
+# --rebuild(편집실 JP 재렌더 · 디자인 복원 · 겹치기 승계, 147줄)를 얹었다. 따라잡기
+# 전까지는 rebuild 요청을 ai-video 로 보낼 수 없다. **이식이 끝나면 이 상수를 True 로
+# 바꾸고 아래 우회를 지운다** — 값 하나가 게이트다.
+AIVIDEO_HAS_REBUILD = False
+ENGINE_VLP_REBUILD = "vlp(rebuild-fallback)"   # 결과에 남는 표시 — 조용한 우회 금지
+
+
+def pick_engine(raw, channel_slug=None) -> str:
+    """설정값 → 이 잡이 쓸 엔진. 순수 — 테스트 대상.
+
+    스칼라면 전체 적용, JSON 맵이면 채널별(없으면 `_default`). 모르는 값·깨진 JSON 은
+    **기본(vlp)** 으로 — 컷오버 설정 오타가 검증 안 된 엔진을 켜면 안 된다."""
+    v = (raw or "").strip()
+    if not v:
+        return ENGINE_DEFAULT
+    if v.startswith("{"):
+        try:
+            m = json.loads(v)
+        except ValueError:
+            return ENGINE_DEFAULT
+        v = str(m.get(channel_slug) or m.get("_default") or ENGINE_DEFAULT).strip()
+    return v if v in (ENGINE_VLP, ENGINE_AIVIDEO) else ENGINE_DEFAULT
+
+
 def scene_rerender_argv(ai_py: str, engine: str, job_dir: str,
                         overrides_path: str | None = None,
                         rebuild: bool = False) -> list:
-    """scene_rerender 호출 argv — localize_run 은 **ai-video venv** 로 돈다(런타임 의존
-    google-genai·edge-tts 가 그 venv 에 있고, 재렌더도 같은 엔진을 부른다).
+    """scene_rerender 호출 argv(**vlp 엔진**) — localize_run 은 **ai-video venv** 로 돈다
+    (런타임 의존 google-genai·edge-tts 가 그 venv 에 있고, 재렌더도 같은 엔진을 부른다).
     overrides_path(8/14 반려-수정 재렌더): 검수함에서 고친 텍스트 JSON — 엔진이 L1 번역에
     병합해 고친 본으로 L3+ 를 다시 돈다.
 
@@ -39,6 +78,32 @@ def scene_rerender_argv(ai_py: str, engine: str, job_dir: str,
     if rebuild:
         argv += ["--rebuild"]
     return argv
+
+
+def aivideo_localize_argv(ai_py: str, job_dir: str, locale: str = "ja",
+                          overrides_path: str | None = None) -> list:
+    """같은 일을 하는 **ai-video 서브커맨드** argv. 순수 — 테스트 대상.
+
+    산출 규약은 vlp 와 동일하다(localize_<locale>/metadata.json 성공 마커 ·
+    shorts.mp4 교체본 · localize_backup_ko/) — 그래서 이 함수만 갈아끼우면 되고
+    검수함·편집실·0066 체인은 무변경이다."""
+    argv = [ai_py, "-m", "app.cli", "localize", "--job-dir", job_dir,
+            "--locale", locale or "ja"]
+    if overrides_path:
+        argv += ["--overrides", str(overrides_path)]
+    return argv
+
+
+def _active_engine(conn, channel_slug=None) -> str:
+    """이 잡이 쓸 현지화 엔진. 조회 실패는 기본값으로 — 설정 조회가 잡을 죽이지 않는다."""
+    try:
+        with conn.cursor() as c:
+            c.execute("SELECT value FROM public.ops_config WHERE key=%s", (ENGINE_SWITCH,))
+            row = c.fetchone()
+        return pick_engine((row or {}).get("value"), channel_slug)
+    except Exception as e:                                     # noqa: BLE001
+        print(f"[localize] {ENGINE_SWITCH} 조회 실패(기본 {ENGINE_DEFAULT}): {e}")
+        return ENGINE_DEFAULT
 
 
 # ───────── 현지화 로그 마커 (2026-08-24) ─────────
@@ -315,7 +380,9 @@ def _run_scene_rerender(cfg, conn, job, deps):
         _restore_run_dir(cfg, conn, store, run_id, run_dir)
 
     eng = cfgmod.engine_dir(cfg, "localization")
+    ai_dir = cfgmod.engine_dir(cfg, "ai_video")
     ai_py = cfgmod.engine_py(cfg, "ai_video")
+    locale = str(p.get("locale") or "ja")
     ov_path = None
     if p.get("overrides"):
         # 반려-수정 재렌더(8/14, 0038): 검수함에서 고친 텍스트를 job 디렉토리에 내려놓고
@@ -323,17 +390,36 @@ def _run_scene_rerender(cfg, conn, job, deps):
         ov_path = pathlib.Path(run_dir) / "localize_overrides.json"
         ov_path.write_text(json.dumps(p["overrides"], ensure_ascii=False, indent=2),
                            encoding="utf-8")
+    ov_arg = str(ov_path) if ov_path else None
+
     # 편집실 재렌더(0075)에서만 참 — planner 정상 체인은 이 키가 없다(첫 현지화라
     # 무효화할 캐시도 없다). 값 검증: 불리언 외에는 켜지 않는다(오타로 전량 재번역이
     # 도는 것을 막는다 — 재번역은 Gemini Pro 호출 + 텔롭 재추출이라 싸지 않다).
     # 게이트: --rebuild 를 모르는 구 localize_run.py 는 argparse 로 즉사한다. vlp 전 노드
     # 배포를 확인한 뒤 ops_config editor_jp_rebuild=on (E7·E10 과 같은 롤아웃).
     rebuild = p.get("rebuild") is True and base.ops_on(conn, "editor_jp_rebuild")
-    argv = scene_rerender_argv(ai_py, eng, str(run_dir),
-                               str(ov_path) if ov_path else None, rebuild=rebuild)
-    r = subprocess.run(argv, cwd=eng, env=dict(os.environ),
+
+    # L-P2 컷오버: 두 엔진이 **같은 산출 규약**을 지키므로 argv·cwd 만 갈린다.
+    engine_choice = _active_engine(conn, p.get("channel_slug"))
+    if engine_choice == ENGINE_AIVIDEO and rebuild and not AIVIDEO_HAS_REBUILD:
+        # 🛑 이식본은 vlp 66056fe 기준이라 --rebuild(편집실 JP 재렌더)가 아직 없다.
+        # 그대로 보내면 argparse 즉사, 빼고 보내면 **편집실에서 고친 한국어가 일본어판에
+        # 한 글자도 안 들어간다** — vlp 1da2a16 이 고친 바로 그 버그가 되살아난다.
+        # 그 한 잡만 vlp 로 돌린다. 조용히는 안 넘어간다(stdout·결과 양쪽에 남긴다).
+        print(f"[localize] ⚠ 엔진=ai-video 이지만 rebuild 요청 — 이 잡은 vlp 로 돌린다"
+              f" (이식본에 --rebuild 미이식)")
+        engine_choice = ENGINE_VLP_REBUILD
+
+    if engine_choice == ENGINE_AIVIDEO:
+        argv, cwd = aivideo_localize_argv(ai_py, str(run_dir), locale, ov_arg), ai_dir
+    else:
+        argv, cwd = scene_rerender_argv(ai_py, eng, str(run_dir), ov_arg,
+                                        rebuild=rebuild), eng
+    print(f"[localize] 엔진={engine_choice} locale={locale} rebuild={rebuild}")
+
+    r = subprocess.run(argv, cwd=cwd, env=dict(os.environ),
                        capture_output=True, text=True, timeout=3600 * 2)
-    meta_path = pathlib.Path(run_dir) / "localize_ja" / "metadata.json"
+    meta_path = pathlib.Path(run_dir) / f"localize_{locale}" / "metadata.json"
     if r.returncode != 0 or not meta_path.exists():
         # 마커를 앞에 붙인다 — 어느 단계까지 갔는지가 꼬리 600자보다 먼저 필요하다.
         # 분류(classify_by_patterns)는 원본 stdout/stderr 로 그대로 한다.
@@ -364,6 +450,8 @@ def _run_scene_rerender(cfg, conn, job, deps):
 
     _enqueue_qa(conn, job, {"run_id": run_id, "preview_key": out_key,
                             "bucket": "ves-localized", "mode": "scene_rerender",
+                            # 어느 엔진이 만든 결과인가 — 컷오버 기간의 추적 근거(L-P2)
+                            "localize_engine": engine_choice,
                             "youtube_title": meta.get("youtube_title"),
                             # 발행 해시태그(2026-08-23) — 없으면 brain 이 한국어 작품명으로
                             # 태그를 만든다(일본어 채널에 #혜미리예채파 가 올라가던 경로).
@@ -376,6 +464,7 @@ def _run_scene_rerender(cfg, conn, job, deps):
                             "ko_ja_pairs": meta.get("ko_ja_pairs"),
                             "note": "\n".join(meta.get("notes") or [])[:300]})
     return {"run_id": run_id, "localized_key": out_key, "mode": "scene_rerender",
+            "localize_engine": engine_choice, "locale": locale,
             "youtube_title": meta.get("youtube_title"),
             # 판정용 단계 표시 — stdout_tail 로는 안 보이는 것들(localize_markers 머리말)
             "markers": localize_markers(r.stdout),

@@ -17,6 +17,7 @@ from ves import config as cfgmod
 from ves import db
 from ves.config import get_config
 from ves.scheduler import (channels_sync, drive_balance, drive_watch, editor_uploads_gc,
+                           loopy_picker, loopy_scout,
                            perf_sync, planner, reaper, reconcile, source_watch,
                            storage_gc, version_watch, zanmang_daily)
 
@@ -110,6 +111,12 @@ def main():
                     ("channels_sync", lambda: channels_sync.run(conn, cfg), _due_daily(last.get("channels_sync"), now, 8)),
                     ("perf_sync",     lambda: perf_sync.run(conn, cfg),     _due_interval(last.get("perf_sync"), now, 60)),
                     ("zanmang_daily", lambda: zanmang_daily.run(conn, cfg), _due_daily(last.get("zanmang_daily"), now, 10)),
+                    # 외부 쇼츠 아카이브(L-P3) — 03:00 KST. 전량 재나열이 46유닛(무료
+                    # 쿼터의 0.5%)이라 매일 돌려 지표를 살려 둔다. 생성 피크(09:00)와 안 겹친다.
+                    ("loopy_scout",   lambda: loopy_scout.run(conn, cfg),   _due_daily(last.get("loopy_scout"), now, 3)),
+                    # 선별기(L-P3b) — 수집(03:00) 뒤 04:00. 지표가 갱신된 아카이브를 보고
+                    # 추천을 세운다. 발행은 어느 수준에서도 사람이다(§5-6).
+                    ("loopy_picker",  lambda: loopy_picker.run(conn, cfg),  _due_daily(last.get("loopy_picker"), now, 4)),
                     ("storage_gc",    lambda: storage_gc.run(conn, cfg),    _due_daily(last.get("storage_gc"), now, 6)),
                     ("editor_uploads_gc", lambda: editor_uploads_gc.run(conn, cfg), _due_daily(last.get("editor_uploads_gc"), now, 6)),
                 ]
