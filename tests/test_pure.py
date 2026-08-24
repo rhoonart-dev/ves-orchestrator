@@ -2552,13 +2552,16 @@ def test_tts_from_checkpoints_carries_audio_file():
 
 
 def test_dashboard_tts_preview_and_conflicts():
-    """F-204 미리듣기(저장된 합성본만 — 새 문구는 재렌더 후) · F-205 충돌 검사(자막↔
-    내레이션 겹침·원본 구간 중복·창 경계 이탈)."""
+    """F-204 미리듣기 · F-205 충돌 검사(자막↔내레이션 겹침·원본 구간 중복·창 경계 이탈).
+
+    2026-08-23: 미리듣기가 '저장된 합성본만' 이 아니게 됐다(즉석 합성 — 아래
+    test_dashboard_tts_preview_now_voice). 그래도 **라벨은 정직해야 한다**: 즉석 합성이
+    불가능한 기본(edge-tts) 목소리 줄은 여전히 구본이라고 말해야 한다."""
     import pathlib
     html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
-    assert "edTtsPlay" in html and '"key": c.key' not in html  # 키는 timeline.tts 에서
+    assert "edTtsPlayRow" in html and '"key": c.key' not in html  # 키는 timeline.tts 에서
     assert "edConflicts" in html and "ttsClash" in html
-    assert "재렌더 후 합성" in html                            # 정직한 라벨
+    assert "▶·구본" in html and "재렌더 후에만 존재합니다" in html   # 정직한 라벨
     sql = pathlib.Path("ves/control/migrations/0049_editor_tts_audio.sql").read_text(encoding="utf-8")
     assert "tts_gen" in sql and ">= 1" in sql                  # 세대 마커 캐시 판정
 
@@ -2801,7 +2804,8 @@ def test_dashboard_editor_kr_polish_0820():
     assert "const ED_SPEEDS" in html and "edSpeedSel" in html and "window.edTtsSpeed" in html
     assert 'voice: t.voice, speed: t.speed || "normal",' in html
     assert 'speed: c.speed || "normal"' in html            # 재료 타임라인 → 폼
-    assert "ED_SPEED_FACTOR[t.speed]" in html
+    # 8/23 부터 게이지 배율은 백엔드마다 갈린다(edSpeedFactor) — 반영된다는 사실은 그대로
+    assert "edSpeedFactor(t)" in html and "const ED_SPEED_FACTOR" in html
     assert '(t.speed || "normal") !== (o.speed || "normal")' in html
     # 미리보기 — 밴드 클리핑 박스 + 확대율 근사 + 해상도 도착 시 재동기 + 크롭 토글
     assert 'id="edbandbox"' in html and "function edStageZoom" in html
@@ -3433,8 +3437,14 @@ def test_0072_transcribe_backend_key_allowed():
     # 0069 까지의 허용 키가 살아 있어야 한다(본문 통째 재정의 규율 — 0055 교훈)
     for k in ("'subtitles'", "'video_width'", "'title_y_fixed'", "'face_tracking'"):
         assert k in sql
-    # 게이트는 off 로 시작한다 — 엔진 배포 전 저장이 그 채널 생성을 죽이면 안 된다
-    assert "'channel_transcribe', 'off'" in sql
+    # 게이트는 off 로 시작한다 — 엔진 배포 전 저장이 그 채널 생성을 죽이면 안 된다.
+    # ⚠ 이 INSERT 는 **0072 파일 고유 내용**이라 _live_mig(마지막 재정의 = 지금은 0075)가
+    # 아니라 그 파일에서 읽는다. 함수 본문은 뒤 마이그레이션이 통째로 다시 쓰지만
+    # ops_config 시딩은 한 번뿐이다(0050·0057 등이 쓰는 것과 같은 파일 직독 관례).
+    import pathlib
+    mig72 = pathlib.Path(
+        "ves/control/migrations/0072_channel_transcribe_backend.sql").read_text(encoding="utf-8")
+    assert "'channel_transcribe', 'off'" in mig72
 
 
 def test_dashboard_transcribe_backend_wired():
@@ -3500,6 +3510,128 @@ def test_dashboard_elevenlabs_voice_picker():
     assert "editor_tts_voices" in html and "function edElVoices()" in html
     # 영어권 목소리라는 사실을 화면이 말해야 한다 — 한국어에 억양이 배어난다
     assert "영어권 기본 목소리" in html
+
+
+def test_dashboard_tts_preview_now_voice():
+    """편집실 ▶ 는 **지금 고른 목소리**를 들려줘야 한다 (사용자 요청 2026-08-23).
+
+    종전엔 직전 렌더의 mp3 하나뿐이었다 — 목소리를 바꿔 놓고 옛 소리를 들으며 고르고
+    있었고, 새로 넣은 줄은 key 가 없어 버튼조차 없었다. 이제 셋으로 갈린다:
+    안 고침=저장본(요금 0) · 고침+일레븐랩스=즉석 합성 · 고침+기본 목소리=구본."""
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert "async function edTtsSynth" in html
+    assert 'sb.functions.invoke("tts-preview"' in html
+    assert "function edTtsPlaySpec" in html
+    for kind in ('kind: "saved"', 'kind: "now"', 'kind: "old"'):
+        assert kind in html, f"미리듣기 갈래 {kind} 가 없다"
+    # 즉석 합성은 게이트·권한·목소리 셋을 다 본다(엣지 함수도 같은 둘을 다시 본다 — R15)
+    assert 'const edTtsPvOn = () => edElVoicesOn() && can("reviewer")' in html
+    assert 'const edPvAble = v => String(v || "").startsWith(ED_EL_PREFIX)' in html
+    # 같은 (문구·목소리·속도)는 다시 만들지 않는다 — 크레딧은 글자 수로 나간다
+    assert "edPvCache" in html and "function edPvPut" in html
+    assert "URL.revokeObjectURL" in html          # 상한을 넘긴 objectURL 은 회수한다
+    # 함수의 한국어 오류(키 없음·게이트·권한)를 꺼내 보여준다 — 안 꺼내면 화면엔
+    # "non-2xx status code" 만 뜨고 사람은 무엇을 고쳐야 하는지 모른다
+    assert "await error.context.json()" in html
+    # 목소리·문구를 고치는 즉시 버튼이 바뀐다 — render 를 다시 돌리면 편집 중 DOM 이 날아간다
+    assert "edTtsBtnSync(t, i);" in html
+    # 넣기 전에 들어보기(추가 줄) — 시각·창을 정하기 전에 목소리부터 고르는 게 순서다
+    assert "window.edTtsAddPv" in html and 'id="edndpv"' in html
+
+
+def test_dashboard_seq_preview_narration_sound():
+    """가상 미리보기가 내레이션을 **함께** 들려준다 — 화면만 맞고 소리가 없으면 반쪽이다.
+
+    ⚠ 구본은 섞지 않는다: 하늘색 자막은 새 문구인데 소리가 옛 문구면 미리보기가
+    거짓말을 한다. 들려줄 수 없는 줄은 소리 없이 지나간다."""
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert "function edSeqAudioSync" in html
+    assert "if (edSeqSnd) edSeqAudioSync(eff, outT);" in html      # 재생 틱에 물려 있다
+    assert "window.edSeqSndToggle" in html and 'id="edsndbtn"' in html
+    # 예열 — 닿는 순간 합성하면(1~2초) 첫 몇 마디가 잘린다
+    assert "function edSeqWarm()" in html and "edSeqWarm();" in html
+    # 영상이 멈추면 소리도 멈추고, 카드를 바꿔도 남지 않는다
+    assert "function edSeqAudioStop()" in html
+    assert html.count("edSeqAudioStop();") >= 3   # edTtsStop · edSeqStop · 토글 끄기
+    # 들려줄 수 있는 것만 — 구본(kind: old)은 null 로 떨어진다
+    assert 'if (s.kind === "saved") return await signedUrl' in html
+    # 줄의 ▶ 와 미리보기가 같은 판정(edTtsStale)을 쓴다 — 갈라지면 버튼은 '구본'이라는데
+    # 미리보기는 새 소리를 내는 일이 생긴다
+    assert "function edTtsStale(t){" in html
+
+
+def test_dashboard_speed_gauge_per_backend():
+    """발화 길이 게이지 배율은 **백엔드마다 다르다** (사용자 요청 2026-08-23).
+
+    같은 다섯 단을 edge-tts 는 rate(−25%~+25%)로, 일레븐랩스는 voice_settings.speed
+    (0.7~1.2)로 누른다. 한 표로 뭉뚱그리면 끝단에서 게이지가 거짓말을 한다 — very_fast
+    를 1.25 로 치면 실제보다 4% 짧게 잡아, 창을 넘는 줄을 '들어간다'고 말한다."""
+    import pathlib
+    import re
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    ts = pathlib.Path("supabase/functions/tts-preview/index.ts").read_text(encoding="utf-8")
+
+    def table(text, pat):
+        m = re.search(pat, text, re.S)
+        assert m, f"표를 찾지 못했다: {pat}"
+        return {k: float(v) for k, v in re.findall(r"(\w+):\s*([\d.]+)", m.group(1))}
+
+    # 게이지가 실제로 갈림을 쓴다 — 표만 만들어 두고 안 쓰면 아무것도 안 바뀐다
+    assert "const edSpeedFactor = t =>" in html
+    assert "edTtsEst(t.text) / edSpeedFactor(t)" in html
+    assert "edPvAble(t.voice) ? ED_EL_SPEED_FACTOR : ED_SPEED_FACTOR" in html
+
+    # edge-tts 표는 한 글자도 안 바뀐다 — 접두사 없는 줄의 게이지가 달라지면 회귀다
+    assert table(html, r"const ED_SPEED_FACTOR = \{(.*?)\};") == {
+        "very_slow": 0.75, "slow": 0.9, "normal": 1.0, "fast": 1.1, "very_fast": 1.25}
+    # EL 표 = 엣지 함수(=엔진 _synthesize_elevenlabs 복제본)의 EL_SPEED 와 값이 같아야 한다.
+    # 갈라지면 게이지가 '완성본이 낼 길이'가 아닌 다른 숫자를 말한다.
+    assert (table(html, r"const ED_EL_SPEED_FACTOR = \{(.*?)\};")
+            == table(ts, r"const EL_SPEED: Record<string, number> = \{(.*?)\};"))
+    # 화면의 다섯 단이 두 표 모두에 있어야 한다 — 없는 단은 배율 1(=보통)로 조용히 떨어진다
+    m = re.search(r"const ED_SPEEDS = \[(.*?)\];", html, re.S)
+    for lab in re.findall(r'\["(\w+)"', m.group(1)):
+        assert f"{lab}:" in html.split("const ED_SPEED_FACTOR")[1][:400], f"edge 표에 없는 단: {lab}"
+        assert f"{lab}:" in html.split("const ED_EL_SPEED_FACTOR")[1][:400], f"EL 표에 없는 단: {lab}"
+
+
+def test_tts_preview_fn_mirrors_engine_contract():
+    """엣지 함수 tts-preview 의 합성 파라미터는 엔진(ai-video app/modules/tts.py) 복제본이다.
+
+    값이 곧 계약이다 — 어긋나면 미리듣기가 완성본과 **다른 소리**를 내고, 사람은 그
+    소리를 믿고 목소리를 고른다. 엔진이 바꾸면 이 테스트와 함수를 함께 고쳐라."""
+    import pathlib
+    import re
+    ts = pathlib.Path("supabase/functions/tts-preview/index.ts").read_text(encoding="utf-8")
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    # 모델: eleven_v3 는 speed·similarity_boost 를 안 받아 속도 프리셋이 죽는다(E12)
+    assert "eleven_multilingual_v2" in ts
+    assert "mp3_44100_128" in ts
+    assert "EL_STABILITY = 0.5" in ts and "EL_SIMILARITY = 0.75" in ts
+    # speed 5단 — ElevenLabs voice_settings.speed 범위는 0.7~1.2(0~2 아님)
+    for lab, val in (("very_slow", "0.7"), ("slow", "0.85"), ("normal", "1.0"),
+                     ("fast", "1.1"), ("very_fast", "1.2")):
+        assert f"{lab}: {val}" in ts, f"speed 매핑 {lab} 가 엔진과 다르다"
+    # 화면의 속도 프리셋을 함수가 전부 알아야 한다 — 모르는 단은 조용히 normal 로 떨어진다
+    m = re.search(r"const ED_SPEEDS = \[(.*?)\];", html, re.S)
+    assert m, "ED_SPEEDS 를 찾지 못했다"
+    for lab in re.findall(r'\["(\w+)"', m.group(1)):
+        assert f"{lab}:" in ts, f"화면에는 있고 함수엔 없는 속도 단: {lab}"
+    # 라벨→voice_id 표는 엔진 것 하나뿐이다 — 여기 복제하면 정본이 둘이 된다(E12-2).
+    # 주석의 언급은 괜찮고, **실행되는 코드**에 없어야 한다.
+    code = "\n".join(l for l in ts.splitlines() if not l.lstrip().startswith("//"))
+    assert "ko_female" not in code
+    assert "elevenlabs:" in ts and "[A-Za-z0-9]{16,32}" in ts   # 0073 과 같은 형태 검증
+    # 게이트·권한·시크릿 — 셋 다 함수가 다시 본다(화면 검증은 방어선이 아니다)
+    assert "editor_tts_elevenlabs" in ts
+    assert "ALLOWED_ROLES" in ts and '"reviewer"' in ts
+    assert "ELEVENLABS_API_KEY" in ts and "503" in ts           # 키 없으면 조용히 넘어가지 않는다
+    # CORS — 대시보드는 CloudFront(다른 오리진)다. OPTIONS 를 안 받으면 브라우저가 본
+    # 요청을 아예 안 보내고 함수 로그에도 아무것도 안 남는다(2026-08-23 v2 의 구멍)
+    assert 'req.method === "OPTIONS"' in ts
+    assert "access-control-allow-origin" in ts and "access-control-allow-headers" in ts
 
 
 def test_0073_tts_voice_vocab_and_subs_contract():
@@ -3888,3 +4020,433 @@ def test_dashboard_editor_texts_wired():
     assert 'else if (t === "txt") edTxtDel(i);' in html  # Delete 키
     py = pathlib.Path("ves/adapters/brain.py").read_text(encoding="utf-8")
     assert '"texts": pay.get("texts") or 0' in py
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# E15 스타일 구성 (2026-08-23) — 스토리 구성 뒤 AI 연출 단계
+# ─────────────────────────────────────────────────────────────────────────
+def test_channel_style_compose_switch():
+    """채널 design 스위치 하나가 --style-compose 로 나간다(값 없는 플래그).
+
+    불리언인 이유: 엔진 플래그가 store_true 라 값이 없다. 오타·숫자가 조용히
+    '켜짐'으로 해석되면 안 된다 — AI 호출은 돈이 나간다(registry 원칙)."""
+    import pytest
+    from ves.adapters import base
+    from ves.adapters.aivideo import CHANNEL_DESIGN_SWITCHES, channel_design_flags
+    assert CHANNEL_DESIGN_SWITCHES["style_compose"] == ("--style-compose", True)
+    assert channel_design_flags({"style_compose": True}, "ch") == ["--style-compose"]
+    # 꺼짐·미지정이면 argv 는 한 글자도 안 바뀐다(엔진 회귀 0 조건)
+    assert channel_design_flags({"style_compose": False}, "ch") == []
+    assert channel_design_flags({"title_size": 70}, "ch") == ["--design-title-size", "70"]
+    # 손 편집 템플릿의 "true"/"false" 는 관용, 그 밖은 즉시 실패
+    assert channel_design_flags({"style_compose": "true"}, "ch") == ["--style-compose"]
+    for bad in (1, "on", "yes", None):
+        with pytest.raises(base.PermanentError):
+            channel_design_flags({"style_compose": bad}, "ch")
+
+
+def test_style_compose_deploy_gate():
+    """새 CLI 플래그는 게이트 뒤에서만 나간다 — 구 엔진 노드는 모르는 플래그에 argparse 로
+    즉사한다(d6f49db 가 --rebuild·--description 에 세운 것과 같은 보호).
+
+    대시보드는 ops_config channel_style 뒤에서만 저장하지만 채널 정본(channels.json)은
+    손으로도 고친다 — 실행 직전 design_for_job 이 한 번 더 본다. **키가 없으면 꺼짐**:
+    게이트를 못 읽었는데 새 플래그를 보내면 그게 사고다."""
+    from ves.adapters.aivideo import channel_design_flags, design_for_job
+    d = {"style_compose": True, "title_size": 70}
+    # 게이트 off(또는 키 없음) → style_compose 만 걷히고 나머지 디자인은 그대로
+    assert design_for_job(d, {}) == {"title_size": 70}
+    assert design_for_job(d, {"style_compose_allowed": False}) == {"title_size": 70}
+    assert channel_design_flags(design_for_job(d, {}), "ch") == ["--design-title-size", "70"]
+    # 게이트 on → 그대로 통과
+    assert design_for_job(d, {"style_compose_allowed": True}) == d
+    assert "--style-compose" in channel_design_flags(
+        design_for_job(d, {"style_compose_allowed": True}), "ch")
+    # 원본 불변(부작용 금지) + 이 키가 없는 채널은 dict 를 새로 만들지도 않는다
+    assert d["style_compose"] is True
+    assert design_for_job({"title_size": 70}, {}) == {"title_size": 70}
+
+
+def test_enrich_params_reads_style_gate():
+    """게이트 조회는 conn 이 있는 훅에서 — build_argv 는 순수하게 둔다(d6f49db 규약)."""
+    import inspect
+    from ves.adapters import aivideo
+    src = inspect.getsource(aivideo.enrich_params)
+    assert 'base.ops_on(conn, "channel_style")' in src
+    assert "style_compose_allowed" in src
+    # channel_slug 가 없어도 게이트 값은 실린다(조기 반환보다 앞) — 안 그러면 그 잡만
+    # 게이트를 못 읽어 '키 없음 = 꺼짐' 으로 조용히 달라진다
+    assert src.index("style_compose_allowed") < src.index('if not p.get("channel_slug")')
+
+
+def test_0076_style_compose_key_allowed():
+    """어댑터에 키를 넣고 v_allowed 를 빠뜨리면 채널 모달 저장이 거부된다(0065 교훈)."""
+    sql = _live_mig("CREATE OR REPLACE FUNCTION public.set_channel_design")
+    assert "'style_compose'" in sql
+    # 0072 까지의 허용 키가 살아 있어야 한다(본문 통째 재정의 규율 — 0055 교훈)
+    for k in ("'subtitles'", "'video_width'", "'title_y_fixed'", "'face_tracking'",
+              "'transcribe_backend'"):
+        assert k in sql
+    # 불리언 타입 검증도 RPC 에 둔다 — 숫자·문자열이 '켜짐'으로 새면 안 된다
+    assert "jsonb_typeof(p_design->'style_compose')" in sql
+    # 게이트는 off 로 시작한다 — 엔진 배포 전 저장이 그 채널 생성을 죽이면 안 된다.
+    # (0072 와 같은 이유로 ops_config 시딩은 그 파일에서 직접 읽는다)
+    import pathlib
+    mig = pathlib.Path(
+        "ves/control/migrations/0076_channel_style_compose.sql").read_text(encoding="utf-8")
+    assert "'channel_style', 'off'" in mig
+
+
+def test_dashboard_style_compose_wired():
+    """채널 설정 모달의 '스타일 구성' — 게이트·저장·diff·복사가 다 있어야 한다.
+
+    저장만 있고 diff·복사가 빠지면 '다른 채널에서 복사'가 이 설정만 조용히 떨어뜨린다
+    (통째 교체 규약이라 화면에 없는 값은 저장 때 사라진다 — 8/20 subtitles 전례)."""
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert "chStyleOn" in html and "channel_style" in html      # ops 게이트
+    assert "df_style_compose" in html
+    assert "design.style_compose = true" in html                # 저장(불리언)
+    assert "스타일 구성:" in html                                # diff 미리보기
+    assert 'sc2.value = d.style_compose === true' in html       # 다른 채널에서 복사
+    # 게이트 off 로 입력칸이 없을 때는 지금 값을 승계한다(통째 교체 규약의 함정)
+    assert "scEl0 ? scEl0.value" in html
+    # 스타일은 style 단계 — 편집실 재렌더로는 다시 안 뜬다는 것을 화면이 말해야 한다
+    assert "다음 생성부터 적용됩니다" in html
+
+
+def test_style_summary_lands_on_review_card():
+    """검수자가 '왜 이 스티커가 떴는지'를 카드에서 본다 — run_log steps 의 style 요약."""
+    import inspect
+    from ves.adapters import brain
+    src = inspect.getsource(brain)
+    assert "def _run_log_style" in src and "def _load_run_log" in src
+    # 부가 정보라 실패가 검수 등록을 막지 않는다(8/20 사고 규율) — try 블록 안에 있어야 한다
+    post = inspect.getsource(brain.Evaluate.post_success)
+    assert 'extra["style"] = st' in post
+    # 지침 칩과 같은 로더를 쓴다(파일 찾는 규칙이 두 벌이면 언젠가 어긋난다)
+    ed = inspect.getsource(brain._run_log_editorial)
+    assert "_load_run_log(cfg, p)" in ed
+# ───────── 편집실 JP 재렌더 · 현지화판 발행 (0075 · 2026-08-23) ─────────
+# 실사고 정본은 0075 머리말. 요약: SHOTCONE 편집실에서 화면비·한국어 자막을 고쳐도
+# 일본어 완성본이 그대로였고(재번역 캐시·백업 고정·디자인 소실), 발행은 일본어 채널에
+# 한국어 제목·해시태그를 올렸다.
+
+class _CfgStub:
+    """engine_py/_scripts 가 읽는 것은 home 뿐 — 파일 접근은 없다(video_path 를 준다)."""
+    home = "/opt/ves"
+
+
+def _ko_backup(tmp_path, files):
+    run = tmp_path / "작품_abc123"
+    (run / "localize_backup_ko").mkdir(parents=True)
+    for name, body in files.items():
+        (run / "localize_backup_ko" / name).write_text(body, encoding="utf-8")
+    return run
+
+
+def test_ko_restore_names_only_what_backup_has():
+    """백업에 있는 것만 되돌린다 — work_title.txt 는 언어 무관이라 목록 밖."""
+    from ves.adapters.aivideo import ko_restore_names
+    assert ko_restore_names(["title.txt", "edit_plan.json", "work_title.txt", "잡것"]) == \
+        ["edit_plan.json", "title.txt"]
+    assert ko_restore_names([]) == []
+    assert ko_restore_names(None) == []
+
+
+def test_ko_restore_audio_skips_paths_outside_run_dir(tmp_path):
+    """낡은 체크포인트가 남의 디렉토리를 가리키면 조용히 그 파일을 덮어쓰게 된다 — 제외."""
+    from ves.adapters.aivideo import ko_restore_audio
+    run = str(tmp_path / "run")
+    res = {"tts_cue_files": [
+        {"path": f"{run}/tts_0.mp3"},          # 안쪽 — 대상
+        {"path": "/etc/tts_1.mp3"},            # 바깥 — 제외
+        {"path": f"{run}/../tts_2.mp3"},       # 탈출 — 제외
+        {"path": f"{run}/tts_9.mp3"},          # 백업에 없음 — 제외
+        {},                                     # path 없음
+    ]}
+    got = ko_restore_audio(res, run, ["tts_0.mp3", "tts_1.mp3", "tts_2.mp3"])
+    assert got == [("tts_0.mp3", f"{run}/tts_0.mp3")]
+
+
+def test_restore_ko_baseline_puts_korean_back(tmp_path):
+    """현지화가 덮어쓴 run_dir 을 한국어로 되돌린다 — 안 되돌리면 '한국어 원본' 재렌더가
+    일본어 제목으로 그려지고, 편집실도 일본어를 원문이라며 보여준다."""
+    from ves.adapters.aivideo import restore_ko_baseline
+    run = _ko_backup(tmp_path, {
+        "title.txt": "몸만 오면 된다더니",
+        "subtitle_segments.json": '[{"text": "너무 예뻐요"}]',
+        "checkpoint_resources.json": json.dumps(
+            {"tts_cue_files": [{"path": str(tmp_path / "작품_abc123" / "tts_0.mp3")}]}),
+    })
+    (run / "localize_backup_ko" / "tts_0.mp3").write_bytes(b"KO-AUDIO")
+    # 현지화가 덮어쓴 상태
+    (run / "title.txt").write_text("手ぶらでOK", encoding="utf-8")
+    (run / "subtitle_segments.json").write_text('[{"text": "すごくきれい"}]', encoding="utf-8")
+    (run / "checkpoint_resources.json").write_text("{}", encoding="utf-8")
+    (run / "tts_0.mp3").write_bytes(b"JA-AUDIO")
+
+    restored = restore_ko_baseline(str(run))
+    assert (run / "title.txt").read_text(encoding="utf-8") == "몸만 오면 된다더니"
+    assert "너무 예뻐요" in (run / "subtitle_segments.json").read_text(encoding="utf-8")
+    assert (run / "tts_0.mp3").read_bytes() == b"KO-AUDIO"      # 내레이션도 한국어로
+    assert "tts_0.mp3" in restored
+
+
+def test_restore_ko_baseline_is_noop_for_kr_channels(tmp_path):
+    """백업 디렉토리가 없는 한국어 채널은 통째로 무동작 — 회귀 0."""
+    from ves.adapters.aivideo import restore_ko_baseline
+    run = tmp_path / "run"; run.mkdir()
+    (run / "title.txt").write_text("그대로", encoding="utf-8")
+    assert restore_ko_baseline(str(run)) == []
+    assert (run / "title.txt").read_text(encoding="utf-8") == "그대로"
+
+
+def test_scene_rerender_argv_rebuild():
+    """--rebuild 는 편집 재렌더에서만 — 켜면 vlp 가 백업·번역 캐시를 갱신하고 재번역한다."""
+    from ves.adapters.localize import scene_rerender_argv
+    assert scene_rerender_argv("/py", "/eng", "/job") == \
+        ["/py", "/eng/scripts/localize_run.py", "--job-dir", "/job"]      # 종전 그대로
+    assert scene_rerender_argv("/py", "/eng", "/job", rebuild=True)[-1] == "--rebuild"
+    both = scene_rerender_argv("/py", "/eng", "/job", "/job/ov.json", rebuild=True)
+    assert both[-3:] == ["--overrides", "/job/ov.json", "--rebuild"]
+
+
+def test_publish_argv_carries_localized_metadata():
+    """일본어 채널 발행 — 없으면 brain 이 clip_metadata 의 **한국어** 제목으로 조립한다."""
+    from ves.adapters.brain import Publish
+
+    class _Cfg:
+        pass
+
+    job = {"params": {"clip_id": "c1", "channel_name": "ショトコン", "privacy": "private",
+                      "video_path": "/v.mp4", "episode": 1,
+                      "publish_title": "手ぶらでOKと言われたのに…",
+                      "publish_description": "何でも揃っていると…\n\n채널 ENA에서 시청 가능",
+                      "publish_tags": ["ヘミリイェチェパ", " ", "韓国バラエティ"]}}
+    argv = Publish.build_argv(_CfgStub(), job)
+    assert argv[argv.index("--title") + 1] == "手ぶらでOKと言われたのに…"
+    assert "何でも揃っていると…" in argv[argv.index("--description") + 1]
+    # 빈 태그는 걸러진다(brain hashtag_body 가 빈 해시태그를 만들지 않게)
+    assert argv[argv.index("--hashtags") + 1:] == ["ヘミリイェチェパ", "韓国バラエティ"]
+
+
+def test_publish_argv_unchanged_for_korean_channels():
+    """한국어 카드는 이 키들이 없다 — 명령이 종전과 완전히 같아야 한다(회귀 0)."""
+    from ves.adapters.brain import Publish
+    job = {"params": {"clip_id": "c1", "channel_name": "한입주막", "privacy": "unlisted",
+                      "video_path": "/v.mp4", "episode": 3}}
+    argv = Publish.build_argv(_CfgStub(), job)
+    for flag in ("--title", "--description", "--hashtags"):
+        assert flag not in argv
+
+
+def test_0075_localized_publish_meta_and_patches():
+    """0075 — 발행 메타 조각 + 두 RPC 텍스트 패치의 계약."""
+    sql = _mig("0075_editor_jp_rebuild_and_localized_publish.sql")
+    # ① payload → params 조각. 빈 값은 아예 키를 안 만든다(brain 이 종전 조립으로 떨어지게)
+    assert "CREATE OR REPLACE FUNCTION public._localized_publish_meta" in sql
+    assert "jsonb_strip_nulls" in sql
+    for k in ("'publish_title'", "'publish_description'", "'publish_tags'"):
+        assert k in sql
+    # ② publish 잡 params 병합
+    assert "|| public._localized_publish_meta(v_rq.payload)" in sql
+    # ③ JP localize 잡 rebuild 신호
+    assert "''rebuild'', true" in sql
+    # 조각을 못 찾으면 조용히 통과하면 안 된다 — 즉시 실패 + 사후 검증
+    assert sql.count("RAISE EXCEPTION") >= 4
+    assert "0075 검증 실패" in sql
+    assert "('orchestrator','0075'" in sql
+
+
+def test_job_design_flags_is_single_source(monkeypatch):
+    """build_argv 와 parse_result 가 **같은** 디자인을 봐야 한다 — parse_result 가 남기는
+    design_cli.json 이 실제 렌더와 어긋나면 현지화가 엉뚱한 디자인으로 복원한다."""
+    from ves.adapters import aivideo
+    monkeypatch.setattr(aivideo, "_channel_record",
+                        lambda cfg, name: {"design": {"aspect_ratio": "13:9",
+                                                      "face_tracking": False}})
+    params = {"channel_name": "ショトコン",
+              "edit_overrides": {"design": {"title_y": 160}}}
+    got = aivideo.job_design_flags(None, params)
+    assert got[got.index("--design-aspect-ratio") + 1] == "13:9"
+    assert got[got.index("--design-title-y") + 1] == "160"   # 편집실 스타일이 위에 얹힌다
+    assert "--no-reframe" in got
+
+
+def test_write_design_cli_records_and_survives_bad_dir(tmp_path, capsys):
+    """현지화 재렌더가 디자인을 복원할 유일한 근거 — 다만 기록 실패로 잡을 죽이지 않는다."""
+    from ves.adapters.aivideo import DESIGN_CLI_FILE, _write_design_cli
+    _write_design_cli(str(tmp_path), ["--design-aspect-ratio", "13:9"])
+    assert json.loads((tmp_path / DESIGN_CLI_FILE).read_text(encoding="utf-8")) == \
+        ["--design-aspect-ratio", "13:9"]
+    _write_design_cli(str(tmp_path / "없는" / "경로"), ["--design-video-y", "440"])
+    assert "design_cli.json 기록 실패" in capsys.readouterr().out
+
+
+def test_editor_assets_restores_korean_before_reading(monkeypatch, tmp_path):
+    """편집실이 여는 재료는 현지화가 덮어쓴 run_dir 에서 나온다 — 그대로 읽으면
+    '원본(한국어) 편집실'이 일본어 제목·자막을 원문이라며 보여준다(2026-08-23).
+    복원이 **읽기보다 먼저** 일어나는지를 못박는다 — 순서가 뒤집히면 조용히 일본어가 뜬다."""
+    from ves.adapters import editor_assets
+
+    run = tmp_path / "작품_abc123"
+    (run / "localize_backup_ko").mkdir(parents=True)
+    (run / "localize_backup_ko" / "edit_plan.json").write_text(
+        json.dumps({"layout": {"top_title": "몸만 오면 된다더니"}}), encoding="utf-8")
+    (run / "localize_backup_ko" / "subtitle_segments.json").write_text(
+        json.dumps([{"start_sec": 0, "end_sec": 1, "text": "너무 예뻐요"}]), encoding="utf-8")
+    # 현지화가 덮어쓴 상태
+    (run / "edit_plan.json").write_text(
+        json.dumps({"layout": {"top_title": "手ぶらでOK"}}), encoding="utf-8")
+    (run / "subtitle_segments.json").write_text(
+        json.dumps([{"start_sec": 0, "end_sec": 1, "text": "すごくきれい"}]), encoding="utf-8")
+
+    seen = {}
+
+    def _stop(run_dir, video_path):
+        seen["plan"] = json.loads((run / "edit_plan.json").read_text(encoding="utf-8"))
+        seen["segs"] = json.loads((run / "subtitle_segments.json").read_text(encoding="utf-8"))
+        return None            # 여기서 PermanentError 로 빠져나온다 — 무거운 인코딩 전
+
+    monkeypatch.setattr(editor_assets, "pick_scrub_source", _stop)
+    try:
+        editor_assets.run(_CfgStub(), None, {"params": {"run_id": "작품_abc123",
+                                                        "run_dir": str(run)}}, None)
+    except Exception:
+        pass
+    assert seen["plan"]["layout"]["top_title"] == "몸만 오면 된다더니"
+    assert seen["segs"][0]["text"] == "너무 예뻐요"
+
+
+# ───────── 배포 순서 게이트 (2026-08-23) ─────────
+# 구 엔진은 모르는 CLI 플래그에 argparse 로 즉사한다(0069 --design-title-box 전례).
+# 오케스트레이터가 엔진보다 먼저 배포되면 그 사이 잡이 통째로 실패하므로 게이트를 앞에 둔다.
+
+class _FakeConn:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def cursor(self):
+        conn = self
+
+        class _C:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def execute(self, sql, args):
+                self.row = conn.rows.get(args[0])
+
+            def fetchone(self):
+                return {"value": self.row} if self.row is not None else None
+        return _C()
+
+
+class _DeadConn:
+    def cursor(self):
+        raise RuntimeError("DB 끊김")
+
+
+def test_ops_on_only_true_for_on():
+    from ves.adapters import base
+    conn = _FakeConn({"a": "on", "b": "off", "c": "ON ", "d": "true"})
+    assert base.ops_on(conn, "a") is True
+    assert base.ops_on(conn, "c") is True          # 공백·대문자 관용
+    assert base.ops_on(conn, "b") is False
+    assert base.ops_on(conn, "d") is False         # 'on' 만 참 — 'true' 는 오타로 본다
+    assert base.ops_on(conn, "없는키") is False
+
+
+def test_ops_on_treats_db_failure_as_off(capsys):
+    """조회가 실패했다고 새 플래그를 보내면 그게 사고다 — 꺼짐으로 떨어진다."""
+    from ves.adapters import base
+    assert base.ops_on(_DeadConn(), "editor_jp_rebuild") is False
+    assert "꺼짐으로 취급" in capsys.readouterr().out
+
+
+def test_publish_enrich_strips_localized_keys_when_gate_off():
+    from ves.adapters.brain import Publish
+    params = {"clip_id": "c1", "publish_title": "手ぶらでOK",
+              "publish_description": "何でも…", "publish_tags": ["ヘミリイェチェパ"]}
+    off = Publish.enrich_params(None, _FakeConn({}), {"params": params})
+    for k in ("publish_title", "publish_description", "publish_tags"):
+        assert k not in off
+    on = Publish.enrich_params(None, _FakeConn({"publish_localized_meta": "on"}),
+                               {"params": params})
+    assert on["publish_title"] == "手ぶらでOK"
+
+
+def test_publish_enrich_is_noop_for_korean_cards():
+    """한국어 카드는 키 자체가 없다 — 게이트 조회조차 하지 않는다(_DeadConn 이 증거)."""
+    from ves.adapters.brain import Publish
+    params = {"clip_id": "c1", "episode": 3}
+    assert Publish.enrich_params(None, _DeadConn(), {"params": params}) == params
+
+
+# ───────── 현지화 로그 마커 (2026-08-24) ─────────
+# stdout_tail(마지막 300자)만으로는 배포 후 첫 JP localize 가 성공했는데도 '재번역이
+# 돌았는가'·'디자인이 복원됐는가'를 관제에서 판정할 수 없었다(실측). 그 줄들을 남긴다.
+
+_VLP_LOG = """=== 현지화 시작: 혜미리예채파_c517564d (혜미리예채파 → ja) === [rebuild]
+[rebuild] 캐시 폐기: translation.json, onscreen.json, refine_frames/ — 고친 한국어 원본으로 다시 번역한다
+[L0] 백업 갱신(rebuild): /opt/ves/…/localize_backup_ko
+[L0] 한국어판 보존: shorts_ko.mp4
+[L2] 업로드: shorts_ko.mp4 (24MB)
+[L1] 88s — segments 18 · telop 사용 11건 · notes 2건
+     note: Segment 3 을 문맥에 맞게 고쳤다
+[L3] 적용 완료 — 대사 18건 · 텔롭 병기 11건 (telops.ass)
+[L3t] cue 0: 'テスト' → ja-JP-NanamiNeural 3.2s (창 3.5s)
+[L3t] cue 1: 'テスト2' → ja-JP-NanamiNeural 2.1s (창 2.4s)
+[L4] 디자인 복원(design_cli.json): --design-aspect-ratio 13:9 --no-reframe
+[L4] 재렌더: create_shorts --title ショトコン --design-aspect-ratio 13:9 --design-title-font ArialUnicode
+[L4] 재렌더 완료 214s (길이 59.300s = 원본 일치)
+[L4] 텔롭 번인 완료 → shorts.mp4 (중간본 shorts_ja_notelop.mp4 보존)
+[L5] metadata.json — 제목: ヒーリング旅行だと思ったら…
+"""
+
+
+def test_localize_markers_keeps_the_deciding_lines():
+    from ves.adapters.localize import localize_markers
+    got = localize_markers(_VLP_LOG)
+    joined = "\n".join(got)
+    for must in ("[rebuild] 캐시 폐기", "[L0] 백업 갱신(rebuild)",
+                 "[L1] 88s — segments", "[L4] 디자인 복원(design_cli.json)",
+                 "[L4] 재렌더 완료 214s"):
+        assert must in joined, must
+    # cue 마다 나오는 [L3t]·[L3]·[L5] 는 판정에 안 쓰고 길기만 하다
+    for skip in ("[L3]", "[L3t]", "[L5]", "note:"):
+        assert skip not in joined, skip
+
+
+def test_localize_markers_separates_cache_reuse_from_retranslate():
+    """이 두 줄의 구분이 곧 '고친 한국어가 반영됐는가'의 답이다."""
+    from ves.adapters.localize import localize_markers
+    stale = localize_markers("[L0] 기존 백업 사용: /x\n[L1] 기존 번역 결과 사용\n")
+    assert stale == ["[L0] 기존 백업 사용: /x", "[L1] 기존 번역 결과 사용"]
+    assert "기존 번역 결과 사용" not in "\n".join(localize_markers(_VLP_LOG))
+
+
+def test_localize_markers_flags_missing_design_cli():
+    from ves.adapters.localize import localize_markers
+    got = localize_markers("[L4] ⚠️ design_cli 가 없다(옛 런) — 화면비·제목 스타일이 기본값으로\n")
+    assert got and "design_cli 가 없다" in got[0]
+
+
+def test_localize_markers_is_bounded():
+    """result jsonb 가 비대해지면 안 된다 — 줄 수·총 길이·줄 길이 상한."""
+    from ves.adapters import localize
+    flood = "\n".join(f"[L4] {'가'*900} {i}" for i in range(200))
+    got = localize.localize_markers(flood)
+    assert len(got) <= localize.LOCALIZE_MARKER_MAX_LINES
+    assert all(len(x) <= localize.LOCALIZE_MARKER_LINE_CHARS for x in got)
+    assert sum(len(x) for x in got) <= localize.LOCALIZE_MARKER_MAX_CHARS
+
+
+def test_localize_markers_empty_input():
+    from ves.adapters.localize import localize_markers
+    assert localize_markers("") == []
+    assert localize_markers(None) == []
+    assert localize_markers("아무 마커도 없는 줄\n또 한 줄\n") == []

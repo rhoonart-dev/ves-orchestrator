@@ -1,5 +1,5 @@
 -- =====================================================================
--- 0076_external_shorts_archive.sql — 외부 쇼츠 아카이브 (L-P3, 2026-08-23)
+-- 0078_external_shorts_archive.sql — 외부 쇼츠 아카이브 (L-P3, 2026-08-23)
 --
 -- 발주서: docs/LOCALIZE_UNIFY.md §5-4·§5-5. 사용자 지시(8/23): "잔망루피 쇼츠는
 -- 옛날 것부터 최신 것까지 주기적으로 자동 수집해서 가지고 있다가 사용할 수 있게".
@@ -110,5 +110,5 @@ SELECT l.video_id, 'LOOPY', '@zanmangloopy', l.title, l.url, l.duration,
 ON CONFLICT (video_id) DO NOTHING;
 
 INSERT INTO public.applied_migrations(engine, version, applied_by)
-VALUES ('orchestrator','0076','claude (0076 외부 쇼츠 아카이브 — L-P3)')
+VALUES ('orchestrator','0078','claude (0078 외부 쇼츠 아카이브 — L-P3)')
 ON CONFLICT DO NOTHING;

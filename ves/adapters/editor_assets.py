@@ -31,6 +31,7 @@ import subprocess
 
 from ves import config as cfgmod
 from ves.adapters import base
+from ves.adapters.aivideo import restore_ko_baseline
 from ves.storage.supabase_storage import Store
 
 THUMB_W = 160                  # 썸네일 가로(세로는 비율 유지) — 4시간물 전역에서도 MB 급
@@ -412,6 +413,16 @@ def run(cfg, conn, job, deps):
     if not os.path.isdir(run_dir):
         raise base.PermanentError(
             f"run 디렉토리 없음: {run_dir} — 이 노드에 그 run 이 없거나 정리됐습니다")
+
+    # 아래에서 읽는 세 파일(edit_plan·subtitle_segments·checkpoint_resources)과 내레이션
+    # mp3 는 JP 체인의 현지화(vlp L3/L3t)가 run_dir 안에서 **일본어로 덮어쓴다**. 그대로
+    # 읽으면 '원본(한국어) 편집실'이 일본어 제목·자막·내레이션을 원문이라며 보여주고,
+    # 미리듣기에서도 일본어 목소리가 난다 — 사람은 그 위에 한국어를 덮어쓰게 된다.
+    # 재렌더(aivideo.resume_argv)가 쓰는 것과 **같은 복원**을 여기서도 한다: 화면이 보는
+    # 것과 렌더가 쓰는 것이 어긋나면 안 된다. 한국어 채널·백업 없는 run 은 무동작(회귀 0).
+    ko = restore_ko_baseline(run_dir)
+    if ko:
+        print(f"[editor] 현지화본 → 한국어 원본 복원 {len(ko)}개: {', '.join(sorted(set(ko)))}")
 
     plan_path = pathlib.Path(run_dir) / "edit_plan.json"
     if not plan_path.exists():

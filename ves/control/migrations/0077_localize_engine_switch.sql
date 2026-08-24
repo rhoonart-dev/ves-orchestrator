@@ -1,5 +1,5 @@
 -- =====================================================================
--- 0075_localize_engine_switch.sql — 현지화 엔진 컷오버 스위치 (L-P2, 2026-08-23)
+-- 0077_localize_engine_switch.sql — 현지화 엔진 컷오버 스위치 (L-P2, 2026-08-23)
 --
 -- 발주서: docs/LOCALIZE_UNIFY.md §9 P2 · 근거: docs/prompts/e15-p1-report.md.
 -- rerender 현지화(혜미리예채파)가 video-localization-project 에서 ai-video
@@ -27,5 +27,5 @@ VALUES ('localize_engine', 'vlp',
 ON CONFLICT (key) DO NOTHING;   -- 이미 전환했다면 덮지 않는다
 
 INSERT INTO public.applied_migrations(engine, version, applied_by)
-VALUES ('orchestrator','0075','claude (0075 현지화 엔진 컷오버 스위치 — L-P2)')
+VALUES ('orchestrator','0077','claude (0077 현지화 엔진 컷오버 스위치 — L-P2)')
 ON CONFLICT DO NOTHING;

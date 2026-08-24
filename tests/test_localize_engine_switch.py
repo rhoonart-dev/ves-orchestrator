@@ -93,3 +93,28 @@ def test_both_argvs_run_the_same_interpreter():
     py = "/opt/ves/engines/ai-video/.venv/bin/python"
     assert scene_rerender_argv(py, "/eng", "/job")[0] == py
     assert aivideo_localize_argv(py, "/job")[0] == py
+
+
+# ── rebuild 우회 (2026-08-24) — 이식본이 vlp 를 따라잡을 때까지의 안전장치 ────
+# vlp 는 66056fe → 5f8c3e3 으로 --rebuild(편집실 JP 재렌더 · 디자인 복원 · 겹치기
+# 승계)를 얹었는데 이식본은 66056fe 기준이다. 스위치를 먼저 켜도 편집실 경로가
+# 조용히 되돌아가면 안 된다 — vlp 1da2a16 이 고친 바로 그 버그다.
+def test_port_is_still_behind_vlp_on_rebuild():
+    """이 상수가 True 가 되는 순간 우회는 사라져야 한다 — 짝을 잊지 않게 고정한다."""
+    from ves.adapters.localize import AIVIDEO_HAS_REBUILD
+    assert AIVIDEO_HAS_REBUILD is False, \
+        "--rebuild 이식이 끝났으면 localize.py 의 우회 분기도 함께 지워라"
+
+
+def test_rebuild_argv_is_vlp_only():
+    """--rebuild 는 vlp argv 에만 실린다. ai-video 서브커맨드는 이 플래그를 모른다."""
+    assert "--rebuild" in scene_rerender_argv("/py", "/eng", "/job", None, rebuild=True)
+    assert "--rebuild" not in scene_rerender_argv("/py", "/eng", "/job", None)
+    assert "--rebuild" not in aivideo_localize_argv("/py", "/job")
+
+
+def test_rebuild_fallback_label_is_distinct_from_plain_vlp():
+    """우회한 잡은 결과에서 **구분돼야** 한다 — 'vlp' 와 같은 값이면 조용한 우회다."""
+    from ves.adapters.localize import ENGINE_VLP, ENGINE_VLP_REBUILD
+    assert ENGINE_VLP_REBUILD != ENGINE_VLP
+    assert "rebuild" in ENGINE_VLP_REBUILD

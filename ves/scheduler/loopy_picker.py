@@ -25,7 +25,7 @@ import re
 CONFIG_KEY = "loopy_picker"
 DENYLIST_KEY = "loopy_denylist"
 
-# 게이트 0 — 이 상태면 후보가 아니다. uploaded 는 종착(0076 트리거가 한 번 더 막는다).
+# 게이트 0 — 이 상태면 후보가 아니다. uploaded 는 종착(0078 트리거가 한 번 더 막는다).
 BUSY_STATES = ("processing", "pending_approval", "approved", "selected")
 TERMINAL_STATES = ("uploaded",)
 

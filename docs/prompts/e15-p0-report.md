@@ -54,7 +54,7 @@ P0 에서 나온 것 중 **가장 중요한 것은 §3 이다.** 기획서 §10-
 | `src/convert_short.py` | 314 | **폐기** | 등급 J — 운영 부하 0, overlay 가 흡수 |
 | `src/dub.py` | 1469 | **분해** | EL 합성→tts.py 합치기 / 전사→speech·stt_elevenlabs 합치기 / 타이밍·믹스·보컬분리·백체크→external/dub.py |
 | `src/jp_score.py` | 130 | **승격** | 선별기 게이트 2 (§5-6) |
-| `src/ledger.py` | 324 | **승격** | PG 아카이브 external_shorts (0077) |
+| `src/ledger.py` | 324 | **승격** | PG 아카이브 external_shorts (0078) |
 | `src/metadata.py` | 122 | **이관** | localize/meta.py |
 | `src/notify.py` | 63 | **폐기** | 오케스트레이터 obs/notify.py 가 있다 |
 | `src/precheck.py` | 236 | **이관** | localize/external/precheck.py — 선별기 게이트 1-c |

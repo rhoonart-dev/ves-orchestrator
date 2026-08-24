@@ -1,7 +1,7 @@
 -- =====================================================================
--- 0077_loopy_picker.sql — 소재 선별기 설정·RPC (L-P3b, 2026-08-23)
+-- 0079_loopy_picker.sql — 소재 선별기 설정·RPC (L-P3b, 2026-08-23)
 --
--- 발주서: docs/LOCALIZE_UNIFY.md §5-6. 판정 열은 0076 이 이미 열어 뒀다
+-- 발주서: docs/LOCALIZE_UNIFY.md §5-6. 판정 열은 0078 이 이미 열어 뒀다
 -- (score·scores·flags·block_reason·allowed_by·dup_of). 여기서 더하는 것은
 -- ① 차단 목록·선별기 설정 ② 대시보드가 쓸 조회·기록 RPC 다.
 --
@@ -102,5 +102,5 @@ REVOKE ALL     ON FUNCTION public.set_external_short_allow(text,boolean,text,boo
 GRANT  EXECUTE ON FUNCTION public.set_external_short_allow(text,boolean,text,boolean) TO authenticated;
 
 INSERT INTO public.applied_migrations(engine, version, applied_by)
-VALUES ('orchestrator','0077','claude (0077 소재 선별기 설정·RPC — L-P3b)')
+VALUES ('orchestrator','0079','claude (0079 소재 선별기 설정·RPC — L-P3b)')
 ON CONFLICT DO NOTHING;
