@@ -1225,6 +1225,10 @@ def test_account_exhausted_vs_rate_limit():
              "Please go to AI Studio at https://ai.studio/billing to manage your billing.'}}")
     assert ex(spend)                                            # 8/12 실측 원문
     assert ex("429 You exceeded your current quota, please check your plan and billing details")
+    # 선불 크레딧 소진 — 8/23 실측 원문(VES03). 종전 목록과 한 글자도 겹치지 않아 놓쳤다.
+    assert ex("429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Your prepayment "
+              "credits are depleted. Please go to AI Studio at https://ai.studio/projects to "
+              "manage your project and billing.', 'status': 'RESOURCE_EXHAUSTED'}}")
     # 분당 rate limit — 넘기지 않는다(백업 계정을 공짜로 태우지 않는다)
     assert not ex("429 RESOURCE_EXHAUSTED: Quota exceeded for quota metric "
                   "'Generate requests per minute'. Retry in 31s")

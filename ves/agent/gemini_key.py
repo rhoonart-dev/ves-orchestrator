@@ -40,6 +40,11 @@ _EXHAUSTED = (
     "billing account",         # 〃
     "exceeded your current quota",   # 무료 티어 소진
     "check your plan and billing",   # 〃 (같은 메시지의 뒷부분)
+    # 선불 크레딧 소진 (8/23 실측 원문, VES03): "Your prepayment credits are depleted.
+    # Please go to AI Studio at https://ai.studio/projects to manage your project and billing."
+    # 위 문구들과 한 글자도 겹치지 않아 종전 목록으로는 이 소진이 rate limit 으로 오인됐다 —
+    # 주 키가 이 상태가 되면 예비 키로 넘어가지 못한 채 조용히 재시도만 반복한다.
+    "prepayment credits are depleted",
 )
 
 
