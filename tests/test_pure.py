@@ -3846,8 +3846,10 @@ def test_0067_editor_timed_title():
     assert ("OR (jsonb_typeof(v_ov->'title') = 'object'"
             " AND v_ov->'title' ? 'segments')") in sql
     sql2 = _live_mig("CREATE OR REPLACE FUNCTION public.request_editor_assets")
-    # 머리말 1 + SELECT 별칭 1 + 반환 2곳(키·값 각 1) = 6 — 한 반환 경로만 고치는 사고 방지
-    assert sql2.count("prev_title_segments") == 6
+    # 두 반환 경로(캐시·신규) 모두 키·값을 실어야 한다 — 0057 prev_images 가드와 같은 형태.
+    # (종전의 총 등장 횟수==6 은 머리말 프로즈 언급까지 세는 우연 값이라 0081 재정의에서 깨졌다)
+    assert sql2.count("'prev_title_segments', v_gen.prev_title_segments") == 2
+    assert sql2.count("'prev_texts', v_gen.prev_texts") == 2
     html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
     # 게이트 + 위젯 + 수집(플래그 off 때 segments 미전송 — 구 스탬프 즉사 방지)
     assert "const edE8On = () =>" in html and "editor_e8" in html

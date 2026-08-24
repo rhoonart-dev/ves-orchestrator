@@ -493,6 +493,8 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
           text-align:center;cursor:grab;pointer-events:auto;user-select:none;font-style:normal}
   /* 스테이지 자유 텍스트(F-411) — 중심 좌표(x·y) · ✎ 도구로 드래그 이동 · ◢ 크기 · ↻ 회전 */
   .edovtexts{position:absolute;inset:0;pointer-events:none}
+  /* 텍스트 탭 활성 중 — 다른 오버레이 유령은 보이되 잡히지 않는다(F-411) */
+  .edovtitle.txtdim,.edovsub.txtdim,.edovtts.txtdim{opacity:.25;pointer-events:none!important}
   .edovtext{position:absolute;pointer-events:none;z-index:4;white-space:pre;font-weight:900;
             line-height:1.1;transform:translate(-50%,-50%);text-align:center}
   .edovtext.editable{pointer-events:auto;cursor:move;outline:1.5px dashed #ffffff88;
@@ -5115,7 +5117,8 @@ window.edTxtAdd = () => {
   const p = ED_TXT_PRESETS[edTxtPreset] || ED_TXT_PRESETS.free;
   edSnap();
   edForm.texts = edForm.texts || [];
-  edForm.texts.push({ text: p.sample, src: +edCursor.toFixed(3), dur: 1.5, x: 0.5, y: 0.5,
+  // 기본 위치 = 중앙보다 위(y 0.35) — 정중앙은 내레이션 유령 밴드와 겹쳐 잡기 혼동(8/24 실측)
+  edForm.texts.push({ text: p.sample, src: +edCursor.toFixed(3), dur: 1.5, x: 0.5, y: 0.35,
                       size: p.size, color: p.color, stroke: p.stroke, fx: p.fx,
                       rotate: p.rotate, font: "Jalnan", del: false });
   edOutSel = { t: "txt", i: edForm.texts.length - 1 };
@@ -6928,6 +6931,10 @@ function edStagePaint(outT){
   const seqMode = edStageMode === "seq";
   const H = st.clientHeight || 480, sc = H / 1920, d = edDesign();
   const editing = edV3() && edStyleTool && edCanEdit();
+  // 텍스트 탭에서는 스테이지 조작 대상이 텍스트뿐이다(F-411 사용자 8/24 실측: 새 텍스트
+  // 기본 위치가 내레이션 유령 밴드와 겹쳐, 클릭·더블클릭이 내레이션을 잡아 옮겼다).
+  // 다른 오버레이 유령은 흐리게 + 클릭 통과 — 보이되 잡히지 않는다.
+  const txtOnly = editing && edPane === "txts" && edTextsOn();
   const tt = document.getElementById("edovtitle");
   if (tt){
     tt.style.display = (seqMode || editing) ? "" : "none";
@@ -6967,7 +6974,8 @@ function edStagePaint(outT){
       if (tt.dataset.h !== th){ tt.dataset.h = th; tt.innerHTML = th; }
       // F-409(dc1060f): 끌면 고정 배치(title_y_fixed) — 안 끌면 엔진 자동 배치(영상 위).
       // edImagesOn 게이트 = 0057·신 어댑터 배포 표식(H2)
-      tt.classList.toggle("editable", editing && edImagesOn());
+      tt.classList.toggle("editable", editing && edImagesOn() && !txtOnly);
+      tt.classList.toggle("txtdim", txtOnly);
       tt.title = !(editing && edImagesOn()) ? "" : (d.title_y_fixed
         ? "제목 — 끌어서 위치(고정 배치 모드 · 스타일 탭에서 자동 배치로 복귀)"
         : "제목 — 지금은 자동 배치(영상 바로 위, 완성본과 동일) · 끌면 고정 위치가 됩니다");
@@ -7000,7 +7008,8 @@ function edStagePaint(outT){
     se.textContent = sub ? sub.text : "";
     se.style.transform = (sub && sub.style && Math.round(+sub.style.rotate))
       ? `rotate(${Math.round(+sub.style.rotate)}deg)` : "";
-    se.classList.toggle("editable", editing && !!sub);
+    se.classList.toggle("editable", editing && !!sub && !txtOnly);
+    se.classList.toggle("txtdim", txtOnly);
     se.title = editing && sub ? `${si + 1}번 자막 — 끌어서 위치 이동` : "";
   }
   const te = document.getElementById("edovtts");
@@ -7027,7 +7036,8 @@ function edStagePaint(outT){
       te.style.transform = Math.round(+d.tts_rotate)         // 회전(E7) — 원점 블록 중심
         ? `rotate(${Math.round(+d.tts_rotate)}deg)` : "";
       te.textContent = cue ? cue.text : "";
-      te.classList.toggle("editable", editing && !!cue);
+      te.classList.toggle("editable", editing && !!cue && !txtOnly);
+      te.classList.toggle("txtdim", txtOnly);
       te.title = editing && cue ? "내레이션 자막 — 끌어서 세로 위치(모든 내레이션 공통)" : "";
     }
   }
