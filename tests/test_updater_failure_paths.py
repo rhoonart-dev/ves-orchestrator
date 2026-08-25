@@ -207,3 +207,34 @@ def test_update_cycle_drains_through_begin_update_not_set_node():
     assert '_set_node(conn, cfg.node_id, status="draining"' not in src
     # 실패 경로는 그대로 disabled 를 직접 지정한다
     assert '_set_node(conn, cfg.node_id, status="disabled", updating=False)' in src
+
+
+# ── ⑤ 갱신 도중 사람이 정한 값이 자동 복귀를 이긴다 (0083) ────────────────
+def _mig83():
+    import pathlib
+    return (pathlib.Path(__file__).resolve().parents[1] / "ves" / "control" / "migrations"
+            / "0083_set_node_status_cancels_auto_restore.sql").read_text(encoding="utf-8")
+
+
+def test_set_node_status_cancels_a_pending_auto_restore():
+    """사람이 갱신 도중 상태를 바꾸면 복귀가 그 값을 덮었다 — RPC 가 복귀를 취소한다.
+    복귀는 `WHERE updating_since IS NOT NULL` 로 걸려 있으므로 그것만 비우면 무효가 된다."""
+    sql = _mig83()
+    fn = sql.split("CREATE OR REPLACE FUNCTION public.set_node_status", 1)[1].split("$function$;", 1)[0]
+    assert "updating_since = NULL" in fn
+    assert "- 'pre_update_status'" in fn          # 기록도 함께 버린다
+    # 원래 계약은 그대로여야 한다 — 권한·값 검증·없는 노드·감사
+    assert "has_role(auth.uid(),'operator')" in fn
+    assert "p_status NOT IN ('active','draining','disabled')" in fn
+    assert "RAISE EXCEPTION 'unknown node %'" in fn
+    assert "_audit('set_node_status'" in fn
+    # 자기 자신을 applied_migrations 에 기록한다(레포 규약 — 게이트의 재료)
+    assert "INSERT INTO public.applied_migrations" in sql and "'0083'" in sql
+
+
+def test_restore_gate_is_what_the_rpc_cancels():
+    """RPC 가 비우는 컬럼과 복귀가 보는 컬럼이 같아야 취소가 성립한다."""
+    import inspect
+    restore = inspect.getsource(updater._restore_after_self_drain)
+    assert "updating_since IS NOT NULL" in restore
+    assert "updating_since = NULL" in _mig83()
