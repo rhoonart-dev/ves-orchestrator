@@ -4755,3 +4755,48 @@ def test_other_pipelines_are_untouched():
     assert kr == ["acquire", "generate", "upload_artifacts", "ingest", "evaluate"]
     jp = [k for k, *_ in job_chain(_wo_overlay(pipeline="shorts_jp_localized"))]
     assert jp == ["acquire", "generate", "upload_artifacts", "ingest", "evaluate", "localize"]
+
+
+# ── L-P5-2: 아카이브에서 고른 편에 작업지시를 세운다 (0086) ──────────────────
+def test_select_external_short_chain_matches_the_planner():
+    """SQL 함수와 planner.job_chain 이 **같은 체인**을 세워야 한다.
+
+    갈리면 사람이 건 편만 다른 노드로 가거나 소스를 못 찾는다 — run_channel_now 가
+    이미 같은 이중화를 안고 있고(0027 사고), 그래서 두 곳을 테스트로 묶는다."""
+    from ves.scheduler.planner import job_chain
+    sql = _live_mig("CREATE OR REPLACE FUNCTION public.select_external_short")
+    chain = job_chain({"work_title": "w", "channel_slug": "LOOPY", "channel_name": "n",
+                       "pipeline": "shorts_jp_overlay", "source_url": "u",
+                       "external_video_id": "vid"})
+    for kind, params, caps, _ttl in chain:
+        assert f"('{kind}'" in sql or f"('{kind}'::text" in sql, f"SQL 에 {kind} 단계가 없다"
+        assert f"ARRAY['{caps[0]}']" in sql, f"SQL 의 {kind} 캡이 다르다"
+        for key in params:
+            if key in ("work_title", "episode", "channel_slug", "channel_name"):
+                continue        # v_common 이 담는다
+            assert f"'{key}'" in sql, f"SQL 이 {kind}.{key} 를 안 싣는다"
+
+
+def test_select_external_short_guards():
+    """조용히 통과하면 안 되는 자리들 — 하나라도 빠지면 같은 영상이 두 번 올라간다."""
+    sql = _live_mig("CREATE OR REPLACE FUNCTION public.select_external_short")
+    assert "FOR UPDATE" in sql                       # 동시 클릭
+    assert "state NOT IN ('discovered','scored')" in sql
+    assert "block_reason IS NOT NULL AND v_es.allowed_by IS NULL" in sql
+    assert "<> 'short'" in sql                       # 롱폼은 P7
+    assert "NOT IN ('A','B','BJ','C','BC')" in sql   # route 검증
+    assert "has_role(auth.uid(),'operator')" in sql
+
+
+def test_select_external_short_marks_the_archive_row():
+    """작업지시만 세우고 아카이브를 안 건드리면 추천 목록에 그대로 남아 또 걸린다."""
+    sql = _live_mig("CREATE OR REPLACE FUNCTION public.select_external_short")
+    assert "state = 'selected'" in sql and "work_order_id = v_wo" in sql
+
+
+def test_work_orders_has_external_video_id_column():
+    """어댑터가 소스를 찾는 열쇠다 — 컬럼이 없으면 체인이 서도 소스를 못 찾는다."""
+    import pathlib
+    d = pathlib.Path("ves/control/migrations")
+    assert any("ADD COLUMN IF NOT EXISTS external_video_id" in p.read_text(encoding="utf-8")
+               for p in d.glob("*.sql"))

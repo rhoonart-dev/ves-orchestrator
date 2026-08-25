@@ -9169,6 +9169,27 @@ window.arcAllow = async (btn, vid, allow, clearDup) => {
   });
 };
 
+// L-P5-2: 고른 편에 작업지시를 세운다 — 다른 채널과 같은 모양의 카드·체인이 선다.
+// ⚠ 자동이 아니다(§0 결정 2). 선별기는 점수만 매기고 거는 것은 사람이다.
+window.arcRun = async (btn, vid, title) => {
+  const route = prompt(
+    `「${title || vid}」 작업을 겁니다.\n\nroute 를 고르세요:\n` +
+    `  B  = 화면 한글 지우고 일본어 (기본)\n` +
+    `  BJ = 한글 두고 일본어 병기 (인페인팅 없음 · 빠름)\n` +
+    `  A  = 자막 트랙만\n` +
+    `  C  = B + 더빙\n` +
+    `  BC = 지우기만 + 더빙`, "B");
+  if (route === null) return;                       // 취소
+  armed(btn, btn.textContent, async () => {
+    const { data, error } = await sb.rpc("select_external_short",
+      { p_video_id: vid, p_route: String(route || "B").toUpperCase().trim(), p_note: null });
+    if (error) toast(`거부: ${error.message}`, true);
+    else toast(`작업지시를 세웠습니다 — 잡 ${(data && data.jobs) || 0}개 (route ${
+      (data && data.route) || route})`);
+    arcLoad();
+  });
+};
+
 const arcDur = s => { const n = Math.round(Number(s) || 0);
   return `${Math.floor(n / 60)}:${String(n % 60).padStart(2, "0")}`; };
 const arcNum = n => Number(n || 0).toLocaleString("ko-KR");
@@ -9192,9 +9213,17 @@ function arcCard(r, recommended){
     : r.dup_of ? `<span class="fpill fp-rej">내용 중복</span>`
     : blocked ? `<span class="fpill fp-rej">제외됨</span>`
     : r.allowed_by ? `<span class="fpill fp-wait">사람이 되살림</span>`
+    : ["selected", "processing", "pending_approval", "approved"].includes(r.state)
+      ? `<span class="fpill fp-wait">작업 걸림</span>`
     : r.score != null ? `<span class="arcscore">${Number(r.score).toFixed(3)}</span>` : "";
   // 되살리기는 게이트 1 만 — 발행 이력은 어느 화면에서도 못 뒤집는다(RPC 도 거절한다).
+  // '작업 걸기' 는 아직 안 건 후보에만 — 이미 걸린 편(selected~)을 다시 걸면 같은
+  // 영상이 두 번 올라간다. RPC 도 상태로 막지만 버튼부터 안 보이는 게 낫다.
+  const runnable = can("operator") && !done && !blocked
+                   && ["discovered", "scored"].includes(r.state);
   const acts = !can("reviewer") || done ? "" : `<div class="acts">
+    ${runnable ? `<button class="mini" onclick="arcRun(this,'${esc(r.video_id)}','${
+        esc((r.title || "").replace(/'/g, ""))}')">작업 걸기</button>` : ""}
     ${blocked ? `<button class="mini" onclick="arcAllow(this,'${esc(r.video_id)}',true,${
         r.dup_of ? "true" : "false"})">${r.dup_of ? "중복 아님 · 되살리기" : "되살리기"}</button>`
       : `<button class="mini" onclick="arcAllow(this,'${esc(r.video_id)}',false,false)">후보에서 빼기</button>`}
