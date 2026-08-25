@@ -4903,13 +4903,31 @@ def test_only_video_files():
 
 
 def test_clean_master_goes_to_route_a():
-    """'클린' = 화면 글자 없는 마스터(사용자 확인) → 인페인팅이 필요 없다.
-
-    ⚠ 표시가 없는 파일은 B 그대로다 — 같은 폴더에 섞여 있다(트렌드쇼츠 실측)."""
+    """'클린' = 화면 글자 없는 마스터(사용자 확인) → 인페인팅이 필요 없다."""
     from ves.adapters.scan_drive_shorts import route_for
     assert route_for("군침이싹도뤂_35화_두바이쫀득쿠키(클린).mov") == "A"
     assert route_for("02_LoveLoveLove챌린지_클린.mov") == "A"
     assert route_for("03_캣츠아이챌린지.mov") == "B"
+
+
+def test_non_clean_drive_files_are_blocked_not_queued():
+    """🛑 이 폴더 영상은 3~6분이다(사용자 확인). 인페인팅 실측이 11.2초에 18분이었으니
+    5~10시간이다 — localize 노드가 하나뿐이라 그날 현지화가 전부 멈춘다.
+
+    조용히 큐에 넣지 않고 차단하고 사유를 남긴다. 사람이 비용을 알고 되살리면 된다."""
+    from ves.adapters.scan_drive_shorts import block_for, plan_rows
+    assert block_for("02_LoveLoveLove챌린지_클린.mov") is None
+    why = block_for("03_캣츠아이챌린지.mov")
+    assert why and "5~10시간" in why
+    rows = plan_rows([_e("2026_a/03_캣츠아이챌린지.mov")], 2026)
+    assert rows[0]["block_reason"]
+
+
+def test_daily_rescan_does_not_overwrite_a_human_override():
+    """사람이 되살린 편을 매일 도는 수집기가 다시 막으면 결정이 증발한다."""
+    import pathlib as _p
+    src = _p.Path("ves/adapters/scan_drive_shorts.py").read_text(encoding="utf-8")
+    assert "allowed_by IS NOT NULL" in src
 
 
 def test_drive_rows_are_addressable_by_file_id():

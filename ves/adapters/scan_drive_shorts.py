@@ -17,12 +17,27 @@ sha256 을 내고 `sources` 에 넣는다(generate 가 쓸 원본). 여기서 �
 전부 `2026-08-03` 이었다. 날짜로 "올해"를 판정하면 4년치가 전부 올해가 된다.
 폴더 이름이 `2026_yt_잔망루피_…` 규약이므로 그 앞자리를 쓴다.
 
-## 「클린」
+## 「클린」 — 그리고 왜 표시 없는 파일은 **차단**인가
 
 파일 이름에 `클린`/`clean` 이 붙은 것은 **화면에 한글 글자가 없는 마스터**다(사용자
-확인). 그런 편은 인페인팅이 필요 없어 route A(자막 트랙만)로 간다 — 가장 비싸고
-위험한 단계를 통째로 건너뛴다. 표시가 없는 파일은 **그대로 B** 로 둔다(같은 폴더에
-섞여 있다 — 트렌드쇼츠 실측: 클린 표시가 있는 것과 없는 것이 함께 있었다).
+확인 2026-08-25). 그런 편은 인페인팅이 필요 없어 route A(자막 트랙만)로 간다.
+
+🛑 표시가 없는 파일은 B(지우고 입힘)로 **안 보낸다 — 차단하고 사유를 남긴다.**
+길이가 그 이유다. 이 폴더의 영상은 **3~6분**이고(사용자 확인), 인페인팅 실측은
+11.2초(337프레임)에 18분이었다:
+
+    5,400~10,800 프레임 → 대략 **5~10시간**
+
+`localize` 캡이 있는 노드는 지금 **하나**(mm-06)다. 한 편이 그 노드를 하루 종일
+잡아먹고, 그동안 다른 현지화가 전부 멈춘다. 조용히 큐에 넣을 일이 아니다.
+사람이 비용을 알고도 돌리겠다면 아카이브에서 되살리면 된다(그 통로는 이미 있다).
+
+## ⚠ `kind='short'` 은 길이가 아니다
+
+우리 스키마의 `kind` 는 **어느 갈래로 처리하는가**다: `short` = 완성본에 일본어를
+입힌다(overlay), `longform` = 거기서 쇼츠를 만든다(generate). 드라이브 파일은
+3~6분이지만 완성본이므로 `short` 다. 60초 기준(유튜브 수집기의 `classify_kind`)과
+헷갈리지 말 것.
 """
 from __future__ import annotations
 
@@ -55,9 +70,21 @@ def is_video(name: str) -> bool:
 def route_for(name: str) -> str:
     """파일명 → 권장 route. 순수.
 
-    '클린' = 화면 글자 없음 → A(자막 트랙만). 표시가 없으면 유튜브발과 같이 B(지우고 입힘).
-    ⚠ 넘겨짚지 않는다 — 같은 폴더에 표시 있는 것과 없는 것이 섞여 있다(실측)."""
+    '클린' = 화면 글자 없음 → A(자막 트랙만). 표시가 없으면 A 를 줄 수 없다 —
+    그 판단은 `block_for` 가 한다(모듈 독스트링의 비용 계산 참고)."""
     return "A" if CLEAN_RE.search(str(name or "")) else "B"
+
+
+def block_for(name: str) -> str | None:
+    """차단 사유(없으면 None). 순수 — 테스트 대상.
+
+    🛑 클린 표시가 없는 3~6분 영상을 인페인팅에 넣으면 5~10시간이다(실측 환산).
+    `localize` 노드가 하나뿐이라 그 하루의 현지화가 전부 멈춘다."""
+    if CLEAN_RE.search(str(name or "")):
+        return None
+    return ("클린(글자 없는) 마스터가 아니라 화면 한글을 지워야 하는데, 이 길이(3~6분)면 "
+            "인페인팅에 5~10시간이 듭니다 — 현지화 노드가 하루 종일 묶입니다. "
+            "그래도 돌리려면 [되살리기]")
 
 
 def plan_rows(entries: list, year: int) -> list:
@@ -87,6 +114,7 @@ def plan_rows(entries: list, year: int) -> list:
             "bytes": int(e.get("Size") or 0),
             "folder": top,
             "route": route_for(name),
+            "block_reason": block_for(name),
             "drive_file_id": fid,
         })
     return out
@@ -135,23 +163,30 @@ def run(cfg, conn, job, deps):
             c.execute(
                 """INSERT INTO public.external_shorts
                        (video_id, channel_slug, source_handle, title, url,
-                        kind, published_at, flags)
-                   VALUES (%s,%s,'drive',%s,%s,'short',%s,%s::jsonb)
+                        kind, published_at, flags, block_reason)
+                   VALUES (%s,%s,'drive',%s,%s,'short',%s,%s::jsonb,%s)
                    ON CONFLICT (video_id) DO UPDATE
                       SET title = EXCLUDED.title, url = EXCLUDED.url,
                           flags = public.external_shorts.flags || EXCLUDED.flags,
+                          -- ⚠ 사람이 되살린 편(allowed_by)의 차단은 되돌리지 않는다 —
+                          --    매일 도는 수집기가 사람 결정을 덮으면 안 된다.
+                          block_reason = CASE WHEN public.external_shorts.allowed_by IS NOT NULL
+                                              THEN public.external_shorts.block_reason
+                                              ELSE EXCLUDED.block_reason END,
                           updated_at = now()
                    RETURNING (xmax = 0) AS inserted""",
                 (r["video_id"], slug, r["title"], r["url"], r["published_at"],
                  json.dumps({"drive": True, "route": r["route"], "folder": r["folder"],
                              "bytes": r["bytes"], "drive_file_id": r["drive_file_id"]},
-                            ensure_ascii=False)))
+                            ensure_ascii=False), r["block_reason"]))
             got = c.fetchone() or {}
         if got.get("inserted"):
             new += 1
         else:
             upd += 1
     clean = sum(1 for r in rows if r["route"] == "A")
+    blocked = len(rows) - clean
     print(f"[scan_drive_shorts] {slug} {year}년 {len(rows)}편 (신규 {new} · 갱신 {upd}) · "
-          f"클린 {clean}편(route A)")
-    return {"year": year, "rows": len(rows), "new": new, "updated": upd, "clean": clean}
+          f"클린 {clean}편(route A) · 클린 아님 {blocked}편(차단 — 인페인팅 5~10시간)")
+    return {"year": year, "rows": len(rows), "new": new, "updated": upd,
+            "clean": clean, "blocked": blocked}
