@@ -53,6 +53,23 @@ def job_chain(wo: dict) -> list:
         ("ingest",           dict(p_common),                                   ["analyze"], 120),
         ("evaluate",         dict(p_common),                                   ["analyze"], 120),
     ]
+    if wo.get("pipeline") == "shorts_jp_overlay":
+        # L-P5: 잔망루피 쇼츠 — **우리가 만들지 않은 완성본**이 입력이다. generate 가
+        # 없으므로 체인이 짧고, 소스는 아카이브(external_shorts)가 고른 유튜브 영상이다.
+        # 계획 §6-1 의 `shorts_jp_overlay` 그대로: acquire → localize(overlay) →
+        # upload_artifacts. 검수 카드(localization_qa)는 localize 어댑터가 올린다.
+        # ⚠ 캡은 "localize" 다 — overlay 는 OCR·인페인팅 스택이 있는 노드에서만 돈다
+        #   (지금 mm-06 하나). generate 캡을 쓰면 스택 없는 노드가 집어 실패한다.
+        return [
+            ("acquire",          {**p_common, "source_url": wo.get("source_url"),
+                                  "external_video_id": wo.get("external_video_id"),
+                                  "download": True},                    ["network"], 600),
+            ("localize",         {**p_common, "mode": "overlay",
+                                  "external_video_id": wo.get("external_video_id"),
+                                  "source_url": wo.get("source_url")},  ["localize"], LOCALIZE_LEASE),
+            ("upload_artifacts", dict(p_common),                        ["analyze"], 120),
+        ]
+
     if wo.get("pipeline") == "shorts_jp_localized":
         # scene_rerender 컷오버(2026-08-13 사용자 결정): ai-video 생성분은 mm-06 GPU
         # 후처리(level B)도, mm-06 convert_short(등급 J)도 아니라 **생성 노드에서**

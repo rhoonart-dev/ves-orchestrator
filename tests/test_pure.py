@@ -4710,3 +4710,48 @@ def test_aivideo_dub_argv_carries_the_jobs_route():
     assert "--level=C" in b            # 미지정은 종전 그대로
     c = aivideo_dub_argv("/py", "/v.mp4", "vid", "voice1", route="bc")
     assert "--level=BC" in c           # 대소문자는 엔진 쪽과 같은 규칙으로 맞춘다
+
+
+# ── L-P5: 잔망루피 쇼츠 파이프라인 (shorts_jp_overlay) ──────────────────────
+def _wo_overlay(**kw):
+    base = {"work_title": "잔망루피", "episode": None, "channel_slug": "LOOPY",
+            "channel_name": "잔망루피", "pipeline": "shorts_jp_overlay",
+            "source_url": "https://youtu.be/abc123", "external_video_id": "abc123"}
+    base.update(kw)
+    return base
+
+
+def test_overlay_pipeline_chain_has_no_generate():
+    """**우리가 만들지 않은 완성본**이 입력이다 — generate 가 끼면 엉뚱한 편을 새로 만든다."""
+    from ves.scheduler.planner import job_chain
+    kinds = [k for k, *_ in job_chain(_wo_overlay())]
+    assert kinds == ["acquire", "localize", "upload_artifacts"]
+
+
+def test_overlay_pipeline_localize_runs_on_the_localize_cap():
+    """overlay 는 OCR·인페인팅 스택이 있는 노드에서만 돈다(지금 mm-06 하나).
+
+    generate 캡을 쓰면 스택 없는 노드가 집어 사전검사에서 죽는다."""
+    from ves.scheduler.planner import job_chain
+    caps = {k: c for k, _p, c, _l in job_chain(_wo_overlay())}
+    assert caps["localize"] == ["localize"]
+    assert caps["acquire"] == ["network"]
+
+
+def test_overlay_pipeline_carries_the_external_video_id():
+    """아카이브가 고른 그 영상이어야 한다 — id 가 안 실리면 어댑터가 소스를 못 찾는다."""
+    from ves.scheduler.planner import job_chain
+    params = {k: p for k, p, *_ in job_chain(_wo_overlay())}
+    assert params["acquire"]["external_video_id"] == "abc123"
+    assert params["acquire"]["download"] is True
+    assert params["localize"]["external_video_id"] == "abc123"
+    assert params["localize"]["mode"] == "overlay"
+
+
+def test_other_pipelines_are_untouched():
+    """회귀 0 — shorts_kr·shorts_jp_localized 체인은 그대로다."""
+    from ves.scheduler.planner import job_chain
+    kr = [k for k, *_ in job_chain(_wo_overlay(pipeline="shorts_kr"))]
+    assert kr == ["acquire", "generate", "upload_artifacts", "ingest", "evaluate"]
+    jp = [k for k, *_ in job_chain(_wo_overlay(pipeline="shorts_jp_localized"))]
+    assert jp == ["acquire", "generate", "upload_artifacts", "ingest", "evaluate", "localize"]
