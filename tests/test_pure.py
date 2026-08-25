@@ -5064,3 +5064,40 @@ def test_rclone_everywhere_is_not_turned_on_by_the_migration():
     sql = pathlib.Path("ves/control/migrations/0091_rclone_everywhere.sql").read_text(
         encoding="utf-8")
     assert "INSERT INTO public.ops_config" not in sql
+
+
+# ── 드라이브 마스터 길이 규격 — 검사는 '받은 직후'에 있다 (2026-08-25) ──────────
+
+def test_drive_duration_window_is_shared_with_the_picker():
+    """🛑 창을 두 벌로 적으면 한쪽만 고쳐진다 — acquire 는 선별기 상수를 **가져다** 쓴다."""
+    import pathlib
+    src = pathlib.Path("ves/adapters/acquire_external.py").read_text(encoding="utf-8")
+    assert "from ves.scheduler.loopy_picker import DRIVE_MAX_SEC, DRIVE_MIN_SEC" in src
+    from ves.adapters.acquire_external import DRIVE_MAX_SEC, DRIVE_MIN_SEC
+    from ves.scheduler import loopy_picker
+    assert (DRIVE_MIN_SEC, DRIVE_MAX_SEC) == (loopy_picker.DRIVE_MIN_SEC,
+                                              loopy_picker.DRIVE_MAX_SEC)
+
+
+def test_drive_duration_ok_window():
+    from ves.adapters.acquire_external import drive_duration_ok
+    assert drive_duration_ok(45.0) and drive_duration_ok(360.0)
+    assert not drive_duration_ok(1800.0)
+    assert not drive_duration_ok(1.0)
+
+
+def test_unmeasurable_duration_does_not_block():
+    """ffprobe 실패로 멀쩡한 편을 죽이는 쪽이 더 나쁘다."""
+    from ves.adapters.acquire_external import drive_duration_ok
+    assert drive_duration_ok(None) and drive_duration_ok("몰라")
+
+
+def test_out_of_spec_master_fails_before_upload_and_leaves_a_reason():
+    """올리기 전에 끊고, 아카이브에 사유를 남긴다 — 안 남기면 다음 선별에서 또 뽑힌다."""
+    import pathlib
+    src = pathlib.Path("ves/adapters/acquire_external.py").read_text(encoding="utf-8")
+    body = src.split("def run(", 1)[1]
+    check = body.index("drive_duration_ok(dur)")
+    assert check < body.index("store.upload("), "규격 검사가 업로드보다 뒤에 있다"
+    assert "_block_row(conn, vid" in body
+    assert "PermanentError" in body[check:body.index("store.upload(")]

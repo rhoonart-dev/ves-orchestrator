@@ -301,3 +301,54 @@ def test_run_writes_both_picked_and_blocked():
     loopy_picker.run(conn, {})
     updates = [s for s, _ in conn.log if s.startswith("UPDATE")]
     assert len(updates) == 2                                  # 추천 1 + 제외 1
+
+
+# ── ⑦ 드라이브 선반 — 길이 규격이 유튜브 선반과 다르다 (2026-08-25) ──────────
+#
+# rclone lsjson 은 영상 길이를 주지 않는다. 그래서 드라이브 행은 목록 시점에
+# duration_sec 이 없고, 파일도 3~6분짜리 마스터라 쇼츠 창(3~61초)에 안 들어간다.
+# 실측: 이 두 가지 때문에 수집된 24편이 **전부** "규격 밖(길이 None)" 으로 막혔다.
+
+def _drive_row(**kw):
+    base = {"video_id": "drive:abc", "state": "discovered", "duration_sec": None,
+            "title": "군침이싹도뤂_43화(클린)",
+            "flags": {"drive": True, "drive_file_id": "abc", "route": "A"}}
+    base.update(kw)
+    return base
+
+
+def test_drive_row_with_unknown_length_is_not_blocked():
+    """드라이브는 받아 봐야 길이를 안다 — 미상이 곧 규격 밖은 아니다."""
+    assert gate_block(_drive_row(), today=TODAY) is None
+
+
+def test_youtube_row_with_unknown_length_stays_fail_closed():
+    """유튜브 선반은 종전 그대로 — 1,100편에 롱폼이 섞여 있어 미상은 막는다."""
+    assert "규격 밖" in gate_block(_row(duration_sec=None), today=TODAY)
+
+
+def test_drive_row_uses_the_drive_window():
+    assert gate_block(_drive_row(duration_sec=360.0), today=TODAY) is None    # 6분 마스터
+    assert gate_block(_drive_row(duration_sec=45.0), today=TODAY) is None
+    assert "규격 밖" in gate_block(_drive_row(duration_sec=1800.0), today=TODAY)
+    assert "규격 밖" in gate_block(_drive_row(duration_sec=1.0), today=TODAY)
+
+
+def test_drive_window_boundaries_are_inclusive():
+    assert gate_block(_drive_row(duration_sec=loopy_picker.DRIVE_MIN_SEC), today=TODAY) is None
+    assert gate_block(_drive_row(duration_sec=loopy_picker.DRIVE_MAX_SEC), today=TODAY) is None
+
+
+def test_drive_row_still_faces_every_other_gate():
+    """길이 창만 다르다 — 발행 이력·중복·차단 목록은 그대로 걸린다."""
+    assert gate_block(_drive_row(state="uploaded"), today=TODAY) == "이미 발행됨"
+    assert "내용 중복" in gate_block(_drive_row(dup_of="v9"), today=TODAY)
+    assert "차단 목록" in gate_block(_drive_row(), denylist=["군침이싹도뤂"], today=TODAY)
+
+
+def test_flags_as_json_string_still_reads_as_drive():
+    """psycopg 어댑터에 따라 flags 가 문자열로 온다 — 그때 드라이브를 못 알아보면
+    다시 전량이 막힌다(이 회귀가 실제로 났다)."""
+    import json as _json
+    row = _drive_row(flags=_json.dumps({"drive_file_id": "abc"}))
+    assert gate_block(row, today=TODAY) is None

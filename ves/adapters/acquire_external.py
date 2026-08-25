@@ -31,6 +31,7 @@ import shutil
 import subprocess
 
 from ves.adapters import base
+from ves.scheduler.loopy_picker import DRIVE_MAX_SEC, DRIVE_MIN_SEC
 from ves.storage.supabase_storage import Store
 
 BUCKET = "ves-sources"
@@ -47,6 +48,23 @@ def external_key(video_id: str) -> str:
     주석의 한글 키 사고와 같은 부류). 접두사를 살려 두되 안전한 문자로만 적는다."""
     safe = "".join(ch if (ch.isalnum() or ch in "-_") else "_" for ch in str(video_id or ""))
     return f"external/{safe}.mp4"
+
+
+def drive_duration_ok(dur, *, min_sec: float = DRIVE_MIN_SEC,
+                      max_sec: float = DRIVE_MAX_SEC) -> bool:
+    """드라이브 마스터가 길이 규격 안인가. 순수 — 테스트 대상.
+
+    ⚠ 창은 선별기와 **같은 상수**다(loopy_picker). 목록에는 길이가 없어 선별기가
+    '미상'을 통과시키므로, 규격 검사가 실제로 벌어지는 곳은 여기다 — 두 벌로 적으면
+    한쪽만 고쳐져 언젠가 6분짜리 창이 20분을 받아들인다.
+
+    길이를 못 재면(None) 막지 않는다 — ffprobe 실패로 멀쩡한 편을 죽이는 쪽이 나쁘다."""
+    if dur is None:
+        return True
+    try:
+        return min_sec <= float(dur) <= max_sec
+    except (TypeError, ValueError):
+        return True
 
 
 def needs_transcode(path_name: str, size_bytes: int, want: bool) -> bool:
@@ -96,6 +114,19 @@ def _probe_duration(path) -> float | None:
         return float((r.stdout or "").strip()) if r.returncode == 0 else None
     except (OSError, ValueError, subprocess.SubprocessError):
         return None
+
+
+def _block_row(conn, vid: str, reason: str, dur) -> None:
+    """규격 밖으로 판명된 편을 아카이브에 막아 둔다. 길이도 함께 적는다 —
+    사람이 카드에서 '왜 막혔나'를 보려면 그 숫자가 있어야 한다."""
+    try:
+        with conn.cursor() as c:
+            c.execute("""UPDATE public.external_shorts
+                            SET block_reason = %s, duration_sec = coalesce(duration_sec, %s),
+                                updated_at = now()
+                          WHERE video_id = %s""", (reason, dur, vid))
+    except Exception as e:  # noqa: BLE001 — 기록 실패가 본 실패를 가리면 안 된다
+        print(f"[acquire/external] 차단 기록 실패({vid}): {e}")
 
 
 def _fetch_drive(cfg, file_id: str, work: pathlib.Path) -> pathlib.Path:
@@ -166,6 +197,14 @@ def run(cfg, conn, job, deps):
             final = src
 
         dur = _probe_duration(final)
+        if p.get("drive_file_id") and not drive_duration_ok(dur):
+            # 목록에는 길이가 없어 선별기가 통과시킨다 — 규격은 여기서 본다.
+            # 올리기 **전**에 끊는다(스토리지·현지화 시간을 안 쓴다). 사유는 아카이브에
+            # 남겨 다음 선별에서 다시 뽑히지 않게 한다.
+            _block_row(conn, vid, f"규격 밖(길이 {dur:.1f}s — 받아 보고 알았다)", dur)
+            raise base.PermanentError(
+                f"드라이브 마스터가 길이 규격 밖이다: {dur:.1f}s "
+                f"(허용 {DRIVE_MIN_SEC:.0f}~{DRIVE_MAX_SEC:.0f}s). 아카이브에 사유를 남겼다.")
         store.upload(BUCKET, key, str(final))
         out_bytes = final.stat().st_size
     finally:

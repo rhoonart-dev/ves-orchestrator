@@ -39,6 +39,17 @@ BLOCKING_FLAGS = {
     "wordplay": False,   # 한국어 말장난 — 경고(감점). 잔망루피는 `~뤂` 어미가 잦다
 }
 SEASON_WINDOW_DAYS = 21          # 계절 소재는 ±3주 창 안이면 가산, 밖이면 차단
+
+# 드라이브 선반은 길이 규격이 다르다(2026-08-25 실측). rclone lsjson 은 영상 길이를
+# 주지 않아 **목록 시점에는 길이를 알 수 없고**, 파일도 3~6분짜리 마스터라 유튜브
+# 쇼츠 창(3~61초)에 애초에 안 들어간다. 두 규칙을 여기서 나눈다:
+#   · 길이 미상  → 드라이브만 통과(받아 봐야 안다). 유튜브 선반은 종전대로 fail-closed —
+#                 1,100편 아카이브에 롱폼이 섞여 있어 '미상'이 곧 '규격 밖'일 수 있다.
+#   · 길이 기지  → 아래 창으로 본다.
+# ⚠ 통과시킨 대신 **받은 직후** 같은 창으로 다시 본다(acquire_external) — 거기서
+#   벗어나면 그 편을 막는다. 검사를 없앤 게 아니라 알 수 있는 지점으로 옮긴 것이다.
+DRIVE_MIN_SEC = 3.0
+DRIVE_MAX_SEC = 600.0            # 3~6분 마스터 + 여유. 통째로 잘못 담긴 장편을 잡는다
 WARN_PENALTY = 0.10              # topical·wordplay 한 건당 감점
 
 DEFAULT_WEIGHTS = {"views": 0.25, "like_ratio": 0.15, "jp_comments": 0.15,
@@ -118,6 +129,22 @@ def season_ok(season, today: dt.date, window_days: int = SEASON_WINDOW_DAYS) -> 
     return False
 
 
+def row_flags(row: dict) -> dict:
+    """행의 flags — 문자열로 와도 dict 로. 순수. (수집기마다 psycopg 어댑터가 다르다)"""
+    flags = row.get("flags") or {}
+    if isinstance(flags, str):
+        try:
+            flags = json.loads(flags)
+        except ValueError:
+            flags = {}
+    return flags if isinstance(flags, dict) else {}
+
+
+def is_drive_row(flags: dict) -> bool:
+    """드라이브 선반인가 — 길이 규격이 유튜브 선반과 다르다. 순수."""
+    return bool(flags.get("drive_file_id") or flags.get("drive"))
+
+
 def gate_block(row: dict, *, denylist=None, today: dt.date | None = None,
                min_sec: float = 3.0, max_sec: float = 61.0) -> str | None:
     """게이트 0·1 — 막을 사유(없으면 None). 순수 — 테스트 대상.
@@ -138,8 +165,12 @@ def gate_block(row: dict, *, denylist=None, today: dt.date | None = None,
         return f"진행 중({state})"
     if state in ("failed", "skipped"):
         return f"제외됨({state})"
+    flags = row_flags(row)
     dur = row.get("duration_sec")
-    if dur is None or not (min_sec <= float(dur) <= max_sec):
+    if is_drive_row(flags):
+        if dur is not None and not (DRIVE_MIN_SEC <= float(dur) <= DRIVE_MAX_SEC):
+            return f"규격 밖(길이 {dur})"
+    elif dur is None or not (min_sec <= float(dur) <= max_sec):
         return f"규격 밖(길이 {dur})"
 
     # ── 게이트 1: 문제 소지 (사람이 뒤집을 수 있다) ───────────────────
@@ -148,12 +179,6 @@ def gate_block(row: dict, *, denylist=None, today: dt.date | None = None,
     hit = denylist_hit(row.get("title") or "", denylist)
     if hit:
         return f"차단 목록: {hit}"
-    flags = row.get("flags") or {}
-    if isinstance(flags, str):
-        try:
-            flags = json.loads(flags)
-        except ValueError:
-            flags = {}
     for name, blocking in BLOCKING_FLAGS.items():
         if blocking and flags.get(name):
             return f"권리·시의성 플래그: {name}"
