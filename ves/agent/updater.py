@@ -210,9 +210,10 @@ def _restore_after_self_drain(conn, node_id):
     사람이 내려 둔 draining 이었으면 draining 으로 돌아간다(active 로 올리지 않는다).
 
     기록이 없거나 알 수 없는 값이면 'active' — 종전 동작이다(회귀 0).
-    ⚠ 갱신 **도중에** 사람이 상태를 바꾸면 이 복귀가 그 값을 덮는다(창은 갱신 1회 길이).
-       막으려면 set_node_status RPC 가 updating_since 를 함께 비워야 하는데, 그건
-       마이그레이션이 필요하고 마이그레이션 게이트가 6대 갱신을 막으므로 별건으로 둔다."""
+    갱신 **도중에** 사람이 상태를 바꾸면 이 복귀는 아예 안 돈다 — set_node_status RPC 가
+    updating_since 를 비워 대기 중인 복귀를 취소한다(0083). 사람이 방금 정한 값이 몇 분
+    전 상태에 지면 안 된다. ⇒ 이 `WHERE updating_since IS NOT NULL` 은 '갱신이 스스로
+    내린 드레인인가'와 '그 사이 사람이 안 만졌는가'를 **함께** 뜻한다."""
     with conn.cursor() as c:
         c.execute(
             """UPDATE public.node_registry
