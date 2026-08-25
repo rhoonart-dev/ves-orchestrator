@@ -5044,4 +5044,23 @@ def test_drive_acquire_is_pinned_to_the_rclone_node():
 def test_youtube_acquire_is_not_pinned():
     """yt-dlp 는 어디에나 있다 — 핀을 붙이면 한 노드에 쏠린다."""
     sql = _live_mig("CREATE OR REPLACE FUNCTION public._select_external_short_impl")
-    assert "ELSE ARRAY['network'] END" in sql
+    assert "v_es.flags->>'drive_file_id' IS NULL" in sql
+
+
+def test_pin_disappears_once_rclone_is_everywhere():
+    """인증이 전 노드에 깔리면 고정이 오히려 해롭다 — 그 노드가 병목이 되고, 멈추면
+    드라이브 소재가 통째로 멈춘다.
+
+    🛑 순서가 계약이다: **배포가 먼저, 스위치가 나중.** 스위치를 먼저 켜면 인증 없는
+    노드가 잡을 집어 죽고 재시도해도 같은 자리다."""
+    sql = _live_mig("CREATE OR REPLACE FUNCTION public._select_external_short_impl")
+    assert "key='rclone_everywhere'" in sql
+    assert "= 'on'" in sql
+
+
+def test_rclone_everywhere_is_not_turned_on_by_the_migration():
+    """마이그레이션이 스위치를 켜면 배포보다 먼저 켜지는 것이다."""
+    import pathlib
+    sql = pathlib.Path("ves/control/migrations/0091_rclone_everywhere.sql").read_text(
+        encoding="utf-8")
+    assert "INSERT INTO public.ops_config" not in sql
