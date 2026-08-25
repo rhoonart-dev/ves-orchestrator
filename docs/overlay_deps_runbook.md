@@ -66,11 +66,35 @@ diff <($R/ai-video/.venv/bin/python -m pytest tests/ -q 2>&1 | grep -E '^(FAILED
 
 **합격선: 실패 목록이 A 판과 B 판에서 같을 것**(`diff` 가 빈 출력). 개수만 같고 종목이
 바뀌면 통과가 아니다 — 하나가 낫고 하나가 상한 것을 개수가 가린다.
-⚠ 참고로 병합 전 main 의 실패는 **7건**이었다(2026-08-25). A 판이 그 근처가 아니면
-트리·venv 를 잘못 짚은 것이다.
+
+⚠ **주석(`#`)을 붙여 넣지 마라.** 노드 zsh 는 `interactive_comments` 가 꺼져 있어
+주석이 명령의 인자가 된다(실제로 `tail: #: No such file or directory` 로 A/B 가 한 번
+헛돌았다). 라벨이 필요하면 `echo` 로 낸다.
+
+⚠ **실패 0 이 정상이다.** 노드 실측(2026-08-25 mm-06): 양쪽 다 `1103 passed, 1 skipped`.
+컨테이너에서 세던 '실패 7건'은 **의존이 없어서** 나던 것이라 노드 기준이 아니다.
 
 2차 관문은 **실렌더 1편**이다 — 리프레임이 켜진 채널로 한 편 만들어 종전 산출과 프레임을
 맞대야 한다. 단위 테스트는 얼굴검출 *좌표*를 고정하지만 *검출 자체*를 재현하진 않는다.
+
+## 2-1. 🛑 opencv 는 **두 줄** 이어야 한다 (2026-08-25 실측이 잡은 것)
+
+1차 시도는 `opencv-python` 을 지우고 contrib 만 남겼다. 그런데 해석표에
+`opencv-python: 4.14.0.94 → 5.0.0.93` 이 떴다 — **전이로 들어온다**:
+
+```
+paddlex(paddleocr)   -> opencv-contrib-python==4.10.0.84   (정확 핀)
+deepface             -> opencv-python>=4.5.5.64            (상한 없음)
+retina-face          -> opencv-python>=3.4.4               (상한 없음)
+rapidocr-onnxruntime -> opencv-python>=4.5.1.48            (상한 없음)
+```
+
+둘은 같은 `cv2` 디렉토리를 덮어써서 **설치 순서가 승자를 정한다.** 그 실측에서는 contrib
+4.10 이 이겨 무사했지만(`cv2.data.haarcascades` xml 17개) 순서가 뒤집히면 5.x 가 이기고
+**번들 haarcascade 가 없어 얼굴검출이 죽는다.**
+
+⇒ 두 배포판을 **같은 버전으로 못 박는다**(`==4.10.0.84`). 승자가 누구든 결과가 같다.
+`tests/test_deps_probe.py` 가 두 줄의 버전이 같은지·5 미만인지 묶어 둔다.
 
 ## 3. 통과하면
 
