@@ -12,6 +12,7 @@ WITH claimed AS (
     FROM public.job_queue j
    WHERE j.status = 'pending' AND j.run_after <= now()
      AND j.required_caps <@ %(caps)s::text[]
+     AND j.kind <> ALL(%(skip)s::text[])
      AND NOT EXISTS (SELECT 1 FROM public.job_queue d
                       WHERE d.id = ANY(j.depends_on) AND d.status <> 'succeeded')
    ORDER BY j.priority DESC, j.run_after, j.created_at
@@ -40,10 +41,19 @@ def effective_caps(capabilities, node_id: str) -> list:
     return caps
 
 
-def claim(conn, node_id: str, capabilities: list):
-    """잡 1건 원자적 획득. 없으면 None. ('일 있나 보기'와 '내가 가져가기'가 한 쿼리)"""
+def claim(conn, node_id: str, capabilities: list, skip_kinds=None):
+    """잡 1건 원자적 획득. 없으면 None. ('일 있나 보기'와 '내가 가져가기'가 한 쿼리)
+
+    skip_kinds — 이 노드가 '지금' 못 하는 kind(디스크 부족 등 노드 로컬 사정).
+    ★못 할 잡은 애초에 집지 않는다. 집었다 반납하면 return_pending 이 run_after 를
+    15분 뒤로 미는데 그 유예는 그 노드가 아니라 **모든 노드**에 걸린다 — 8/25 실측:
+    디스크가 찬 mm-06 한 대가 무휴면 재폴링으로 15분마다 큐 전체를 밀리초 만에
+    쓸어담아 반납하면서, 일일 배치 acquire 20건(19채널)을 2시간 정지시켰다.
+    빈 목록이면 종전과 완전히 같다(kind <> ALL('{}') 는 전 행 통과)."""
     with conn.cursor() as c:
-        c.execute(CLAIM_SQL, {"node": node_id, "caps": effective_caps(capabilities, node_id)})
+        c.execute(CLAIM_SQL, {"node": node_id,
+                              "caps": effective_caps(capabilities, node_id),
+                              "skip": list(skip_kinds or [])})
         row = c.fetchone()
     if row:
         from ves.db import job_event

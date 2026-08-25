@@ -4531,3 +4531,78 @@ def test_engine_overrides_passthrough_for_empty_input():
     from ves.adapters.aivideo import engine_overrides
     assert engine_overrides(None) is None
     assert engine_overrides({}) == {}
+
+
+# ── 워커 루프: 못 하는 노드가 큐를 독식하지 않는다 (8/25 mm-06 실측) ──
+def test_blocked_kinds_gates_heavy_work_by_disk():
+    """디스크가 모자란 노드는 무거운 잡을 아예 claim 하지 않는다 — 반납의 선행자."""
+    from ves.agent.executor import HEAVY_KINDS, MIN_FREE_GB, blocked_kinds
+    assert blocked_kinds(200 * 1000 ** 3) == []            # 여유 충분 → 종전과 동일
+    assert blocked_kinds(MIN_FREE_GB * 1000 ** 3) == []    # 경계는 통과(disk_ok 와 같은 선)
+    assert blocked_kinds(11 * 1000 ** 3) == sorted(HEAVY_KINDS)
+    assert blocked_kinds(0) == sorted(HEAVY_KINDS)
+    # 가벼운 잡은 절대 막지 않는다 — 디스크가 없어도 ingest/evaluate 는 돌아야 한다
+    for light in ("ingest", "evaluate", "upload_artifacts", "publish"):
+        assert light not in blocked_kinds(0)
+
+
+def test_claim_filters_blocked_kinds_and_is_noop_when_empty():
+    """빈 목록이면 파라미터만 늘고 결과는 종전과 같아야 한다(회귀 0)."""
+    from ves.agent import claim as claim_mod
+    assert "j.kind <> ALL(%(skip)s::text[])" in claim_mod.CLAIM_SQL
+
+    seen = {}
+
+    class _Cur:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def execute(self, sql, params): seen.update(params)
+        def fetchone(self): return None
+
+    class _Conn:
+        def cursor(self): return _Cur()
+
+    assert claim_mod.claim(_Conn(), "mm-06", ["generate"]) is None
+    assert seen["skip"] == []                              # 미지정 = 전 kind 통과
+    claim_mod.claim(_Conn(), "mm-06", ["generate"], ["acquire", "generate"])
+    assert seen["skip"] == ["acquire", "generate"]
+    assert "node:mm-06" in seen["caps"]                    # 기존 어피니티 규약 유지
+
+
+def test_returned_job_does_not_reset_idle_backoff():
+    """★반납을 '일했다'로 세면 무휴면 재폴링이 된다 — 그게 8/25 정지의 절반이었다."""
+    from ves.agent.worker import next_idle
+
+    class _Cfg:
+        poll_sec = 180.0
+        poll_max_sec = 180.0
+
+    cfg = _Cfg()
+    assert next_idle(10.0, cfg, worked=True) == 180.0      # 실행했으면 리셋
+    assert next_idle(10.0, cfg, worked=False) == 17.0      # 반납·빈 큐는 백오프
+    assert next_idle(170.0, cfg, worked=False) == 180.0    # 상한 클램프
+    # 반납이 반복돼도 간격이 0 으로 수렴하지 않는다(독식 불가)
+    cur = 1.0
+    for _ in range(20):
+        cur = next_idle(cur, cfg, worked=False)
+    assert cur == 180.0
+
+
+def test_run_job_signals_return_to_queue():
+    """두 반납 지점(디스크·자원)만 RETURNED 를 돌려줘야 worker 가 유휴로 센다."""
+    import inspect
+    from ves.agent import executor
+    src = inspect.getsource(executor.run_job)
+    # return_pending 하는 곳은 전부 RETURNED 로 끝난다
+    for blk in src.split("return_pending(")[1:]:
+        assert "return RETURNED" in blk.split("\n\n")[0], blk[:200]
+    assert src.count("return RETURNED") == 2
+    # 실패·완료 경로는 신호를 내지 않는다(None) — worker 가 '일했다'로 센다
+    assert 'lease.fail(conn, job, f"어댑터 없음' in src
+
+    from ves.agent import worker
+    wsrc = inspect.getsource(worker.main)
+    assert "executor.blocked_kinds(" in wsrc                    # 사전 필터를 계산하고
+    assert "claim_mod.claim(conn, cfg.node_id, cfg.capabilities, blocked)" in wsrc  # 넘긴다
+    assert "!= executor.RETURNED" in wsrc                       # 반납 신호를 실제로 본다
+    assert "blocked != blocked_prev" in wsrc                    # 보류는 조용히 하지 않는다
