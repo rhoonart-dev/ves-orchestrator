@@ -2773,6 +2773,26 @@ function edLineBoxSync(el, v){
   el.style.height = (el.scrollHeight + (el.offsetHeight - el.clientHeight)) + "px";
   el.classList.toggle("over", edLineCount(v) > ED_WRAP_MAX_LINES);
 }
+// ── 잔망루피(vlp) 줄바꿈 미러(engine/render.wrap_text + width_max_chars) ──
+// 잔망루피 자막은 ai-video 가 아니라 vlp 가 굽는다(zanmang_decision → process).
+// 규칙이 다르다: 기본 16자(config render.line_max_chars), 공백 없으면 **글자 수
+// 기계 분할**(CJK), 공백 있으면 어절 단위, 수동 개행은 그대로(재분할 없음), 줄 수
+// 상한 없음. 폭 앵커는 KR 과 같은 0.852(vlp LINE_WIDTH_BASE 미러).
+const ED_VLP_WRAP_CHARS = 16;
+function edLayOutVlp(text, width){
+  const manual = String(text == null ? "" : text).replace(/\r\n/g, "\n")
+    .split("\n").map(x => x.trim()).filter(Boolean);
+  if (manual.length > 1) return manual;
+  const one = manual[0] || "";
+  if (!one) return [];
+  const max = width == null ? ED_VLP_WRAP_CHARS
+    : Math.max(3, Math.round(ED_VLP_WRAP_CHARS * edWrapW(width) / ED_WRAP_BASE_W));
+  if (one.includes(" ")) return edSplitLines(one, max);
+  const out = [];
+  for (let i = 0; i < one.length; i += max) out.push(one.slice(i, i + max));
+  return out;
+}
+
 // 사람이 넣은 줄 수 — 상한 초과를 화면이 먼저 막는다(엔진 계약이 거절하는 값)
 const edLineCount = t => String(t == null ? "" : t)
   .replace(/\r\n/g, "\n").split("\n").filter(x => x.trim()).length;
@@ -3617,7 +3637,7 @@ function edJpPaneHtml(canEdit){
             <textarea class="x" rows="1" id="${pfx}${s.idx}" oninput="edJpMark()" ${
               canEdit && !s.del ? "" : "disabled"}
               title="${edWrapOn()
-                ? (t === "tel"
+                ? (t === "tel" || f.loopy
                    ? "Enter 로 줄을 바꿉니다 — 넣은 자리에서 그대로 영상에 나갑니다"
                    : "Enter 로 줄을 바꿉니다 — 넣은 자리에서 그대로 영상에 나갑니다(최대 2줄)")
                 : ""}"></textarea>
@@ -3665,7 +3685,7 @@ function edJpPaneHtml(canEdit){
     <div class="edcap">${f.loopy ? "자막·대사" : "자막"} ${f.subs.filter(s => !s.del).length}건
       <span class="sub">— 시각을 누르면 완성본 그 위치로${edJpStyleOn()
         ? " · 비우거나 ✕ 로 그 줄이 빠집니다 · ✎ 는 위치·크기·색(줄마다 따로)" : ""}${
-        edWrapOn() ? " · <b>Enter 로 줄바꿈</b>(넣은 자리 그대로, 최대 2줄) · 줄이 제멋대로 "
+        edWrapOn() ? ` · <b>Enter 로 줄바꿈</b>(넣은 자리 그대로${f.loopy ? "" : ", 최대 2줄"}) · 줄이 제멋대로 `
           + "접히면 ✎ 로 화면 자막 양옆 ⇔ 를 끌어 글자 통을 넓히세요(크기는 그대로)" : ""}</span>
       ${edJpCkBar("sub", f.subs, canEdit && edJpStyleOn())}</div>`
     + rows(f.subs, "jps_")
@@ -3845,9 +3865,12 @@ function edJpPaint(t){
   const jw = edWrapW(sty.width);
   el.style.left = el.style.right = ((1 - jw) / 2 * 100).toFixed(3) + "%";
   const jtx = document.getElementById("jpovsubtx");
-  if (jtx) jtx.textContent = edLayOut(cur.cur || cur.ja,
-    { width: sty.width == null ? null : jw,
-      sizeRatio: +sty.size > 0 ? 64 / +sty.size : 1 }).join("\n");
+  // 줄바꿈 미러 — 잔망루피는 vlp 규칙(16자·CJK 글자 분할), SHOTCONE 은 ai-video 규칙
+  if (jtx) jtx.textContent = (f.loopy
+    ? edLayOutVlp(cur.cur || cur.ja, sty.width)
+    : edLayOut(cur.cur || cur.ja,
+        { width: sty.width == null ? null : jw,
+          sizeRatio: +sty.size > 0 ? 64 / +sty.size : 1 })).join("\n");
   el.classList.add("editable");
   el.classList.toggle("edwrap", edWrapOn());
   el.title = `자막 ${cur.idx + 1} — 끌어서 위치${edWrapOn()
@@ -4394,9 +4417,15 @@ window.edJpMark = () => {
   // F-412: trim 비교는 내부 줄바꿈을 건드리지 않아 '줄만 바꾼 편집'도 dirty 로 잡힌다
   // (keepNl 불필요). 칸 높이는 내용만큼(edLineBoxSync) · 자막·TTS 는 2줄 상한 표시.
   f.subs.forEach(s => { grab("jps_" + s.idx, s.ja, v => s.cur = v);
-    edLineBoxSync(document.getElementById("jps_" + s.idx), s.cur); });
+    const el = document.getElementById("jps_" + s.idx);
+    edLineBoxSync(el, s.cur);
+    if (f.loopy && el) el.classList.remove("over");   // 잔망루피는 줄 수 상한 없음
+  });
   f.tts.forEach(s => { grab("jpn_" + s.idx, s.ja, v => s.cur = v);
-    edLineBoxSync(document.getElementById("jpn_" + s.idx), s.cur); });
+    const el = document.getElementById("jpn_" + s.idx);
+    edLineBoxSync(el, s.cur);
+    if (f.loopy && el) el.classList.remove("over");
+  });
   f.telops.forEach(s => { grab("jpl_" + s.idx, s.ja, v => s.cur = v);
     const el = document.getElementById("jpl_" + s.idx);
     edLineBoxSync(el, s.cur);
@@ -4434,15 +4463,19 @@ window.edJpSubmit = async () => {
   const ed = edJpCollect();
   if (!Object.keys(ed).length){ toast("고친 내용이 없습니다", true); return; }
   if (ed.cuts && edJpCutsBad()){ toast("구간 빼기: " + edJpCutsBad(), true); return; }
-  // 줄 수 상한(F-412) — 엔진(apply_overrides)이 3줄 이상을 거절한다. 여기서 안 막으면
-  // 재렌더 잡이 검수함에 실패로 남는다. 텔롭은 상한 없음(잘림 없이 그대로 그린다).
+  // 줄 수 상한(F-412) — SHOTCONE 은 엔진(apply_overrides)이 3줄 이상을 거절한다.
+  // 여기서 안 막으면 재렌더 잡이 검수함에 실패로 남는다. 텔롭은 상한 없음(잘림 없이
+  // 그대로 그린다). **잔망루피도 상한 없음** — vlp 는 수동 줄을 자르지 않고 그대로
+  // 그리며(가로 영상이라 제목 겹침 전제도 없다) 계약 검증도 줄 수를 안 본다.
   const _jaLines = v => typeof v === "string" ? edLineCount(v)
     : v && typeof v.ja === "string" ? edLineCount(v.ja) : 0;
   const _over = [];
-  Object.entries(ed.subs || {}).forEach(([i, v]) => {
-    if (_jaLines(v) > ED_WRAP_MAX_LINES) _over.push(`자막 ${+i + 1}번`); });
-  Object.entries(ed.tts || {}).forEach(([i, v]) => {
-    if (_jaLines(v) > ED_WRAP_MAX_LINES) _over.push(`내레이션 ${+i + 1}번`); });
+  if (!f.loopy){
+    Object.entries(ed.subs || {}).forEach(([i, v]) => {
+      if (_jaLines(v) > ED_WRAP_MAX_LINES) _over.push(`자막 ${+i + 1}번`); });
+    Object.entries(ed.tts || {}).forEach(([i, v]) => {
+      if (_jaLines(v) > ED_WRAP_MAX_LINES) _over.push(`내레이션 ${+i + 1}번`); });
+  }
   if (_over.length){
     toast(`${_over[0]}${_over.length > 1 ? ` 외 ${_over.length - 1}곳` : ""}에 줄바꿈이 `
       + `${ED_WRAP_MAX_LINES}줄을 넘습니다 — 자막은 최대 ${ED_WRAP_MAX_LINES}줄입니다`, true);

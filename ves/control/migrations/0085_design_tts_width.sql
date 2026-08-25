@@ -113,10 +113,12 @@ END $function$;
 -- 편집실 게이트 — 엔진·어댑터·brain 전 노드 배포 확인 후 운영자가 'on' 으로 바꾼다.
 -- 이 하나로 넷을 함께 연다: 자막/내레이션/텍스트 칸의 Enter 줄바꿈 · 자막 줄별 통 폭
 -- (style.width, 화면 ⇔ 핸들) · 내레이션 통 폭(design.tts_width, 스타일 탭 + ⇔ 핸들) ·
--- **JP 편집실(잔망루피 포함)의 같은 기능**(유령 자막 ⇔ + Enter 줄바꿈 — p_edits 의
--- style.width 는 ai-video localize 계약(validate_line_style)이 받는다. localize_engine
--- 이 ai-video 인 지금은 vlp 배포와 무관하고, vlp 로 롤백하면 width 실은 재렌더가
--- vlp 의 style whitelist 에서 fail-loud 로 죽는다 — 게이트를 끄면 새 편집만 멎는다).
+-- **JP 편집실의 같은 기능**(유령 자막 ⇔ + Enter 줄바꿈). ⚠ 적용 후 정정(2026-08-25
+-- 실측): SHOTCONE JP 는 ai-video localize(validate_line_style)가 받지만, **잔망루피는
+-- localize_engine 스위치와 무관하게 vlp(zanmang_decision → process)가 굽는다** —
+-- vlp 23648e0(F-412) 전 노드 배포가 잔망루피 개방의 실제 선행 조건이었다. 그 전의
+-- 잔망루피 재렌더에서 구 vlp 가 width 를 몰라 오버라이드 전체가 삼켜지는 사고가
+-- 실제로 났다(fail-loud 로 고침 — vlp 커밋 메시지 참고).
 INSERT INTO public.ops_config(key, value, note)
 VALUES ('editor_wrap', 'off',
         '편집실 자막 줄바꿈·글자 통 폭(F-412) — 엔진 2026-08-25 + 어댑터 tts_width 전 노드 배포 후 on')

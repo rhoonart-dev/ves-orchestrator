@@ -4069,6 +4069,18 @@ def test_f412_jp_editor_wired():
     assert 'textarea class="x" rows="1" id="${pfx}${s.idx}"' in html
 
 
+def test_f412_loopy_vlp_mirror_and_no_cap():
+    """잔망루피(vlp) 배선 — 2026-08-25 실측 사고 후속. 잔망루피 자막은 vlp 가 굽는다:
+    ① 유령은 vlp 줄바꿈 미러(16자·공백 없으면 CJK 글자 분할·수동 개행 정본)를 쓴다
+    ② 줄 수 상한 없음(vlp 는 안 자른다) — 제출 가드·over 표시에서 loopy 제외."""
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert "const ED_VLP_WRAP_CHARS = 16;" in html
+    assert "function edLayOutVlp(text, width)" in html
+    assert "edLayOutVlp(cur.cur || cur.ja, sty.width)" in html   # loopy 분기
+    assert "if (!f.loopy){" in html                               # 제출 가드 예외
+
+
 def test_f412_line_cap_blocked_before_submit():
     """3줄 이상은 엔진 계약이 거절한다 — 보내기 전에 화면이 막아야 검수함에 실패가 안 남는다."""
     import pathlib
