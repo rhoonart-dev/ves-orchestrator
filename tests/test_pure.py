@@ -4606,3 +4606,17 @@ def test_run_job_signals_return_to_queue():
     assert "claim_mod.claim(conn, cfg.node_id, cfg.capabilities, blocked)" in wsrc  # 넘긴다
     assert "!= executor.RETURNED" in wsrc                       # 반납 신호를 실제로 본다
     assert "blocked != blocked_prev" in wsrc                    # 보류는 조용히 하지 않는다
+
+
+def test_aivideo_dub_argv_carries_the_jobs_route():
+    """BC 잡의 더빙이 스스로를 C 라고 말하면 엔진 route 게이트가 무의미해진다.
+
+    ⚠ 종전엔 `--level=C` 를 박아 보냈다. 게이트가 보는 것은 '더빙이 뒤따르는 route 인가'
+    이므로, 그 판단을 하려면 진짜 route 가 가야 한다."""
+    from ves.adapters.localize import aivideo_dub_argv
+    a = aivideo_dub_argv("/py", "/v.mp4", "vid", "voice1", route="BC")
+    assert "--level=BC" in a
+    b = aivideo_dub_argv("/py", "/v.mp4", "vid", "voice1")
+    assert "--level=C" in b            # 미지정은 종전 그대로
+    c = aivideo_dub_argv("/py", "/v.mp4", "vid", "voice1", route="bc")
+    assert "--level=BC" in c           # 대소문자는 엔진 쪽과 같은 규칙으로 맞춘다

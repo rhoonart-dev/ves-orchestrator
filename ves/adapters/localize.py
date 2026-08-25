@@ -149,14 +149,20 @@ def aivideo_overlay_argv(ai_py: str, video: str, video_id: str, params: dict) ->
 
 
 def aivideo_dub_argv(ai_py: str, video: str, video_id: str, voice_id,
-                     config_path=None) -> list:
-    """더빙 argv(ai-video 위치). vlp `dub_argv` 와 같은 계약 — voice_id 강제 포함."""
+                     config_path=None, route: str = "C") -> list:
+    """더빙 argv(ai-video 위치). vlp `dub_argv` 와 같은 계약 — voice_id 강제 포함.
+
+    ⚠ `--level` 에는 **그 잡의 route** 를 넣는다. 종전엔 `C` 를 박아 보냈는데, 그러면
+    BC 잡의 더빙이 스스로를 C 라고 말하며 돌아 엔진 쪽 route 게이트가 무의미해진다
+    (게이트는 '더빙이 뒤따르는 route 인가'를 보는 것이다). 값이 없으면 C 로 둔다 —
+    종전 동작 그대로다."""
     if not str(voice_id or "").strip():
         raise base.PermanentError(
             "더빙 목소리(params.voice_id)가 없습니다 — ops_config.localize_voices 에 "
             "이 채널의 ElevenLabs voice_id 를 넣으세요. 비워두면 잔망루피 목소리로 나갑니다")
     argv = [ai_py, "-m", "app.localize.overlay.dub", f"--video-id={video_id}",
-            f"--video={video}", "--level=C", f"--voice={voice_id}"]
+            f"--video={video}", f"--level={str(route or 'C').upper()}",
+            f"--voice={voice_id}"]
     if config_path:
         argv.append(f"--config={config_path}")
     return argv
@@ -404,7 +410,8 @@ def run(cfg, conn, job, deps):
             # ai-video 에는 .venv-gsv 가 없다(그건 vlp 의 GPT-SoVITS 3.11 스택이다).
             # 백엔드가 elevenlabs 면 본 venv 로 충분하고, 없는 것은 위 사전검사가 잡았다.
             dub_py = eng_py
-            dub_cmd = aivideo_dub_argv(dub_py, str(src), run_id, p.get("voice_id"))
+            dub_cmd = aivideo_dub_argv(dub_py, str(src), run_id, p.get("voice_id"),
+                                       route=str(p.get("level") or "C"))
         else:
             dub_py = str(pathlib.Path(eng) / (p.get("dub_python") or ".venv-gsv/bin/python"))
             dub_cmd = dub_argv(dub_py, str(src), run_id, p.get("voice_id"))
