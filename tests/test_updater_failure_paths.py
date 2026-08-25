@@ -4,7 +4,7 @@
   ① pip 타임아웃이 **예외로 새지 않고** 실패가 된다
   ② pip·smoke 실패 모두 코드 롤백 + 이전 requirements 재설치(venv 복원)를 부른다
   ③ 갱신 중 예외가 나도 노드가 draining 에 남지 않는다
-     (남으면 다음 주기 _reactivate_if_self_drained 가 검증 안 된 venv 로 active 로 되살린다)
+     (남으면 다음 주기 _restore_after_self_drain 가 검증 안 된 venv 로 active 로 되살린다)
 
 전부 순수 단위 — DB·네트워크·pip 없이 subprocess 만 대역으로 바꾼다.
 """
@@ -149,7 +149,7 @@ def test_restore_failure_is_alerted(monkeypatch):
 # ── ③ 예외가 나도 노드를 draining 에 남기지 않는다 ──────────────────────
 def test_exception_during_update_disables_node(monkeypatch):
     """종전: _update_engine 예외 → 노드가 draining+updating_since 로 남고 다음 주기에
-    _reactivate_if_self_drained 가 active 로 되살렸다. 이제는 실패와 같이 처리한다."""
+    _restore_after_self_drain 가 active 로 되살렸다. 이제는 실패와 같이 처리한다."""
     deployments = [{"engine": "ai_video", "auto_update": True,
                     "pinned_sha": None, "last_seen_sha": "bbbbbbb"}]
     conn = FakeConn(deployments)
@@ -171,3 +171,39 @@ def test_exception_during_update_disables_node(monkeypatch):
     assert node_writes, "노드 상태를 쓴 적이 없다"
     assert params[-1][0] == "disabled", f"마지막 상태가 disabled 가 아니다: {params[-1]}"
     assert params[-1][1] is False, "updating_since 를 비우지 않으면 다음 주기에 자동 복귀한다"
+
+
+# ── ④ 갱신이 사람이 내린 draining 을 지우지 않는다 (8/25 mm-06 실측) ──────
+def test_update_restores_the_status_the_node_had_before_draining():
+    """사람이 draining 으로 내려 둔 노드가 엔진 갱신 한 번에 조용히 active 로 돌아왔다.
+    자기 갱신은 exit(42) 로 프로세스가 죽으므로 '갱신 전 상태'는 DB 에 있어야 한다."""
+    import inspect
+
+    begin = inspect.getsource(updater._begin_update)
+    # 내리기 전 상태를 meta 에 적는다 — 재기동 뒤에도 읽을 수 있어야 한다
+    assert "jsonb_build_object('pre_update_status', status)" in begin
+    # ★한 주기에 엔진이 둘 이상 밀려도 두 번째 호출이 'draining' 을 갱신 전 상태로
+    #   덮어써 노드를 영구히 가두면 안 된다
+    assert "WHERE node_id=%s AND updating_since IS NULL" in begin
+
+    restore = inspect.getsource(updater._restore_after_self_drain)
+    assert "meta->>'pre_update_status' IN ('draining','disabled')" in restore
+    assert "THEN meta->>'pre_update_status'" in restore
+    assert "ELSE 'active' END" in restore          # 기록이 없으면 종전 동작(회귀 0)
+    assert "- 'pre_update_status'" in restore      # 복귀하며 기록은 버린다
+    assert "updating_since IS NOT NULL" in restore # 자기 드레인만 되돌린다(불변)
+    # 종전의 무조건 active 는 남아 있으면 안 된다
+    assert "SET status='active', updating_since=NULL" not in restore
+
+    # 갱신 실패(disabled) 경로도 기록을 버린다 — 남으면 다음 갱신이 옛 값을 되살린다
+    assert "- 'pre_update_status'" in inspect.getsource(updater._set_node)
+
+
+def test_update_cycle_drains_through_begin_update_not_set_node():
+    """드레인을 _set_node 로 하면 갱신 전 상태가 기록되지 않아 ④가 다시 깨진다."""
+    import inspect
+    src = inspect.getsource(updater.check_and_update)
+    assert "_begin_update(conn, cfg.node_id)" in src
+    assert '_set_node(conn, cfg.node_id, status="draining"' not in src
+    # 실패 경로는 그대로 disabled 를 직접 지정한다
+    assert '_set_node(conn, cfg.node_id, status="disabled", updating=False)' in src
