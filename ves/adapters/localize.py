@@ -301,19 +301,28 @@ def run(cfg, conn, job, deps):
     if (job.get("params") or {}).get("mode") == "scene_rerender":
         return _run_scene_rerender(cfg, conn, job, deps)
     p = job["params"]
-    run_id = p.get("run_id")
+    # L-P5: 아카이브 소재(잔망루피)는 우리가 만든 편이 아니라 **외부 완성본**이다 —
+    # generate 가 없으니 run_id 도 없고, 원본은 acquire 가 ves-sources 에 올려 뒀다.
+    # ⚠ run_id 는 산출 경로(`eng/outputs/<run_id>`)·업로드 키·검수 카드에 쓰이므로
+    #   빈 채로 둘 수 없다 — 아카이브 id 를 그 자리에 쓴다(그 편의 고유 이름이다).
+    ext_vid = p.get("external_video_id")
+    run_id = p.get("run_id") or ext_vid
     if not run_id:
         raise base.PermanentError("params.run_id 없음 — generate 의존 확인")
 
     store = Store(cfg.supabase_url, cfg.supabase_service_key)
     work_dir = pathlib.Path(cfg.home) / "cache" / "localize"
     work_dir.mkdir(parents=True, exist_ok=True)
-    src_key = base.storage_key(run_id, "shorts.mp4")
+    if ext_vid:
+        from ves.adapters.acquire_external import BUCKET as EXT_BUCKET, external_key
+        src_bucket, src_key = EXT_BUCKET, external_key(ext_vid)
+    else:
+        src_bucket, src_key = "ves-outputs", base.storage_key(run_id, "shorts.mp4")
     src = work_dir / f"{base.storage_key(run_id, 'in.mp4').split('/')[0]}_in.mp4"
     try:
-        store.download("ves-outputs", src_key, str(src))
+        store.download(src_bucket, src_key, str(src))
     except RuntimeError as e:
-        raise base.PermanentError(f"원본 다운로드 실패({src_key}): {e}")
+        raise base.PermanentError(f"원본 다운로드 실패({src_bucket}/{src_key}): {e}")
 
     # ── overlay 엔진 선택 (L-P4) ────────────────────────────────────────
     # ⚠ **셋이 함께 움직여야 한다**: argv·cwd·산출 경로(`eng/outputs/<run_id>`)·더빙

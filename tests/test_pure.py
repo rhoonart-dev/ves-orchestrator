@@ -4975,3 +4975,73 @@ def test_acquire_gets_the_drive_file_id():
     """드라이브 파일은 URL 이 아니라 file_id 로 받는다 — 받는 쪽이 그 값을 알아야 한다."""
     sql = _live_mig("CREATE OR REPLACE FUNCTION public._select_external_short_impl")
     assert "'drive_file_id', v_es.flags->>'drive_file_id'" in sql
+
+
+# ── L-P5-3b: 외부 소재 내려받기 ─────────────────────────────────────────────
+def test_external_storage_key_is_ascii_safe():
+    """`drive:1AbC…` 의 콜론을 키에 그대로 쓰면 400 이다(한글 키 사고와 같은 부류)."""
+    from ves.adapters.acquire_external import external_key
+    k = external_key("drive:1AbC-dEf_9")
+    assert k == "external/drive_1AbC-dEf_9.mp4"
+    assert all(ch.isalnum() or ch in "-_/." for ch in k)
+
+
+def test_transcode_is_skipped_for_files_that_are_already_small_mp4():
+    """멀쩡한 파일을 세대만 깎지 않는다."""
+    from ves.adapters.acquire_external import needs_transcode
+    assert not needs_transcode("a.mp4", 50 * 1024 * 1024, True)
+    assert needs_transcode("a.mov", 50 * 1024 * 1024, True)          # ProRes 는 줄인다
+    assert needs_transcode("a.mp4", 5 * 1024 * 1024 * 1024, True)    # 큰 mp4 도
+    assert not needs_transcode("a.mov", 5 * 1024 * 1024 * 1024, False)   # 끄면 안 한다
+
+
+def test_youtube_download_is_capped_at_1080():
+    """원본이 4K 여도 발행본은 1080 이다 — 큰 파일은 디스크·시간만 먹는다."""
+    from ves.adapters.acquire_external import ytdlp_argv
+    argv = ytdlp_argv("https://youtu.be/x", "/tmp/o.%(ext)s")
+    assert "height<=1080" in " ".join(argv) and "--no-playlist" in argv
+
+
+def test_transcode_keeps_audio_untouched():
+    """소리는 다시 만들지 않는다 — 더빙·믹스가 이미 끝난 완성본이다."""
+    from ves.adapters.acquire_external import ffmpeg_argv
+    argv = ffmpeg_argv("/a.mov", "/b.mp4")
+    assert "-c:a" in argv and argv[argv.index("-c:a") + 1] == "copy"
+
+
+def test_external_work_dir_is_always_cleaned():
+    """GB 급이라 남기면 노드 디스크가 며칠에 찬다 — 성공·실패 모두 지운다."""
+    import pathlib
+    src = pathlib.Path("ves/adapters/acquire_external.py").read_text(encoding="utf-8")
+    body = src.split("def run(", 1)[1]
+    assert "finally:" in body and "rmtree(work" in body.split("finally:", 1)[1]
+
+
+def test_localize_reads_the_external_source_when_there_is_no_generate():
+    """외부 완성본은 run_id 가 없다 — ves-outputs 를 뒤지면 무조건 실패한다."""
+    import pathlib
+    src = pathlib.Path("ves/adapters/localize.py").read_text(encoding="utf-8")
+    assert 'run_id = p.get("run_id") or ext_vid' in src
+    assert "src_bucket, src_key = EXT_BUCKET, external_key(ext_vid)" in src
+
+
+def test_acquire_delegates_external_downloads():
+    import pathlib
+    src = pathlib.Path("ves/adapters/acquire.py").read_text(encoding="utf-8")
+    assert 'if p.get("download") and p.get("external_video_id"):' in src
+
+
+def test_drive_acquire_is_pinned_to_the_rclone_node():
+    """🛑 rclone 인증(mm-01·mm-02)과 현지화 스택(mm-06)이 다른 기계다(실측).
+
+    캡을 안 붙이면 아무 노드나 집어 '인증 없음'으로 죽고, 재시도해도 같은 자리다."""
+    sql = _live_mig("CREATE OR REPLACE FUNCTION public._select_external_short_impl")
+    assert "drive_sync_node" in sql
+    assert "'node:' ||" in sql
+    assert "v_acq_caps" in sql
+
+
+def test_youtube_acquire_is_not_pinned():
+    """yt-dlp 는 어디에나 있다 — 핀을 붙이면 한 노드에 쏠린다."""
+    sql = _live_mig("CREATE OR REPLACE FUNCTION public._select_external_short_impl")
+    assert "ELSE ARRAY['network'] END" in sql

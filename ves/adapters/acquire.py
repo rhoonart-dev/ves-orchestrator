@@ -17,6 +17,11 @@ from ves.storage.supabase_storage import Store
 
 def run(cfg, conn, job, deps):
     p = job["params"]
+    # L-P5: 아카이브에서 고른 외부 소재는 우리 `sources` 에 없다 — 원천(드라이브·유튜브)
+    # 에서 직접 받는다. 종전 경로는 이 아래 그대로다(회귀 0).
+    if p.get("download") and p.get("external_video_id"):
+        from ves.adapters import acquire_external
+        return acquire_external.run(cfg, conn, job, deps)
     with conn.cursor() as c:
         if p.get("source_sha256"):
             # WO 가 고른 바로 그 파일(sha)로 조회 — (작품, 회차)에 행이 여러 개일 때
