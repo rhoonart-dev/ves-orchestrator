@@ -112,6 +112,40 @@ A/B      운영 1108 passed, 1 skipped · 후보 1108 passed, 1 skipped · diff 
 
 ⇒ 머지함: ai-video `98ae4b5`.
 
+## 2-3. 🛑 2차 관문 — 리프레임 얼굴검출 실측 (`scripts/reframe_ab.py`)
+
+1차 관문(pytest)이 재는 것은 회귀 가드의 **좌표 고정**이지 **검출 자체**가 아니다.
+`numpy 2.5.1→2.3.5` · `cv2 4.14→4.10` 위에서 haar cascade 와 ArcFace 가 같은 답을
+내는지는 실물로만 보인다.
+
+🛑 **A 판(구 스택)은 노드가 갱신되기 전에 떠야 한다.** 갱신되면 운영 venv 가 곧
+새 스택이라 A 판을 만들 곳이 없어진다(구 requirements 로 venv 를 다시 만들어야 한다).
+`version_watch` 가 시간당 1회 `deployments.last_seen_sha` 를 올리므로 그 전에.
+
+```zsh
+R=/opt/ves/engines
+V=/tmp/deps_probe/probe_venv/bin/python
+cd /tmp/aiv-deps && git fetch -q origin && git checkout -q --detach origin/main
+
+grep -l face_track $R/ai-video/outputs/*/edit_plan.json | tail -5
+```
+
+리프레임이 켜진 job 하나를 고른 뒤(소스 영상이 아직 있어야 한다):
+
+```zsh
+J=$R/ai-video/outputs/<고른-job>
+$R/ai-video/.venv/bin/python -m scripts.reframe_ab --job-dir $J --out /tmp/rf_A
+$V                          -m scripts.reframe_ab --job-dir $J --out /tmp/rf_B
+$V -m scripts.reframe_ab --diff /tmp/rf_A /tmp/rf_B
+```
+
+**합격선: `✅ 회귀 0`.** 크롭 키프레임이 개수·좌표까지 같아야 한다(검출은 결정적이다).
+임베딩만 부동소수 오차를 허용한다(기본 1e-4 — ArcFace 코사인 임계 0.4 를 뒤집기에
+한참 모자란 크기). 캐스트 사진이 없어 임베딩을 건너뛴 것은 실패가 아니고 사유가 찍힌다.
+
+크롭이 갈리면 그것이 곧 **리프레임 화면이 움직인다**는 뜻이다 — 그때는 `x_center` 차이가
+얼마나 큰지(0.01 = 캔버스 1%)로 되돌릴지 받아들일지 정한다.
+
 ## 3. 통과하면
 
 ```zsh
