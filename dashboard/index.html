@@ -269,11 +269,16 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .edsub .x{flex:1;min-width:0}
   /* 2단계 편집 — 고친 줄은 눈에 띄게(전량 교체라 '뭘 고쳤는지'가 화면에만 남는다) */
   .edsub .t{cursor:pointer}
-  .edsub input.x{border:1px solid transparent;border-radius:5px;padding:2px 5px;
+  .edsub input.x,.edsub textarea.x{border:1px solid transparent;border-radius:5px;padding:2px 5px;
                  background:transparent;color:var(--ink);font:inherit}
-  .edsub input.x:focus{border-color:var(--line);background:var(--surface);outline:none}
-  .edsub input.x.dirty{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 12%,transparent)}
-  .edsub input.x.empty{text-decoration:line-through;opacity:.5}
+  .edsub input.x:focus,.edsub textarea.x:focus{border-color:var(--line);background:var(--surface);outline:none}
+  .edsub input.x.dirty,.edsub textarea.x.dirty{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 12%,transparent)}
+  .edsub input.x.empty,.edsub textarea.x.empty{text-decoration:line-through;opacity:.5}
+  /* F-412 — 자막 칸은 여러 줄. Enter 가 곧 영상의 줄바꿈이라 한 줄 input 으로는 못 쓴다.
+     resize 는 끈다(줄 수가 곧 결과라, 칸 높이는 내용이 정한다). */
+  .edsub textarea.x{resize:none;overflow:hidden;line-height:1.45}
+  .edsub textarea.x.over{border-color:var(--danger,#e5484d);
+                         background:color-mix(in srgb,#e5484d 12%,transparent)}
   /* 다중 선택(8/20) — 행 맨 앞 체크박스. KR·JP 공용 */
   .edsub input.ck{flex:none;width:14px;height:14px;margin-top:3px;cursor:pointer}
   #edtitle{width:100%;font:inherit;font-size:14px;line-height:1.5;padding:6px 8px;
@@ -364,6 +369,16 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
              line-height:1.15;text-shadow:0 2px 6px #000c,0 0 2px #000}
   .edovsub{position:absolute;left:4%;right:4%;bottom:13%;text-align:center;font-weight:800;
            text-shadow:0 2px 5px #000c,0 0 2px #000}
+  /* F-412 — 줄바꿈은 사람이 정한 그대로 보여준다(엔진 미러). 넘치면 접어서 문제를
+     숨기지 않고 그대로 보이게 두는 편이 낫다: 화면이 곧 결과라는 약속이 우선. */
+  .edovsub .edtx,.edovtts .edtx{white-space:pre-line;display:block}
+  /* 통 좌우 폭 핸들 — 밴드 ⇔ 와 같은 규약(오른쪽을 끌면 좌우가 대칭으로 벌어진다) */
+  .edwh{position:absolute;top:50%;transform:translateY(-50%);width:13px;height:30px;
+        display:none;align-items:center;justify-content:center;font-size:10px;
+        color:#fff;background:#0009;border:1px solid #fff9;border-radius:4px;
+        cursor:ew-resize;pointer-events:auto;user-select:none}
+  .edwh.l{left:-8px} .edwh.r{right:-8px}
+  .editable.edwrap .edwh{display:flex}
   .edovsub.editable,.edovtts.editable,.edovtitle.editable{pointer-events:auto;cursor:grab;
                     outline:1.5px dashed #ffffff88;border-radius:4px}
   .edovsub.editable:active,.edovtts.editable:active,
@@ -416,7 +431,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   /* 일본어 편집 행 — KR 편집실 .edsub 를 그대로 재사용(사용자 요청: 완전 동일).
      다른 점은 입력 바로 아래 한국어 원문 병기 한 줄뿐 */
   .edsub .jpcol{flex:1;min-width:0}
-  .edsub .jpcol input.x{width:100%}
+  .edsub .jpcol input.x,.edsub .jpcol textarea.x{width:100%}
   .edsub .ko,.jpko{font-size:11.5px;color:var(--muted);margin-top:2px;line-height:1.4}
   .edsub.del .ko{opacity:.4}
   #jptitle,#jptop,#jpdesc{font:inherit;font-size:13px;padding:4px 7px;
@@ -2686,6 +2701,82 @@ const edTitleBoxOn = () => (((state.ops||{}).editor_title_box||{}).value === "on
 // 그 크기로 그린다. 어댑터 신 키 + 엔진 전 노드 배포 확인 후 ops_config
 // editor_title_size2=on 으로 개방(구 엔진은 모르는 CLI 플래그에 argparse 즉사 — 0082).
 const edTitleSize2On = () => (((state.ops||{}).editor_title_size2||{}).value === "on");
+// 줄바꿈·자막 통 폭(F-412, ai-video 2026-08-25) — 편집실에서 사람이 줄바꿈 자리를 정하고
+// 글자 상자를 좌우로 넓힌다(크기는 그대로, 줄이 접히는 것만 막는 용도).
+// 켜기 전 조건: 엔진 전 노드 배포 + 어댑터 tts_width + DB v_allowed 마이그레이션.
+// 구 엔진은 텍스트 안 줄바꿈을 **조용히** 공백으로 지운 뒤 15자로 다시 자른다(미반영) —
+// images rotate(F-410)와 같은 부류라 배포가 선행이다. style.width 는 반대로 모르는
+// 키라 구 엔진이 fail-loud 로 거절하고, --design-tts-width 는 구 엔진 argparse 즉사다.
+const edWrapOn = () => (((state.ops||{}).editor_wrap||{}).value === "on");
+
+// ── 엔진 자동 줄바꿈 미러(ai-video subtitle._lay_out_for_ass) ─────────────
+// 화면이 엔진과 다른 자리에서 접으면 사람이 Enter 를 넣을 기준 자체가 사라진다 —
+// '보이는 그대로 나간다'가 이 기능의 전부라 이 미러가 어긋나면 기능이 거짓말이 된다.
+const ED_WRAP_CHARS = 15;            // 기본 폭에서 한 줄에 담는 글자 수
+const ED_WRAP_SIDE_MARGIN = 80;      // ASS 스타일 MarginL/R
+const ED_WRAP_MAX_LINES = 2;         // 자동·수동 공통 상한(원본 자막 회피 계산 전제)
+const ED_WRAP_MIN = 0.3, ED_WRAP_MAX = 1.0;   // 통 폭 범위 — 엔진 SUBTITLE_WIDTH_RANGE 와 1:1
+const ED_WRAP_BASE_W = (1080 - 2 * ED_WRAP_SIDE_MARGIN) / 1080;   // ≈0.852
+// 유효 폭 — 미지정이면 종전 기본 폭
+const edWrapW = w => {
+  const v = +w;
+  return isFinite(v) && v > 0 ? Math.max(0.05, Math.min(1, v)) : ED_WRAP_BASE_W;
+};
+// 폭·줄별 크기 → 자동 줄바꿈 글자 수(엔진 _width_max_chars 미러). sizeRatio 는
+// (전역 자막 크기 / 그 줄의 크기) — 사람이 그 줄만 크기를 고쳤을 때만 1 이 아니다.
+function edWrapChars(width, sizeRatio){
+  const w = width == null ? ED_WRAP_BASE_W : edWrapW(width);
+  const r = Math.max(0.2, Math.min(5, +sizeRatio || 1));
+  if (width == null && Math.abs(r - 1) < 1e-9) return ED_WRAP_CHARS;
+  return Math.max(3, Math.round(ED_WRAP_CHARS * w / ED_WRAP_BASE_W * r));
+}
+// 엔진 _split_text_to_lines 미러 — 어절 경계에서 maxChars 단위로 자른다
+function edSplitLines(text, maxChars){
+  const words = String(text).split(/\s+/).filter(Boolean);
+  const lines = []; let cur = "";
+  words.forEach(wd => {
+    if (cur && cur.length + 1 + wd.length > maxChars){ lines.push(cur); cur = wd; }
+    else cur = cur ? cur + " " + wd : wd;
+  });
+  if (cur) lines.push(cur);
+  return lines.length ? lines : [String(text)];
+}
+// 엔진 _lay_out_for_ass 미러 → 화면에 그릴 줄 배열.
+// 사람이 넣은 줄바꿈이 있으면 그대로(자동 재분할 없음), 없으면 폭 기준 자동 분할.
+function edLayOut(text, opt){
+  const o = opt || {};
+  const manual = String(text == null ? "" : text).replace(/\r\n/g, "\n")
+    .split("\n").map(x => x.trim()).filter(Boolean);
+  const cap = o.maxLines || ED_WRAP_MAX_LINES;
+  if (manual.length > 1) return manual.slice(0, cap);
+  const one = manual[0] || "";
+  if (!one) return [];
+  const max = edWrapChars(o.width == null ? null : o.width, o.sizeRatio);
+  let lines = edSplitLines(one, max);
+  if (lines.length > cap){
+    const re = Math.max(max, Math.ceil(one.length / cap) + 2);
+    lines = edSplitLines(one, re).slice(0, cap);
+  }
+  return lines;
+}
+// 칸 높이를 내용에 맞춘다(F-412). 한 줄 input 을 여러 줄 칸으로 바꾼 대가로 스크롤이
+// 생기면 긴 자막의 끝이 보이지 않는다 — 사람이 줄바꿈을 정하는 화면에서 그건 치명적이라
+// 내용 높이만큼 늘린다(overflow:hidden + scrollHeight = 표준 auto-grow).
+// 줄 수 상한을 넘으면 빨간 테두리로 즉시 알린다 — 엔진 계약이 거절하는 값이라
+// 보내기 전에 보여야 한다.
+function edLineBoxSync(el, v){
+  if (!el) return;
+  el.style.boxSizing = "border-box";   // scrollHeight 는 안쪽 높이 — 기준을 못박는다
+  el.style.height = "auto";
+  // scrollHeight 는 테두리를 안 센다. border-box 로 높이를 주면 그만큼 모자라 마지막
+  // 줄이 잘리므로(실측) offsetHeight−clientHeight = 테두리 두께를 더한다.
+  el.style.height = (el.scrollHeight + (el.offsetHeight - el.clientHeight)) + "px";
+  el.classList.toggle("over", edLineCount(v) > ED_WRAP_MAX_LINES);
+}
+// 사람이 넣은 줄 수 — 상한 초과를 화면이 먼저 막는다(엔진 계약이 거절하는 값)
+const edLineCount = t => String(t == null ? "" : t)
+  .replace(/\r\n/g, "\n").split("\n").filter(x => x.trim()).length;
+
 // 제목 줄의 유효 크기(캔버스 px) — 2줄은 명시값이 없으면 1줄 × 90/70(엔진 cli 조립 미러).
 // 화면 미리보기·줄별 A−/A＋ 가 같은 함수를 쓴다(엔진과 어긋나면 '고쳤는데 다르게 나온다').
 const ED_TITLE_L2_RATIO = 90 / 70;
@@ -2925,7 +3016,8 @@ function edCollect(forDraft){
     // vs 초안 재조립) 값이 같아도 영구 dirty 가 된다.
     const edStyleSig = st => !st ? ""
       : [st.size ?? "", st.y ?? "", st.color ?? "",
-         Math.round(+st.rotate) || ""].join("|");   // 0 과 없음은 같다(기본)
+         Math.round(+st.rotate) || "",
+         st.width != null ? (+st.width).toFixed(4) : ""].join("|");   // 0 과 없음은 같다(기본)
     const dirty = edForm.dSubs.length !== edForm.subs.length
       || edForm.dSubs.some((s, i) => s.del || s.text !== edForm.subs[i].text
                                   || Math.abs(s.start - edForm.subs[i].start) > 0.001
@@ -2956,6 +3048,12 @@ function edCollect(forDraft){
                       // UI 게이트(edRotOn). 구 엔진엔 fail-loud 라 조용한 오render 없음
                       if (s.style.rotate != null && Math.round(+s.style.rotate))
                         st.rotate = Math.max(-180, Math.min(180, Math.round(+s.style.rotate)));
+                      // 통 가로 폭(F-412) — rotate 와 같은 규약(게이트는 UI 쪽에만).
+                      // 여기서 게이트로 빼면 폭이 이미 실린 카드의 재제출이 폭을
+                      // 조용히 벗긴다(전량 교체라 되돌릴 길이 없다).
+                      if (s.style.width != null)
+                        st.width = +Math.max(0.3, Math.min(1,
+                          +s.style.width)).toFixed(4);
                       if (Object.keys(st).length) o.style = st;
                     }
                     return o; })
@@ -3005,6 +3103,7 @@ function edCollect(forDraft){
     if (!edE10On()) ED_E10_KEYS.forEach(k => delete ov.design[k]); // E10(밴드 크기)도 동일
     if (!edTitleBoxOn()) ED_TITLEBOX_KEYS.forEach(k => delete ov.design[k]);   // 제목 박스·굵게
     if (!edTitleSize2On()) delete ov.design.title_size2;                       // 제목 2줄 크기
+    if (!edWrapOn()) ED_WRAP_KEYS.forEach(k => delete ov.design[k]);           // 내레이션 통 폭
     if (!Object.keys(ov.design).length) delete ov.design;
   }
   return ov;
@@ -3049,6 +3148,7 @@ window.edMark = () => {
     const orig = edForm.subs[i];
     el.classList.toggle("dirty", !orig || el.value !== orig.text);
     el.classList.toggle("empty", !el.value.trim());
+    edLineBoxSync(el, el.value);            // 줄 수만큼 칸을 늘리고 상한 초과를 표시
   });
   edForm.tts.forEach((t, i) => {
     const el = document.getElementById("edtx_" + i); if (!el) return;
@@ -3056,6 +3156,7 @@ window.edMark = () => {
     const orig = edTts0For(t);
     el.classList.toggle("dirty", t.isNew || !orig || el.value !== orig.text);
     el.classList.toggle("empty", !el.value.trim());
+    edLineBoxSync(el, el.value);
     // 창 길이 대비 예상 발화 길이 — 넘치면 엔진이 뜻을 지키며 줄여 재합성한다는 예고.
     // 속도 프리셋(8/20)이 있으면 그만큼 빨라진/느려진 길이로 근사한다.
     const e = edTtsEst(t.text) / edSpeedFactor(t), over = e > t.dur;
@@ -3069,6 +3170,10 @@ window.edMark = () => {
     // 문구·목소리·속도를 고치는 순간 ▶ 가 틀 것이 바뀐다 — 라벨만 갈아 끼운다
     edTtsBtnSync(t, i);
   });
+  // ⚠ id 는 edxt_(텍스트) — 내레이션은 edtx_ 다. 같은 id 를 쓰면 위 내레이션 루프가
+  // 텍스트 칸을 집어 TTS 문구를 텍스트 내용으로 덮어쓴다.
+  (edForm.texts || []).forEach((t, i) =>
+    edLineBoxSync(document.getElementById("edxt_" + i), t.text));
   const ov = edCollect();
   const bits = [ov.title ? "제목" : null, ov.clips ? "구간" : null,
                 ov.subtitles ? "자막" : null, ov.tts ? "내레이션" : null,
@@ -3098,6 +3203,18 @@ window.edSubmit = async () => {
   }
   const ov = edCollect();
   if (!Object.keys(ov).length){ toast("고친 내용이 없습니다", true); return; }
+  // 줄 수 상한(F-412) — 엔진 계약이 3줄 이상을 거절한다. 여기서 안 막으면 잡이
+  // 검수함에 실패로 남는다(사람은 '보냈는데 안 나왔다'로만 본다).
+  const _over = [];
+  (ov.subtitles || []).forEach((x, i) => {
+    if (edLineCount(x.text) > ED_WRAP_MAX_LINES) _over.push(`자막 ${i + 1}줄째 칸`); });
+  (ov.tts || []).forEach((x, i) => {
+    if (edLineCount(x.text) > ED_WRAP_MAX_LINES) _over.push(`내레이션 ${i + 1}번째 칸`); });
+  if (_over.length){
+    toast(`${_over[0]}${_over.length > 1 ? ` 외 ${_over.length - 1}곳` : ""}에 줄바꿈이 `
+      + `${ED_WRAP_MAX_LINES}줄을 넘습니다 — 자막은 최대 ${ED_WRAP_MAX_LINES}줄입니다`, true);
+    return;
+  }
   if (edE8On() && edTitleSegsBad()){
     toast("시간대별 제목: " + edTitleSegsBad(), true); return;
   }
@@ -3390,7 +3507,13 @@ function renderEditJp(){
         <div class="edstage" id="edstage">${f.prevKey
           ? `<video id="jpvid" playsinline preload="metadata" controls></video>
              <div class="edov"><div class="edovsub" id="jpovsub" style="display:none"
-               onmousedown="edJpSubDragDown(event)"></div></div>`
+               onmousedown="edJpSubDragDown(event)"
+               ><span class="edtx" id="jpovsubtx"></span
+               ><i class="edwh l" onmousedown="edJpSubWDragDown(event)"
+                 title="이 줄의 글자 통 가로 폭 — 끌어서 좌우로(글자 크기는 그대로, 줄이 접히는 것만 막습니다). Shift 를 누른 채 끌면 모든 자막 줄에 같은 폭">⇔</i
+               ><i class="edwh r" onmousedown="edJpSubWDragDown(event)"
+                 title="이 줄의 글자 통 가로 폭 — 끌어서 좌우로(글자 크기는 그대로, 줄이 접히는 것만 막습니다). Shift 를 누른 채 끌면 모든 자막 줄에 같은 폭">⇔</i
+               ></div></div>`
           : `<div class="edphold">완성본 파일이 없는 카드입니다${f.url
               ? `<br><a href="${esc(f.url)}" target="_blank" rel="noopener">원본 링크로 확인</a>` : ""}</div>`}
         </div>
@@ -3491,8 +3614,13 @@ function edJpPaneHtml(canEdit){
                 s.endActual === false ? " (더빙 합성 전 계획값)" : ""}"`
             : 'title="시각 정보가 없는 옛 카드"'}>${a != null ? (+a).toFixed(1) + "s" : "—"}</span>
           <div class="jpcol">
-            <input class="x" type="text" id="${pfx}${s.idx}" oninput="edJpMark()" ${
-              canEdit && !s.del ? "" : "disabled"}>
+            <textarea class="x" rows="1" id="${pfx}${s.idx}" oninput="edJpMark()" ${
+              canEdit && !s.del ? "" : "disabled"}
+              title="${edWrapOn()
+                ? (t === "tel"
+                   ? "Enter 로 줄을 바꿉니다 — 넣은 자리에서 그대로 영상에 나갑니다"
+                   : "Enter 로 줄을 바꿉니다 — 넣은 자리에서 그대로 영상에 나갑니다(최대 2줄)")
+                : ""}"></textarea>
             <div class="ko">${esc(s.ko)}</div>
           </div>
           ${t === "sub" && showT && canEdit && !s.del && a != null && f.prevKey
@@ -3536,7 +3664,9 @@ function edJpPaneHtml(canEdit){
   return f.subs.length ? `
     <div class="edcap">${f.loopy ? "자막·대사" : "자막"} ${f.subs.filter(s => !s.del).length}건
       <span class="sub">— 시각을 누르면 완성본 그 위치로${edJpStyleOn()
-        ? " · 비우거나 ✕ 로 그 줄이 빠집니다 · ✎ 는 위치·크기·색(줄마다 따로)" : ""}</span>
+        ? " · 비우거나 ✕ 로 그 줄이 빠집니다 · ✎ 는 위치·크기·색(줄마다 따로)" : ""}${
+        edWrapOn() ? " · <b>Enter 로 줄바꿈</b>(넣은 자리 그대로, 최대 2줄) · 줄이 제멋대로 "
+          + "접히면 ✎ 로 화면 자막 양옆 ⇔ 를 끌어 글자 통을 넓히세요(크기는 그대로)" : ""}</span>
       ${edJpCkBar("sub", f.subs, canEdit && edJpStyleOn())}</div>`
     + rows(f.subs, "jps_")
     : '<div class="sub">이 카드에는 편집할 자막 쌍이 없습니다</div>';
@@ -3599,7 +3729,8 @@ window.edJpCkDel = t => {
 // E5(JP-2): 값은 문자열(ja만) 또는 dict {ja?, style?, start_sec?, end_sec?} —
 // 스타일·타이밍은 edJpStyleOn 게이트(구 엔진은 ja 외 키를 조용히 무시한다).
 const edJpStyleSig = st => !st ? ""
-  : [st.size ?? "", st.y ?? "", st.color ?? "", Math.round(+st.rotate) || ""].join("|");
+  : [st.size ?? "", st.y ?? "", st.color ?? "", Math.round(+st.rotate) || "",
+     st.width != null ? (+st.width).toFixed(4) : ""].join("|");
 function edJpCollect(){
   const f = edJpForm, ed = {};
   if ((f.titleCur || "").trim() && f.titleCur.trim() !== f.title)
@@ -3628,6 +3759,12 @@ function edJpCollect(){
           if (sc.color || base.color) st.color = String(sc.color || base.color);
           if (has("rotate"))
             st.rotate = Math.max(-180, Math.min(180, Math.round(+(sc.rotate ?? 0)) || 0));
+          // 통 가로 폭(F-412) — 지운 쪽(기본 폭 복귀)은 원본에만 있던 키라도 명시
+          // 기본값(ED_WRAP_BASE_W)으로 실어야 diff 병합에서 유실되지 않는다(rotate 0
+          // 과 같은 이유 — 리뷰 4). 계약 검증은 엔진 validate_line_style(0.3~1.0).
+          if (has("width"))
+            st.width = +Math.max(ED_WRAP_MIN, Math.min(ED_WRAP_MAX,
+              +(sc.width ?? ED_WRAP_BASE_W))).toFixed(4);
           if (Object.keys(st).length) o.style = st;
         }
       }
@@ -3702,9 +3839,19 @@ function edJpPaint(t){
   el.style.bottom = ((1 - yv) * 100) + "%";   // y = 0(상단)~1(하단) — v3 와 같은 시맨틱
   el.style.transform = Math.round(+sty.rotate)
     ? `rotate(${Math.round(+sty.rotate)}deg)` : "";
-  el.textContent = (cur.cur || cur.ja);
+  // 통 가로 폭(F-412) — KR 유령과 같은 규약(좌우 대칭 · 미지정 = 엔진 기본 폭 0.852).
+  // 줄바꿈도 엔진 미러(edLayOut) — 사람이 넣은 줄바꿈은 그대로, 없으면 자동 분할 근사.
+  // 크기 비율의 기준은 이 유령의 가정 기본(64px) — 근사임은 종전과 같다.
+  const jw = edWrapW(sty.width);
+  el.style.left = el.style.right = ((1 - jw) / 2 * 100).toFixed(3) + "%";
+  const jtx = document.getElementById("jpovsubtx");
+  if (jtx) jtx.textContent = edLayOut(cur.cur || cur.ja,
+    { width: sty.width == null ? null : jw,
+      sizeRatio: +sty.size > 0 ? 64 / +sty.size : 1 }).join("\n");
   el.classList.add("editable");
-  el.title = `자막 ${cur.idx + 1} — 끌어서 위치`;
+  el.classList.toggle("edwrap", edWrapOn());
+  el.title = `자막 ${cur.idx + 1} — 끌어서 위치${edWrapOn()
+    ? ` · 양옆 ⇔ 로 글자 통 넓히기(${Math.round(jw * 100)}%)` : ""}`;
   const col = document.getElementById("jpsubcolor");
   if (col && document.activeElement !== col){
     const c = String(sty.color || "#FFFFFF");
@@ -3753,6 +3900,46 @@ window.edJpStyleReset = () => {
   const v = document.getElementById("jpvid");
   edJpPaint(v ? v.currentTime : 0);
   edJpMark();
+};
+// JP 자막 통 가로 폭 ⇔ (F-412) — KR edSubWDragDown 과 같은 규약: 가로 중앙 유지라
+// 한쪽 이동량의 2배로 폭이 는다 · 기본 폭으로 돌아오면 키를 지운다(영구 dirty 방지) ·
+// Shift = 모든 자막 줄에 같은 폭. 게이트는 edWrapOn(엔진 전 노드 배포 표식).
+window.edJpSubWDragDown = ev => {
+  if (ev.button !== 0 || !edJpEditable() || !edWrapOn()) return;
+  const s = edJpCurRow(), st = document.getElementById("edstage");
+  const el = document.getElementById("jpovsub");
+  if (!s || !st || !el) return;
+  ev.preventDefault(); ev.stopPropagation();
+  const W = st.clientWidth || 270;
+  const left = ev.currentTarget && ev.currentTarget.classList.contains("l");
+  const w0 = edWrapW(s.styleCur && s.styleCur.width);
+  const cx = ev.clientX, all = ev.shiftKey;
+  let snapped = false;
+  edJpDrag = true;
+  const move = e => {
+    if (!e.buttons){ up(); return; }
+    if (!snapped){ edJpSnap(); snapped = true; }
+    const dx = (e.clientX - cx) / W * (left ? -1 : 1);
+    const v = +Math.max(ED_WRAP_MIN, Math.min(ED_WRAP_MAX, w0 + dx * 2)).toFixed(4);
+    const put = t => {
+      const st2 = { ...(t.styleCur || {}) };
+      if (Math.abs(v - ED_WRAP_BASE_W) < 0.005) delete st2.width; else st2.width = v;
+      t.styleCur = Object.keys(st2).length ? st2 : undefined;
+    };
+    if (all) edJpForm.subs.forEach(t => { if (!t.del) put(t); });
+    else put(s);
+    const jv = document.getElementById("jpvid");
+    edJpPaint(jv ? jv.currentTime : 0);
+  };
+  const up = () => {
+    document.removeEventListener("mousemove", move);
+    document.removeEventListener("mouseup", up);
+    edJpDrag = false;
+    if (all) toast("모든 자막 줄에 같은 통 폭을 적용했습니다");
+    edJpMark();
+  };
+  document.addEventListener("mousemove", move);
+  document.addEventListener("mouseup", up);
 };
 window.edJpSubDragDown = ev => {
   if (ev.button !== 0 || !edJpEditable()) return;
@@ -4204,9 +4391,17 @@ window.edJpMark = () => {
   grab("jptitle", f.title, v => f.titleCur = v);
   grab("jptop", f.top, v => f.topCur = v, true);
   grab("jpdesc", f.desc, v => f.descCur = v, true);
-  f.subs.forEach(s => grab("jps_" + s.idx, s.ja, v => s.cur = v));
-  f.tts.forEach(s => grab("jpn_" + s.idx, s.ja, v => s.cur = v));
-  f.telops.forEach(s => grab("jpl_" + s.idx, s.ja, v => s.cur = v));
+  // F-412: trim 비교는 내부 줄바꿈을 건드리지 않아 '줄만 바꾼 편집'도 dirty 로 잡힌다
+  // (keepNl 불필요). 칸 높이는 내용만큼(edLineBoxSync) · 자막·TTS 는 2줄 상한 표시.
+  f.subs.forEach(s => { grab("jps_" + s.idx, s.ja, v => s.cur = v);
+    edLineBoxSync(document.getElementById("jps_" + s.idx), s.cur); });
+  f.tts.forEach(s => { grab("jpn_" + s.idx, s.ja, v => s.cur = v);
+    edLineBoxSync(document.getElementById("jpn_" + s.idx), s.cur); });
+  f.telops.forEach(s => { grab("jpl_" + s.idx, s.ja, v => s.cur = v);
+    const el = document.getElementById("jpl_" + s.idx);
+    edLineBoxSync(el, s.cur);
+    if (el) el.classList.remove("over");   // 텔롭은 상한 없음(엔진이 \N 그대로, 잘림 없음)
+  });
   // 겹침 경고(JP-3a) — 타이밍 편집이 만든 같은 레인 겹침을 제출 전에 알린다
   const cf = document.getElementById("jpconf");
   if (cf){
@@ -4239,6 +4434,20 @@ window.edJpSubmit = async () => {
   const ed = edJpCollect();
   if (!Object.keys(ed).length){ toast("고친 내용이 없습니다", true); return; }
   if (ed.cuts && edJpCutsBad()){ toast("구간 빼기: " + edJpCutsBad(), true); return; }
+  // 줄 수 상한(F-412) — 엔진(apply_overrides)이 3줄 이상을 거절한다. 여기서 안 막으면
+  // 재렌더 잡이 검수함에 실패로 남는다. 텔롭은 상한 없음(잘림 없이 그대로 그린다).
+  const _jaLines = v => typeof v === "string" ? edLineCount(v)
+    : v && typeof v.ja === "string" ? edLineCount(v.ja) : 0;
+  const _over = [];
+  Object.entries(ed.subs || {}).forEach(([i, v]) => {
+    if (_jaLines(v) > ED_WRAP_MAX_LINES) _over.push(`자막 ${+i + 1}번`); });
+  Object.entries(ed.tts || {}).forEach(([i, v]) => {
+    if (_jaLines(v) > ED_WRAP_MAX_LINES) _over.push(`내레이션 ${+i + 1}번`); });
+  if (_over.length){
+    toast(`${_over[0]}${_over.length > 1 ? ` 외 ${_over.length - 1}곳` : ""}에 줄바꿈이 `
+      + `${ED_WRAP_MAX_LINES}줄을 넘습니다 — 자막은 최대 ${ED_WRAP_MAX_LINES}줄입니다`, true);
+    return;
+  }
   const note = (f.note || "").trim() || null;   // 탭 전환에도 살아 있는 폼 값
   f.sending = true;
   edJpMark();                                   // 버튼 잠금 — 렌더를 타도 유지된다
@@ -4396,7 +4605,8 @@ function renderEdit(){
             title="가상 미리보기에서 내레이션을 함께 들려줍니다 — 안 고친 줄은 저장된 음성, 고친 줄은 지금 고른 목소리로 즉석 합성합니다(기본 edge-tts 목소리로 고친 줄은 재렌더 후에만 들립니다)">🔊 내레이션</button>` : ""}
           ${edV3() && canEdit ? `<button class="mini ${edStyleTool ? "on" : ""}"
             id="edstylebtn" onclick="edStyleToolToggle()"
-            title="화면의 제목·자막·하늘색(내레이션)을 끌어 위치를 바꾸고, 아래 도구로 크기·색을 바꿉니다. 자막은 그 줄만, 제목·내레이션은 이 편 전체">✎ 위치·크기·색</button>` : ""}
+            title="화면의 제목·자막·하늘색(내레이션)을 끌어 위치를 바꾸고, 아래 도구로 크기·색을 바꿉니다. 자막은 그 줄만, 제목·내레이션은 이 편 전체${
+              edWrapOn() ? " · 자막·내레이션 양옆 ⇔ 는 글자 통 가로 폭(크기는 그대로, 줄이 접히는 것만 막습니다)" : ""}">✎ 위치·크기·색</button>` : ""}
         </div>
         <div class="edsubtools" id="edsubtools" style="display:none">
           <span id="edovselseg">
@@ -4454,8 +4664,20 @@ function renderEdit(){
             <div class="edovimgs" id="edovimgs"></div>
             <div class="edovtexts" id="edovtexts"></div>
             <div class="edovtitle" id="edovtitle" onmousedown="edTitleDragDown(event)"></div>
-            <div class="edovtts" id="edovtts" onmousedown="edTtsDragDown(event)"></div>
-            <div class="edovsub" id="edovsub" onmousedown="edSubDragDown(event)"></div>
+            <div class="edovtts" id="edovtts" onmousedown="edTtsDragDown(event)"
+              ><span class="edtx" id="edovttstx"></span
+              ><i class="edwh l" id="edttswhl" onmousedown="edTtsWDragDown(event)"
+                title="내레이션 자막 통의 가로 폭 — 끌어서 좌우로(글자 크기는 그대로, 줄이 접히는 것만 막습니다). 이 편의 모든 내레이션 공통">⇔</i
+              ><i class="edwh r" id="edttswhr" onmousedown="edTtsWDragDown(event)"
+                title="내레이션 자막 통의 가로 폭 — 끌어서 좌우로(글자 크기는 그대로, 줄이 접히는 것만 막습니다). 이 편의 모든 내레이션 공통">⇔</i
+              ></div>
+            <div class="edovsub" id="edovsub" onmousedown="edSubDragDown(event)"
+              ><span class="edtx" id="edovsubtx"></span
+              ><i class="edwh l" id="edsubwhl" onmousedown="edSubWDragDown(event)"
+                title="이 줄의 글자 통 가로 폭 — 끌어서 좌우로(글자 크기는 그대로, 줄이 접히는 것만 막습니다). Shift 를 누른 채 끌면 모든 자막 줄에 같은 폭">⇔</i
+              ><i class="edwh r" id="edsubwhr" onmousedown="edSubWDragDown(event)"
+                title="이 줄의 글자 통 가로 폭 — 끌어서 좌우로(글자 크기는 그대로, 줄이 접히는 것만 막습니다). Shift 를 누른 채 끌면 모든 자막 줄에 같은 폭">⇔</i
+              ></div>
             <i class="edbandh" id="edbandh" onmousedown="edBandDragDown(event)"
               title="영상 밴드 위치(video_y) — 끌어서 위·아래로">⇕</i>
             <i class="edbandh" id="edbandw" onmousedown="edBandWDragDown(event)"
@@ -4796,7 +5018,9 @@ function edPaneSubs(canEdit){
     ${edE8On() ? edTitleSegsHtml(canEdit) : ""}
     <div class="edcap">자막 ${edForm.dSubs.filter(s=>!s.del).length}건
       <span class="sub">— 시각(완성본 기준)을 누르면 원본 위치로 · 비우면 그 줄이 빠집니다${
-      edV3() && canEdit ? " · ✎ 스타일(위치·크기·색)은 줄마다 따로 저장됩니다" : ""}</span>
+      edV3() && canEdit ? " · ✎ 스타일(위치·크기·색)은 줄마다 따로 저장됩니다" : ""}${
+      edWrapOn() && canEdit ? " · <b>Enter 로 줄바꿈</b>(넣은 자리 그대로, 최대 2줄) · 줄이 "
+        + "제멋대로 접히면 ✎ 를 켜고 화면 자막 양옆 ⇔ 로 글자 통을 넓히세요(크기는 그대로)" : ""}</span>
       ${canEdit && !locked && edForm.dSubs.length ? `<span class="right" style="margin-left:auto">
         <label class="sub" style="cursor:pointer"><input type="checkbox" id="edckall"
           ${edSubCk.size && edSubCk.size === edForm.dSubs.filter(s=>!s.del).length ? "checked" : ""}
@@ -4813,8 +5037,11 @@ function edPaneSubs(canEdit){
         <span class="t" onclick="edSeek(${s.src ?? 0})"
           title="원본 ${s.src != null ? edFmt(s.src) : "—"}">${
           Number(s.start).toFixed(1)}s</span>
-        <input class="x" type="text" id="edsx_${i}" oninput="edMark()" ${
-          canEdit && !locked && !s.del ? "" : "disabled"}>
+        <textarea class="x" rows="1" id="edsx_${i}" oninput="edMark()" ${
+          canEdit && !locked && !s.del ? "" : "disabled"}
+          title="${edWrapOn()
+            ? "Enter 로 줄을 바꿉니다 — 넣은 자리에서 그대로 영상에 나갑니다(최대 2줄)"
+            : "자막 문구"}"></textarea>
         ${s.pin ? `<span title="시각 고정 — 구간을 바꿔도 이 줄은 완성본 시각 그대로.
           완성본 트랙에서 선택해 '앵커 복원'으로 되돌립니다">📌</span>` : ""}
         ${edV3() && canEdit && !s.del ? `<button class="mini" ${
@@ -5007,7 +5234,10 @@ function edPaneTts(canEdit){
                onclick="event.stopPropagation();edTtsDel(${i})" ${canEdit?"":"disabled"}>✕</button>`}
       </div>
       <textarea id="edtx_${i}" rows="2" oninput="edMark()"
-        onclick="event.stopPropagation()" ${canEdit && !t.del ? "" : "disabled"}></textarea>
+        onclick="event.stopPropagation()" ${canEdit && !t.del ? "" : "disabled"}
+        title="${edWrapOn()
+          ? "Enter 로 자막 줄을 바꿉니다(최대 2줄) — 말소리는 그대로입니다(줄바꿈은 화면용)"
+          : "내레이션 문구"}"></textarea>
       ${t.del ? `<div class="fitrow">이 내레이션은 빠집니다 — 음성도 하늘색 자막도 함께</div>` : `
       <div class="fitrow"><span id="edtfl_${i}"></span>
         <div class="fitbar"><i id="edtfb_${i}"></i></div></div>`}
@@ -5096,9 +5326,12 @@ function edPaneTexts(canEdit){
       <span class="n">${i + 1}</span>
       <span style="cursor:pointer;font-variant-numeric:tabular-nums"
         onclick="event.stopPropagation();edSeek(${t.src})" title="원본 이 지점으로 이동">원본 ${edFmt(t.src)}</span>
-      <input class="x" type="text" id="edtx_${i}" value="${esc(t.text)}" style="flex:1;min-width:60px;color:${esc(t.color)};font-weight:900"
+      <textarea class="x" id="edxt_${i}" rows="1" style="flex:1;min-width:60px;color:${esc(t.color)};font-weight:900;resize:none;overflow:hidden;font:inherit;font-weight:900;border:1px solid transparent;border-radius:5px;padding:2px 5px;background:transparent"
         oninput="edTxtSet(${i},'text',this.value)" ${canEdit && !t.del ? "" : "disabled"}
-        placeholder="글자">
+        placeholder="글자"
+        title="${edWrapOn()
+          ? "Enter 로 줄을 바꿉니다 — 넣은 자리에서 그대로 영상에 나갑니다(줄바꿈 포함 60자)"
+          : "글자"}">${esc(t.text)}</textarea>
       <input class="tm" value="${Number(t.dur).toFixed(1)}" title="표시 길이(초)"
         onchange="edTxtSet(${i},'dur',this.value)" ${canEdit && !t.del ? "" : "disabled"}>
       <input class="tm" value="${t.size}" title="크기(px, 1080×1920 기준)" style="width:44px"
@@ -5150,7 +5383,7 @@ window.edTxtAdd = () => {
   if (edV3() && !edStyleTool) edStyleTool = true;     // 바로 끌 수 있게 ✎ 를 켠다
   render();
   edTxtShow(edForm.texts.length - 1);                 // 넣은 순간이 화면에 보여야 끌 수 있다
-  const inp = document.getElementById("edtx_" + (edForm.texts.length - 1));
+  const inp = document.getElementById("edxt_" + (edForm.texts.length - 1));
   if (inp){ inp.focus(); inp.select(); }
 };
 // 텍스트의 표시 창 시작 순간으로 화면을 옮긴다(정지) — 창(기본 1.5초) 밖에 있으면 화면에
@@ -5167,7 +5400,11 @@ window.edTxtDel = i => { edSnap(); edForm.texts[i].del = true;
 window.edTxtRestore = i => { edSnap(); edForm.texts[i].del = false; render(); };
 window.edTxtSet = (i, k, v) => {
   const t = (edForm.texts || [])[i]; if (!t) return;
-  if (k === "text"){ edSnap("txt" + i); t.text = String(v).slice(0, 60); edStagePaint(edStageT); edMark(); return; }
+  if (k === "text"){
+    edSnap("txt" + i); t.text = String(v).slice(0, 60);
+    // 칸 높이를 내용에 맞춘다(F-412) — 이 경로는 render() 를 안 타서 직접 맞춘다
+    edLineBoxSync(document.getElementById("edxt_" + i), t.text);
+    edStagePaint(edStageT); edMark(); return; }
   edSnap();
   if (k === "dur") t.dur = Math.max(0.3, Math.min(60, Number(v) || 1.5));
   else if (k === "size") t.size = Math.max(12, Math.min(400, Math.round(Number(v)) || 72));
@@ -5197,6 +5434,9 @@ const ED_STYLE_FIELDS = [
   ["tts_size",         "TTS 자막 크기",  "예: 70"],
   ["tts_color",        "TTS 자막 색",    "#87CEEB"],
   ["tts_y_margin",     "TTS 세로(하단px)", "예: 580"],
+  // F-412 — 내레이션 자막 통(글자 상자) 가로 폭. 크기는 그대로 두고 좌우만 넓혀
+  // 줄이 접히는 것을 막는다. ✎ 의 양옆 ⇔ 와 같은 값. 표시·전송은 editor_wrap 게이트.
+  ["tts_width",        "TTS 글자 통 폭",  "비우면 0.852 · 0.3~1.0(1=화면 끝까지)"],
   // 영상 밴드(V3-a) — 렌더가 이미 받는 키. 위치는 ✎ 켠 가상 미리보기의 ⇕ 드래그와 동기
   ["aspect_ratio",     "영상 화면비",    "비우면 1:1 · 예: 16:9 · 4:3"],
   ["video_y",          "영상 세로(위에서 px)", "비우면 중앙 · ⇕ 드래그로도"],
@@ -5224,6 +5464,8 @@ const ED_E7_KEYS = ["title_rotate", "tts_rotate", "video_speed"];
 const ED_E10_KEYS = ["video_width"];
 // 제목 2줄 크기 키 — editor_title_size2 게이트 전 화면·전송에서 함께 뺀다
 const ED_TITLESIZE2_KEYS = ["title_size2"];
+// 줄바꿈·통 폭 키(F-412) — editor_wrap 게이트 전 화면·전송에서 함께 뺀다
+const ED_WRAP_KEYS = ["tts_width"];
 // 제목 박스·굵게 키 — editor_title_box 게이트 전 화면·전송에서 함께 뺀다
 const ED_TITLEBOX_KEYS = ["title_box", "title_box2", "title_box_color", "title_box_color2",
                           "title_bold", "title_bold2"];
@@ -5506,6 +5748,7 @@ function edPaneStyle(canEdit){
       .filter(([k]) => edE10On() || !ED_E10_KEYS.includes(k))
       .filter(([k]) => edTitleBoxOn() || !ED_TITLEBOX_KEYS.includes(k))
       .filter(([k]) => edTitleSize2On() || !ED_TITLESIZE2_KEYS.includes(k))
+      .filter(([k]) => edWrapOn() || !ED_WRAP_KEYS.includes(k))
       .map(([k,l,ph]) => {
         const cur = (edForm.design || {})[k];
         // 박스·굵게는 값이 열거형이라 select — 채널 기본값을 첫 옵션에 적는다
@@ -5982,6 +6225,20 @@ window.edStyleSet = (k, v) => {
   // 제목 2줄 크기 — 비숫자·0 이하는 폼에 싣지 않는다(video_width 와 같은 규약: 흘리면
   // 엔진 argparse 가 즉시 실패시켜 렌더가 낭비된다). 상한은 두지 않는다 — 1줄(title_size)
   // 도 자유값이고, 채널 템플릿이 200 을 넘는 제목을 쓸 수 있다.
+  // F-412 통 폭 — 엔진 계약(0.3~1.0) 밖은 폼에 싣지 않는다(video_width 와 같은 규약).
+  if (k === "tts_width"){
+    const el = document.getElementById("edd_" + k), t = String(v).trim();
+    let bad = false;
+    if (t){
+      const n = +t;
+      bad = !isFinite(n) || n < ED_WRAP_MIN || n > ED_WRAP_MAX;
+      if (bad) delete edForm.design[k];
+    }
+    if (el){
+      el.classList.toggle("bad", bad);
+      el.title = bad ? `${ED_WRAP_MIN}~${ED_WRAP_MAX} 사이 비율(1 = 화면 끝까지)` : "";
+    }
+  }
   if (k === "title_size2"){
     const el = document.getElementById("edd_" + k), t = String(v).trim();
     let bad = false;
@@ -7094,12 +7351,26 @@ function edStagePaint(outT){
     se.style.color = sty.color || d.subtitle_color || "#FFFFFF";
     const yv = Math.max(0.05, Math.min(0.98, sty.y != null ? +sty.y : edSubYDef(d)));
     se.style.bottom = ((1 - yv) * 100) + "%";
-    se.textContent = sub ? sub.text : "";
+    // 통 가로 폭(F-412) — 좌우 대칭. 미지정이면 엔진 기본 폭(=(1080−80×2)/1080)이라
+    // 종전 CSS 4% 보다 살짝 좁다: 화면이 곧 결과가 되도록 엔진 여백에 맞춘다.
+    const sw = edWrapW(sty.width);
+    se.style.left = se.style.right = ((1 - sw) / 2 * 100).toFixed(3) + "%";
+    // 줄바꿈은 엔진 규칙 그대로 미러 — 사람이 넣은 줄바꿈은 그대로, 없으면 자동 분할.
+    const _sbase = +d.subtitle_size || 65, _ssz = +sty.size || _sbase;
+    const stx = document.getElementById("edovsubtx");
+    if (stx) stx.textContent = sub
+      ? edLayOut(sub.text, { width: sty.width == null ? null : sw,
+                             sizeRatio: _ssz > 0 ? _sbase / _ssz : 1 }).join("\n")
+      : "";
     se.style.transform = (sub && sub.style && Math.round(+sub.style.rotate))
       ? `rotate(${Math.round(+sub.style.rotate)}deg)` : "";
     se.classList.toggle("editable", editing && !!sub && !txtOnly);
+    se.classList.toggle("edwrap", edWrapOn());   // 폭 ⇔ 핸들은 게이트 뒤에서만
     se.classList.toggle("txtdim", txtOnly);
-    se.title = editing && sub ? `${si + 1}번 자막 — 끌어서 위치 이동` : "";
+    se.title = editing && sub
+      ? `${si + 1}번 자막 — 끌어서 위치 이동 · 양옆 ⇔ 로 글자 통 넓히기(${
+          Math.round(sw * 100)}%)`
+      : "";
   }
   const te = document.getElementById("edovtts");
   if (te){
@@ -7124,10 +7395,20 @@ function edStagePaint(outT){
         edTtsMarginV(d) / 1920)) * 100) + "%";
       te.style.transform = Math.round(+d.tts_rotate)         // 회전(E7) — 원점 블록 중심
         ? `rotate(${Math.round(+d.tts_rotate)}deg)` : "";
-      te.textContent = cue ? cue.text : "";
+      // 통 가로 폭(F-412) — 내레이션은 이 편 전체 공통(design.tts_width)
+      const tw = edWrapW(d.tts_width);
+      te.style.left = te.style.right = ((1 - tw) / 2 * 100).toFixed(3) + "%";
+      const ttx = document.getElementById("edovttstx");
+      if (ttx) ttx.textContent = cue
+        ? edLayOut(cue.text, { width: d.tts_width == null ? null : tw }).join("\n")
+        : "";
       te.classList.toggle("editable", editing && !!cue && !txtOnly);
+      te.classList.toggle("edwrap", edWrapOn());
       te.classList.toggle("txtdim", txtOnly);
-      te.title = editing && cue ? "내레이션 자막 — 끌어서 세로 위치(모든 내레이션 공통)" : "";
+      te.title = editing && cue
+        ? `내레이션 자막 — 끌어서 세로 위치 · 양옆 ⇔ 로 글자 통 넓히기(${
+            Math.round(tw * 100)}%) · 모두 이 편 전체 공통`
+        : "";
     }
   }
   // 이미지(F-408) — 표시 창에 걸린 것들을 캔버스 비율 좌표(x·y=좌상단, w=너비)로 그린다
@@ -7333,7 +7614,8 @@ window.edOvReset = () => {
   // 회전(E7)도 같은 묶음 — 게이트 전이라도 키 삭제는 무해하다.
   (edOvSel === "title" ? ["title_size", "title_color", "title_y", "title_rotate"]
                            .concat(["title_color2"], ED_TITLESIZE2_KEYS, ED_TITLEBOX_KEYS)   // 줄별 크기·박스·굵게·2줄 색도
-                       : ["tts_size", "tts_color", "tts_y_margin", "tts_rotate"])
+                       : ["tts_size", "tts_color", "tts_y_margin", "tts_rotate"]
+                           .concat(ED_WRAP_KEYS))                        // 통 폭(F-412)도
     .forEach(k => { delete d[k];
       const el = document.getElementById("edd_" + k); if (el) el.value = ""; });
   if (edOvSel === "title"){
@@ -7369,6 +7651,85 @@ window.edSubDragDown = ev => {
   document.addEventListener("mousemove", move);
   document.addEventListener("mouseup", up);
 };
+// ── 글자 통 가로 폭 ⇔ (F-412) ─────────────────────────────────────────
+// 밴드 ⇔(edBandWDragDown)와 같은 규약: 가로 중앙을 유지하므로 한쪽 가장자리를 끈
+// 이동량의 **2배**로 폭이 는다. 글자 크기는 건드리지 않는다 — 줄이 접히는 것만 막는
+// 도구다. 왼쪽 핸들은 방향이 반대라 부호를 뒤집는다.
+// Shift 를 누른 채 끌면 모든 자막 줄에 같은 폭 — 한 줄씩 스무 번 맞추는 일을 막는다.
+window.edSubWDragDown = ev => {
+  if (ev.button !== 0 || !edV3() || !edStyleTool || !edCanEdit() || !edWrapOn()) return;
+  const i = edStageCur, s = edForm && edForm.dSubs[i];
+  const st = document.getElementById("edstage");
+  if (!s || !st) return;
+  ev.preventDefault(); ev.stopPropagation();
+  edOvSel = "sub"; edOvSelSync();
+  const W = st.clientWidth || 270;
+  const left = ev.currentTarget && ev.currentTarget.classList.contains("l");
+  const w0 = edWrapW(s.style && s.style.width);
+  const cx = ev.clientX, all = ev.shiftKey;
+  edSnap("subwdrag" + i);
+  const move = e => {
+    if (!e.buttons){ up(); return; }
+    const dx = (e.clientX - cx) / W * (left ? -1 : 1);
+    const nw = Math.max(ED_WRAP_MIN, Math.min(ED_WRAP_MAX, w0 + dx * 2));
+    const v = +nw.toFixed(4);
+    // 기본 폭으로 되돌아오면 키를 지운다 — 안 그러면 안 고친 것과 같은 값이
+    // 영구 dirty 로 남아 자막 전량이 매번 재제출된다(edOvSize 규칙과 동일).
+    const put = t => {
+      const st2 = { ...(t.style || {}) };
+      if (Math.abs(v - ED_WRAP_BASE_W) < 0.005) delete st2.width; else st2.width = v;
+      if (Object.keys(st2).length) t.style = st2; else delete t.style;
+    };
+    if (all) edForm.dSubs.forEach(t => { if (!t.del) put(t); });
+    else put(s);
+    edStagePaint(edStageT);
+  };
+  const up = () => {
+    document.removeEventListener("mousemove", move);
+    document.removeEventListener("mouseup", up);
+    if (all) toast("모든 자막 줄에 같은 통 폭을 적용했습니다");
+    edMark();
+  };
+  document.addEventListener("mousemove", move);
+  document.addEventListener("mouseup", up);
+};
+
+// 내레이션 자막 통 폭 → design.tts_width (이 편 전체 — 크기·색·회전과 같은 층)
+window.edTtsWDragDown = ev => {
+  if (ev.button !== 0 || !edStyleTool || !edCanEdit() || !edWrapOn()) return;
+  const st = document.getElementById("edstage"); if (!st || !edForm) return;
+  ev.preventDefault(); ev.stopPropagation();
+  edOvSel = "tts"; edOvSelSync();
+  const W = st.clientWidth || 270;
+  const left = ev.currentTarget && ev.currentTarget.classList.contains("l");
+  const w0 = edWrapW(edDesign().tts_width);
+  const cx = ev.clientX;
+  edSnap("ttswdrag");
+  const move = e => {
+    if (!e.buttons){ up(); return; }
+    const dx = (e.clientX - cx) / W * (left ? -1 : 1);
+    const nw = Math.max(ED_WRAP_MIN, Math.min(ED_WRAP_MAX, w0 + dx * 2));
+    const d2 = { ...(edForm.design || {}) };
+    const bv = +edBaseDesign().tts_width;
+    const v = +nw.toFixed(4);
+    // 채널 기본과 같으면 키를 지운다(밴드 ⇔ 와 같은 규칙)
+    if (Math.abs(v - edWrapW(isFinite(bv) && bv > 0 ? bv : null)) < 0.005)
+      delete d2.tts_width;
+    else d2.tts_width = v;
+    edForm.design = d2;
+    edStagePaint(edStageT);
+  };
+  const up = () => {
+    document.removeEventListener("mousemove", move);
+    document.removeEventListener("mouseup", up);
+    const el = document.getElementById("edd_tts_width");
+    if (el) el.value = (edForm.design || {}).tts_width ?? "";
+    edMark();
+  };
+  document.addEventListener("mousemove", move);
+  document.addEventListener("mouseup", up);
+};
+
 function edSubStylePatch(i, patch){
   const s = edForm && edForm.dSubs[i]; if (!s) return;
   s.style = { ...(s.style || {}), ...patch };
@@ -7613,13 +7974,18 @@ window.edTxtEditInline = (ev, xi) => {
   try { document.execCommand("selectAll", false, null); } catch (_) {}
   const done = ok => {
     tx.contentEditable = "false"; tx.style.outline = "";
-    const v = String(tx.textContent || "").trim().slice(0, 60);
+    // innerText 로 읽는다(textContent 아님) — Shift+Enter 가 만든 <br> 을 줄바꿈으로
+    // 되돌려 준다. textContent 는 <br> 을 빈 문자열로 흘려 줄바꿈이 증발한다(F-412).
+    const v = String(tx.innerText || "").replace(/\r\n/g, "\n")
+      .split("\n").map(x => x.trim()).join("\n").replace(/\n{2,}/g, "\n")
+      .replace(/^\n+|\n+$/g, "").slice(0, 60);
     if (ok && v && v !== before){ edSnap(); t.text = v; edMark(); }
     tx.textContent = t.text; render();
   };
   tx.onblur = () => done(true);
   tx.onkeydown = e => { e.stopPropagation();
-    if (e.key === "Enter"){ e.preventDefault(); tx.blur(); }
+    // Shift+Enter = 줄바꿈(F-412), Enter = 확정 — 여느 편집 칸과 같은 관례
+    if (e.key === "Enter" && !e.shiftKey){ e.preventDefault(); tx.blur(); }
     if (e.key === "Escape"){ tx.textContent = before; tx.blur(); } };
 };
 
@@ -8190,7 +8556,7 @@ document.addEventListener("keydown", e => {
 document.addEventListener("beforeinput", e => {
   if (tab !== "edit" || !edForm) return;
   const t = e.target;
-  if (t && /^(edtitle$|edsx_|edtx_|edd_)/.test(t.id || ""))
+  if (t && /^(edtitle$|edsx_|edtx_|edxt_|edd_)/.test(t.id || ""))
     edSnap("type:" + t.id);
 }, true);
 
