@@ -4787,7 +4787,7 @@ def test_longform_is_gated_by_the_jp_pipeline_switch():
 def test_route_is_shorts_only():
     """롱폼은 우리가 만든 쇼츠라 화면에 한글이 없다 — route(인페인팅 등급)가 의미 없다."""
     sql = _live_mig("CREATE OR REPLACE FUNCTION public.select_external_short")
-    assert "v_kind = 'short' AND (p_route IS NULL OR p_route NOT IN" in sql
+    assert "v_kind = 'short' AND v_route NOT IN" in sql
 
 
 def test_select_external_short_chain_matches_the_planner():
@@ -4868,3 +4868,92 @@ def test_one_rejected_candidate_does_not_stop_the_rest():
     src = pathlib.Path("ves/scheduler/loopy_picker.py").read_text(encoding="utf-8")
     body = src.split("def auto_select(", 1)[1]
     assert "except Exception" in body and "conn.rollback()" in body
+
+
+# ── L-P5-3a: 드라이브 쇼츠 목록 (scan_drive_shorts) ─────────────────────────
+def _e(path, **kw):
+    d = {"Path": path, "Name": path.split("/")[-1], "ID": "F" + str(abs(hash(path)) % 10**8),
+         "IsDir": False, "Size": 1, "ModTime": "2026-01-07T04:49:16.000Z"}
+    d.update(kw)
+    return d
+
+
+def test_year_comes_from_the_folder_name_not_the_timestamp():
+    """🛑 실측(2026-08-25): 2022년 폴더의 ModTime 이 전부 2026-08-03 이었다 — 드라이브에
+    올린 날짜다. 날짜로 '올해'를 판정하면 4년치가 전부 올해가 된다."""
+    from ves.adapters.scan_drive_shorts import folder_year, plan_rows
+    assert folder_year("2026_yt_잔망루피_트렌드쇼츠") == 2026
+    assert folder_year("일어 더빙") is None
+    rows = plan_rows([_e("2022_yt_잔망루피_루피s하루/a.mov", ModTime="2026-08-03T00:00:00Z"),
+                      _e("2026_yt_잔망루피_트렌드쇼츠/b.mov")], 2026)
+    assert [r["title"] for r in rows] == ["b"]
+
+
+def test_our_own_output_folder_is_never_a_source():
+    """'일어 더빙' 은 우리 산출물이다 — 소재로 다시 집으면 순환한다."""
+    from ves.adapters.scan_drive_shorts import plan_rows
+    assert plan_rows([_e("일어 더빙/무엇이든.mov")], 2026) == []
+
+
+def test_only_video_files():
+    from ves.adapters.scan_drive_shorts import plan_rows
+    got = plan_rows([_e("2026_a/x.mov"), _e("2026_a/메모.txt"),
+                     _e("2026_a/sub", IsDir=True)], 2026)
+    assert [r["title"] for r in got] == ["x"]
+
+
+def test_clean_master_goes_to_route_a():
+    """'클린' = 화면 글자 없는 마스터(사용자 확인) → 인페인팅이 필요 없다.
+
+    ⚠ 표시가 없는 파일은 B 그대로다 — 같은 폴더에 섞여 있다(트렌드쇼츠 실측)."""
+    from ves.adapters.scan_drive_shorts import route_for
+    assert route_for("군침이싹도뤂_35화_두바이쫀득쿠키(클린).mov") == "A"
+    assert route_for("02_LoveLoveLove챌린지_클린.mov") == "A"
+    assert route_for("03_캣츠아이챌린지.mov") == "B"
+
+
+def test_drive_rows_are_addressable_by_file_id():
+    """id 가 없으면 그 파일을 다시 못 찾는다 — 받을 때 쓰는 열쇠다."""
+    from ves.adapters.scan_drive_shorts import plan_rows
+    r = plan_rows([_e("2026_a/x.mov", ID="ABC123")], 2026)[0]
+    assert r["video_id"] == "drive:ABC123" and r["drive_file_id"] == "ABC123"
+    assert "ABC123" in r["url"]
+    assert plan_rows([_e("2026_a/y.mov", ID=None)], 2026) == []
+
+
+def test_drive_scout_targets_the_rclone_node():
+    """rclone.conf 가 있는 노드로 고정한다 — 아무 노드나 집으면 인증이 없어 실패한다."""
+    import pathlib
+    src = pathlib.Path("ves/scheduler/loopy_drive.py").read_text(encoding="utf-8")
+    assert "drive_sync_node" in src and 'f"node:{node}"' in src
+
+
+def test_drive_scout_year_defaults_to_today():
+    """해가 바뀌면 저절로 새 폴더를 본다 — 매년 사람이 고쳐야 하면 언젠가 잊는다."""
+    import datetime as _dt
+    from ves.scheduler.loopy_drive import target_year
+    assert target_year({}, _dt.date(2027, 1, 2)) == 2027
+    assert target_year({"year": 2026}, _dt.date(2027, 1, 2)) == 2026
+
+
+# ── route 는 그 영상이 정한다 (0089) ───────────────────────────────────────
+def test_route_is_resolved_from_the_row_not_the_caller_default():
+    """드라이브 클린 마스터는 인페인팅이 필요 없다 — 부르는 쪽 기본값('B')이 이기면
+    가장 비싼 단계가 쓸데없이 돈다."""
+    sql = _live_mig("CREATE OR REPLACE FUNCTION public._select_external_short_impl")
+    assert "v_es.flags->>'route'" in sql
+    assert "'level', v_route" in sql          # 잡 params 에도 푼 값이 실린다
+
+
+def test_auto_select_does_not_pin_a_route():
+    """편마다 다른 것을 한 값으로 덮으면 클린 마스터에도 인페인팅이 돈다."""
+    import pathlib
+    src = pathlib.Path("ves/scheduler/loopy_picker.py").read_text(encoding="utf-8")
+    assert "_select_external_short_impl(%s,NULL," in src
+    assert '"route"' not in src.split("DEFAULTS = ", 1)[1].split("}", 1)[0]
+
+
+def test_acquire_gets_the_drive_file_id():
+    """드라이브 파일은 URL 이 아니라 file_id 로 받는다 — 받는 쪽이 그 값을 알아야 한다."""
+    sql = _live_mig("CREATE OR REPLACE FUNCTION public._select_external_short_impl")
+    assert "'drive_file_id', v_es.flags->>'drive_file_id'" in sql

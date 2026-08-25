@@ -17,7 +17,7 @@ from ves import config as cfgmod
 from ves import db
 from ves.config import get_config
 from ves.scheduler import (channels_sync, drive_balance, drive_watch, editor_uploads_gc,
-                           loopy_picker, loopy_scout,
+                           loopy_drive, loopy_picker, loopy_scout,
                            perf_sync, planner, reaper, reconcile, source_watch,
                            storage_gc, version_watch, zanmang_daily)
 
@@ -116,6 +116,9 @@ def main():
                     ("loopy_scout",   lambda: loopy_scout.run(conn, cfg),   _due_daily(last.get("loopy_scout"), now, 3)),
                     # 선별기(L-P3b) — 수집(03:00) 뒤 04:00. 지표가 갱신된 아카이브를 보고
                     # 추천을 세운다. 발행은 어느 수준에서도 사람이다(§5-6).
+                    # 드라이브 쇼츠 목록(L-P5) — 유튜브 수집(03:00) 뒤, 선별(04:00) 전.
+                    # 목록만 만든다(파일은 고른 편만 acquire 가 받는다).
+                    ("loopy_drive",   lambda: loopy_drive.run(conn, cfg),   _due_daily(last.get("loopy_drive"), now, 3)),
                     ("loopy_picker",  lambda: loopy_picker.run(conn, cfg),  _due_daily(last.get("loopy_picker"), now, 4)),
                     ("storage_gc",    lambda: storage_gc.run(conn, cfg),    _due_daily(last.get("storage_gc"), now, 6)),
                     ("editor_uploads_gc", lambda: editor_uploads_gc.run(conn, cfg), _due_daily(last.get("editor_uploads_gc"), now, 6)),

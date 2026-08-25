@@ -45,8 +45,7 @@ DEFAULT_WEIGHTS = {"views": 0.25, "like_ratio": 0.15, "jp_comments": 0.15,
                    "llm_jp_fit": 0.20, "timing": 0.10, "diversity": 0.10,
                    "kpi_feedback": 0.05}
 DEFAULTS = {"enabled": False, "channel_slug": "LOOPY", "per_day": 1, "top_n": 5,
-            "automation": "auto",          # manual | assist | auto (§5-6)
-            "route": "B"}                  # auto 로 걸 때의 쇼츠 route (롱폼은 안 쓴다)
+            "automation": "auto"}          # manual | assist | auto (§5-6)
 
 _SEASONS = {
     "newyear": (1, 1), "valentine": (2, 14), "spring": (4, 5), "summer": (8, 1),
@@ -388,15 +387,16 @@ def auto_select(conn, conf: dict, scored: list) -> int:
     quota = per_day - todays_auto_count(conn, slug)
     if quota <= 0:
         return 0
-    route = str(conf.get("route") or "B").upper()
     done = 0
     for r in scored:
         if done >= quota:
             break
         try:
             with conn.cursor() as c:
-                c.execute("SELECT public._select_external_short_impl(%s,%s,%s,%s) AS r",
-                          (r["video_id"], route, "loopy_picker 자동 선택", "auto"))
+                # ⚠ route 를 **주지 않는다**(NULL) — 편마다 다른 것을 한 값으로 덮으면
+                #   드라이브 클린 마스터에도 인페인팅이 돈다(0089).
+                c.execute("SELECT public._select_external_short_impl(%s,NULL,%s,%s) AS r",
+                          (r["video_id"], "loopy_picker 자동 선택", "auto"))
                 got = (c.fetchone() or {}).get("r") or {}
             print(f"  [auto] {r.get('title') or r['video_id']} → "
                   f"{got.get('pipeline')} 잡 {got.get('jobs')}개")

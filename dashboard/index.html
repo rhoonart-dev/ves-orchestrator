@@ -9175,8 +9175,16 @@ window.arcAllow = async (btn, vid, allow, clearDup) => {
 // L-P5-2: 고른 편에 작업지시를 세운다 — 다른 채널과 같은 모양의 카드·체인이 선다.
 // ⚠ 자동이 아니다(§0 결정 2). 선별기는 점수만 매기고 거는 것은 사람이다.
 window.arcRun = async (btn, vid, title) => {
-  let route = "B";
-  if (arcKind === "short") {
+  const r0 = (arcRows || []).find(x => x.video_id === vid) || {};
+  let route = null;                       // null = 그 영상이 아는 값으로(0089)
+  const isDrive = !!(r0 && r0.flags && r0.flags.drive);
+  if (isDrive) {
+    // 드라이브발은 파일이 스스로 안다 — 이름의 '클린' 여부로 수집기가 route 를 적어 뒀다.
+    const rec = (r0.flags && r0.flags.route) || "B";
+    if (!confirm(`「${title || vid}」\n\n드라이브 원본입니다 — route ${rec}` +
+                 `${rec === "A" ? " (클린 마스터: 화면 글자가 없어 인페인팅을 건너뜁니다)" : ""}` +
+                 `\n\n진행할까요?`)) return;
+  } else if (arcKind === "short") {
     // 쇼츠 = 남의 완성본에 일본어를 입힌다 → 화면 한글을 어떻게 다룰지가 route 다.
     route = prompt(
       `「${title || vid}」 작업을 겁니다.\n\nroute 를 고르세요:\n` +
@@ -9194,7 +9202,8 @@ window.arcRun = async (btn, vid, title) => {
   }
   armed(btn, btn.textContent, async () => {
     const { data, error } = await sb.rpc("select_external_short",
-      { p_video_id: vid, p_route: String(route || "B").toUpperCase().trim(), p_note: null });
+      { p_video_id: vid,
+        p_route: route ? String(route).toUpperCase().trim() : null, p_note: null });
     if (error) toast(`거부: ${error.message}`, true);
     else toast(`작업지시를 세웠습니다 — 잡 ${(data && data.jobs) || 0}개` +
                ((data && data.route) ? ` (route ${data.route})` : " (롱폼: 생성 + 현지화)"));
