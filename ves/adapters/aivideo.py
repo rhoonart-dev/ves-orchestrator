@@ -98,12 +98,6 @@ CHANNEL_DESIGN_FLAGS = {
 }
 CHANNEL_DESIGN_SWITCHES = {
     "face_tracking": ("--no-reframe", False),   # false 면 얼굴 추종 크롭 끔
-    # 인물 인식(ai-video 2026-08-25): true 면 deepface 로 '누구를 따라갈지'를 고른다.
-    # ⚠ 기본은 꺼짐이고 **켜 본 적이 없다** — tf-keras 부재로 이 코드가 한 번도 동작한
-    #   적이 없었다(L-P4 2차 관문이 잡았다). 켜면 그 채널만 ① character_focus 클립의
-    #   크롭이 인물 타겟으로 바뀌고 ② [7/15] 인물 등장 인덱스가 프록시 전체를 2초
-    #   간격으로 스캔해 생성이 느려진다. 채널에 켜기 전에 한 편으로 재 볼 것.
-    "face_recognition": ("--face-recognition", True),
     # 대사 자막 끔(8/20 Sally) — false 면 소스에 자막이 있어도 이 채널은 안 그린다.
     # ⚠ 편집실 자막 예외(8/17 규칙)가 이긴다 — design_for_job 이 그 편만 이 키를 뺀다.
     "subtitles": ("--no-subtitles", False),
