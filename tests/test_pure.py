@@ -5112,3 +5112,20 @@ def test_audit_actor_is_never_null():
     sql = _live_mig("CREATE OR REPLACE FUNCTION public._audit")
     assert "coalesce(nullif(auth.uid()::text, ''), 'system:' || session_user)" in sql
     assert "VALUES (auth.uid()::text" not in sql
+
+
+def test_drive_single_file_is_fetched_by_copyid_not_root_folder_id():
+    """🛑 `--drive-root-folder-id` 는 **폴더** id 를 받는다. 파일 id 를 주면 rclone 이
+    오류 없이 빈 디렉토리를 만들고 끝난다 — 실측(2026-08-25) 첫 실전 왕복이 그렇게 죽었다."""
+    from ves.adapters.acquire_external import rclone_argv
+    argv = rclone_argv("gdrive:", "FILEID", "/tmp/work")
+    assert argv[:3] == ["backend", "copyid", "gdrive:"]
+    assert argv[3] == "FILEID"
+    assert "--drive-root-folder-id" not in argv
+
+
+def test_copyid_destination_ends_with_slash():
+    """`/` 로 안 끝나면 마지막 조각이 **파일명**이 된다 — 확장자를 우리가 정하게 된다."""
+    from ves.adapters.acquire_external import rclone_argv
+    assert rclone_argv("gdrive:", "ID", "/tmp/work")[-1] == "/tmp/work/"
+    assert rclone_argv("gdrive:", "ID", "/tmp/work/")[-1] == "/tmp/work/"

@@ -90,11 +90,17 @@ def ytdlp_argv(url: str, out: str) -> list:
 
 
 def rclone_argv(remote: str, file_id: str, dest_dir: str) -> list:
-    """드라이브 파일 하나만 받는 argv. 순수 — 테스트 대상.
+    """드라이브 **파일 하나**를 id 로 받는 argv. 순수 — 테스트 대상.
 
-    `--drive-root-folder-id` 에 **파일 id** 를 주면 그 파일 하나가 루트가 된다
-    (register_drive 가 폴더에 쓰는 것과 같은 노브)."""
-    return ["copy", remote, dest_dir, "--drive-root-folder-id", file_id]
+    ⚠ `--drive-root-folder-id` 로는 안 된다 — 그 노브는 **폴더** id 를 받는다.
+    파일 id 를 주면 rclone 이 오류 없이 **빈 디렉토리**를 만들고 성공으로 끝난다
+    (실측 2026-08-25 첫 실전 왕복: "드라이브에서 받은 파일이 없다"). register_drive
+    가 폴더를 받을 때 쓰는 노브를 파일에 그대로 쓴 것이 원인이었다.
+
+    파일은 drive 백엔드의 `copyid` 로 받는다. 목적지가 `/` 로 끝나면 드라이브에
+    있는 이름 그대로 그 디렉토리에 담는다(안 끝나면 마지막 경로 조각이 파일명이
+    된다 — 확장자를 우리가 정하게 되므로 늘 `/` 로 끝낸다)."""
+    return ["backend", "copyid", remote, file_id, str(dest_dir).rstrip("/") + "/"]
 
 
 def ffmpeg_argv(src: str, dst: str, crf: str = CRF) -> list:
@@ -142,7 +148,9 @@ def _fetch_drive(cfg, file_id: str, work: pathlib.Path) -> pathlib.Path:
     _rc(b, c, *rclone_argv(remote, file_id, str(work)), timeout=3600 * 3)
     got = [p for p in work.iterdir() if p.is_file()]
     if not got:
-        raise RuntimeError(f"드라이브에서 받은 파일이 없다: {file_id}")
+        raise RuntimeError(
+            f"드라이브에서 받은 파일이 없다: {file_id} — id 가 파일이 아니거나(폴더 id) "
+            f"그 계정에 공유돼 있지 않다. rclone 은 이 경우 조용히 성공한다")
     return max(got, key=lambda p: p.stat().st_size)
 
 
