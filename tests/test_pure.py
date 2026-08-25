@@ -4606,3 +4606,16 @@ def test_run_job_signals_return_to_queue():
     assert "claim_mod.claim(conn, cfg.node_id, cfg.capabilities, blocked)" in wsrc  # 넘긴다
     assert "!= executor.RETURNED" in wsrc                       # 반납 신호를 실제로 본다
     assert "blocked != blocked_prev" in wsrc                    # 보류는 조용히 하지 않는다
+
+
+def test_face_recognition_switch_is_opt_in_only():
+    """인물 인식은 **켜는 쪽만** 채널 키로 나간다(ai-video 2026-08-25).
+
+    엔진 기본이 꺼짐이고 켜 본 적이 없는 동작이라(tf-keras 부재로 한 번도 안 돌았다),
+    키를 안 준 채널은 플래그가 아예 안 붙어야 한다 — 붙으면 전 채널의 크롭과 생성
+    시간이 한꺼번에 바뀐다."""
+    from ves.adapters.aivideo import CHANNEL_DESIGN_SWITCHES, channel_design_flags
+    assert CHANNEL_DESIGN_SWITCHES["face_recognition"] == ("--face-recognition", True)
+    assert channel_design_flags({}, "TEST") == []
+    assert channel_design_flags({"face_recognition": False}, "TEST") == []
+    assert channel_design_flags({"face_recognition": True}, "TEST") == ["--face-recognition"]
