@@ -70,12 +70,12 @@ def check_and_update(cfg, conn) -> None:
             continue
 
         print(f"[updater] {eng}: {cur[:7]} → {target[:7]} 갱신 시작")
-        _set_node(conn, cfg.node_id, status="draining", updating=True)
+        _begin_update(conn, cfg.node_id)
         try:
             ok = _update_engine(cfg, conn, eng, path, cur, target)
         except Exception as e:  # noqa: BLE001
             # 예상 못 한 예외로 여기를 빠져나가면 노드가 draining+updating_since 로 남고,
-            # 다음 주기에 _reactivate_if_self_drained 가 **검증 안 된 venv 그대로 active** 로
+            # 다음 주기에 _restore_after_self_drain 가 **검증 안 된 venv 그대로 active** 로
             # 되살린다(P0 진단 ③). 실패와 똑같이 처리해 그 경로를 막는다.
             ok = False
             print(f"[updater] {eng} 갱신 중 예외: {type(e).__name__} {e}")
@@ -91,7 +91,7 @@ def check_and_update(cfg, conn) -> None:
     # 갱신 사이클이 '스스로' 드레인한 경우(updating_since 有)에만 복귀시킨다.
     # 무조건 active 로 되돌리면 사람/대시보드가 내린 draining 을 매 사이클 밟는다(스모크3 실측).
     # 자기 갱신 exit(42) 재기동 후의 복귀도 이 조건이 담당한다(updating_since 가 남아 있음).
-    _reactivate_if_self_drained(conn, cfg.node_id)
+    _restore_after_self_drain(conn, cfg.node_id)
 
 
 def _update_engine(cfg, conn, eng, path, prev_sha, target) -> bool:
@@ -185,19 +185,55 @@ def _smoke(cfg, eng, path) -> bool:
     return r.returncode == 0
 
 
-def _reactivate_if_self_drained(conn, node_id):
+def _begin_update(conn, node_id):
+    """갱신용 드레인 — 내리기 **전** 상태를 meta 에 적어 둔다.
+
+    ★사람이 내려 둔 draining 을 갱신이 지우면 안 된다(8/25 mm-06 실측: 디스크가 차
+    큐를 독식하던 노드를 사람이 draining 으로 내렸는데, 엔진 갱신 한 번에 조용히
+    active 로 돌아왔다). 자기 갱신은 exit(42) 로 프로세스가 죽어 재기동되므로 파이썬
+    변수로는 못 남긴다 — 그래서 DB(meta)에 적는다.
+
+    `updating_since IS NULL` 가드가 핵심이다: 한 주기에 엔진이 둘 이상 밀리면 이 함수가
+    여러 번 불리는데, 가드가 없으면 두 번째 호출이 'draining'(첫 호출이 넣은 값)을
+    갱신 전 상태로 적어 노드가 영구히 draining 에 갇힌다."""
     with conn.cursor() as c:
         c.execute(
             """UPDATE public.node_registry
-                  SET status='active', updating_since=NULL, last_seen_at=now()
+                  SET meta = coalesce(meta,'{}'::jsonb)
+                             || jsonb_build_object('pre_update_status', status),
+                      status='draining', updating_since=now(), last_seen_at=now()
+                WHERE node_id=%s AND updating_since IS NULL""", (node_id,))
+
+
+def _restore_after_self_drain(conn, node_id):
+    """갱신이 스스로 내린 드레인만 되돌린다 — 복귀 상태는 **갱신 전** 상태다.
+    사람이 내려 둔 draining 이었으면 draining 으로 돌아간다(active 로 올리지 않는다).
+
+    기록이 없거나 알 수 없는 값이면 'active' — 종전 동작이다(회귀 0).
+    ⚠ 갱신 **도중에** 사람이 상태를 바꾸면 이 복귀가 그 값을 덮는다(창은 갱신 1회 길이).
+       막으려면 set_node_status RPC 가 updating_since 를 함께 비워야 하는데, 그건
+       마이그레이션이 필요하고 마이그레이션 게이트가 6대 갱신을 막으므로 별건으로 둔다."""
+    with conn.cursor() as c:
+        c.execute(
+            """UPDATE public.node_registry
+                  SET status = CASE
+                        WHEN meta->>'pre_update_status' IN ('draining','disabled')
+                          THEN meta->>'pre_update_status'
+                        ELSE 'active' END,
+                      updating_since=NULL,
+                      meta = coalesce(meta,'{}'::jsonb) - 'pre_update_status',
+                      last_seen_at=now()
                 WHERE node_id=%s AND updating_since IS NOT NULL""", (node_id,))
 
 
 def _set_node(conn, node_id, status, updating):
+    """상태 직접 지정(갱신 실패 → disabled). 갱신 전 상태 기록도 함께 버린다 —
+    남겨 두면 다음 갱신의 복귀가 지금은 뜻이 없는 옛 값을 되살린다."""
     with conn.cursor() as c:
         c.execute(
             """UPDATE public.node_registry
                   SET status=%s, updating_since = CASE WHEN %s THEN now() ELSE NULL END,
+                      meta = coalesce(meta,'{}'::jsonb) - 'pre_update_status',
                       last_seen_at=now()
                 WHERE node_id=%s""", (status, updating, node_id))
 
