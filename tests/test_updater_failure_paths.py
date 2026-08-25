@@ -238,3 +238,52 @@ def test_restore_gate_is_what_the_rpc_cancels():
     restore = inspect.getsource(updater._restore_after_self_drain)
     assert "updating_since IS NOT NULL" in restore
     assert "updating_since = NULL" in _mig83()
+
+
+# ── requirements-nodeps.txt (L-P4, 2026-08-25) ─────────────────────────
+# 낡은 핀 때문에 본 requirements 와 해석이 안 되는데 빼면 기능이 죽는 패키지를 위한 통로다
+# (ai-video 의 simple-lama-inpainting — route B/C 의 기본 인페인트 백엔드).
+def test_nodeps_file_is_installed_with_no_deps(tmp_path, monkeypatch):
+    (tmp_path / "requirements.txt").write_text("x\n")
+    (tmp_path / "requirements-nodeps.txt").write_text("simple-lama-inpainting\n")
+    seen = []
+
+    def fake_run(argv, **kw):
+        seen.append(argv)
+        class R: returncode, stdout, stderr = 0, "", ""
+        return R()
+    monkeypatch.setattr(updater.subprocess, "run", fake_run)
+    assert updater._pip_sync(_cfg(), "ai_video", str(tmp_path)) is True
+    assert len(seen) == 2
+    assert "--no-deps" not in seen[0]          # 본 requirements 는 의존을 그대로 푼다
+    assert "--no-deps" in seen[1]
+
+
+def test_no_nodeps_file_keeps_old_behaviour(tmp_path, monkeypatch):
+    """파일이 없는 엔진은 종전과 완전히 같다 — 회귀 0."""
+    (tmp_path / "requirements.txt").write_text("x\n")
+    seen = []
+
+    def fake_run(argv, **kw):
+        seen.append(argv)
+        class R: returncode, stdout, stderr = 0, "", ""
+        return R()
+    monkeypatch.setattr(updater.subprocess, "run", fake_run)
+    assert updater._pip_sync(_cfg(), "ai_video", str(tmp_path)) is True
+    assert len(seen) == 1
+
+
+def test_nodeps_failure_fails_the_sync(tmp_path, monkeypatch):
+    """--no-deps 가 실패했는데 성공으로 읽으면 인페인트 없는 venv 로 노드가 되살아난다."""
+    (tmp_path / "requirements.txt").write_text("x\n")
+    (tmp_path / "requirements-nodeps.txt").write_text("y\n")
+    calls = {"n": 0}
+
+    def fake_run(argv, **kw):
+        calls["n"] += 1
+        class R:
+            returncode = 0 if calls["n"] == 1 else 1
+            stdout, stderr = "", "boom"
+        return R()
+    monkeypatch.setattr(updater.subprocess, "run", fake_run)
+    assert updater._pip_sync(_cfg(), "ai_video", str(tmp_path)) is False

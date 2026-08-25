@@ -165,7 +165,25 @@ def _pip_sync(cfg, eng, path) -> bool:
         return False
     if r.returncode != 0:
         print(f"[updater] pip sync 실패: {r.stderr[-400:]}")
-    return r.returncode == 0
+        return False
+
+    # requirements-nodeps.txt — **핀만 무시하고** 까는 것들(L-P4, 2026-08-25).
+    # 낡은 핀 때문에 본 requirements 와 해석이 안 되는데 빼면 기능이 죽는 패키지가 있다
+    # (ai-video 의 simple-lama-inpainting: numpy<2·pillow<10 을 요구하는데 route B/C 의
+    # 기본 인페인트 백엔드다). 파일이 없는 엔진은 종전과 완전히 같다 — 회귀 0.
+    nod = pathlib.Path(path) / "requirements-nodeps.txt"
+    if not nod.exists():
+        return True
+    try:
+        r2 = subprocess.run(
+            [py, "-m", "pip", "install", "-q", "--no-deps", "-r", str(nod)],
+            capture_output=True, text=True, timeout=PIP_TIMEOUT_SEC)
+    except subprocess.TimeoutExpired:
+        print(f"[updater] pip sync(--no-deps) 타임아웃({PIP_TIMEOUT_SEC}s) — {eng}: 실패로 처리")
+        return False
+    if r2.returncode != 0:
+        print(f"[updater] pip sync(--no-deps) 실패: {r2.stderr[-400:]}")
+    return r2.returncode == 0
 
 
 SMOKE_CMDS = {  # import + 진입점 — 깨진 배포를 6대에 퍼뜨리지 않는 최소 방어(§11-1)
