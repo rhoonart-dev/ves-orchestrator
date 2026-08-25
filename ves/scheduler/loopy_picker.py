@@ -45,7 +45,8 @@ DEFAULT_WEIGHTS = {"views": 0.25, "like_ratio": 0.15, "jp_comments": 0.15,
                    "llm_jp_fit": 0.20, "timing": 0.10, "diversity": 0.10,
                    "kpi_feedback": 0.05}
 DEFAULTS = {"enabled": False, "channel_slug": "LOOPY", "per_day": 1, "top_n": 5,
-            "automation": "auto"}          # manual | assist | auto (§5-6)
+            "automation": "auto",          # manual | assist | auto (§5-6)
+            "route": "B"}                  # auto 로 걸 때의 쇼츠 route (롱폼은 안 쓴다)
 
 _SEASONS = {
     "newyear": (1, 1), "valentine": (2, 14), "spring": (4, 5), "summer": (8, 1),
@@ -353,7 +354,56 @@ def run(conn, cfg):
     print(f"[loopy_picker] {slug} 후보 {len(rows)}편 → 점수 {len(scored)}"
           f"(추천 {min(top_n, len(scored))}) · 제외 {len(blocked)}"
           f"{' · 상위 ' + top if top else ''}")
-    if conf.get("automation") == "manual":
-        return
-    # assist·auto 는 여기서 갈리지만 **어느 쪽도 발행하지 않는다** — 추천을 대시보드에
-    # 세우는 것까지가 선별기다. 작업 체인은 사람이 카드에서 건다(§5-6).
+    if conf.get("automation") != "auto":
+        return          # manual·assist 는 추천을 세우는 데서 끝난다(사람이 카드에서 건다)
+
+    # ── 자동 선택 (사용자 지시 2026-08-25: "영상 선택은 이전처럼 알아서") ──────────
+    # ⚠ 계획 §0 결정 2("자동 선별 폐기")의 번복이다. **발행은 여전히 사람**이다 —
+    #   자동이 되는 것은 '오늘 무엇을 작업할지'까지고, 그 뒤 검수함·승인은 그대로다.
+    n = auto_select(conn, conf, scored)
+    if n:
+        print(f"[loopy_picker] 자동 선택 {n}편 — 작업지시를 세웠다(발행은 사람 승인)")
+
+
+def todays_auto_count(conn, slug: str) -> int:
+    """오늘 자동으로 건 편수. 사람이 손으로 건 것(origin='manual')은 안 센다 —
+    사람 결정이 자동 몫을 잡아먹으면 '왜 오늘은 자동이 안 돌지'가 된다."""
+    with conn.cursor() as c:
+        c.execute("""SELECT count(*) AS n FROM public.work_orders
+                      WHERE channel_slug = %s AND origin = 'auto'
+                        AND service_date = (now() AT TIME ZONE 'Asia/Seoul')::date
+                        AND status <> 'cancelled'""", (slug,))
+        return int((c.fetchone() or {}).get("n") or 0)
+
+
+def auto_select(conn, conf: dict, scored: list) -> int:
+    """상위부터 per_day 만큼 작업지시를 세운다. 반환: 실제로 건 편수.
+
+    ⚠ 거는 일은 `_select_external_short_impl` 한 곳이 한다 — 사람 손(RPC)이 쓰는 것과
+      **같은 함수**다. 두 벌로 나뉘면 자동 경로만 가드(중복·차단·롱폼 게이트)가 빠진다."""
+    slug = conf["channel_slug"]
+    per_day = int(conf.get("per_day") or 0)
+    if per_day <= 0:
+        return 0
+    quota = per_day - todays_auto_count(conn, slug)
+    if quota <= 0:
+        return 0
+    route = str(conf.get("route") or "B").upper()
+    done = 0
+    for r in scored:
+        if done >= quota:
+            break
+        try:
+            with conn.cursor() as c:
+                c.execute("SELECT public._select_external_short_impl(%s,%s,%s,%s) AS r",
+                          (r["video_id"], route, "loopy_picker 자동 선택", "auto"))
+                got = (c.fetchone() or {}).get("r") or {}
+            print(f"  [auto] {r.get('title') or r['video_id']} → "
+                  f"{got.get('pipeline')} 잡 {got.get('jobs')}개")
+            done += 1
+        except Exception as e:                              # noqa: BLE001
+            # 한 편이 거절돼도(이미 걸림·차단·스위치 off) 다음 후보로 간다 — 자동이
+            # 한 편 때문에 통째로 멈추면 '오늘은 왜 아무것도 안 돌았지'가 된다.
+            print(f"  [auto] 건너뜀 {r.get('video_id')}: {type(e).__name__} {e}")
+            conn.rollback()
+    return done

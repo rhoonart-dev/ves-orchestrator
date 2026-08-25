@@ -4832,3 +4832,39 @@ def test_work_orders_has_external_video_id_column():
     d = pathlib.Path("ves/control/migrations")
     assert any("ADD COLUMN IF NOT EXISTS external_video_id" in p.read_text(encoding="utf-8")
                for p in d.glob("*.sql"))
+
+
+# ── 자동 선택 (사용자 지시 2026-08-25 — §0 결정 2 의 번복) ──────────────────
+def test_auto_select_uses_the_same_function_as_the_human_button():
+    """거는 일은 한 곳(`_select_external_short_impl`)이 한다.
+
+    두 벌로 나뉘면 **자동 경로만** 가드(중복·차단·롱폼 게이트·동시성)가 빠진다 —
+    그런 사고가 나면 같은 영상이 두 번 올라간다."""
+    import pathlib
+    src = pathlib.Path("ves/scheduler/loopy_picker.py").read_text(encoding="utf-8")
+    assert "_select_external_short_impl" in src
+    sql = _live_mig("CREATE OR REPLACE FUNCTION public.select_external_short")
+    assert "RETURN public._select_external_short_impl(" in sql, "RPC 가 impl 을 안 부른다"
+
+
+def test_auto_select_respects_per_day_and_ignores_manual_picks():
+    """사람이 손으로 건 편이 자동 몫을 잡아먹으면 '왜 오늘은 자동이 안 돌지'가 된다."""
+    import pathlib
+    src = pathlib.Path("ves/scheduler/loopy_picker.py").read_text(encoding="utf-8")
+    assert "origin = 'auto'" in src
+    assert "per_day - todays_auto_count" in src
+
+
+def test_auto_select_only_when_automation_is_auto():
+    """manual·assist 는 추천을 세우는 데서 끝난다 — 켜는 것은 사람이다."""
+    import pathlib
+    src = pathlib.Path("ves/scheduler/loopy_picker.py").read_text(encoding="utf-8")
+    assert 'if conf.get("automation") != "auto":' in src
+
+
+def test_one_rejected_candidate_does_not_stop_the_rest():
+    """이미 걸린 편·차단된 편이 섞여 있어도 자동이 통째로 멈추면 안 된다."""
+    import pathlib
+    src = pathlib.Path("ves/scheduler/loopy_picker.py").read_text(encoding="utf-8")
+    body = src.split("def auto_select(", 1)[1]
+    assert "except Exception" in body and "conn.rollback()" in body
