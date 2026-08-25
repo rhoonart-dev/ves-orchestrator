@@ -25,10 +25,21 @@ HEAVY_KINDS = {"acquire", "generate", "sync_drive_folder", "localize", "zanmang_
 MIN_FREE_GB = 15
 DISK_RETRY_SEC = 900
 
+# run_job 반환값: 잡을 큐에 되돌렸다(실행한 게 아니다). worker 가 이걸 '유휴'로 세야
+# 못 하는 노드가 무휴면 재폴링으로 큐를 독식하지 않는다(8/25 실측 — claim.skip_kinds 참조).
+RETURNED = "returned"
+
 
 def disk_ok(free_bytes: int, min_gb: int = MIN_FREE_GB) -> bool:
     """무거운 잡을 받아도 되는가. 순수 — 테스트 대상."""
     return free_bytes >= min_gb * (1000 ** 3)
+
+
+def blocked_kinds(free_bytes: int, min_gb: int = MIN_FREE_GB) -> list:
+    """이 노드가 지금 claim 하면 안 되는 kind — 디스크가 모자라면 무거운 잡 전부.
+    아래 사전 점검의 짝이자 선행자다: 여기서 걸러 내면 반납 자체가 안 일어난다.
+    순수 — 테스트 대상."""
+    return [] if disk_ok(free_bytes, min_gb) else sorted(HEAVY_KINDS)
 
 
 def merge_dep_outputs(params, deps) -> dict:
@@ -64,13 +75,16 @@ def _dep_results(conn, job) -> dict:
         return {r["kind"]: (r["result"] or {}) for r in c.fetchall()}
 
 
-def run_job(cfg, conn, job) -> None:
+def run_job(cfg, conn, job) -> str | None:
+    """실행 결과 신호. 잡을 큐에 되돌렸으면 RETURNED, 그 외(실행·성공·실패)는 None."""
     ad = base.get(job["kind"])
     if ad is None:
         lease.fail(conn, job, f"어댑터 없음: {job['kind']}", "permanent")
         return
 
-    # 디스크 사전 점검 — 부족하면 잡을 반납해 건강한 노드가 가져가게 한다(8/11 mm-01 실측)
+    # 디스크 사전 점검 — 부족하면 잡을 반납해 건강한 노드가 가져가게 한다(8/11 mm-01 실측).
+    # 평시엔 worker 가 blocked_kinds 로 claim 전에 걸러 여기까지 오지 않는다 — 이 검사는
+    # 집은 뒤에 디스크가 준 경우를 위한 안전망이다.
     if job["kind"] in HEAVY_KINDS:
         try:
             free = shutil.disk_usage(cfg.home).free
@@ -79,7 +93,7 @@ def run_job(cfg, conn, job) -> None:
         if not disk_ok(free):
             return_pending(conn, job, DISK_RETRY_SEC,
                            f"디스크 부족({free / 1e9:.1f}GB < {MIN_FREE_GB}GB) — 반납")
-            return
+            return RETURNED
 
     # ★체인 계약: 선행 잡 결과(run_id·run_dir)를 params 에 병합 — ingest/evaluate/publish
     # (subprocess형)가 generate 산출 위치를 알게 한다. (스모크2에서 발견한 전파 누락 수정)
@@ -109,7 +123,7 @@ def run_job(cfg, conn, job) -> None:
         res = res_fn(cfg, job)
     if res and not resources.acquire(conn, res, job["id"], cfg.node_id):
         return_pending(conn, job, RESOURCE_RETRY_SEC, f"자원 포화: {res}")
-        return
+        return RETURNED
 
     try:
         if hasattr(ad, "run"):                       # 네이티브 어댑터
