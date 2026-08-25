@@ -209,3 +209,17 @@ def test_ocr_backends_are_alternatives_not_all_required():
     from ves.adapters.localize import OVERLAY_OCR_IMPORTS, OVERLAY_RUNTIME_IMPORTS
     assert len(OVERLAY_OCR_IMPORTS) >= 2
     assert not set(OVERLAY_OCR_IMPORTS) & set(OVERLAY_RUNTIME_IMPORTS)
+
+
+def test_precheck_snippet_actually_runs_on_a_real_interpreter():
+    """🛑 가짜 러너는 **스니펫이 파이썬으로 성립하는지**를 안 본다.
+
+    실측 2026-08-25(첫 실전 왕복): `import importlib` 뒤에 `importlib.util` 을 써서
+    스니펫이 매번 AttributeError 로 죽었다. rc≠0 은 '사전검사 실패'로 읽히고, 그것이
+    다시 '의존이 없다'로 취급돼 **엔진이 멀쩡한데 현지화가 즉시 permanent 실패**했다.
+    이 테스트는 진짜 인터프리터로 돌려 그 부류를 잡는다."""
+    import sys
+    # 지금 이 인터프리터에는 cv2·paddleocr 이 없을 수 있다 — 그래서 '없는 목록'의
+    # 내용이 아니라 **스니펫이 실행됐는지**를 본다(사전검사 실패 문구가 없어야 한다).
+    got = missing_overlay_deps(sys.executable)
+    assert not any("사전검사 실패" in g for g in got), got

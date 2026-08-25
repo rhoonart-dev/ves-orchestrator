@@ -116,7 +116,12 @@ def missing_overlay_deps(py: str, *, need_dub: bool = False, _run=None) -> list:
     OCR 은 **셋 중 하나만** 있으면 된다(detect._FALLBACK_ORDER). 나머지는 전부 필요."""
     runner = _run or (lambda code: subprocess.run(
         [py, "-c", code], capture_output=True, text=True, timeout=120))
-    code = ("import importlib,sys\n"
+    # ⚠ `import importlib` 만으로는 `importlib.util` 이 없다(서브모듈은 자동으로 안
+    # 붙는다). 실측 2026-08-25: 첫 실전 왕복에서 사전검사가 매번
+    # `AttributeError: module 'importlib' has no attribute 'util'` 로 rc=1 이 됐고,
+    # 그 결과가 '의존이 없다'로 읽혀 **엔진이 멀쩡한데 현지화가 즉시 실패**했다.
+    # 가짜 러너로만 검사하던 테스트는 이걸 못 잡는다 — 아래 회귀 가드는 실제로 돌린다.
+    code = ("import importlib.util,sys\n"
             "req=%r\nocr=%r\ndub=%r\n"
             "miss=[m for m in req if not importlib.util.find_spec(m.split('.')[0])]\n"
             "if not any(importlib.util.find_spec(m) for m in ocr): miss.append('OCR(%%s 중 하나)' %% '|'.join(ocr))\n"
