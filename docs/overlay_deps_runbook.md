@@ -34,7 +34,7 @@ $R/ai-video/.venv/bin/python -m scripts.deps_probe \
 ⚠ `deps_probe` 는 `--no-deps` 파일을 모른다. lama 까지 보려면 그 venv 에 직접:
 
 ```zsh
-V=/tmp/deps_probe/.venv/bin/python
+V=/tmp/deps_probe/probe_venv/bin/python
 $V -m pip install -q --no-deps -r requirements-nodeps.txt
 $V -c "import simple_lama_inpainting; print('lama OK')"
 ```
@@ -43,18 +43,31 @@ $V -c "import simple_lama_inpainting; print('lama OK')"
 
 **새 numpy·cv2 위에서 기존 산출이 그대로 나오는가.** 이것이 통과해야 머지한다.
 
+**같은 트리를 두 venv 로 돌린다.** 기억한 숫자와 맞대지 않는다 — A 판을 그 자리에서
+같이 재야 '원래 있던 실패'와 '새 스택이 만든 실패'가 구분된다.
+
 ```zsh
-V=/tmp/deps_probe/.venv/bin/python
+V=/tmp/deps_probe/probe_venv/bin/python
+R=/opt/ves/engines
 cd /tmp/aiv-deps
 
-$V -m pytest tests/ -q 2>&1 | tail -5
+# A판 — 운영 스택(현행 numpy·opencv-python)
+$R/ai-video/.venv/bin/python -m pytest tests/ -q 2>&1 | tail -3 | tee /tmp/ab_A.txt
+# B판 — 후보 스택(numpy 2.3.5 · opencv-contrib)
+$V -m pytest tests/ -q 2>&1 | tail -3 | tee /tmp/ab_B.txt
+
+# 어느 것이 늘었는지 이름으로
+diff <($R/ai-video/.venv/bin/python -m pytest tests/ -q 2>&1 | grep -E '^(FAILED|ERROR)' | sort) \
+     <($V -m pytest tests/ -q 2>&1 | grep -E '^(FAILED|ERROR)' | sort)
 ```
 
 기존 회귀 가드(`test_e1*`·`test_platform_mark`·`test_e10_*`)가 얼굴검출·자막 기하를
 문자열·수치로 고정하고 있다 — **새 스택에서 그 값들이 그대로 나오는지**가 1차 관문이다.
 
-⚠ 이 레포는 지금 **실패 7건이 이미 있다**(2026-08-25 기준, 병합 전 main 것).
-새 스택에서 그 숫자가 **7 그대로면 통과**, 늘면 그 늘어난 건이 numpy·cv2 회귀다.
+**합격선: 실패 목록이 A 판과 B 판에서 같을 것**(`diff` 가 빈 출력). 개수만 같고 종목이
+바뀌면 통과가 아니다 — 하나가 낫고 하나가 상한 것을 개수가 가린다.
+⚠ 참고로 병합 전 main 의 실패는 **7건**이었다(2026-08-25). A 판이 그 근처가 아니면
+트리·venv 를 잘못 짚은 것이다.
 
 2차 관문은 **실렌더 1편**이다 — 리프레임이 켜진 채널로 한 편 만들어 종전 산출과 프레임을
 맞대야 한다. 단위 테스트는 얼굴검출 *좌표*를 고정하지만 *검출 자체*를 재현하진 않는다.
