@@ -96,15 +96,81 @@ def aivideo_localize_argv(ai_py: str, job_dir: str, locale: str = "ja",
     return argv
 
 
-def _active_engine(conn, channel_slug=None) -> str:
+# ── overlay 컷오버 스위치 (L-P4, 2026-08-25) ─────────────────────────────
+# ⚠ **rerender 와 별도 스위치다.** `localize_engine` 은 이미 ai-video 로 켜져 있어서,
+# 같은 값을 공유하면 이 코드가 배포되는 순간 overlay 까지 함께 넘어간다 — "켜는 것은
+# 사람"이라는 P2 규율을 깬다. 기본값은 vlp(종전).
+OVERLAY_SWITCH = "localize_overlay_engine"
+
+# overlay 를 ai-video 로 돌리려면 그 venv 에 있어야 하는 것들. 지연 임포트라 파이프라인
+# 한참 뒤에서야 터지므로(실측: 소스 내려받고 프레임 뽑은 뒤 detect 에서) **시작 전에** 본다.
+# ⚠ 이 목록이 비면 사전검사가 무의미해진다 — 백엔드를 늘리면 여기도 늘린다.
+OVERLAY_RUNTIME_IMPORTS = ("cv2", "numpy", "yaml", "PIL", "google.genai")
+OVERLAY_OCR_IMPORTS = ("paddleocr", "rapidocr_onnxruntime", "easyocr")   # 하나면 된다
+DUB_RUNTIME_IMPORTS = ("elevenlabs", "faster_whisper", "soundfile")
+
+
+def missing_overlay_deps(py: str, *, need_dub: bool = False, _run=None) -> list:
+    """대상 인터프리터에 없는 런타임 의존. 순수하지 않지만 테스트 가능(_run 주입).
+
+    OCR 은 **셋 중 하나만** 있으면 된다(detect._FALLBACK_ORDER). 나머지는 전부 필요."""
+    runner = _run or (lambda code: subprocess.run(
+        [py, "-c", code], capture_output=True, text=True, timeout=120))
+    code = ("import importlib,sys\n"
+            "req=%r\nocr=%r\ndub=%r\n"
+            "miss=[m for m in req if not importlib.util.find_spec(m.split('.')[0])]\n"
+            "if not any(importlib.util.find_spec(m) for m in ocr): miss.append('OCR(%%s 중 하나)' %% '|'.join(ocr))\n"
+            "if %r:\n miss+=[m for m in dub if not importlib.util.find_spec(m)]\n"
+            "print('\\n'.join(miss))"
+            % (OVERLAY_RUNTIME_IMPORTS, OVERLAY_OCR_IMPORTS, DUB_RUNTIME_IMPORTS, need_dub))
+    try:
+        r = runner(code)
+    except Exception as e:                                     # noqa: BLE001
+        return [f"사전검사 실패({type(e).__name__}: {e})"]
+    if r.returncode != 0:
+        return [f"사전검사 실패(rc={r.returncode}): {(r.stderr or '')[-200:]}"]
+    return [ln for ln in (r.stdout or "").splitlines() if ln.strip()]
+
+
+def aivideo_overlay_argv(ai_py: str, video: str, video_id: str, params: dict) -> list:
+    """overlay 호출 argv(**ai-video 서브커맨드**). 순수 — 테스트 대상.
+
+    vlp `localize_argv` 와 같은 일을 한다. 등급(level)은 route 로 이름만 바뀌었고 값은
+    같다(A·B·BJ·C·BC) — `overlay/data/pipeline.config.yaml` 의 levels 가 정본이다."""
+    p = params or {}
+    argv = [ai_py, "-m", "app.cli", "localize", "--mode", "overlay",
+            "--video", video, "--video-id", video_id,
+            "--route", str(p.get("level") or "B")]
+    if p.get("content_type"):
+        argv += ["--content-type", str(p["content_type"])]
+    if p.get("backend"):
+        argv += ["--inpaint-backend", str(p["backend"])]
+    return argv
+
+
+def aivideo_dub_argv(ai_py: str, video: str, video_id: str, voice_id,
+                     config_path=None) -> list:
+    """더빙 argv(ai-video 위치). vlp `dub_argv` 와 같은 계약 — voice_id 강제 포함."""
+    if not str(voice_id or "").strip():
+        raise base.PermanentError(
+            "더빙 목소리(params.voice_id)가 없습니다 — ops_config.localize_voices 에 "
+            "이 채널의 ElevenLabs voice_id 를 넣으세요. 비워두면 잔망루피 목소리로 나갑니다")
+    argv = [ai_py, "-m", "app.localize.overlay.dub", f"--video-id={video_id}",
+            f"--video={video}", "--level=C", f"--voice={voice_id}"]
+    if config_path:
+        argv.append(f"--config={config_path}")
+    return argv
+
+
+def _active_engine(conn, channel_slug=None, key: str = ENGINE_SWITCH) -> str:
     """이 잡이 쓸 현지화 엔진. 조회 실패는 기본값으로 — 설정 조회가 잡을 죽이지 않는다."""
     try:
         with conn.cursor() as c:
-            c.execute("SELECT value FROM public.ops_config WHERE key=%s", (ENGINE_SWITCH,))
+            c.execute("SELECT value FROM public.ops_config WHERE key=%s", (key,))
             row = c.fetchone()
         return pick_engine((row or {}).get("value"), channel_slug)
     except Exception as e:                                     # noqa: BLE001
-        print(f"[localize] {ENGINE_SWITCH} 조회 실패(기본 {ENGINE_DEFAULT}): {e}")
+        print(f"[localize] {key} 조회 실패(기본 {ENGINE_DEFAULT}): {e}")
         return ENGINE_DEFAULT
 
 
@@ -243,7 +309,30 @@ def run(cfg, conn, job, deps):
     except RuntimeError as e:
         raise base.PermanentError(f"원본 다운로드 실패({src_key}): {e}")
 
-    eng = cfgmod.engine_dir(cfg, "localization")
+    # ── overlay 엔진 선택 (L-P4) ────────────────────────────────────────
+    # ⚠ **셋이 함께 움직여야 한다**: argv·cwd·산출 경로(`eng/outputs/<run_id>`)·더빙
+    # 인터프리터가 전부 `eng` 에 묶여 있다. 하나만 바꾸면 더빙이 엉뚱한 디렉토리를 본다.
+    # 🛑 **등급 J 는 스위치와 무관하게 vlp 다** — convert_short 는 이식하지 않았다.
+    overlay_engine = ENGINE_VLP
+    if not is_jp_convert(p.get("level")):
+        overlay_engine = _active_engine(conn, p.get("channel_slug"), key=OVERLAY_SWITCH)
+    if overlay_engine == ENGINE_AIVIDEO:
+        eng = cfgmod.engine_dir(cfg, "ai_video")
+        eng_py = cfgmod.engine_py(cfg, "ai_video")
+        # 지연 임포트라 파이프라인 한참 뒤에서야 터진다(실측: 소스 내려받고 프레임 뽑은
+        # 뒤 detect 에서). 비싼 단계 **앞**에서 막고 무엇이 없는지 이름으로 알린다.
+        miss = missing_overlay_deps(eng_py, need_dub=needs_dub(p.get("level")))
+        if miss:
+            raise base.PermanentError(
+                f"overlay 엔진 ai-video 로 지정됐는데 그 venv 에 런타임 의존이 없습니다: "
+                f"{', '.join(miss)} — {eng_py}\n"
+                f"  requirements 에 추가해 배포하거나, ops_config.{OVERLAY_SWITCH} 를 "
+                f"'vlp' 로 되돌리세요(그쪽은 지금 그대로 돕니다).")
+    else:
+        eng = cfgmod.engine_dir(cfg, "localization")
+        eng_py = cfgmod.engine_py(cfg, "localization")
+    print(f"[localize] overlay 엔진={overlay_engine} level={p.get('level')}")
+
     if is_jp_convert(p.get("level")):
         # 등급 J: edit_plan 이 원료다. 없으면 이전(미업로드) run — 재시도 무의미.
         plan_local = work_dir / f"{base.storage_key(run_id, 'p.json').split('/')[0]}_plan.json"
@@ -292,7 +381,9 @@ def run(cfg, conn, job, deps):
             raise RuntimeError(f"JP 변환 실패: {msg}")
         note_tail = (cr.stdout or "")[-300:]
     else:
-        argv = localize_argv(cfgmod.engine_py(cfg, "localization"), str(src), run_id, p)
+        argv = (aivideo_overlay_argv(eng_py, str(src), run_id, p)
+                if overlay_engine == ENGINE_AIVIDEO
+                else localize_argv(eng_py, str(src), run_id, p))
         r = subprocess.run(argv, cwd=eng, env=dict(os.environ),
                            capture_output=True, text=True, timeout=3600 * 2)
         if r.returncode != 0:
@@ -309,10 +400,17 @@ def run(cfg, conn, job, deps):
     # 더빙(TTS 일본어) — 등급이 요구하면 process_video 뒤에 이어 돌린다.
     # 인터프리터는 autopilot 과 같은 것(.venv-gsv, 파이썬 3.11 전용 스택)을 쓴다.
     if needs_dub(p.get("level")):
-        dub_py = str(pathlib.Path(eng) / (p.get("dub_python") or ".venv-gsv/bin/python"))
+        if overlay_engine == ENGINE_AIVIDEO:
+            # ai-video 에는 .venv-gsv 가 없다(그건 vlp 의 GPT-SoVITS 3.11 스택이다).
+            # 백엔드가 elevenlabs 면 본 venv 로 충분하고, 없는 것은 위 사전검사가 잡았다.
+            dub_py = eng_py
+            dub_cmd = aivideo_dub_argv(dub_py, str(src), run_id, p.get("voice_id"))
+        else:
+            dub_py = str(pathlib.Path(eng) / (p.get("dub_python") or ".venv-gsv/bin/python"))
+            dub_cmd = dub_argv(dub_py, str(src), run_id, p.get("voice_id"))
         if not pathlib.Path(dub_py).exists():
             raise base.PermanentError(f"더빙 인터프리터 없음: {dub_py}")
-        dr = subprocess.run(dub_argv(dub_py, str(src), run_id, p.get("voice_id")),
+        dr = subprocess.run(dub_cmd,
                             cwd=eng, env={**os.environ, "is_half": "False", "TERM": "xterm"},
                             capture_output=True, text=True, timeout=3600)
         if dr.returncode != 0:
@@ -345,7 +443,8 @@ def run(cfg, conn, job, deps):
                  json.dumps({"run_id": run_id, "preview_key": out_key,
                              "bucket": "ves-localized",
                              "note": note_tail}, ensure_ascii=False)))
-    return {"run_id": run_id, "localized_key": out_key, "stdout_tail": note_tail}
+    return {"run_id": run_id, "localized_key": out_key, "stdout_tail": note_tail,
+            "localize_engine": overlay_engine, "mode": "overlay"}
 
 
 def _enqueue_qa(conn, job, payload: dict):
