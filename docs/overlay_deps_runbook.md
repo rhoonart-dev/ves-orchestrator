@@ -96,6 +96,22 @@ rapidocr-onnxruntime -> opencv-python>=4.5.1.48            (상한 없음)
 ⇒ 두 배포판을 **같은 버전으로 못 박는다**(`==4.10.0.84`). 승자가 누구든 결과가 같다.
 `tests/test_deps_probe.py` 가 두 줄의 버전이 같은지·5 미만인지 묶어 둔다.
 
+## 2-2. ✅ 통과 실측 (2026-08-25 · mm-06)
+
+```
+해석     opencv-python 4.14.0.94 → 4.10.0.84   (5.x 없음)
+         · 공존(같은 버전 4.10.0.84 — 승자가 누구든 같다)
+런타임   cv2 4.10.0 · haarcascade xml 17건
+스모크   9/9 OK + lama(--no-deps) OK
+A/B      운영 1108 passed, 1 skipped · 후보 1108 passed, 1 skipped · diff 빈 출력
+설치     warm 41초 · cold 96초 · 디스크 3.1 GiB (종전 1.8 GiB)
+```
+
+`PIP_TIMEOUT_SEC` 기본 3600초 대비 cold 96초 = **37배 여유**. 머지 시 6대가 동시에
+받는 것을 감안해도 안전하다. 디스크는 노드 최소 여유가 26 GiB(mm-04)라 +1.3 GiB 는 문제없다.
+
+⇒ 머지함: ai-video `98ae4b5`.
+
 ## 3. 통과하면
 
 ```zsh
