@@ -5101,3 +5101,14 @@ def test_out_of_spec_master_fails_before_upload_and_leaves_a_reason():
     assert check < body.index("store.upload("), "규격 검사가 업로드보다 뒤에 있다"
     assert "_block_row(conn, vid" in body
     assert "PermanentError" in body[check:body.index("store.upload(")]
+
+
+def test_audit_actor_is_never_null():
+    """🛑 `auth.uid()` 는 대시보드 요청 안에서만 채워진다. 스케줄러가 같은 RPC 를 부르면
+    NULL 이고, actor NOT NULL 에 걸려 **그때까지 만든 작업지시·잡이 통째로 롤백**된다.
+
+    실측(2026-08-25): 자동 선별이 매 후보마다 이 예외로 죽어 LOOPY 작업지시가 0건이었다.
+    예외를 후보 단위로 잡고 넘어가는 구조라 DB 만 봐서는 아무 일도 없는 것처럼 보였다."""
+    sql = _live_mig("CREATE OR REPLACE FUNCTION public._audit")
+    assert "coalesce(nullif(auth.uid()::text, ''), 'system:' || session_user)" in sql
+    assert "VALUES (auth.uid()::text" not in sql
