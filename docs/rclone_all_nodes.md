@@ -79,3 +79,21 @@ UPDATE public.ops_config SET value='off' WHERE key='rclone_everywhere';
 ```
 
 다음 잡부터 다시 `drive_sync_node` 로 묶인다. 파일을 지울 필요는 없다.
+
+## 5. 곁다리 — 인입(`drive_sync_nodes`)은 별개 스위치다
+
+`rclone_everywhere` 는 **드라이브 소재 acquire**(잔망루피 쇼츠) 하나만 푼다.
+KR 소재 인입(`drive_watch`·`source_watch`·`drive_balance`)은 여전히
+`ops_config.drive_sync_nodes = 'mm-01,mm-02'` 두 대에 라운드로빈으로 몰려 있다
+(`docs/HANDOFF-2026-08-12.md` §165 가 "rclone.conf 배포 필요" 로 남겨 둔 그 항목).
+
+6대 배포가 끝났으면 이것도 넓힐 수 있다 — **다만 별건이라 같이 켜지 않는다**
+(인입은 디스크·대역을 많이 쓰고, 현지화 노드 mm-06 에 인입까지 얹으면 그 노드가
+겹친다). 넓힐 때:
+
+```sql
+UPDATE public.ops_config SET value='mm-01,mm-02,mm-03,mm-04,mm-05'
+ WHERE key='drive_sync_nodes';
+```
+
+⚠ `mm-06` 은 뺐다 — 현지화(인페인팅 5~10시간)가 도는 유일한 노드다.
