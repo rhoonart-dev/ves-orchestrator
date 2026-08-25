@@ -9128,6 +9128,8 @@ window.srcUsed = el => {
 // state 에 얹지 않고 탭을 열 때만 받는다 — 1,100행을 15초마다 다시 받을 이유가 없다
 // (지난 날짜 신호등의 boardPast 와 같은 규율).
 let arcCh = "LOOPY", arcFilter = "recommended", arcSort = "score", arcPage = 0;
+// 두 선반(§5-1): 쇼츠는 완성본 현지화, 롱폼은 생성+현지화 — 고르는 화면은 같다.
+let arcKind = "short";
 let arcRows = [], arcTotal = 0, arcState = "idle", arcErr = "";   // idle|loading|ok|error
 const ARC_PAGE = 60;
 const ARC_FILTERS = [["recommended","오늘의 추천"],["available","고를 수 있는"],
@@ -9143,7 +9145,7 @@ const arcPicker = () => { try { return JSON.parse(((state.ops||{}).loopy_picker|
 async function arcLoad(){
   arcState = "loading"; arcErr = ""; render();
   const { data, error } = await sb.rpc("list_external_shorts", {
-    p_channel: arcCh, p_kind: "short", p_filter: arcFilter, p_sort: arcSort,
+    p_channel: arcCh, p_kind: arcKind, p_filter: arcFilter, p_sort: arcSort,
     p_limit: ARC_PAGE, p_offset: arcPage * ARC_PAGE });
   if (error){ arcRows = []; arcTotal = 0; arcErr = error.message; arcState = "error"; }
   else { arcRows = data || []; arcTotal = arcRows.length ? Number(arcRows[0].total) : 0;
@@ -9152,8 +9154,9 @@ async function arcLoad(){
 }
 window.arcSet = (k, v) => {
   if (k === "page") arcPage = Math.max(0, v);
-  else { if ({filter:arcFilter, sort:arcSort, ch:arcCh}[k] === v) return;
-         if (k === "filter") arcFilter = v; else if (k === "sort") arcSort = v; else arcCh = v;
+  else { if ({filter:arcFilter, sort:arcSort, ch:arcCh, kind:arcKind}[k] === v) return;
+         if (k === "filter") arcFilter = v; else if (k === "sort") arcSort = v;
+         else if (k === "kind") arcKind = v; else arcCh = v;
          arcPage = 0; }
   arcLoad();
 };
@@ -9172,20 +9175,29 @@ window.arcAllow = async (btn, vid, allow, clearDup) => {
 // L-P5-2: 고른 편에 작업지시를 세운다 — 다른 채널과 같은 모양의 카드·체인이 선다.
 // ⚠ 자동이 아니다(§0 결정 2). 선별기는 점수만 매기고 거는 것은 사람이다.
 window.arcRun = async (btn, vid, title) => {
-  const route = prompt(
-    `「${title || vid}」 작업을 겁니다.\n\nroute 를 고르세요:\n` +
-    `  B  = 화면 한글 지우고 일본어 (기본)\n` +
-    `  BJ = 한글 두고 일본어 병기 (인페인팅 없음 · 빠름)\n` +
-    `  A  = 자막 트랙만\n` +
-    `  C  = B + 더빙\n` +
-    `  BC = 지우기만 + 더빙`, "B");
-  if (route === null) return;                       // 취소
+  let route = "B";
+  if (arcKind === "short") {
+    // 쇼츠 = 남의 완성본에 일본어를 입힌다 → 화면 한글을 어떻게 다룰지가 route 다.
+    route = prompt(
+      `「${title || vid}」 작업을 겁니다.\n\nroute 를 고르세요:\n` +
+      `  B  = 화면 한글 지우고 일본어 (기본)\n` +
+      `  BJ = 한글 두고 일본어 병기 (인페인팅 없음 · 빠름)\n` +
+      `  A  = 자막 트랙만\n` +
+      `  C  = B + 더빙\n` +
+      `  BC = 지우기만 + 더빙`, "B");
+    if (route === null) return;                     // 취소
+  } else {
+    // 롱폼 = 이 영상에서 **쇼츠를 만들고**(generate) 현지화까지 간다. route 는 없다 —
+    // 우리가 만든 쇼츠라 화면에 한글을 애초에 안 그린다.
+    if (!confirm(`「${title || vid}」\n\n이 롱폼에서 쇼츠를 만들고(생성) 일본어판까지 ` +
+                 `갑니다. 생성은 시간이 걸립니다.\n\n진행할까요?`)) return;
+  }
   armed(btn, btn.textContent, async () => {
     const { data, error } = await sb.rpc("select_external_short",
       { p_video_id: vid, p_route: String(route || "B").toUpperCase().trim(), p_note: null });
     if (error) toast(`거부: ${error.message}`, true);
-    else toast(`작업지시를 세웠습니다 — 잡 ${(data && data.jobs) || 0}개 (route ${
-      (data && data.route) || route})`);
+    else toast(`작업지시를 세웠습니다 — 잡 ${(data && data.jobs) || 0}개` +
+               ((data && data.route) ? ` (route ${data.route})` : " (롱폼: 생성 + 현지화)"));
     arcLoad();
   });
 };
@@ -9223,7 +9235,8 @@ function arcCard(r, recommended){
                    && ["discovered", "scored"].includes(r.state);
   const acts = !can("reviewer") || done ? "" : `<div class="acts">
     ${runnable ? `<button class="mini" onclick="arcRun(this,'${esc(r.video_id)}','${
-        esc((r.title || "").replace(/'/g, ""))}')">작업 걸기</button>` : ""}
+        esc((r.title || "").replace(/'/g, ""))}')">${
+        arcKind === "longform" ? "쇼츠 만들기" : "작업 걸기"}</button>` : ""}
     ${blocked ? `<button class="mini" onclick="arcAllow(this,'${esc(r.video_id)}',true,${
         r.dup_of ? "true" : "false"})">${r.dup_of ? "중복 아님 · 되살리기" : "되살리기"}</button>`
       : `<button class="mini" onclick="arcAllow(this,'${esc(r.video_id)}',false,false)">후보에서 빼기</button>`}
@@ -9276,6 +9289,9 @@ function renderArchive(){
       ${can("reviewer") ? "" : "차단을 뒤집으려면 reviewer 권한이 필요합니다."}
     </div>
     <div class="arcbar">
+      <div class="grp">${[["short","쇼츠"],["longform","롱폼"]].map(([k, l]) =>
+        `<button class="${arcKind === k ? "on" : ""}" onclick="arcSet('kind','${k}')"
+         >${l}</button>`).join("")}</div>
       <div class="grp">${ARC_FILTERS.map(([k, l]) =>
         `<button class="${arcFilter === k ? "on" : ""}" onclick="arcSet('filter','${k}')"
          >${l}</button>`).join("")}</div>
@@ -9285,7 +9301,10 @@ function renderArchive(){
       <span class="right sub">${arcState === "ok" ? `${arcNum(arcTotal)}편` : ""}</span>
     </div>
     ${body}
-    <div class="sub" style="margin-top:12px">🛑 발행은 어느 자동화 수준에서도 사람입니다 —
+    <div class="sub" style="margin-top:12px">${arcKind === "longform"
+      ? "롱폼은 <b>이 영상에서 쇼츠를 만들고</b>(생성) 일본어판까지 갑니다 — 생성이 있어 오래 걸립니다."
+      : "쇼츠는 <b>완성본에 일본어를 입힙니다</b> — 생성 없이 화면 글자만 바꿉니다."}</div>
+    <div class="sub" style="margin-top:6px">🛑 발행은 어느 자동화 수준에서도 사람입니다 —
       이 화면은 <b>고르는 것까지</b>이고, 작업을 걸고 발행하는 것은 검수함을 지납니다.</div>
     </section>`;
   if (arcState === "idle") arcLoad();     // 탭을 처음 열면 그때 받는다

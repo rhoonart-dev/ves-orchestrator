@@ -4758,6 +4758,38 @@ def test_other_pipelines_are_untouched():
 
 
 # ── L-P5-2: 아카이브에서 고른 편에 작업지시를 세운다 (0086) ──────────────────
+def test_select_external_short_longform_uses_the_generate_pipeline():
+    """사용자 지시(2026-08-25): "롱폼의 경우에는 generate 가 가능해야돼. 플러스로 현지화까지."
+
+    롱폼은 **새 갈래가 필요 없다** — 이미 있는 shorts_jp_localized(생성 + 재렌더 현지화)가
+    맞는다. 다른 점은 소재가 우리 sources 가 아니라 아카이브의 유튜브 URL 이라는 것뿐이고,
+    generate 는 URL 소스를 이미 받는다(--youtube-url)."""
+    from ves.scheduler.planner import job_chain
+    sql = _live_mig("CREATE OR REPLACE FUNCTION public.select_external_short")
+    assert "'longform' THEN 'shorts_jp_localized'" in sql
+    assert "'--youtube-url'" not in sql          # URL 은 params 로 넘기고 argv 는 어댑터가 만든다
+    # 롱폼 체인이 planner 의 shorts_jp_localized 와 같은 순서·캡인지
+    chain = job_chain({"work_title": "w", "channel_slug": "LOOPY", "channel_name": "n",
+                       "pipeline": "shorts_jp_localized", "source_url": "u"})
+    assert [k for k, *_ in chain] == ["acquire", "generate", "upload_artifacts",
+                                      "ingest", "evaluate", "localize"]
+    for kind, _p, caps, _t in chain:
+        assert f"ARRAY['{caps[0]}']" in sql, f"SQL 의 {kind} 캡이 다르다"
+    assert "'mode', 'scene_rerender'" in sql
+
+
+def test_longform_is_gated_by_the_jp_pipeline_switch():
+    """현지화 체인은 전역 스위치 뒤에 있다 — run_channel_now 과 같은 가드."""
+    sql = _live_mig("CREATE OR REPLACE FUNCTION public.select_external_short")
+    assert "key='jp_pipeline'" in sql
+
+
+def test_route_is_shorts_only():
+    """롱폼은 우리가 만든 쇼츠라 화면에 한글이 없다 — route(인페인팅 등급)가 의미 없다."""
+    sql = _live_mig("CREATE OR REPLACE FUNCTION public.select_external_short")
+    assert "v_kind = 'short' AND (p_route IS NULL OR p_route NOT IN" in sql
+
+
 def test_select_external_short_chain_matches_the_planner():
     """SQL 함수와 planner.job_chain 이 **같은 체인**을 세워야 한다.
 
@@ -4783,7 +4815,7 @@ def test_select_external_short_guards():
     assert "FOR UPDATE" in sql                       # 동시 클릭
     assert "state NOT IN ('discovered','scored')" in sql
     assert "block_reason IS NOT NULL AND v_es.allowed_by IS NULL" in sql
-    assert "<> 'short'" in sql                       # 롱폼은 P7
+    assert "NOT IN ('short','longform')" in sql      # 모르는 kind 는 거절
     assert "NOT IN ('A','B','BJ','C','BC')" in sql   # route 검증
     assert "has_role(auth.uid(),'operator')" in sql
 
