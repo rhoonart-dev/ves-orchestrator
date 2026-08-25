@@ -1094,6 +1094,15 @@ def _mig(name):
     return pathlib.Path("ves/control/migrations", name).read_text(encoding="utf-8")
 
 
+def _mig_seeded(key: str) -> bool:
+    """ops_config 게이트 시드가 마이그레이션 어딘가에 있는가. 시드는 한 번만 들어가고
+    (ON CONFLICT DO NOTHING) 재정의되지 않으므로 _live_mig 처럼 '마지막 파일'을 볼 게
+    아니라 디렉토리 전체에서 찾아야 한다."""
+    import pathlib
+    d = pathlib.Path("ves/control/migrations")
+    return any(f"'{key}'" in p.read_text(encoding="utf-8") for p in d.glob("*.sql"))
+
+
 def _live_mig(ddl: str):
     """그 객체를 **마지막으로** 재정의한 마이그레이션 텍스트. 파일명이 NNNN_ 로
     시작하므로 정렬의 마지막이 곧 라이브 정의다.
@@ -3996,7 +4005,76 @@ def test_title_size2_gated_in_editor_and_mirrored_everywhere():
     assert "if (!edTitleSize2On()) delete ov.design.title_size2;" in html
     sql = _live_mig("CREATE OR REPLACE FUNCTION public.set_channel_design")
     assert "'title_size2'" in sql
-    assert "editor_title_size2" in sql
+    # 게이트 시드는 **그 키를 들여온 파일**에 한 번만 있다 — 뒤에 오는 다른 design 키
+    # 마이그레이션이 set_channel_design 을 다시 찍으면 라이브 파일이 그쪽으로 넘어간다.
+    # 시드는 v_allowed 와 달리 재정의되지 않으므로 디렉토리 전체에서 찾는다.
+    assert _mig_seeded("editor_title_size2")
+
+
+# ── 자막 줄바꿈·글자 통 폭(F-412, 2026-08-25 사용자 요청) ──
+
+def test_tts_width_design_key_emits_flag():
+    """내레이션 자막 통 가로 폭 — 값 플래그(--design-tts-width). 크기(tts_size)와 독립이다:
+    글자는 그대로 두고 통만 넓혀 줄이 접히는 것을 막는 값이다."""
+    from ves.adapters import aivideo
+    assert aivideo.channel_design_flags({"tts_width": 0.95}, "T") \
+        == ["--design-tts-width", "0.95"]
+    assert aivideo.channel_design_flags({"tts_size": 70, "tts_width": 1.0}, "T") \
+        == ["--design-tts-size", "70", "--design-tts-width", "1.0"]
+
+
+def test_f412_gated_in_editor_and_mirrored_everywhere():
+    """게이트·4층 미러 배선 — 구 엔진 노드는 모르는 --design-tts-width 에 argparse 즉사한다.
+    ① 화면이 게이트 전엔 전송 안 함 ② 어댑터 키 ③ DB v_allowed(0085) ④ 게이트 시드."""
+    import pathlib
+    from ves.adapters.aivideo import CHANNEL_DESIGN_FLAGS
+    assert "tts_width" in CHANNEL_DESIGN_FLAGS
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert 'editor_wrap||{}).value === "on"' in html
+    assert "if (!edWrapOn()) ED_WRAP_KEYS.forEach(k => delete ov.design[k]);" in html
+    sql = _live_mig("CREATE OR REPLACE FUNCTION public.set_channel_design")
+    assert "'tts_width'" in sql
+    assert _mig_seeded("editor_wrap")
+
+
+def test_f412_subtitle_width_is_not_gated_in_collect():
+    """줄별 폭(style.width)은 rotate 와 같은 규약 — **전송 게이트를 걸지 않는다**.
+    자막은 전량 교체라, 게이트가 꺼진 새로고침 한 번의 재제출이 이미 실린 폭을 조용히
+    벗기면 되돌릴 길이 없다(0058 rotate 주석과 같은 이유). 게이트는 UI 에만 있다."""
+    import pathlib, re
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert "st.width = +Math.max(0.3, Math.min(1," in html
+    # 폭 ⇔ 핸들·Enter 줄바꿈 자체는 게이트 뒤
+    assert "!edCanEdit() || !edWrapOn()) return;" in html
+    # 화면 미리보기가 엔진 줄바꿈 규칙을 미러하지 않으면 '보이는 그대로'가 거짓말이 된다
+    assert "function edLayOut(text, opt)" in html
+    assert re.search(r"const ED_WRAP_CHARS = 15;", html)
+
+
+def test_f412_jp_editor_wired():
+    """JP 편집실(잔망루피 포함)의 F-412 배선 — 사용자 요청 2026-08-25 후속.
+    ① 유령 자막 ⇔ 핸들(게이트: edWrapOn && edJpEditable) ② 시그니처·직렬화에 width
+    ③ 제출 가드(자막·TTS 3줄 차단, 텔롭 제외) ④ 행 입력이 textarea(Enter 줄바꿈)."""
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert "edJpSubWDragDown" in html
+    assert "!edJpEditable() || !edWrapOn()) return;" in html
+    # 시그니처 — width 가 빠지면 폭만 고친 편집이 '변화 없음'으로 조용히 유실된다
+    assert 'st.width != null ? (+st.width).toFixed(4) : ""' in html
+    # 직렬화 — 기본 폭 복귀도 명시값으로(diff 병합 모델, rotate 0 과 같은 이유)
+    assert "+(sc.width ?? ED_WRAP_BASE_W)" in html
+    # 제출 가드 — ed.subs/ed.tts 의 문자열·dict 두 형태 모두 줄 수를 본다
+    assert "_jaLines" in html
+    # 행 입력 textarea — 한 줄 input 으로는 Enter 를 못 받는다
+    assert 'textarea class="x" rows="1" id="${pfx}${s.idx}"' in html
+
+
+def test_f412_line_cap_blocked_before_submit():
+    """3줄 이상은 엔진 계약이 거절한다 — 보내기 전에 화면이 막아야 검수함에 실패가 안 남는다."""
+    import pathlib
+    html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    assert "const ED_WRAP_MAX_LINES = 2;" in html
+    assert "edLineCount(x.text) > ED_WRAP_MAX_LINES" in html
 
 
 # ───────── 편집실 텍스트 레이어(F-411 · 0071) ─────────

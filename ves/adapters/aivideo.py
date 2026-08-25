@@ -64,6 +64,11 @@ CHANNEL_DESIGN_FLAGS = {
     "tts_color": "--design-tts-color",
     "tts_size": "--design-tts-size",
     "tts_y_margin": "--design-tts-y-margin",
+    # F-412(ai-video 2026-08-25): 내레이션 자막 통(컨테이너) 가로 폭 — 0.3~1.0 캔버스
+    # 대비 비율, 미지정 = 종전 0.852. 글자 크기는 그대로 두고 좌우로만 넓혀 줄이 접히는
+    # 것을 막는다. 편집실은 editor_wrap 게이트 뒤에서 보낸다(구 엔진은 모르는
+    # --design-tts-width 에 argparse 즉사 — title_size2 와 같은 롤아웃). brain 1:1.
+    "tts_width": "--design-tts-width",
     # E7(ai-video 2a087eb): 디자인 레벨 회전·배속 — 지금은 편집실(edit_overrides.design)
     # 경로 전용. 채널 템플릿(channels.json)에 넣으려면 brain CHANNEL_DESIGN_FLAGS 미러
     # 선행(1:1 규율). 범위 검증(회전 -180~180 · 배속 0.8~2.0, 밖이면 즉시 실패)은 엔진 CLI.
