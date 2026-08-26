@@ -163,6 +163,35 @@ def read_metadata_draft(eng: str, run_id: str) -> dict:
         return {}
 
 
+def overlay_pairs(eng: str, run_id: str, limit: int = 40) -> dict:
+    """overlay 산출 → 검수 카드의 한·일 대역(`ko_ja_pairs`). 없으면 빈 dict.
+
+    🛑 2026-08-26 실사고가 드러낸 구멍이다. overlay 카드에는 **화면 글자 목록이 아예
+    실리지 않아서**, 완성본에 그려진 것을 검수자가 대조할 방법이 없었다(rerender 카드만
+    실었다). 인형 무늬를 글자로 잡아 그린 편이 그대로 검수를 통과할 뻔했다.
+
+    화면에 그려지는 글자이므로 rerender 와 같은 칸(`telops`)에 넣는다 — 대시보드는
+    그 어휘를 이미 그린다(새 UI 를 만들지 않는다). 상한 40건도 그쪽과 같다."""
+    path = pathlib.Path(eng) / "outputs" / str(run_id) / "translations.json"
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    rows = []
+    for e in (doc.get("entries") or []):
+        if not isinstance(e, dict) or e.get("use") is False:
+            continue
+        ko, ja = str(e.get("source") or ""), str(e.get("target") or "")
+        if ko or ja:
+            rows.append({"ko": ko, "ja": ja})
+    if not rows:
+        return {}
+    if len(rows) > limit:
+        print(f"[localize] 검수 대역 {len(rows)}건 중 앞 {limit}건만 카드에 싣는다")
+        rows = rows[:limit]
+    return {"telops": rows}
+
+
 def aivideo_overlay_argv(ai_py: str, video: str, video_id: str, params: dict) -> list:
     """overlay 호출 argv(**ai-video 서브커맨드**). 순수 — 테스트 대상.
 
@@ -496,11 +525,15 @@ def run(cfg, conn, job, deps):
     elif ext_vid:
         print("[localize] ⚠️ 일본어 메타 초벌 없음 — 검수는 되지만 발행 잡은 못 선다")
 
+    pairs = overlay_pairs(eng, run_id)
+    print(f"[localize] 검수 카드 화면 글자 {len(pairs.get('telops') or [])}건"
+          if pairs else "[localize] 화면 글자 없음 — 검수 카드에 대역을 안 싣는다")
     _enqueue_qa(conn, job, {"run_id": run_id, "preview_key": out_key,
                             "bucket": "ves-localized",
                             "external_video_id": ext_vid,
                             "route": str(p.get("level") or "B").upper(),
                             "metadata": meta_draft,
+                            "ko_ja_pairs": pairs,
                             "note": note_tail})
     return {"run_id": run_id, "localized_key": out_key, "stdout_tail": note_tail,
             "localize_engine": overlay_engine, "mode": "overlay",

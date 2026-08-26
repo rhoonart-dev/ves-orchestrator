@@ -7,6 +7,7 @@
   ④ 자격증명 이름이 brain 과 같다(같은 채널에 두 벌의 시크릿을 넣게 하지 않는다)
 """
 import datetime as dt
+import json
 import pathlib
 import sys
 
@@ -339,3 +340,41 @@ def test_the_card_warns_before_the_click():
     html = _html()
     assert "window.hangulHint" in html and 'id="lhan_${r.id}"' in html
     assert "지워야 승인됩니다" in html
+
+
+# ── ⑩ 검수 카드가 화면에 그려진 글자를 보여준다 (2026-08-26 실사고) ─────────
+
+def test_overlay_cards_carry_the_on_screen_text():
+    """🛑 overlay 카드에는 화면 글자 목록이 **아예 없었다** — 검수자가 대조할 수단이
+    없어서, 인형 무늬를 글자로 잡아 그린 편이 그대로 통과할 뻔했다."""
+    from ves.adapters.localize import overlay_pairs
+    src = pathlib.Path("ves/adapters/localize.py").read_text(encoding="utf-8")
+    assert '"ko_ja_pairs": pairs' in src
+    assert callable(overlay_pairs)
+
+
+def test_pairs_use_the_vocabulary_the_dashboard_already_draws():
+    """새 UI 를 만들지 않는다 — rerender 카드와 같은 칸(telops)에 넣는다."""
+    from ves.adapters import localize as lz
+    got = lz.overlay_pairs.__doc__ or ""
+    assert "telops" in got
+    html = _html()
+    assert "pr.telops" in html                    # 대시보드가 이미 그리는 칸
+
+
+def test_pairs_skip_soft_deleted_lines(tmp_path):
+    from ves.adapters.localize import overlay_pairs
+    d = tmp_path / "outputs" / "vid"
+    d.mkdir(parents=True)
+    (d / "translations.json").write_text(json.dumps({"entries": [
+        {"source": "루피야", "target": "ルーピー"},
+        {"source": "지운 줄", "target": "x", "use": False},
+    ]}, ensure_ascii=False), encoding="utf-8")
+    got = overlay_pairs(str(tmp_path), "vid")
+    assert got == {"telops": [{"ko": "루피야", "ja": "ルーピー"}]}
+
+
+def test_missing_translations_file_is_not_an_error(tmp_path):
+    """대역이 없다고 검수 자체를 막지 않는다(route BC 는 번역 단계가 없다)."""
+    from ves.adapters.localize import overlay_pairs
+    assert overlay_pairs(str(tmp_path), "nope") == {}
