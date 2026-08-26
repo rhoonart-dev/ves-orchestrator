@@ -2391,10 +2391,12 @@ function renderReview(){
           <input id="at_${r.id}" type="datetime-local" style="display:none">
           <button class="pri act" onclick="approve('${r.id}')">✓ 합격 · 발행</button>
           <button class="danger act" onclick="rejectAsk('${r.id}')">✕ 반려</button>
-          <button class="act" title="${pay.mode === "scene_rerender"
+          <button class="act" title="${r.kind === "localization_qa"
               ? "일본어 편집 화면 — 자막·제목·TTS 를 한국어 원문과 나란히 놓고 고칩니다"
-              : "이 쇼츠가 원본 어디에서 왔는지 타임라인으로 봅니다"}"
-            onclick="openEditor('${r.id}')">🎬 편집실</button>
+              : "타임라인 편집실(신판) — 구판은 편집실 탭 목록의 '구판' 링크로"}"
+            onclick="${r.kind === "localization_qa"
+              ? `openEditor('${r.id}')`
+              : `window.open('timeline-lab.html?rid=${r.id}', '_blank')`}">🎬 편집실</button>
         </div>
         <div id="rja_${r.id}" style="display:none"></div>` : '<div class="sub">reviewer 권한 필요</div>';
       const slug = wo.channel_slug || r.channel_slug;
@@ -3495,7 +3497,12 @@ function edDraftList(){
     // 카드가 이미 닫혔으면(재렌더·발행·반려) 그 초안으로는 보낼 수 없다 — 미리 알린다
     const rv = (state.reviews||[]).find(x => x.id === d.review_id);
     const dead = !rv || rv.status !== "waiting";
-    return `<div class="edcard" onclick="openEditor('${d.review_id}')">
+    // 타임라인 편집실(신판, 2026-08-25): 카드 클릭 = timeline-lab 새 탭(run 자동 열림).
+    // JP(localization_qa) 카드는 신판 미지원이라 종전 편집실로. '구판' 링크는 안전 폴백.
+    const jp = rv && rv.kind === "localization_qa";
+    return `<div class="edcard" onclick="${jp
+      ? `openEditor('${d.review_id}')`
+      : `window.open('timeline-lab.html?run=' + encodeURIComponent('${esc(d.run_id)}'), '_blank')`}">
       <span class="badge">${esc(d.draft_sent_at ? "보냄" : (bits || "편집 중"))}</span>
       <span class="t">${esc(wo.work_title || d.run_id)}
         ${wo.episode != null ? esc(wo.episode) + "회차" : ""}
@@ -3504,7 +3511,9 @@ function edDraftList(){
           ${d.draft_by ? " · " + esc(d.draft_by) : ""}
           ${d.draft_sent_at ? " · 재렌더로 보냄 — 실패했으면 열어서 재제출"
             : dead ? " · ⚠ 검수 카드가 닫혀 보낼 수 없습니다" : ""}</span></span>
-      <span class="sub">열기 →</span></div>`;
+      <span class="sub">${jp ? "열기 →" : `타임라인 편집실 →
+        <u onclick="event.stopPropagation();openEditor('${d.review_id}')"
+           title="종전 편집실로 엽니다(재렌더 보내기는 여기서)">구판</u>`}</span></div>`;
   }).join("")}</div>`;
 }
 

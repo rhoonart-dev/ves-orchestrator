@@ -7,6 +7,7 @@ on:
     branches: [main]
     paths:
       - dashboard/index.html
+      - dashboard/timeline-lab.html
       - deploy/check_dashboard.py
       - .github/workflows/dashboard-deploy.yml
   workflow_dispatch:
@@ -34,7 +35,9 @@ jobs:
 
       # 서버가 없으니 문법이 깨진 index.html 은 화면을 통째로 백지로 만든다. 올리기 전에 막는다.
       - name: 스크립트 문법 검사
-        run: python3 deploy/check_dashboard.py dashboard/index.html
+        run: |
+          python3 deploy/check_dashboard.py dashboard/index.html
+          python3 deploy/check_dashboard.py dashboard/timeline-lab.html
 
       - name: AWS 인증 — OIDC 역할
         if: vars.AWS_ROLE_ARN != ''
@@ -55,6 +58,10 @@ jobs:
       - name: S3 업로드
         run: |
           aws s3 cp dashboard/index.html "s3://$BUCKET/index.html" \
+            --content-type "text/html; charset=utf-8" \
+            --cache-control "no-cache, must-revalidate"
+          # 타임라인 편집실(신판, 2026-08-25) — 편집함 목록 카드가 새 탭으로 연다
+          aws s3 cp dashboard/timeline-lab.html "s3://$BUCKET/timeline-lab.html" \
             --content-type "text/html; charset=utf-8" \
             --cache-control "no-cache, must-revalidate"
 
