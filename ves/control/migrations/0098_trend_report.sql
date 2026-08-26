@@ -29,6 +29,18 @@ CREATE POLICY trend_report_read ON public.trend_report
 -- 원천은 이미 직접 SELECT 로 열려 있으므로 이 RPC 는 보안이 아니라 **조립 계층**이다
 -- (0079 list_external_shorts 와 같은 갈래): 리포트 본문 + 임계값 현행/제안 + 날짜
 -- 목록을 화면이 한 번에 받는다 — 배지(제안이 현행과 다름)를 그리려면 셋이 같이 와야 한다.
+-- ops_config.value 는 text 이고 algo_constants 는 **사람이 손으로 고치는 값**이다(§5).
+-- 무방비 ::jsonb 는 오타 하나(따옴표·꼬리 콤마)에 RPC 전체가 죽어 탭이 통째로
+-- '조회 실패'가 된다 — 생성기(Python merge_constants)는 같은 값을 관용하는데 읽기가
+-- 더 약하면 "facts 만으로 성립" 불변식이 화면에서 깨진다(리뷰 지적). 못 읽으면 NULL.
+CREATE OR REPLACE FUNCTION public._safe_jsonb(p text)
+RETURNS jsonb LANGUAGE plpgsql IMMUTABLE AS $$
+BEGIN
+    RETURN p::jsonb;
+EXCEPTION WHEN others THEN
+    RETURN NULL;
+END $$;
+
 CREATE OR REPLACE FUNCTION public.get_trend_report(p_date date DEFAULT NULL)
 RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
     SELECT jsonb_build_object(
@@ -41,9 +53,9 @@ RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $
                                    '[]'::jsonb)
                      FROM (SELECT report_date FROM public.trend_report
                             ORDER BY report_date DESC LIMIT 30) d),
-        'constants',          (SELECT value::jsonb FROM public.ops_config
+        'constants',          (SELECT public._safe_jsonb(value) FROM public.ops_config
                                 WHERE key='algo_constants'),
-        'constants_proposed', (SELECT value::jsonb FROM public.ops_config
+        'constants_proposed', (SELECT public._safe_jsonb(value) FROM public.ops_config
                                 WHERE key='algo_constants_proposed'));
 $$;
 

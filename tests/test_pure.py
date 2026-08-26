@@ -5342,3 +5342,15 @@ def test_algo_watch_sanitize_proposal():
     # 파싱 불가·타입 붕괴 → None
     assert sanitize_proposal("JSON 아님", cur, "t") is None
     assert sanitize_proposal('{"impression_floor": "많이"}', cur, "t") is None
+
+
+def test_merge_constants_deep():
+    """retention_min 부분 키·오타 키가 와도 판정이 죽지 않는다 — 리뷰 지적 회귀."""
+    from ves.scheduler.trend_report import DEFAULT_K, judge, merge_constants
+    k = merge_constants('{"retention_min": {"lt30": 70}}')       # 30to60 누락
+    assert k["retention_min"] == {"lt30": 70, "30to60": 50.0}
+    assert judge({"impr": 500, "ctr": 9.0, "view_pct": 60, "len": 50}, k)["verdict"] == "정상"
+    k2 = merge_constants('{"retention_min": {"30-60": 40}}')     # 오타 키 → 무시
+    assert k2["retention_min"] == DEFAULT_K["retention_min"]
+    assert merge_constants("깨진 값")["retention_min"] == DEFAULT_K["retention_min"]
+    assert merge_constants(None) == dict(DEFAULT_K, retention_min=dict(DEFAULT_K["retention_min"]))

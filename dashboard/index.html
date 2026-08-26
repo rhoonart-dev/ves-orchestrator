@@ -9903,15 +9903,18 @@ window.pinAsk = eng => {
    0098 get_trend_report 한 번으로 리포트 본문 + 임계값 현행/제안 + 날짜 목록을 받는다.
    숫자는 전부 facts(SQL 집계)다 — 이 화면은 표시만 한다(R12·R15). 해설(narrative)은
    Gemini 산출이라 없을 수 있고, 없어도 화면은 성립한다. */
-let trends = null, trendsLoading = false, trendsDate = null;
+let trends = null, trendsSeq = 0, trendsDate = null;
 async function loadTrends(){
-  if (trendsLoading) return; trendsLoading = true;
+  // 재진입 가드 대신 순번 토큰 — 진행 중일 때 날짜를 바꾸면 가드는 새 요청을 삼키고
+  // 낡은 응답이 화면을 되돌린다(리뷰 지적). 낡은 응답을 버리는 쪽이 맞다.
+  const seq = ++trendsSeq;
   try {
     const { data, error } = await sb.rpc("get_trend_report",
       trendsDate ? { p_date: trendsDate } : {});
+    if (seq !== trendsSeq) return;                       // 그사이 다른 요청이 떴다 — 폐기
     trends = error ? { error: error.message } : (data && data.report ? data : { empty: true, dates: (data||{}).dates||[] });
-  } catch (e) { trends = { error: String(e) }; }
-  finally { trendsLoading = false; render(); }
+  } catch (e) { if (seq === trendsSeq) trends = { error: String(e) }; }
+  finally { if (seq === trendsSeq) render(); }
 }
 window.trendsPick = d => { trendsDate = d || null; trends = null; render(); };
 window.trendsReload = () => { trends = null; render(); };
@@ -9977,7 +9980,7 @@ function renderTrends(){
       works.map(w => `<tr><td>${esc(w.work||"")}</td><td class="num">${tvN(w.n_videos)}</td>
         <td class="num">${tvN(w.impressions)}</td><td class="num">${w.ctr==null?"—":w.ctr}</td>
         <td class="num">${w.view_pct==null?"—":w.view_pct}</td><td class="num">${tvN(w.views)}</td>
-        <td>${["n_blocked","n_noclick","n_exit","n_hold"].map((k2,i)=>w[k2]?`<span class="chip ${["st-crit","st-warn","st-warn","st-info"][i]}">${["배포✕","클릭✕","이탈","보류"][i]} ${w[k2]}</span>`:"").join(" ")||'<span class="chip st-good">전부 정상</span>'}</td>
+        <td>${["n_blocked","n_noclick","n_exit","n_hold"].map((k2,i)=>w[k2]?`<span class="chip ${["st-crit","st-warn","st-warn","st-info"][i]}">${["배포✕","클릭✕","이탈","보류"][i]} ${w[k2]}</span>`:"").filter(Boolean).join(" ")||'<span class="chip st-good">전부 정상</span>'}</td>
         <td>${(w.channels||[]).map(esc).join(", ")}</td></tr>`).join("")
       || '<tr><td colspan="8" class="empty">데이터 없음</td></tr>'}</table></div></section>
     <section class="card"><h2>진단 — 정상이 아닌 영상 <span class="pill">노출 많은 순</span></h2>${trendsNarr(nr,"diagnosis")}

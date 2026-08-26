@@ -48,6 +48,26 @@ def merge_config(raw) -> dict:
     return conf
 
 
+def merge_constants(raw) -> dict:
+    """algo_constants 병합 — retention_min 은 **키 단위로** 겹친다. 사람이 고치는 값이라
+    부분만 써넣는 실수(lt30 만 남김)가 나오고, 얕은 병합이면 judge() 가 KeyError 로
+    그날 리포트를 통째로 못 만든다(리뷰 지적). 순수 — 테스트 대상."""
+    k = dict(DEFAULT_K)
+    k["retention_min"] = dict(DEFAULT_K["retention_min"])
+    try:
+        got = json.loads(raw) if isinstance(raw, str) else (raw or {})
+        if isinstance(got, dict):
+            for kk, vv in got.items():
+                if kk == "retention_min" and isinstance(vv, dict):
+                    k["retention_min"].update(
+                        {sk: sv for sk, sv in vv.items() if sk in k["retention_min"]})
+                elif kk in DEFAULT_K:
+                    k[kk] = vv
+    except ValueError:
+        pass
+    return k
+
+
 def judge(v: dict, k: dict) -> dict:
     """영상 1편의 깔때기 판정(§5) — 먼저 걸리는 데서 멈춘다. 순수.
 
@@ -177,14 +197,7 @@ def _constants(conn) -> dict:
     with conn.cursor() as c:
         c.execute("SELECT value FROM public.ops_config WHERE key='algo_constants'")
         row = c.fetchone()
-    k = dict(DEFAULT_K)
-    try:
-        got = json.loads((row or {}).get("value") or "{}")
-        if isinstance(got, dict):
-            k.update({kk: vv for kk, vv in got.items() if kk in DEFAULT_K})
-    except ValueError:
-        pass
-    return k
+    return merge_constants((row or {}).get("value"))
 
 
 def _rows(conn, sql, args=()):

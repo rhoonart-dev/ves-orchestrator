@@ -111,14 +111,8 @@ def run(conn, cfg):
     if not weekly_due(prev.get("checked_at"), now, int(conf["interval_days"])):
         return
 
-    from ves.scheduler.trend_report import DEFAULT_K
-    current = dict(DEFAULT_K)
-    try:
-        cur_raw = json.loads(rows.get("algo_constants") or "{}")
-        if isinstance(cur_raw, dict):
-            current.update({k: v for k, v in cur_raw.items() if k in DEFAULT_K})
-    except ValueError:
-        pass
+    from ves.scheduler.trend_report import merge_constants
+    current = merge_constants(rows.get("algo_constants"))
 
     from ves.scheduler import gemini_call
     key = gemini_call.resolve_key(conn, cfg)
