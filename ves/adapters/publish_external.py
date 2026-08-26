@@ -282,16 +282,20 @@ def run(cfg, conn, job, deps):
         print(f"[publish_external] 예약 슬롯 자동 배정: {publish_at}")
     status = build_status(p.get("privacy", "private"), publish_at)
 
+    # ⚠ 자격증명은 **내려받기 전**에 본다. L-P4 실측의 교훈이다: vlp 는 18분짜리
+    # 인페인팅을 다 하고 나서 번역에서 401 로 죽었다("비싼 단계 뒤에 자격증명 검사").
+    # 여기서 미리 보면 키가 없는 노드는 몇 초 만에, 파일을 만지지 않고 실패한다.
+    cid, cs, rt, whence = _resolve_credentials(cfg, p.get("gcp_project"),
+                                               p.get("channel_slug"))
+    print(f"[publish_external] 자격증명 {whence} · {snippet['title']!r} "
+          f"({status['privacyStatus']}{', 예약 ' + status['publishAt'] if status.get('publishAt') else ''})")
+
     store = Store(cfg.supabase_url, cfg.supabase_service_key)
     work = pathlib.Path(cfg.home) / "cache" / "publish_external"
     work.mkdir(parents=True, exist_ok=True)
     local = work / f"{base.storage_key(str(ext_vid), 'out.mp4').split('/')[0]}.mp4"
     try:
         store.download(p.get("bucket") or "ves-localized", p["key"], str(local))
-        cid, cs, rt, whence = _resolve_credentials(cfg, p.get("gcp_project"),
-                                                   p.get("channel_slug"))
-        print(f"[publish_external] 자격증명 {whence} · {snippet['title']!r} "
-              f"({status['privacyStatus']}{', 예약 ' + status['publishAt'] if status.get('publishAt') else ''})")
         yt_id = upload_video(local, {"snippet": snippet, "status": status},
                              _access_token(cid, cs, rt))
     finally:

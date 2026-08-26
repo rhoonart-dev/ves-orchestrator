@@ -285,3 +285,12 @@ def test_the_edit_fields_are_only_on_our_cards():
 def test_the_edited_wording_is_sent_to_the_rpc():
     html = _html()
     assert "p_title: ok && ti ?" in html and "p_description: ok && de ?" in html
+
+
+def test_credentials_are_checked_before_the_download():
+    """L-P4 교훈 — vlp 는 18분짜리 인페인팅을 다 하고 나서 401 로 죽었다.
+
+    키가 없는 노드는 파일을 만지기 전에, 몇 초 만에 실패해야 한다."""
+    src = pathlib.Path("ves/adapters/publish_external.py").read_text(encoding="utf-8")
+    body = src.split("def run(", 1)[1]
+    assert body.index("_resolve_credentials(") < body.index("store.download(")
