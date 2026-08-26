@@ -18,7 +18,7 @@ from ves import db
 from ves.config import get_config
 from ves.scheduler import (channels_sync, drive_balance, drive_watch, editor_uploads_gc,
                            loopy_drive, loopy_picker, loopy_scout,
-                           perf_sync, planner, reaper, reconcile, source_watch,
+                           perf_sync, planner, reaper, reconcile, source_watch, trend_scout,
                            storage_gc, version_watch, zanmang_daily)
 
 KST = dt.timezone(dt.timedelta(hours=9))
@@ -120,6 +120,8 @@ def main():
                     # 목록만 만든다(파일은 고른 편만 acquire 가 받는다).
                     ("loopy_drive",   lambda: loopy_drive.run(conn, cfg),   _due_daily(last.get("loopy_drive"), now, 3)),
                     ("loopy_picker",  lambda: loopy_picker.run(conn, cfg),  _due_daily(last.get("loopy_picker"), now, 4)),
+                    # 외부 트렌드(T-P1) — 03:00 KST(_due_daily 는 시 단위). 지역당 1유닛이라 3지역 3유닛 — 생성 피크(09:00)와 안 겹친다.
+                    ("trend_scout",   lambda: trend_scout.run(conn, cfg),   _due_daily(last.get("trend_scout"), now, 3)),
                     ("storage_gc",    lambda: storage_gc.run(conn, cfg),    _due_daily(last.get("storage_gc"), now, 6)),
                     ("editor_uploads_gc", lambda: editor_uploads_gc.run(conn, cfg), _due_daily(last.get("editor_uploads_gc"), now, 6)),
                 ]
