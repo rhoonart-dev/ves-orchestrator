@@ -5143,17 +5143,23 @@ def test_copyid_destination_ends_with_slash():
     from ves.adapters.acquire_external import rclone_argv
     assert rclone_argv("gdrive:", "ID", "/tmp/work")[-1] == "/tmp/work/"
     assert rclone_argv("gdrive:", "ID", "/tmp/work/")[-1] == "/tmp/work/"
-def test_perf_sync_studio_window():
-    """깔때기 미러 창 — 첫 회전은 보존 창 전체, 이후로는 최근 창만.
+def test_perf_sync_studio_window_selfheal():
+    """깔때기 창도 copy_since 규율을 쓴다 — 8/26 부분 적재 사고의 회귀 테스트.
 
-    영상 스냅샷(copy_since)과 달리 원천의 과거 하한을 보지 않는다. youtube_studio 는
-    월별 파티션이라 하한 질의가 전 파티션을 훑는다."""
+    검증 데이터 7행(8/19~22)이 미러에 먼저 들어가 있자, max(stat_date) 로 '비었나'만
+    보던 종전 studio_since 는 첫 회전을 평시 창으로 오판해 120일 대신 나흘만 적재했다.
+    앞쪽 구멍은 min(stat_date) 과 원천 하한(copy_since 의 재료)으로만 보인다."""
     from datetime import date, timedelta
-    from ves.scheduler.perf_sync import studio_since
+    from ves.scheduler.perf_sync import STUDIO_SRC_MIN_SQL, copy_since
     today = date(2026, 8, 26)
-    assert studio_since(None, today) == today - timedelta(days=120)      # 비었다 → 한 번에 메운다
-    assert studio_since(date(2026, 8, 25), today) == today - timedelta(days=7)
-    assert studio_since(date(2026, 1, 1), today) == today - timedelta(days=7)
+    # 사고 시나리오: 미러 min=8/19(부분 적재) · 원천은 4/28 부터 갖고 있다 → 4/28 까지 메운다
+    assert copy_since(date(2026, 8, 19), date(2026, 4, 28), today) == date(2026, 4, 28)
+    # 메운 뒤(미러 min=원천 하한) → 평시 창으로 복귀. 과거를 매 회전 다시 긁지 않는다
+    assert copy_since(date(2026, 4, 28), date(2026, 4, 28), today) == today - timedelta(days=7)
+    # 빈 미러(첫 회전) → 원천 시작부터
+    assert copy_since(None, date(2026, 4, 28), today) == date(2026, 4, 28)
+    # 원천 하한 질의는 upload_at 범위를 명시한다 — 무제한 min() 은 전 파티션을 훑는다
+    assert "upload_at >=" in STUDIO_SRC_MIN_SQL
 
 
 def test_trend_scout_config_merge():
