@@ -1042,6 +1042,9 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .pf-cb .n{font-variant-numeric:tabular-nums;color:var(--ink-2);white-space:nowrap}
   .pf-cb .n span{color:var(--info);font-weight:600}
   .pf-spark{vertical-align:-3px}
+.tr-narr{color:var(--ink-2);font-size:13px;line-height:1.6;margin:6px 0 10px;
+  border-left:3px solid var(--accent);padding-left:10px}
+.tr-narr.big{font-size:14px;color:var(--ink)}
 </style>
 </head>
 <body>
@@ -1448,7 +1451,8 @@ const stallNamesOf = xs => xs.slice(0,3)
 // ───────── 탭 셸 ─────────
 const TABS = [["home","홈"],["review","검수함"],["edit","편집실"],["feed","영상 피드"],
               ["sources","소스 창고"],["archive","소재 아카이브"],
-              ["channels","채널 템플릿"],["jobs","작업 내역"],["infra","맥·배포"],["perf","성과"]];
+              ["channels","채널 템플릿"],["jobs","작업 내역"],["infra","맥·배포"],["perf","성과"],
+              ["trends","트렌드"]];
 const tabsFor = () => myRole === "admin" ? [...TABS, ["admin","권한 관리"]] : TABS;
 // 탭 ↔ URL 해시 동기화(8/21): 로고가 <a href="#home"> 링크가 되면서 필요해졌다.
 // 새 탭에서 #home 을 열면 홈이 뜨고, render() 가 replaceState 로 해시를 따라가므로
@@ -1502,6 +1506,7 @@ function render(){
   ({home:renderHome, review:renderReview, feed:renderFeed, sources:renderSources,
     archive:renderArchive,
     edit:renderEdit, channels:renderChannels, jobs:renderJobsTab, infra:renderInfra, perf:renderPerf,
+    trends:renderTrends,
     admin:renderAdmin}[tab] || renderHome)();
   for (const [id, v] of Object.entries(keep)){
     const el = document.getElementById(id);
@@ -9894,6 +9899,119 @@ window.pinAsk = eng => {
 // 원천 수집에는 공백이 있다(2026-07 중순 실측: 하루 32행 ↔ 231행). 날짜별로 그냥 더하면
 // 그 구멍에서 톱니가 생기므로 — 영상 하나하나의 관측점을 선형 보간해 매일 값을 만든 뒤
 // 차분한다. 결측 뒤로 몰리지 않으면서 구간 총량은 그대로 보존된다.
+/* ── 트렌드 리포트 탭 (T-P3) ─────────────────────────────────────────
+   0098 get_trend_report 한 번으로 리포트 본문 + 임계값 현행/제안 + 날짜 목록을 받는다.
+   숫자는 전부 facts(SQL 집계)다 — 이 화면은 표시만 한다(R12·R15). 해설(narrative)은
+   Gemini 산출이라 없을 수 있고, 없어도 화면은 성립한다. */
+let trends = null, trendsSeq = 0, trendsDate = null;
+async function loadTrends(){
+  // 재진입 가드 대신 순번 토큰 — 진행 중일 때 날짜를 바꾸면 가드는 새 요청을 삼키고
+  // 낡은 응답이 화면을 되돌린다(리뷰 지적). 낡은 응답을 버리는 쪽이 맞다.
+  const seq = ++trendsSeq;
+  try {
+    const { data, error } = await sb.rpc("get_trend_report",
+      trendsDate ? { p_date: trendsDate } : {});
+    if (seq !== trendsSeq) return;                       // 그사이 다른 요청이 떴다 — 폐기
+    trends = error ? { error: error.message } : (data && data.report ? data : { empty: true, dates: (data||{}).dates||[] });
+  } catch (e) { if (seq === trendsSeq) trends = { error: String(e) }; }
+  finally { if (seq === trendsSeq) render(); }
+}
+window.trendsPick = d => { trendsDate = d || null; trends = null; render(); };
+window.trendsReload = () => { trends = null; render(); };
+const tvN = v => v == null ? "—" : Number(v).toLocaleString();
+const tvVerdict = v => ({"정상":"st-good","이탈":"st-warn","안 눌림":"st-warn",
+                         "배포 안 됨":"st-crit","판정 보류":"st-info"}[v] || "st-info");
+function trendsNarr(nr, key){
+  const t = nr && nr[key];
+  return t ? `<p class="tr-narr">${esc(String(t))}</p>` : "";
+}
+function renderTrends(){
+  if (!trends){ loadTrends();
+    $("#page").innerHTML = '<section class="card"><div class="empty">리포트 불러오는 중…</div></section>'; return; }
+  if (trends.error){
+    $("#page").innerHTML = `<section class="card"><div class="empty">리포트 조회 실패 — ${esc(trends.error)}
+      <button class="mini" onclick="trendsReload()">다시 시도</button></div></section>`; return; }
+  const dates = trends.dates || [];
+  const dateSel = `<select onchange="trendsPick(this.value)">${
+    dates.map(d => `<option value="${d}" ${d===(trends.report||{}).report_date?"selected":""}>${d}</option>`).join("")}</select>`;
+  if (trends.empty){
+    $("#page").innerHTML = `<section class="card"><h2>트렌드 리포트</h2>
+      <div class="empty">아직 생성된 리포트가 없다 — 매일 05:00 KST 에 만들어진다 (ops_config.trend_report)</div></section>`; return; }
+  const r = trends.report, f = r.facts || {}, nr = r.narrative;
+  const cur = trends.constants || {}, prop = trends.constants_proposed;
+  const badge = prop && prop.differs ?
+    `<section class="card"><div class="pf-warnbar">⚠ 알고리즘 상수 제안이 현행과 다르다
+      (조사 ${esc(prop.checked_at||"")} · ${esc(prop.confidence||"")}) — ${esc(prop.changes||"")}
+      반영은 사람이 ops_config.algo_constants 를 고친다</div></section>` : "";
+  const lag = f.data_lag_days != null && f.data_lag_days > 2 ?
+    `<div class="pf-warnbar">원천(laeebly) 지연 ${f.data_lag_days}일 — 최신 데이터일 ${esc(String(f.ref_date||""))}</div>` : "";
+  const d = f.diagnosis || {counts:{},videos:[]}, cnt = d.counts || {};
+  const works = ((f.inside||{}).works)||[];
+  const out = f.outside || {regions:{}}, ov = out.overlaps || [];
+  const sc = f.success || {};
+  const regionTbl = Object.entries(out.regions||{}).map(([rg, items]) => `
+    <section class="card"><h2>밖 · ${esc(rg)} <span class="pill">${esc(String(out.collected_date||""))}</span></h2>
+    <div class="tblwrap"><table><tr><th>#</th><th>제목</th><th>소스</th></tr>${
+      items.map(t => `<tr><td class="num">${t.rank}</td><td>${esc(t.title||"")}</td>
+        <td>${t.source==="youtube_chart"?"YT 차트":"검색"}</td></tr>`).join("")
+      || '<tr><td colspan="3" class="empty">수집 없음</td></tr>'}</table></div></section>`).join("");
+  $("#page").innerHTML = `
+    <section class="card"><h2>트렌드 리포트 ${dateSel}
+      <span class="pill">${esc(r.status||"")}</span>
+      <button class="mini" onclick="trendsReload()">새로고침</button></h2>
+      ${lag}${nr && nr.summary ? `<p class="tr-narr big">${esc(nr.summary)}</p>` : ""}
+      <div class="tiles pf-kpi">
+        <div class="tile"><div class="v">${tvN(cnt["정상"])}</div><div class="k">정상</div></div>
+        <div class="tile"><div class="v">${tvN(cnt["배포 안 됨"])}</div><div class="k">배포 안 됨</div></div>
+        <div class="tile"><div class="v">${tvN(cnt["안 눌림"])}</div><div class="k">안 눌림</div></div>
+        <div class="tile"><div class="v">${tvN(cnt["이탈"])}</div><div class="k">이탈</div></div>
+        <div class="tile"><div class="v">${tvN(cnt["판정 보류"])}</div><div class="k">판정 보류</div></div>
+      </div></section>
+    ${badge}
+    ${(f.actions||[]).length ? `<section class="card"><h2>오늘 할 것</h2>${
+      (f.actions||[]).map(a => `<div class="chip ${a.pri===1?"st-crit":"st-warn"}">${esc(a.text)}</div>`).join(" ")}
+      ${trendsNarr(nr,"actions")}</section>` : ""}
+    ${ov.length ? `<section class="card"><h2>밖 ↔ 안 — 트렌드에 등장한 작품</h2>${
+      ov.map(h => `<div class="chip st-good">「${esc(h.work)}」 ← ${esc(h.region||"")} "${esc(h.trend)}"</div>`).join(" ")}</section>` : ""}
+    <section class="card"><h2>안 · 작품별 깔때기</h2>${trendsNarr(nr,"inside")}
+      <div class="tblwrap"><table>
+      <tr><th>작품</th><th class="num">편수</th><th class="num">노출</th><th class="num">CTR%</th>
+          <th class="num">완주%</th><th class="num">조회</th><th>판정 분포</th><th>채널</th></tr>${
+      works.map(w => `<tr><td>${esc(w.work||"")}</td><td class="num">${tvN(w.n_videos)}</td>
+        <td class="num">${tvN(w.impressions)}</td><td class="num">${w.ctr==null?"—":w.ctr}</td>
+        <td class="num">${w.view_pct==null?"—":w.view_pct}</td><td class="num">${tvN(w.views)}</td>
+        <td>${["n_blocked","n_noclick","n_exit","n_hold"].map((k2,i)=>w[k2]?`<span class="chip ${["st-crit","st-warn","st-warn","st-info"][i]}">${["배포✕","클릭✕","이탈","보류"][i]} ${w[k2]}</span>`:"").filter(Boolean).join(" ")||'<span class="chip st-good">전부 정상</span>'}</td>
+        <td>${(w.channels||[]).map(esc).join(", ")}</td></tr>`).join("")
+      || '<tr><td colspan="8" class="empty">데이터 없음</td></tr>'}</table></div></section>
+    <section class="card"><h2>진단 — 정상이 아닌 영상 <span class="pill">노출 많은 순</span></h2>${trendsNarr(nr,"diagnosis")}
+      <div class="tblwrap"><table>
+      <tr><th>판정</th><th>제목</th><th>작품</th><th>채널</th><th class="num">노출</th>
+          <th class="num">CTR%</th><th class="num">완주%</th><th class="num">길이s</th><th>처방</th></tr>${
+      (d.videos||[]).map(v => `<tr><td><span class="chip ${tvVerdict(v.verdict)}">${esc(v.verdict)}</span></td>
+        <td>${esc((v.title||"").slice(0,40))}</td><td>${esc(v.work||"")}</td><td>${esc(v.channel||"")}</td>
+        <td class="num">${tvN(v.impr)}</td><td class="num">${v.ctr==null?"—":v.ctr}</td>
+        <td class="num">${v.view_pct==null?"—":v.view_pct}</td><td class="num">${v.len==null?"—":v.len}</td>
+        <td>${esc(v.hint||"")}</td></tr>`).join("")
+      || '<tr><td colspan="9" class="empty">전부 정상</td></tr>'}</table></div></section>
+    ${sc.axes ? `<section class="card"><h2>성공 요인 — 상위 ${sc.top_n}편(조회 ${tvN(sc.top_views_min)}+) vs 나머지</h2>
+      ${trendsNarr(nr,"success")}
+      <div class="tblwrap"><table><tr><th>축</th><th class="num">상위</th><th class="num">나머지</th></tr>${
+      Object.entries(sc.axes).map(([k2,a]) => `<tr><td>${{len:"길이(초)",publish_hour:"게시 시각(시)",
+        shares_per_1k:"공유/1k뷰",title_len:"제목 길이"}[k2]||esc(k2)}</td>
+        <td class="num">${a.top==null?"—":a.top}</td><td class="num">${a.rest==null?"—":a.rest}</td></tr>`).join("")}
+      </table></div>
+      ${(sc.top_videos||[]).map(v => `<div class="chip st-good">${esc((v.title||"").slice(0,30))} · ${tvN(v.views)}뷰</div>`).join(" ")}
+      </section>` : ""}
+    ${f.zanmang ? `<section class="card"><h2>LOOPY <span class="pill">${esc((f.zanmang.source||""))}</span></h2>
+      <div class="tblwrap"><table><tr><th>제목</th><th class="num">조회</th><th>발행</th></tr>${
+      (f.zanmang.recent||[]).map(v => `<tr><td>${esc((v.title||"").slice(0,40))}</td>
+        <td class="num">${tvN(v.view_count)}</td><td>${esc(String(v.publish_at||"").slice(0,10))}</td></tr>`).join("")
+      || '<tr><td colspan="3" class="empty">발행 없음</td></tr>'}</table></div>
+      <div class="empty">발행 ${tvN(f.zanmang.published)} / 전체 ${tvN(f.zanmang.total)} — 별도 원장(laeebly 밖)</div></section>` : ""}
+    ${trendsNarr(nr,"outside")}${regionTbl}
+    <div class="empty">생성 ${esc(String(r.generated_at||"").slice(0,16))} · ${esc(r.model||"")} · 임계값: 노출≥${cur.impression_floor??"?"} · CTR≥${cur.ctr_floor??"?"}% · 완주 &lt;30s ${(cur.retention_min||{}).lt30??"?"}% / 30~60s ${(cur.retention_min||{})["30to60"]??"?"}%</div>`;
+}
+
 let perf = null, perfLoading = false, perfSort = { col: "dper", dir: -1 };
 // 지표 셋을 한 페이지에 나란히 그린다. 영상 스냅샷에서 오는 것(views·likes)과 채널
 // 스냅샷에서 오는 것(subs)이 섞여 있어 시리즈 키를 따로 든다 — subs 는 "누적"이 아니라

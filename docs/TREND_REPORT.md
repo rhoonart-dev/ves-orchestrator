@@ -1,4 +1,10 @@
-# TREND_REPORT — 일일 트렌드·성과 리포트 (기획 v2, 2026-08-26)
+# TREND_REPORT — 일일 트렌드·성과 리포트 (기획 v2, 2026-08-26 · 구현 2026-08-27)
+
+> **구현 현황(2026-08-27)**: C1(0097 `perf_studio_daily`, perf_sync 자기치유 포함) ·
+> C2(`trend_scout`, 03:00) · P2(0098 `trend_report` + `trend_report.py`, 05:00) ·
+> P3(`get_trend_report` RPC + 대시보드 '트렌드' 탭) · C3(`algo_watch`, 주 1회) 전부 배포.
+> 운영자 지시로 수집·생성 모두 켠 채 시작. Gemini 는 `gemini_key` 슬롯 체계(0025)에
+> 합류 — 소진 시 failover, 해설 실패 시 facts 만으로 성립.
 
 관제 사이트에 **화면 1개 + 수집기 3개 + 리포트 생성기 1개**를 더한다. 매일 아침 한 장을
 읽으면 "밖에서 뭐가 뜨는가 · 우리는 어디서 끊기는가 · 왜 되는 건 되는가"가 나온다.
@@ -195,17 +201,17 @@ create table public.trend_report (
 get_trend_report(p_date date) → jsonb
 ```
 
-## 8. 순서
+## 8. 순서 — 전부 구현됨
 
 ```
-C1 미러 ──┐
-C2 트렌드 ─┼──→ 리포트 생성 ──→ 화면
-C3 상수 ──┘
+C1 미러(perf_sync, 매시간) ──┐
+C2 트렌드(trend_scout, 03시) ─┼──→ P2 생성(trend_report, 05시) ──→ P3 화면(트렌드 탭)
+C3 상수(algo_watch, 주 1회) ──┘
 ```
 
-C1 이 먼저다 — 나머지가 붙을 뼈대다. C3 는 없어도 리포트가 성립하므로 마지막.
-수집기는 `ops_config` 행으로 `enabled=false` 기본, **켜는 것은 사람이다**(0080 규율).
-마이그레이션은 `0097`(perf_studio_daily + trend_snapshot) · `0098`(trend_report + RPC).
+마이그레이션 `0097`(perf_studio_daily + trend_snapshot) · `0098`(trend_report + RPC).
+스위치는 전부 `ops_config`: `trend_scout` · `trend_report` · `algo_watch`.
+2026-08-27 운영자 지시로 켠 채 시작 — 끄는 것도 같은 자리다.
 
 ## 9. 비용
 
