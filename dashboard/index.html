@@ -2186,9 +2186,17 @@ function judgeBox(run){
 }
 // 잔망루피 검수 카드 (0026) — 작업지시 없는 전용 파이프라인. 승인하면 원장에 확정하고
 // 업로더가 비공개 업로드 + 19:00 JST 예약 공개까지 한다(R9 준수).
-const LOOPY_ROUTE = { A:"무변환 — 원본 그대로", B:"자막", C:"더빙", BC:"더빙+자막" };
+// route 라벨은 엔진 config(overlay/data/pipeline.config.yaml levels)의 실제 동작이다.
+// ⚠ 종전 라벨은 vlp '등급' 시절 문구라 A 를 "무변환"으로 적고 있었다 — A 는 자막 트랙을
+// 얹는다(원본 화면 글자를 안 지울 뿐이다). 라벨이 틀리면 검수자가 안 본 것을 봤다고 믿는다.
+const LOOPY_ROUTE = { A:"자막만 — 화면 글자 그대로", B:"화면 글자 지우고 일본어",
+                      BJ:"화면 글자 위 일본어 병기", C:"더빙 + 화면 글자 교체",
+                      BC:"더빙 + 화면 글자 제거" };
 function loopyCard(r, pay){
-  const vid = pay.zanmang_video_id;
+  // 카드 모양이 둘이다: vlp 원장 카드(zanmang_video_id)와 우리 overlay 카드
+  // (external_video_id + metadata 초벌). 같은 화면·같은 버튼으로 본다.
+  pay = loopyPayload(pay);
+  const vid = pay.zanmang_video_id || pay.external_video_id;
   const acts = can("reviewer") ? `
     <textarea class="reason" id="note_${r.id}" rows="3" placeholder="사유·메모 (선택)"></textarea>
     <div class="form">
@@ -2224,6 +2232,24 @@ function loopyCard(r, pay){
         <span style="margin-left:6px">${esc(vid)}</span></div>` : ""}
       ${acts}</div></div>`;
 }
+// 우리 overlay 카드의 메타 초벌(metadata_draft.json)을 기존 검수 메타 어휘로 옮긴다.
+// 🛑 **발행 제목은 초벌 1안**이다(RPC 와 같은 규칙) — 화면이 2안을 보여주면서 1안이
+// 올라가면 사람이 승인한 것과 다른 것이 나간다.
+function loopyPayload(pay){
+  const m = pay.metadata;
+  if (!m || pay.youtube_title) return pay;
+  const cand = (m.title_candidates || []).filter(t => String(t||"").trim());
+  const candKo = m.title_candidates_ko || [];
+  return Object.assign({}, pay, {
+    youtube_title: cand[0] || "",
+    youtube_title_ko: candKo[0] || "",
+    description: m.description || "",
+    description_ko: m.description_ko || "",
+    _alt_titles: cand.slice(1),
+    _meta_warning: cand.length ? "" : "일본어 제목 초벌이 없습니다 — 승인해도 발행 잡이 서지 않습니다",
+  });
+}
+
 window.decideLoopy = (rid, ok) => {
   const note = (($(`#note_${CSS.escape(rid)}`)||{}).value || "").trim() || null;
   const sel = ($(`#lprv_${CSS.escape(rid)}`)||{}).value || "schedule";
@@ -2235,17 +2261,22 @@ window.decideLoopy = (rid, ok) => {
               ? (publish_at ? "승인 — 지정 시각 예약 공개로 업로드합니다"
                             : "승인 — 다음 19:00 JST 슬롯 예약으로 업로드합니다")
               : `승인 — ${sel === "private" ? "비공개" : "일부공개"}로 업로드합니다`)
-         : "반려 — 원장에 skipped 로 기록합니다");
+         : "반려 — 다음 선별에서 다시 뽑히지 않게 기록합니다");
 };
 
 // JP 검수 메타 블록(제목·설명·자막 — 일본어+한글 대역, 운영 결정 8/14) —
 // SHOTCONE(scene_rerender) 카드와 잔망루피 카드가 같은 페이로드 규약을 쓴다.
 function jpMetaHtml(pay){
-  if (!(pay.youtube_title || pay.description || pay.note || pay.ko_ja_pairs)) return "";
+  if (!(pay.youtube_title || pay.description || pay.note || pay.ko_ja_pairs
+        || pay._meta_warning)) return "";
   return `
           <div class="jpmeta" title="현지화 산출 메타 — 영상 안 제목·자막은 프리뷰에서, 업로드 제목·설명은 여기서 확인">
             ${pay.youtube_title ? `<div class="jt">🇯🇵 ${esc(pay.youtube_title)}</div>` : ""}
             ${pay.youtube_title_ko ? `<div class="jtko">🇰🇷 ${esc(pay.youtube_title_ko)}</div>` : ""}
+            ${(pay._alt_titles || []).length
+                ? `<div class="sub" title="발행에는 1안이 쓰입니다">다른 안: ${
+                     pay._alt_titles.map(t => esc(t)).join(" · ")}</div>` : ""}
+            ${pay._meta_warning ? `<div class="warn">⚠ ${esc(pay._meta_warning)}</div>` : ""}
             ${pay.description ? `<div class="jd">${esc(pay.description)}</div>` : ""}
             ${pay.description_ko ? `<div class="jd jdko">${esc(pay.description_ko)}</div>` : ""}
             ${(() => {
@@ -2308,7 +2339,7 @@ function renderReview(){
       const run = pay.run_id || "";
       // 잔망루피(0026): 작업지시가 없는 전용 파이프라인 건. 공개 방식이 업로더에 고정돼 있어
       // (비공개 + 19:00 JST 다음 빈 슬롯) 관제에서 고를 게 없다 — 승인/반려 둘뿐.
-      if (pay.zanmang_video_id) return loopyCard(r, pay);
+      if (pay.zanmang_video_id || pay.external_video_id) return loopyCard(r, pay);
       const jg = judgeBox(run);
       const low = (() => { const cid = state.runToClip[run], j = cid && state.judgeByClip[cid];
         return j && Number(j.quality_score) < 0.5; })();
@@ -3298,7 +3329,7 @@ window.edSubmit = async () => {
 // 일본어 편집 대상 판정 — SHOTCONE(scene_rerender 카드)·잔망루피(LOOPY)
 function edJpKind(r){
   const pay = (r || {}).payload || {};
-  if (pay.zanmang_video_id) return "loopy";
+  if (pay.zanmang_video_id || pay.external_video_id) return "loopy";
   if ((r || {}).kind === "localization_qa" && pay.mode === "scene_rerender") return "shotcone";
   return null;
 }

@@ -173,3 +173,40 @@ def test_publish_external_job_is_idempotent_per_video():
     sql = _mig()
     assert "'publish_external:' || v_ext" in sql
     assert "ON CONFLICT (idempotency_key) DO UPDATE" in sql
+
+
+# ── ⑥ 검수 화면 — 사람이 무엇을 승인하는지 보여야 한다 ─────────────────────
+
+def _html() -> str:
+    import pathlib
+    return pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+
+
+def test_new_cards_render_on_the_same_screen():
+    html = _html()
+    assert "pay.zanmang_video_id || pay.external_video_id" in html
+    assert "function loopyPayload(pay)" in html
+
+
+def test_the_screen_shows_the_title_that_will_actually_be_published():
+    """🛑 화면이 2안을 보여주면서 1안이 올라가면 승인한 것과 다른 것이 나간다.
+
+    RPC 도 `title_candidates->>0` 을 쓴다 — 두 곳이 같은 규칙이어야 한다."""
+    html = _html()
+    assert "youtube_title: cand[0]" in html
+    assert "_alt_titles: cand.slice(1)" in html
+    assert "v_meta->'title_candidates'->>0" in _mig()
+
+
+def test_empty_draft_is_visible_before_approving():
+    """초벌이 비면 승인해도 발행 잡이 안 선다 — 그 사실을 카드에서 미리 알린다."""
+    assert "_meta_warning" in _html()
+
+
+def test_route_labels_match_the_engine_levels():
+    """라벨이 틀리면 검수자가 안 본 것을 봤다고 믿는다(종전 A='무변환'은 오기였다)."""
+    html = _html()
+    block = html.split("const LOOPY_ROUTE", 1)[1].split("};", 1)[0]
+    for route in ("A:", "B:", "BJ:", "C:", "BC:"):
+        assert route in block
+    assert "무변환" not in block
