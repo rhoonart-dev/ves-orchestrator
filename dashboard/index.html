@@ -11138,6 +11138,7 @@ body.applayout #side{padding-left:18px}
 .dfld .togrow input[type=checkbox],
 #insp .togrow input[type=checkbox]{width:14px;height:14px;flex:0 0 auto;padding:0}
 
+.runname{font-size:13px;font-weight:700;letter-spacing:-.2px}
 </style>
 <div id="tlRoot" style="display:none;position:fixed;inset:0;z-index:200;background:var(--bg)">
 
@@ -11284,7 +11285,7 @@ async function boot(){
   if (!user){ $("#tlLogin").style.display = "flex"; $("#tlApp").style.display = "none"; return; }
   $("#tlLogin").style.display = "none"; $("#tlApp").style.display = "flex";
   $("#who").textContent = user.email; $("#logout").style.display = "";
-  await loadRuns();
+  showRunLabel();
   // 본 대시보드 편집함 목록에서 넘어온 경우(?run=...) — 그 run 을 바로 연다
   const qp = new URLSearchParams(location.search);
   if (!window.__qpOpened && (qp.get("rid") || qp.get("run"))){
@@ -11296,25 +11297,18 @@ async function boot(){
 
 // ── run 목록 (읽기만) ─────────────────────────────────────────────────
 let cur = null;   // {row, tl, merged}
-async function loadRuns(){
-  const { data, error } = await sb.from("editor_assets")
-    .select("run_id,status,updated_at,review_id")
-    .in("status", ["ready", "pending"])
-    .order("updated_at", { ascending: false }).limit(30);
-  if (error){ $("#runs").innerHTML = `<span class="muted">${esc(error.message)}</span>`; return; }
-  // pending 도 연다 — 타임라인·시트는 마지막 재생성분이 그대로 남아 있어 보기엔 충분하다.
-  // (재생성이 끝나면 다시 열어 새 재료로 갱신)
-  // 드롭다운 한 줄 — 버튼 그리드는 세로를 너무 먹는다(사용자 요청 8/24)
-  $("#runs").innerHTML = `<label class="small muted">Run
-    <select id="runsel" style="max-width:360px;margin-left:6px">
-      <option value="">— 선택 —</option>
-      ${(data || []).map(r => `<option value="${esc(r.run_id)}">${esc(r.run_id)}${
-        r.status !== "ready" ? " ⏳" : ""}</option>`).join("")}
-    </select></label>
-    <span class="small faint">⏳ = 재료 재생성 대기 중(마지막 재료 기준으로 열림)</span>`;
-  $("#runsel").addEventListener("change", e => { if (e.target.value) openRun(e.target.value); });
-  // 재부팅(세션 복원 등)으로 목록이 다시 그려져도 현재 열린 run 선택을 유지
-  if (cur && cur.row) $("#runsel").value = cur.row.run_id;
+// run 드롭다운 폐지(2026-08-26) — 목록의 정본은 편집함 하나다. 다른 편으로는
+// [← 목록] 으로 돌아가 고른다(재료만 있고 반려·발행된 편까지 섞여 헷갈렸다).
+// 자리는 '지금 열린 편'을 보여주는 이름표로 쓴다.
+function loadRuns(){ showRunLabel(); }
+function showRunLabel(){
+  const el = $("#runs"); if (!el) return;
+  if (!cur || !cur.row){ el.innerHTML = ""; return; }
+  const wo = cur.wo || {};
+  const name = cur.row.run_id.replace(/_[0-9a-f]{6,}$/, "").replace(/_/g, " ");
+  el.innerHTML = `<b class="runname">${esc(name)}</b>` +
+    (cur.row.status !== "ready"
+      ? ` <span class="small faint" title="마지막 재료 기준으로 열림">⏳ 재료 재생성 대기</span>` : "");
 }
 
 // 검수함 🎬 → 신판 진입. 재료가 없으면 구판과 같은 RPC(request_editor_assets)로
@@ -11352,14 +11346,7 @@ async function openRun(runId, btn){
       : "이 run 의 편집 재료가 아직 없습니다.\n본 대시보드 검수함에서 [🎬 편집실] 을 한 번 열어 재료를 만든 뒤 다시 여세요.");
     return; }
   cur = { row: data };
-  // 목록(ready/pending 30건) 밖의 run 을 직접 열었을 때도 셀렉트에 보이게
-  const rs = document.getElementById("runsel");
-  if (rs && ![...rs.options].some(o => o.value === runId)){
-    const o = document.createElement("option");
-    o.value = runId; o.textContent = runId + " (직접 열림)";
-    rs.insertBefore(o, rs.options[1] || null);
-  }
-  if (rs) rs.value = runId;
+  showRunLabel();
   // 자유 텍스트·이미지의 정본은 이전 라운드 제출값(edit_overrides) — 본 편집실과
   // 같은 소스(generate 잡 params)를 읽기만 한다.
   cur.prevOv = {};
@@ -13320,7 +13307,7 @@ window.toggleTheme = () => applyTheme(
   back.title = "편집함 목록으로 — 구판 편집실도 목록 카드의 '구판' 링크로";
   back.onclick = () => window.tlClose();
   header.insertBefore(back, header.firstChild.nextSibling);   // 제목 바로 뒤
-  header.appendChild($("#runs"));                       // Run 선택 → 상단바
+  header.appendChild($("#runs"));                       // 지금 열린 편 이름표 → 상단바
   const th = document.createElement("button");
   th.id = "themeBtn"; th.title = "라이트/다크 전환";
   th.onclick = () => toggleTheme();
