@@ -232,3 +232,56 @@ def test_both_modes_use_the_same_card_helper():
     assert src.count("INSERT INTO public.review_queue") == 1
     calls = src.count("_enqueue_qa(conn, job,") - src.count("def _enqueue_qa(conn, job,")
     assert calls == 2, f"호출부 {calls}곳"
+
+
+# ── ⑧ 검수에서 문구를 고칠 수 있다 (0095) ─────────────────────────────────
+
+def _mig95() -> str:
+    import pathlib
+    return pathlib.Path("ves/control/migrations/0095_review_title_edit.sql").read_text(encoding="utf-8")
+
+
+def test_human_title_wins_over_the_draft():
+    """🛑 실물 1편에서 바로 필요해졌다 — 자동 제목에 한국어 해시태그가 남았다."""
+    sql = _mig95()
+    assert "coalesce(nullif(btrim(coalesce(p_title,'')), '')," in sql
+    assert "v_meta->'title_candidates'->>0, '')" in sql
+
+
+def test_empty_edit_falls_back_to_the_draft():
+    """빈칸으로 지웠다고 제목 없는 발행이 되면 안 된다 — nullif+coalesce 가 그것이다."""
+    sql = _mig95()
+    block = sql.split("v_title := coalesce(", 1)[1].split(";", 1)[0]
+    assert "nullif(btrim" in block and "title_candidates" in block
+
+
+def test_youtube_title_limit_is_enforced_before_upload():
+    """100자를 넘기면 유튜브가 거부한다 — 업로드까지 가기 전에 막는다."""
+    assert "length(v_title) > 100" in _mig95()
+
+
+def test_the_approved_wording_is_recorded_on_the_card():
+    """카드를 나중에 보면 초벌이 아니라 **실제로 올라간 문구**가 보여야 한다."""
+    sql = _mig95()
+    assert "'approved_title', v_title" in sql and "'approved_description', v_desc" in sql
+
+
+def test_one_body_two_signatures():
+    """구현이 두 벌이면 한쪽만 고쳐진다 — 5-인자는 7-인자에 위임한다(0088 규약)."""
+    sql = _mig95()
+    assert sql.count("CREATE OR REPLACE FUNCTION public.decide_loopy") == 2
+    wrapper = sql.split("-- 5-인자 판", 1)[1]
+    assert "SELECT public.decide_loopy(p_review_id, p_approve, p_note, p_privacy, p_publish_at," in wrapper
+    assert "publish_external" not in wrapper          # 본문은 위 한 벌뿐
+
+
+def test_the_edit_fields_are_only_on_our_cards():
+    """vlp 원장 카드는 그쪽이 문구를 든다 — 여기서 고칠 수 있게 하면 거짓말이 된다."""
+    html = _html()
+    assert "const editable = !!pay.metadata;" in html
+    assert 'id="ltit_${r.id}"' in html and 'maxlength="100"' in html
+
+
+def test_the_edited_wording_is_sent_to_the_rpc():
+    html = _html()
+    assert "p_title: ok && ti ?" in html and "p_description: ok && de ?" in html

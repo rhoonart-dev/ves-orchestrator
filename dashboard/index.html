@@ -2197,7 +2197,18 @@ function loopyCard(r, pay){
   // (external_video_id + metadata 초벌). 같은 화면·같은 버튼으로 본다.
   pay = loopyPayload(pay);
   const vid = pay.zanmang_video_id || pay.external_video_id;
+  // 우리 카드(메타 초벌)만 문구를 고칠 수 있다 — vlp 원장 카드는 그쪽이 문구를 든다.
+  // 🛑 실물 1편에서 바로 필요해졌다: 자동 제목에 한국어 해시태그(#닛몰캐쉬)가 남았고,
+  //    고칠 길이 없으면 한 줄 때문에 재현지화(인페인팅 9분+)를 다시 돌려야 한다.
+  const editable = !!pay.metadata;
+  const edit = editable ? `
+    <label class="sub" for="ltit_${r.id}">발행 제목 (일본어 · 100자)</label>
+    <input class="reason" id="ltit_${r.id}" maxlength="100" value="${esc(pay.youtube_title || "")}"
+           title="비우면 초벌 1안이 그대로 올라갑니다">
+    <label class="sub" for="ldesc_${r.id}">발행 설명</label>
+    <textarea class="reason" id="ldesc_${r.id}" rows="4">${esc(pay.description || "")}</textarea>` : "";
   const acts = can("reviewer") ? `
+    ${edit}
     <textarea class="reason" id="note_${r.id}" rows="3" placeholder="사유·메모 (선택)"></textarea>
     <div class="form">
       <select id="lprv_${r.id}"
@@ -2255,8 +2266,12 @@ window.decideLoopy = (rid, ok) => {
   const sel = ($(`#lprv_${CSS.escape(rid)}`)||{}).value || "schedule";
   const at = ($(`#lat_${CSS.escape(rid)}`)||{}).value || "";
   const publish_at = (ok && sel === "schedule" && at) ? new Date(at).toISOString() : null;
+  // 사람이 고친 문구 — 화면에 있는 그대로 보낸다(안 고쳤으면 초벌 1안 그대로다).
+  const ti = $(`#ltit_${CSS.escape(rid)}`), de = $(`#ldesc_${CSS.escape(rid)}`);
   rpc("decide_loopy", { p_review_id: rid, p_approve: ok, p_note: note,
-                        p_privacy: ok ? sel : null, p_publish_at: publish_at },
+                        p_privacy: ok ? sel : null, p_publish_at: publish_at,
+                        p_title: ok && ti ? (ti.value || "").trim() || null : null,
+                        p_description: ok && de ? (de.value || "").trim() || null : null },
       ok ? (sel === "schedule"
               ? (publish_at ? "승인 — 지정 시각 예약 공개로 업로드합니다"
                             : "승인 — 다음 19:00 JST 슬롯 예약으로 업로드합니다")
