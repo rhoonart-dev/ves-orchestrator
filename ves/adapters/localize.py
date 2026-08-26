@@ -137,6 +137,32 @@ def missing_overlay_deps(py: str, *, need_dub: bool = False, _run=None) -> list:
     return [ln for ln in (r.stdout or "").splitlines() if ln.strip()]
 
 
+def _archive_title(conn, ext_vid: str):
+    """아카이브(external_shorts)의 원제. 없으면 None — 그러면 메타 초벌을 안 만든다."""
+    try:
+        with conn.cursor() as c:
+            c.execute("SELECT title FROM public.external_shorts WHERE video_id = %s",
+                      (ext_vid,))
+            got = c.fetchone()
+        return (got or {}).get("title")
+    except Exception as e:                                     # noqa: BLE001
+        print(f"[localize] 원제 조회 실패({ext_vid}): {e} — 메타 초벌 없이 진행")
+        return None
+
+
+def read_metadata_draft(eng: str, run_id: str) -> dict:
+    """엔진이 남긴 일본어 메타 초벌. 없으면 빈 dict — 본편을 막지 않는다.
+
+    이 값이 검수 카드 payload 에 실려 **사람이 제목·설명을 보고 승인**한다. 초벌이
+    비면 발행 RPC 가 잡을 세우지 않는다(빈 채로 올리면 한국어 원제가 일본 채널에 뜬다)."""
+    path = pathlib.Path(eng) / "outputs" / str(run_id) / "metadata_draft.json"
+    try:
+        got = json.loads(path.read_text(encoding="utf-8"))
+        return got if isinstance(got, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
 def aivideo_overlay_argv(ai_py: str, video: str, video_id: str, params: dict) -> list:
     """overlay 호출 argv(**ai-video 서브커맨드**). 순수 — 테스트 대상.
 
@@ -150,6 +176,13 @@ def aivideo_overlay_argv(ai_py: str, video: str, video_id: str, params: dict) ->
         argv += ["--content-type", str(p["content_type"])]
     if p.get("backend"):
         argv += ["--inpaint-backend", str(p["backend"])]
+    # 원제를 주면 엔진이 일본어 메타 초벌(metadata_draft.json)을 함께 만든다(L-P5-발행).
+    # vlp 에서는 autopilot 이 하던 일이고, autopilot 은 이식하지 않았다 — 그래서 이
+    # 한 줄이 그 자리를 대신한다. 원제가 없으면 종전과 완전히 같다(회귀 0).
+    if str(p.get("source_title") or "").strip():
+        argv += ["--source-title", str(p["source_title"])]
+        if str(p.get("source_desc") or "").strip():
+            argv += ["--source-desc", str(p["source_desc"])]
     return argv
 
 
@@ -315,6 +348,12 @@ def run(cfg, conn, job, deps):
     if not run_id:
         raise base.PermanentError("params.run_id 없음 — generate 의존 확인")
 
+    if ext_vid and not str(p.get("source_title") or "").strip():
+        # 일본어 메타 초벌의 재료는 **원제**다. 잡 params 에 없으면 아카이브에서 읽는다 —
+        # 마이그레이션으로 params 에 박지 않는 이유는 이미 큐에 선 잡에도 통하기 때문이다.
+        p = dict(p)
+        p["source_title"] = _archive_title(conn, ext_vid)
+
     store = Store(cfg.supabase_url, cfg.supabase_service_key)
     work_dir = pathlib.Path(cfg.home) / "cache" / "localize"
     work_dir.mkdir(parents=True, exist_ok=True)
@@ -450,6 +489,12 @@ def run(cfg, conn, job, deps):
     out_key = base.storage_key(run_id, "localized.mp4")
     store.upload("ves-localized", out_key, str(out))
     src.unlink(missing_ok=True)
+    meta_draft = read_metadata_draft(eng, run_id)
+    if meta_draft:
+        print(f"[localize] 일본어 메타 초벌 {len(meta_draft.get('title_candidates') or [])}안 "
+              f"— 검수 카드에 싣는다")
+    elif ext_vid:
+        print("[localize] ⚠️ 일본어 메타 초벌 없음 — 검수는 되지만 발행 잡은 못 선다")
 
     with conn.cursor() as c:
         c.execute("""SELECT 1 FROM public.review_queue
@@ -463,9 +508,13 @@ def run(cfg, conn, job, deps):
                 (job["work_order_id"], job["id"], p.get("channel_slug"),
                  json.dumps({"run_id": run_id, "preview_key": out_key,
                              "bucket": "ves-localized",
+                             "external_video_id": ext_vid,
+                             "route": str(p.get("level") or "B").upper(),
+                             "metadata": meta_draft,
                              "note": note_tail}, ensure_ascii=False)))
     return {"run_id": run_id, "localized_key": out_key, "stdout_tail": note_tail,
-            "localize_engine": overlay_engine, "mode": "overlay"}
+            "localize_engine": overlay_engine, "mode": "overlay",
+            "metadata_title_candidates": len(meta_draft.get("title_candidates") or [])}
 
 
 def _enqueue_qa(conn, job, payload: dict):

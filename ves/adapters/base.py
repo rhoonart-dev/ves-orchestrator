@@ -297,3 +297,5 @@ def _load_all():
     register("zanmang_decision", zanmang_decision)     # 검수함 결정 → 원장 확정(8/12)
     from ves.adapters import editor_assets
     register("editor_assets", editor_assets)           # 검수함 편집실 재료(8/16)
+    from ves.adapters import publish_external
+    register("publish_external", publish_external)     # 외부 완성본 발행(L-P5-발행)
