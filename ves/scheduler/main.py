@@ -16,9 +16,10 @@ import traceback
 from ves import config as cfgmod
 from ves import db
 from ves.config import get_config
-from ves.scheduler import (channels_sync, drive_balance, drive_watch, editor_uploads_gc,
-                           loopy_drive, loopy_picker, loopy_scout,
-                           perf_sync, planner, reaper, reconcile, source_watch, trend_scout,
+from ves.scheduler import (algo_watch, channels_sync, drive_balance, drive_watch,
+                           editor_uploads_gc, loopy_drive, loopy_picker, loopy_scout,
+                           perf_sync, planner, reaper, reconcile, source_watch,
+                           trend_report, trend_scout,
                            storage_gc, version_watch, zanmang_daily)
 
 KST = dt.timezone(dt.timedelta(hours=9))
@@ -122,6 +123,11 @@ def main():
                     ("loopy_picker",  lambda: loopy_picker.run(conn, cfg),  _due_daily(last.get("loopy_picker"), now, 4)),
                     # 외부 트렌드(T-P1) — 03:00 KST(_due_daily 는 시 단위). 지역당 1유닛이라 3지역 3유닛 — 생성 피크(09:00)와 안 겹친다.
                     ("trend_scout",   lambda: trend_scout.run(conn, cfg),   _due_daily(last.get("trend_scout"), now, 3)),
+                    # 일일 리포트(T-P2) — 05:00 KST. 트렌드(03시)·깔때기 미러(매시간)가
+                    # 채운 재료로 facts 를 만들고 Gemini 해설을 얹는다(해설 실패해도 성립).
+                    ("trend_report",  lambda: trend_report.run(conn, cfg),  _due_daily(last.get("trend_report"), now, 5)),
+                    # 상수 조사(T-C3) — 주 1회는 모듈 안 게이트가 정한다(제안만, 반영은 사람)
+                    ("algo_watch",    lambda: algo_watch.run(conn, cfg),    _due_daily(last.get("algo_watch"), now, 5)),
                     ("storage_gc",    lambda: storage_gc.run(conn, cfg),    _due_daily(last.get("storage_gc"), now, 6)),
                     ("editor_uploads_gc", lambda: editor_uploads_gc.run(conn, cfg), _due_daily(last.get("editor_uploads_gc"), now, 6)),
                 ]

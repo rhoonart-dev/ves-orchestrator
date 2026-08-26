@@ -5238,3 +5238,107 @@ def test_studio_sql_columns_match_tuple_order():
         m = re.search(r"\bAS\s+(\w+)$", p, re.IGNORECASE)
         got.append(m.group(1) if m else p.split()[-1])
     assert tuple(got) == STUDIO_COLS, f"SQL 별칭 {got} != STUDIO_COLS {list(STUDIO_COLS)}"
+
+
+def test_trend_report_judge():
+    """리포트 §5 판정 — 깔때기 순서대로, 먼저 걸리는 데서 멈춘다.
+
+    길이는 독립 판정이 아니다(8/26 실측: 독립 규칙이 최고 성과 7편을 전부 '길이 경고'로
+    찍었다). '이탈'일 때만 45초 초과가 처방 힌트로 붙는다."""
+    from ves.scheduler.trend_report import judge
+    k = {"impression_floor": 100, "ctr_floor": 2.0,
+         "retention_min": {"lt30": 65.0, "30to60": 50.0}}
+    assert judge({"impr": 5, "ctr": 40.0, "view_pct": 90, "len": 50}, k)["verdict"] == "배포 안 됨"
+    assert judge({"impr": 500, "ctr": 1.0, "view_pct": 90, "len": 50}, k)["verdict"] == "안 눌림"
+    assert judge({"impr": 500, "ctr": 9.0, "view_pct": 40, "len": 25}, k)["verdict"] == "이탈"
+    r = judge({"impr": 500, "ctr": 9.0, "view_pct": 40, "len": 55}, k)
+    assert r["verdict"] == "이탈" and "재단" in r["hint"]          # 45초 초과 → 재단 힌트
+    r2 = judge({"impr": 500, "ctr": 9.0, "view_pct": 40, "len": 40}, k)
+    assert r2["verdict"] == "이탈" and "재단" not in (r2.get("hint") or "")
+    # 잘 되는 60·77초는 길이가 얼마든 정상 (한 입 주막 실측)
+    assert judge({"impr": 4324, "ctr": 10.75, "view_pct": 100.1, "len": 60}, k)["verdict"] == "정상"
+    assert judge({"impr": 4313, "ctr": 12.38, "view_pct": 78.4, "len": 77}, k)["verdict"] == "정상"
+    # 길이 미상 → 깔때기 1·2단만 판정
+    assert judge({"impr": 500, "ctr": 9.0, "view_pct": 40, "len": None}, k)["verdict"] == "정상"
+    # view_pct 미상(조회 0)은 이탈 판정 불가 → 정상 아님·보류
+    assert judge({"impr": 500, "ctr": 9.0, "view_pct": None, "len": 50}, k)["verdict"] == "판정 보류"
+
+
+def test_trend_report_success_axes():
+    """상위 10%(최소 1편) vs 나머지 — 축별 중앙값 대조. n<5 면 표본 부족으로 비운다."""
+    from ves.scheduler.trend_report import success_axes
+    vids = [{"views": v, "len": ln, "publish_hour": h, "shares": s, "title": t}
+            for v, ln, h, s, t in [
+                (14000, 61, 19, 20, "센터 독점"), (10000, 60, 22, 12, "센터 권한"),
+                (9000, 77, 7, 15, "미친 케미"), (2300, 51, 19, 1, "센터 권력"),
+                (1300, 59, 19, 1, "연속 거절"), (1200, 61, 15, 0, "남이섬"),
+                (450, 52, 15, 0, "게릴라"), (30, 50, 9, 0, "a"), (20, 50, 9, 0, "b"),
+                (10, 50, 9, 0, "c")]]
+    out = success_axes(vids)
+    assert out["top_n"] == 1 and out["top_views_min"] == 14000
+    assert {"len", "publish_hour", "shares_per_1k"} <= set(out["axes"].keys())
+    assert success_axes(vids[:3]) == {}            # 표본 부족
+
+
+def test_trend_report_overlap():
+    """작품명 ↔ 트렌드 제목 문자열 매칭 — 정규화(공백·기호 제거) 후 부분일치."""
+    from ves.scheduler.trend_report import match_overlaps
+    trends = [{"title": "가왕쇼 박서진 센터 논란", "region": "KR"},
+              {"title": "SNL Korea reboot clip", "region": "US"},
+              {"title": "곰 출몰", "region": "KR"}]
+    works = ["가왕쇼", "스트릿 레스토랑 파이터 (g)", "SNL 코리아 리부트 시즌8"]
+    hits = match_overlaps(trends, works)
+    assert {"work": "가왕쇼", "trend": "가왕쇼 박서진 센터 논란", "region": "KR"} in hits
+    assert all(h["work"] != "스트릿 레스토랑 파이터 (g)" for h in hits)
+    assert match_overlaps([], works) == []
+
+
+def test_trend_report_parse_narrative():
+    """Gemini 응답에서 JSON 만 건진다 — 코드펜스·앞뒤 잡담 무시, 실패 시 None(리포트는 성립)."""
+    from ves.scheduler.trend_report import parse_narrative
+    assert parse_narrative('```json\n{"summary": "요약"}\n```') == {"summary": "요약"}
+    assert parse_narrative('설명드리면 {"summary": "요약", "actions": []} 입니다') == {
+        "summary": "요약", "actions": []}
+    assert parse_narrative("JSON 없음") is None
+    assert parse_narrative("") is None
+
+
+def test_algo_watch_weekly_gate():
+    """주 1회 게이트 — checked_at 이 7일 안이면 건너뛴다. 값이 깨졌으면 실행(fail-open)."""
+    import datetime as dt
+    from ves.scheduler.algo_watch import weekly_due
+    now = dt.datetime(2026, 8, 27, 5, 0, tzinfo=dt.timezone.utc)
+    assert weekly_due(None, now) is True
+    assert weekly_due("2026-08-25T00:00:00+00:00", now) is False
+    assert weekly_due("2026-08-19T00:00:00+00:00", now) is True
+    assert weekly_due("깨진 값", now) is True
+
+
+def test_gemini_call_extract_text():
+    """generateContent 응답 파싱 — 후보·parts 가 비거나 형태가 어긋나도 빈 문자열(예외 아님)."""
+    from ves.scheduler.gemini_call import extract_text
+    ok = {"candidates": [{"content": {"parts": [{"text": "가"}, {"text": "나"}]}}]}
+    assert extract_text(ok) == "가나"
+    assert extract_text({}) == ""
+    assert extract_text({"candidates": []}) == ""
+    assert extract_text({"candidates": [{"content": {}}]}) == ""
+    assert extract_text(None) == ""
+
+
+def test_algo_watch_sanitize_proposal():
+    """제안 파싱 — 스키마 밖 키 제거·타입 강제·못 준 필드는 현행 유지. differs 판정."""
+    from ves.scheduler.algo_watch import sanitize_proposal
+    cur = {"sweet_spot_sec": [30, 45], "retention_min": {"lt30": 65.0, "30to60": 50.0},
+           "impression_floor": 100, "ctr_floor": 2.0}
+    # 값이 바뀐 제안
+    p = sanitize_proposal('{"sweet_spot_sec": [25, 50], "confidence": "중간", '
+                          '"sources": ["https://a"], "몰래": 1}', cur, "2026-08-27T00:00:00")
+    assert p["sweet_spot_sec"] == [25, 50] and p["differs"] is True
+    assert p["retention_min"] == cur["retention_min"]      # 못 준 필드 → 현행 유지
+    assert "몰래" not in p and p["checked_at"] == "2026-08-27T00:00:00"
+    # 현행과 같은 제안 → differs=False
+    same = sanitize_proposal(json.dumps(cur), cur, "t")
+    assert same["differs"] is False
+    # 파싱 불가·타입 붕괴 → None
+    assert sanitize_proposal("JSON 아님", cur, "t") is None
+    assert sanitize_proposal('{"impression_floor": "많이"}', cur, "t") is None
