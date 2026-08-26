@@ -3899,12 +3899,12 @@ def test_dashboard_jp_cuts_e9():
     # 무렌더 갱신 — render() 는 재생 중 완성본 video 를 파괴한다
     assert "function edJpCutsSync()" in html
     # 수집 — 플래그·loopy 이중 게이트, start_sec/end_sec 정렬 전송
-    assert "if (edJpCutsOn() && f.loopy){" in html
+    assert "if (edJpCutsOn() && f.overlay){" in html
     assert "({ start_sec: +(+c.start).toFixed(3), end_sec: +(+c.end).toFixed(3) })" in html
     # UI 게이트·타임라인 빗금(.edoover 공용)·제출 가드
-    assert "edJpCutsOn() && f.loopy && canEdit" in html
+    assert "edJpCutsOn() && f.overlay && canEdit" in html
     assert 'id="jpcuts"' in html
-    assert "const cutsOv = edJpCutsOn() && f.loopy ?" in html
+    assert "const cutsOv = edJpCutsOn() && f.overlay ?" in html
     assert 'toast("구간 빼기: " + edJpCutsBad(), true)' in html
 
 
@@ -4072,13 +4072,14 @@ def test_f412_jp_editor_wired():
 def test_f412_loopy_vlp_mirror_and_no_cap():
     """잔망루피(vlp) 배선 — 2026-08-25 실측 사고 후속. 잔망루피 자막은 vlp 가 굽는다:
     ① 유령은 vlp 줄바꿈 미러(16자·공백 없으면 CJK 글자 분할·수동 개행 정본)를 쓴다
-    ② 줄 수 상한 없음(vlp 는 안 자른다) — 제출 가드·over 표시에서 loopy 제외."""
+    ② 줄 수 상한 없음(vlp 는 안 자른다) — 제출 가드·over 표시에서 제외.
+    (f.loopy 는 P6 에서 f.overlay 로 — 화면 분기가 채널이 아니라 현지화 방식이 됐다)"""
     import pathlib
     html = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
     assert "const ED_VLP_WRAP_CHARS = 16;" in html
     assert "function edLayOutVlp(text, width)" in html
     assert "edLayOutVlp(cur.cur || cur.ja, sty.width)" in html   # loopy 분기
-    assert "if (!f.loopy){" in html                               # 제출 가드 예외
+    assert "if (!f.overlay){" in html                               # 제출 가드 예외
 
 
 def test_f412_line_cap_blocked_before_submit():

@@ -150,6 +150,25 @@ def _archive_title(conn, ext_vid: str):
         return None
 
 
+def write_overlay_overrides(eng: str, run_id: str, overrides) -> str | None:
+    """편집실이 고친 것을 overlay 산출 디렉토리에 내려놓는다(P6). 반환: 쓴 경로|None.
+
+    ⚠ overlay 엔진은 rerender 와 달리 **인자로 안 받는다** — `outputs/<video_id>/
+    overrides.json` 을 스스로 읽는다(`pipeline._apply_subtitle_overrides`·`_load_cuts`).
+    그래서 실행 **전에** 그 자리에 놔야 한다.
+
+    없으면 아무것도 안 한다 — 첫 현지화는 이 파일이 없어야 정상이다(회귀 0)."""
+    if not overrides:
+        return None
+    d = pathlib.Path(eng) / "outputs" / str(run_id)
+    d.mkdir(parents=True, exist_ok=True)
+    path = d / "overrides.json"
+    path.write_text(json.dumps(overrides, ensure_ascii=False, indent=2), encoding="utf-8")
+    keys = ", ".join(sorted(k for k in overrides if k != "_"))
+    print(f"[localize] 편집실 수정본 적용: {path} ({keys})")
+    return str(path)
+
+
 def read_metadata_draft(eng: str, run_id: str) -> dict:
     """엔진이 남긴 일본어 메타 초벌. 없으면 빈 dict — 본편을 막지 않는다.
 
@@ -469,6 +488,7 @@ def run(cfg, conn, job, deps):
             raise RuntimeError(f"JP 변환 실패: {msg}")
         note_tail = (cr.stdout or "")[-300:]
     else:
+        write_overlay_overrides(eng, run_id, p.get("overrides"))
         argv = (aivideo_overlay_argv(eng_py, str(src), run_id, p)
                 if overlay_engine == ENGINE_AIVIDEO
                 else localize_argv(eng_py, str(src), run_id, p))
@@ -530,6 +550,10 @@ def run(cfg, conn, job, deps):
           if pairs else "[localize] 화면 글자 없음 — 검수 카드에 대역을 안 싣는다")
     _enqueue_qa(conn, job, {"run_id": run_id, "preview_key": out_key,
                             "bucket": "ves-localized",
+                            # 편집실·0098 이 보는 갈래 열쇠(P6). 종전엔 이 키가 없어
+                            # id 모양으로 추측했다 — 잔망루피 **롱폼**은 우리 타임라인이
+                            # 있는데도 overlay 로 오인될 수 있는 자리였다.
+                            "mode": "overlay",
                             "external_video_id": ext_vid,
                             "route": str(p.get("level") or "B").upper(),
                             "metadata": meta_draft,

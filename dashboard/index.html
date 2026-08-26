@@ -3342,10 +3342,19 @@ window.edSubmit = async () => {
 };
 
 // 일본어 편집 대상 판정 — SHOTCONE(scene_rerender 카드)·잔망루피(LOOPY)
+// 편집실 화면은 **채널이 아니라 현지화 방식**으로 갈린다(P6, 2026-08-26).
+//   overlay  = 완성본 위에 얹은 편 — 구간은 컷 잘라내기뿐, 번인 제목 없음, 줄 수 상한 없음
+//   rerender = 우리 타임라인을 다시 렌더한 편 — KR 편집실 전체가 열린다
+// 🛑 종전엔 카드 종류(zanmang/external id)로 갈랐는데, 그러면 **잔망루피 롱폼**이
+//    틀린 쪽으로 간다: external_video_id 가 있지만 mode 는 scene_rerender 다(우리
+//    타임라인이 있다). 그 편을 overlay 화면으로 열면 있는 기능이 안 보인다.
 function edJpKind(r){
   const pay = (r || {}).payload || {};
-  if (pay.zanmang_video_id || pay.external_video_id) return "loopy";
-  if ((r || {}).kind === "localization_qa" && pay.mode === "scene_rerender") return "shotcone";
+  if ((r || {}).kind !== "localization_qa") return null;
+  if (pay.mode === "scene_rerender") return "rerender";
+  if (pay.mode === "overlay") return "overlay";
+  // mode 가 없는 옛 카드 — vlp 원장 카드와 8/26 이전 overlay 카드가 그렇다.
+  if (pay.zanmang_video_id || pay.external_video_id) return "overlay";
   return null;
 }
 
@@ -3505,7 +3514,8 @@ function edJpResetForm(r){
   edJpCk = new Set();           // 다중 선택은 카드 단위 — 다른 카드로 새면 오삭제
   const pay = (r || {}).payload || {}, pr = pay.ko_ja_pairs || {};
   edJpForm = {
-    rid: r.id, loopy: edJpMode === "loopy", route: pay.route || "",
+    rid: r.id, overlay: edJpMode === "overlay", route: pay.route || "",
+    ext: pay.external_video_id || null,
     woId: r.work_order_id || null, vid: pay.zanmang_video_id || null,
     prevKey: pay.preview_key || null, prevBucket: pay.bucket || "ves-localized",
     url: pay.url || null,                        // LOOPY A 라우트 — 파일 없이 원본 링크 검수
@@ -3559,7 +3569,7 @@ function renderEditJp(){
   const head = `<div class="edhead"><b>${esc(wo.work_title || (r.payload || {}).title || "일본어 편집")}</b>
       <span class="rv2-mac">${esc(chName(r.channel_slug))}</span>
       <span class="sub">일본어 편집 — 문구를 고치면 그 항목만 다시 렌더됩니다</span>
-      <span class="right">${edJpMode === "shotcone" && r.work_order_id
+      <span class="right">${edJpMode === "rerender" && r.work_order_id
         ? `<button class="mini" onclick="openEditor('${edRid}', true)"
             title="한국어 원본을 KR 편집실 전체 기능(컷·구간·자막·내레이션·이미지·스타일)으로 고칩니다 — 보내면 다시 렌더한 뒤 재번역까지 이어져 새 일본어 카드가 올라옵니다">🎬 원본(한국어) 편집실</button>` : ""}
       <button class="mini" onclick="tab='review';render()">← 검수함</button></span></div>`;
@@ -3600,12 +3610,12 @@ function renderEditJp(){
         <div class="sub">완성본 타임라인 — 블록 끌기 = 이동, 양끝 = 길이, 클릭 = 그 시각으로.
           내레이션은 표시만(시각 편집은 엔진 확장 후) · Delete = 선택한 줄 빼기 ·
           Cmd+Z 되돌리기</div>` : ""}
-        ${edJpCutsOn() && f.loopy && canEdit
+        ${edJpCutsOn() && f.overlay && canEdit
           ? `<div id="jpcuts">${edJpCutsHtml(canEdit)}</div>` : ""}
       </div>
       <div class="edright">
         <div class="edtabs">
-          ${[["subs", (f.loopy ? "자막·대사 " : "자막 ")
+          ${[["subs", (f.overlay ? "자막·대사 " : "자막 ")
               + f.subs.filter(s => !s.del).length], ["title", "제목"]]
             .concat(f.tts.length ? [["tts", "내레이션 " + f.tts.length]] : [])
             .concat(f.telops.length
@@ -3627,7 +3637,7 @@ function renderEditJp(){
       <textarea class="reason" id="jpnote" rows="1" placeholder="사유·메모 (선택)"
         oninput="edJpForm.note = this.value" style="flex:1;min-width:180px"></textarea>
       <span>지금 카드는 반려로 닫히고, 고친 본으로 다시 렌더한 새 카드가 올라옵니다${
-        f.loopy ? " (잔망루피는 전체 재실행 — 최대 수 시간)" : ""}</span>
+        f.overlay ? " (잔망루피는 전체 재실행 — 최대 수 시간)" : ""}</span>
     </div>` : f.sent ? "" : `<div class="sub" style="margin-top:10px">${
       !can("reviewer") ? "reviewer 권한이 있어야 고칠 수 있습니다"
       : "이 카드는 닫혀 있어 고칠 수 없습니다"}</div>`}
@@ -3690,7 +3700,7 @@ function edJpPaneHtml(canEdit){
             <textarea class="x" rows="1" id="${pfx}${s.idx}" oninput="edJpMark()" ${
               canEdit && !s.del ? "" : "disabled"}
               title="${edWrapOn()
-                ? (t === "tel" || f.loopy
+                ? (t === "tel" || f.overlay
                    ? "Enter 로 줄을 바꿉니다 — 넣은 자리에서 그대로 영상에 나갑니다"
                    : "Enter 로 줄을 바꿉니다 — 넣은 자리에서 그대로 영상에 나갑니다(최대 2줄)")
                 : ""}"></textarea>
@@ -3713,12 +3723,12 @@ function edJpPaneHtml(canEdit){
     <input type="text" id="jptitle" oninput="edJpMark()" ${canEdit ? "" : "disabled"}
       style="width:100%">
     ${f.titleKo ? `<div class="sub jpko">한국어: ${esc(f.titleKo)}</div>` : ""}
-    ${!f.loopy && f.top ? `
+    ${!f.overlay && f.top ? `
       <div class="edcap">상단 제목 <span class="sub">— 영상 안에 그려지는 글자(줄바꿈 유지)</span></div>
       <textarea id="jptop" rows="2" oninput="edJpMark()" ${canEdit ? "" : "disabled"}
         style="width:100%"></textarea>
       ${f.topKo ? `<div class="sub jpko">한국어: ${esc(f.topKo)}</div>` : ""}`
-      : f.loopy ? '<div class="sub" style="margin-top:6px">잔망루피는 영상 안 글자를 여기서 고칠 수 없습니다(업로드 제목만)</div>' : ""}
+      : f.overlay ? '<div class="sub" style="margin-top:6px">잔망루피는 영상 안 글자를 여기서 고칠 수 없습니다(업로드 제목만)</div>' : ""}
     ${f.desc || f.descKo ? `
       <div class="edcap">업로드 설명 <span class="sub">— YouTube 설명(줄바꿈 유지)</span></div>
       <textarea id="jpdesc" rows="3" oninput="edJpMark()" ${canEdit ? "" : "disabled"}
@@ -3735,10 +3745,10 @@ function edJpPaneHtml(canEdit){
       ${edJpCkBar("tel", f.telops, canEdit)}</div>`
     + rows(f.telops, "jpl_");
   return f.subs.length ? `
-    <div class="edcap">${f.loopy ? "자막·대사" : "자막"} ${f.subs.filter(s => !s.del).length}건
+    <div class="edcap">${f.overlay ? "자막·대사" : "자막"} ${f.subs.filter(s => !s.del).length}건
       <span class="sub">— 시각을 누르면 완성본 그 위치로${edJpStyleOn()
         ? " · 비우거나 ✕ 로 그 줄이 빠집니다 · ✎ 는 위치·크기·색(줄마다 따로)" : ""}${
-        edWrapOn() ? ` · <b>Enter 로 줄바꿈</b>(넣은 자리 그대로${f.loopy ? "" : ", 최대 2줄"}) · 줄이 제멋대로 `
+        edWrapOn() ? ` · <b>Enter 로 줄바꿈</b>(넣은 자리 그대로${f.overlay ? "" : ", 최대 2줄"}) · 줄이 제멋대로 `
           + "접히면 ✎ 로 화면 자막 양옆 ⇔ 를 끌어 글자 통을 넓히세요(크기는 그대로)" : ""}</span>
       ${edJpCkBar("sub", f.subs, canEdit && edJpStyleOn())}</div>`
     + rows(f.subs, "jps_")
@@ -3865,7 +3875,7 @@ function edJpCollect(){
   if (Object.keys(tel).length) ed.telops = tel;
   // 구간 빼기(E9) — 최상위 cuts. 정렬해 보낸다(엔진 검증이 겹침을 즉시 거절하고,
   // 구 엔진은 미지 키를 조용히 무시하므로 플래그(edJpCutsOn) 뒤에서만 싣는다).
-  if (edJpCutsOn() && f.loopy){
+  if (edJpCutsOn() && f.overlay){
     const cuts = (f.cuts || [])
       .filter(c => isFinite(+c.start) && isFinite(+c.end) && +c.start >= 0 && +c.end > +c.start)
       .sort((x, y) => x.start - y.start)
@@ -3919,7 +3929,7 @@ function edJpPaint(t){
   el.style.left = el.style.right = ((1 - jw) / 2 * 100).toFixed(3) + "%";
   const jtx = document.getElementById("jpovsubtx");
   // 줄바꿈 미러 — 잔망루피는 vlp 규칙(16자·CJK 글자 분할), SHOTCONE 은 ai-video 규칙
-  if (jtx) jtx.textContent = (f.loopy
+  if (jtx) jtx.textContent = (f.overlay
     ? edLayOutVlp(cur.cur || cur.ja, sty.width)
     : edLayOut(cur.cur || cur.ja,
         { width: sty.width == null ? null : jw,
@@ -4120,7 +4130,7 @@ function edJpTlHtml(canEdit){
     + lane(f.telops, "tel", "otel", "텔롭", true);
   // 구간 빼기(E9) 빗금 — 들어낼 자리를 전 레인에 걸쳐 표시(.edoover 는 KR 과 공용,
   // pointer-events:none 이라 블록 드래그를 막지 않는다)
-  const cutsOv = edJpCutsOn() && f.loopy ? (f.cuts || [])
+  const cutsOv = edJpCutsOn() && f.overlay ? (f.cuts || [])
     .filter(c => isFinite(+c.start) && isFinite(+c.end) && +c.end > +c.start)
     .map(c => `<div class="edoover" title="구간 빼기 ${(+c.start).toFixed(1)}~${
       (+c.end).toFixed(1)}초" style="left:${
@@ -4158,7 +4168,7 @@ function edJpInspHtml(){
         ? " · 내레이션 시각 편집은 준비 중" : ""}</span>`}
     ${s.endActual === false ? `<span class="sub" style="color:#b45309"
       title="더빙 합성 전 계획값 — 실제 표시 시각과 다를 수 있습니다">계획값</span>` : ""}
-    ${ce && sel.t === "sub" && f.loopy && /C/.test(f.route || "")
+    ${ce && sel.t === "sub" && f.overlay && /C/.test(f.route || "")
       ? '<span class="sub">끝을 고치면 그 값으로 고정(end_fixed)</span>' : ""}
     <button class="mini" title="선택 해제"
       onmousedown="edJpInspFlush();edJpTlSel=null;edJpTlSync()">✕</button>
@@ -4351,7 +4361,7 @@ function edJpConflicts(){
 // 총 삭제 80% 미만. 구 엔진은 최상위 미지 키를 무시하므로 editor_jp_cuts 로 게이트.
 function edJpCutsEditable(){
   const r = (state.reviews || []).find(x => x.id === edRid) || {};
-  return edJpCutsOn() && !!edJpForm && edJpForm.loopy && can("reviewer")
+  return edJpCutsOn() && !!edJpForm && edJpForm.overlay && can("reviewer")
       && r.status === "waiting" && !edJpForm.sent;
 }
 function edJpCutsBad(){
@@ -4429,12 +4439,23 @@ window.edJpCutSet = (i, k, v) => {
   edJpCutsSync();
 };
 
+// 재렌더 잡의 멱등키 — **서버(0038·0098)가 정본**이고 여기 셋은 그 사본이다.
+// 갈리면 진행 표시가 영영 잡을 못 찾는다(새로고침 뒤 '보냈는데 아무 일도 안 남').
+//   구 vlp 카드   zanmang_rerender:<video_id>:<review_id>
+//   overlay(신규) overlay_rerender:<external_video_id>:<review_id>
+//   rerender      rerender:<review_id>
+function edJpChainKey(f){
+  if (f.vid) return `zanmang_rerender:${f.vid}:${f.rid}`;
+  if (f.overlay && f.ext) return `overlay_rerender:${f.ext}:${f.rid}`;
+  return `rerender:${f.rid}`;
+}
+
 // ── 체인 복구(JP-3a) — 새로고침이 진행 표시를 지워도 멱등키는 rid/vid 만으로
 // 재구성된다(0038 정본). 닫힌 카드에서 그 키의 잡이 발견되면 표시를 복원한다.
 async function edJpChainRecover(r){
   if (!r || r.status === "waiting" || !edJpForm || edJpChain) return;
   const f = edJpForm;
-  const key = f.loopy ? `zanmang_rerender:${f.vid}:${f.rid}` : `rerender:${f.rid}`;
+  const key = edJpChainKey(f);
   try {
     const { data } = await sb.from("job_queue").select("status,error,created_at")
       .eq("idempotency_key", key).order("created_at", { ascending: false }).limit(1);
@@ -4446,7 +4467,7 @@ async function edJpChainRecover(r){
     const fresh = Date.now() - new Date(j.created_at).getTime() < 48 * 3600 * 1000;
     if (!fresh && !["pending", "running", "blocked"].includes(j.status)) return;
     f.sent = true;
-    edJpChain = { rid: f.rid, vid: f.vid, woId: f.woId,
+    edJpChain = { rid: f.rid, vid: f.vid, woId: f.woId, ext: f.ext,
                   startedAt: new Date(j.created_at).getTime(), sinceIso: j.created_at,
                   newRid: null, failed: false, job: j, key };
     render();
@@ -4472,12 +4493,12 @@ window.edJpMark = () => {
   f.subs.forEach(s => { grab("jps_" + s.idx, s.ja, v => s.cur = v);
     const el = document.getElementById("jps_" + s.idx);
     edLineBoxSync(el, s.cur);
-    if (f.loopy && el) el.classList.remove("over");   // 잔망루피는 줄 수 상한 없음
+    if (f.overlay && el) el.classList.remove("over");   // 잔망루피는 줄 수 상한 없음
   });
   f.tts.forEach(s => { grab("jpn_" + s.idx, s.ja, v => s.cur = v);
     const el = document.getElementById("jpn_" + s.idx);
     edLineBoxSync(el, s.cur);
-    if (f.loopy && el) el.classList.remove("over");
+    if (f.overlay && el) el.classList.remove("over");
   });
   f.telops.forEach(s => { grab("jpl_" + s.idx, s.ja, v => s.cur = v);
     const el = document.getElementById("jpl_" + s.idx);
@@ -4523,7 +4544,7 @@ window.edJpSubmit = async () => {
   const _jaLines = v => typeof v === "string" ? edLineCount(v)
     : v && typeof v.ja === "string" ? edLineCount(v.ja) : 0;
   const _over = [];
-  if (!f.loopy){
+  if (!f.overlay){
     Object.entries(ed.subs || {}).forEach(([i, v]) => {
       if (_jaLines(v) > ED_WRAP_MAX_LINES) _over.push(`자막 ${+i + 1}번`); });
     Object.entries(ed.tts || {}).forEach(([i, v]) => {
@@ -4546,10 +4567,10 @@ window.edJpSubmit = async () => {
   // 폴 좌표는 체인에 실어 둔다 — 현재 edJpForm 을 읽으면 다른 카드로 옮긴 뒤
   // in-flight 폴이 오염된 쿼리로 영구 폴링한다(리뷰 5). 멱등키는 0038 SQL 이 정본:
   // LOOPY = 'zanmang_rerender:'||vid||':'||review_id, SHOTCONE = 'rerender:'||review_id.
-  edJpChain = { rid: f.rid, vid: f.vid, woId: f.woId,
+  edJpChain = { rid: f.rid, vid: f.vid, woId: f.woId, ext: f.ext,
                 startedAt: Date.now(), sinceIso: new Date().toISOString(),
                 newRid: null, failed: false, job: null,
-                key: f.loopy ? `zanmang_rerender:${f.vid}:${f.rid}` : `rerender:${f.rid}` };
+                key: edJpChainKey(f) };
   render();
 };
 
@@ -4563,7 +4584,7 @@ function edJpChainHtml(){
     : "대기 중…";
   return `<div class="edwarn" style="margin-top:10px">수정 재렌더 진행: <b>${esc(st)}</b>
     <span class="sub">(${Math.round((Date.now() - c.startedAt) / 60000)}분 경과${
-      edJpForm && edJpForm.loopy ? " — 잔망루피는 전체 재실행이라 오래 걸립니다" : ""})</span>
+      edJpForm && edJpForm.overlay ? " — 잔망루피는 전체 재실행이라 오래 걸립니다" : ""})</span>
     ${c.newRid ? `<button class="pri mini" onclick="edOpenNew('${c.newRid}')">새 카드 열기</button>` : ""}
   </div>`;
 }
@@ -4585,9 +4606,16 @@ async function edJpChainPoll(){
       .eq("status", "waiting").neq("id", c.rid)
       .gt("created_at", c.sinceIso)          // 제출 이전부터 있던 카드를 새 카드로 오인 금지
       .order("created_at", { ascending: false }).limit(3);
+    // 새 카드를 무엇으로 찾는가 — 카드마다 가진 열쇠가 다르다(실측):
+    //   구 vlp 카드   work_order_id 가 **없다** → payload.zanmang_video_id
+    //   overlay(신규) work_order_id 가 있다 → 그것으로
+    //   그래도 없으면 external_video_id 로. 셋 다 없으면 찾지 않는다(엉뚱한 카드를
+    //   '새 카드'로 열면 사람이 남의 편을 승인한다).
     q = c.vid ? q.contains("payload", { zanmang_video_id: c.vid })
-              : q.eq("work_order_id", c.woId);
-    const { data: cards } = await q;
+      : c.woId ? q.eq("work_order_id", c.woId)
+      : c.ext ? q.contains("payload", { external_video_id: c.ext })
+      : null;
+    const { data: cards } = q ? await q : { data: [] };
     if (edJpChain !== c) return;
     if ((cards || []).length) c.newRid = cards[0].id;
   } catch (e){ /* 폴링 실패는 다음 틱에 재시도 */ }
