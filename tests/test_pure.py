@@ -5142,3 +5142,92 @@ def test_copyid_destination_ends_with_slash():
     from ves.adapters.acquire_external import rclone_argv
     assert rclone_argv("gdrive:", "ID", "/tmp/work")[-1] == "/tmp/work/"
     assert rclone_argv("gdrive:", "ID", "/tmp/work/")[-1] == "/tmp/work/"
+def test_perf_sync_studio_window():
+    """깔때기 미러 창 — 첫 회전은 보존 창 전체, 이후로는 최근 창만.
+
+    영상 스냅샷(copy_since)과 달리 원천의 과거 하한을 보지 않는다. youtube_studio 는
+    월별 파티션이라 하한 질의가 전 파티션을 훑는다."""
+    from datetime import date, timedelta
+    from ves.scheduler.perf_sync import studio_since
+    today = date(2026, 8, 26)
+    assert studio_since(None, today) == today - timedelta(days=120)      # 비었다 → 한 번에 메운다
+    assert studio_since(date(2026, 8, 25), today) == today - timedelta(days=7)
+    assert studio_since(date(2026, 1, 1), today) == today - timedelta(days=7)
+
+
+def test_trend_scout_config_merge():
+    """설정이 깨져도 수집이 안 돌 뿐 관제를 막지 않는다. regions 가 비면 기본으로 되돌린다."""
+    from ves.scheduler.trend_scout import DEFAULTS, merge_config
+    assert merge_config(None) == DEFAULTS
+    assert merge_config("{not json") == DEFAULTS
+    assert merge_config('{"enabled": true}')["enabled"] is True
+    assert merge_config('{"regions": []}')["regions"] == ["KR", "JP", "US"]   # 빈 목록 → 기본
+    assert merge_config('{"regions": ["KR"]}')["regions"] == ["KR"]
+    assert "몰래" not in merge_config('{"몰래": 1}')                          # 모르는 키는 안 받는다
+
+
+def test_trend_scout_parse_chart():
+    """videos.list 응답 → 행. 순위는 응답 순서이고, 통계가 없어도 버리지 않는다."""
+    from datetime import date
+    from ves.scheduler.trend_scout import category_mix, parse_chart
+    today = date(2026, 8, 26)
+    payload = {"items": [
+        {"id": "aaa", "snippet": {"title": "A", "channelTitle": "CH", "categoryId": "10",
+                                  "publishedAt": "2026-08-25T00:00:00Z"},
+         "statistics": {"viewCount": "1234"}},
+        {"id": "bbb", "snippet": {"title": "B", "categoryId": "10"}, "statistics": {}},
+        {"id": "ccc", "snippet": {"title": "C", "categoryId": "20"}},
+    ]}
+    rows = parse_chart(payload, "KR", today)
+    assert [r["rank"] for r in rows] == [1, 2, 3]
+    assert rows[0]["view_count"] == 1234
+    assert rows[1]["view_count"] is None          # 통계 없어도 순위는 기록된다
+    assert all(r["source"] == "youtube_chart" and r["region"] == "KR" for r in rows)
+    assert category_mix(rows) == {"10": 2, "20": 1}
+    assert parse_chart({}, "KR", today) == []     # 빈 응답 → 빈 목록(예외 아님)
+
+
+def test_trend_scout_parse_trends_rss():
+    """검색 트렌드 RSS. 스키마가 바뀌어 못 읽으면 빈 목록 — 호출자가 '이 소스만 건너뜀'."""
+    from datetime import date
+    from ves.scheduler.trend_scout import parse_trends_rss
+    today = date(2026, 8, 26)
+    xml = """<?xml version="1.0"?>
+    <rss xmlns:ht="https://trends.google.com/trending/rss"><channel>
+      <item><title>곰</title><ht:approx_traffic>20,000+</ht:approx_traffic></item>
+      <item><title>지드래곤</title></item>
+      <item><title>   </title></item>
+    </channel></rss>"""
+    rows = parse_trends_rss(xml, "KR", today)
+    assert [r["title"] for r in rows] == ["곰", "지드래곤"]    # 빈 제목은 버린다
+    assert rows[0]["view_count"] == 20000                      # '20,000+' → 규모
+    assert rows[1]["view_count"] is None
+    assert rows[0]["video_id"] is None and rows[0]["category_id"] is None
+    assert parse_trends_rss("<<깨진 xml", "KR", today) == []
+    assert len(parse_trends_rss(xml, "KR", today, limit=1)) == 1
+
+
+def test_studio_sql_columns_match_tuple_order():
+    """미러 insert 는 STUDIO_COLS 순서로 튜플을 만든다 — SQL 별칭과 어긋나면 조용히
+    엉뚱한 값이 들어가거나 KeyError 로 죽는다. 한쪽만 고치는 사고를 여기서 잡는다."""
+    import re
+    from ves.scheduler.perf_sync import STUDIO_COLS, STUDIO_SQL
+    body = STUDIO_SQL[STUDIO_SQL.index("SELECT") + 6:STUDIO_SQL.index("FROM")]
+    # 괄호 밖 콤마로만 쪼갠다(CASE WHEN … 안의 콤마·괄호에 안 속게)
+    parts, depth, cur = [], 0, ""
+    for ch in body:
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        if ch == "," and depth == 0:
+            parts.append(cur); cur = ""
+        else:
+            cur += ch
+    parts.append(cur)
+    got = []
+    for p in parts:
+        p = " ".join(p.split())
+        m = re.search(r"\bAS\s+(\w+)$", p, re.IGNORECASE)
+        got.append(m.group(1) if m else p.split()[-1])
+    assert tuple(got) == STUDIO_COLS, f"SQL 별칭 {got} != STUDIO_COLS {list(STUDIO_COLS)}"
