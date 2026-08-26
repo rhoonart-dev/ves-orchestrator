@@ -74,15 +74,14 @@ def chunks(seq, n=200):
     return [seq[i:i + n] for i in range(0, len(seq), n)] if seq else []
 
 
-def studio_since(mirror_max, today, keep_days=KEEP_DAYS, copy_days=COPY_DAYS):
-    """깔때기 미러(perf_studio_daily)가 이번 회전에 어느 날짜부터 읽을지. 순수 — 테스트 대상.
-
-    비었으면 보존 창 전체를 한 번에 받고(첫 회전), 이후로는 최근 창만 다시 읽는다.
-    영상 스냅샷(copy_since)과 달리 원천의 과거 하한을 보지 않는다 — youtube_studio 는
-    월별 파티션이라 하한 질의가 전 파티션을 훑는다."""
-    if mirror_max is None:
-        return today - timedelta(days=keep_days)
-    return today - timedelta(days=copy_days)
+# 깔때기 미러의 원천 하한 질의. copy_since 의 src_min 재료 — upload_at 범위를
+# **명시해서** 묻는다. 무제한 min() 은 RANGE(upload_at) 전 파티션(2025-01~)을 훑는다.
+STUDIO_SRC_MIN_SQL = """
+    SELECT min((upload_at AT TIME ZONE 'Asia/Seoul'))::date AS mn
+      FROM youtube_studio
+     WHERE channel_id = ANY(%s)
+       AND upload_at >= ((current_date - %s)::date AT TIME ZONE 'Asia/Seoul')
+"""
 
 
 def copy_since(mirror_min, src_min, today, keep_days=KEEP_DAYS, copy_days=COPY_DAYS):
@@ -150,10 +149,18 @@ def run(conn, cfg):
                 (ch_ids, since))
             csnap = c.fetchall()
 
-        # 깔때기(노출·CTR·완주율) — 0097. 영상 스냅샷과 창을 따로 잡는다(알갱이가 다르다).
+        # 깔때기(노출·CTR·완주율) — 0097. 영상 스냅샷과 **같은 창 규율**(copy_since)을 쓴다:
+        # 미러 앞쪽에 구멍이 있으면 원천이 가진 데까지 한 번에 메우고, 평시엔 최근 창만.
+        # ⚠ max(stat_date) 로 '비었나'만 보던 종전 로직의 사고(8/26 실측): 검증 데이터
+        # 7행(8/19~22)이 먼저 들어가 있자 첫 회전이 평시 창으로 진입해 120일 대신 나흘만
+        # 적재했고, 앞쪽 구멍(~8/18)은 영영 메워지지 않았다. 구멍은 min 으로만 보인다.
         with conn.cursor() as c:
-            c.execute("SELECT max(stat_date) AS mx FROM public.perf_studio_daily")
-            studio_from = studio_since(c.fetchone()["mx"], today)
+            c.execute("SELECT min(stat_date) AS mn FROM public.perf_studio_daily")
+            studio_mirror_min = c.fetchone()["mn"]
+        with lae.cursor() as c:
+            c.execute(STUDIO_SRC_MIN_SQL, (ch_ids, KEEP_DAYS))
+            studio_src_min = c.fetchone()["mn"]
+        studio_from = copy_since(studio_mirror_min, studio_src_min, today)
         studio = []
         for part in chunks(ch_ids):
             with lae.cursor() as c:
