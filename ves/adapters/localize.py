@@ -496,40 +496,38 @@ def run(cfg, conn, job, deps):
     elif ext_vid:
         print("[localize] ⚠️ 일본어 메타 초벌 없음 — 검수는 되지만 발행 잡은 못 선다")
 
-    with conn.cursor() as c:
-        c.execute("""SELECT 1 FROM public.review_queue
-                      WHERE kind='localization_qa' AND work_order_id=%s AND status='waiting'""",
-                  (job["work_order_id"],))
-        if not c.fetchone():
-            c.execute(
-                """INSERT INTO public.review_queue
-                       (kind, work_order_id, job_id, channel_slug, payload)
-                   VALUES ('localization_qa', %s, %s, %s, %s::jsonb)""",
-                (job["work_order_id"], job["id"], p.get("channel_slug"),
-                 json.dumps({"run_id": run_id, "preview_key": out_key,
-                             "bucket": "ves-localized",
-                             "external_video_id": ext_vid,
-                             "route": str(p.get("level") or "B").upper(),
-                             "metadata": meta_draft,
-                             "note": note_tail}, ensure_ascii=False)))
+    _enqueue_qa(conn, job, {"run_id": run_id, "preview_key": out_key,
+                            "bucket": "ves-localized",
+                            "external_video_id": ext_vid,
+                            "route": str(p.get("level") or "B").upper(),
+                            "metadata": meta_draft,
+                            "note": note_tail})
     return {"run_id": run_id, "localized_key": out_key, "stdout_tail": note_tail,
             "localize_engine": overlay_engine, "mode": "overlay",
             "metadata_title_candidates": len(meta_draft.get("title_candidates") or [])}
 
 
 def _enqueue_qa(conn, job, payload: dict):
-    """localization_qa 검수함 등록(대기중 중복 방지) — 두 모드 공용."""
+    """localization_qa 검수함 등록 — 두 모드 공용.
+
+    ⚠ 대기 중인 카드가 있으면 **그 카드의 payload 를 갈아끼운다**(건너뛰지 않는다).
+    종전엔 건너뛰었는데, 그러면 재렌더·재현지화를 돌려도 사람이 보는 것은 **옛 자료**다
+    — 0075 가 잡은 그 함정("새 카드의 ko_ja_pairs 가 직전 카드와 바이트 단위로 동일")과
+    같은 부류다. 결정된(approved·rejected) 카드는 감사 기록이므로 손대지 않는다."""
     with conn.cursor() as c:
-        c.execute("""SELECT 1 FROM public.review_queue
+        c.execute("""UPDATE public.review_queue
+                        SET payload = %s::jsonb, job_id = %s
                       WHERE kind='localization_qa' AND work_order_id=%s AND status='waiting'""",
-                  (job["work_order_id"],))
-        if not c.fetchone():
-            c.execute(
-                """INSERT INTO public.review_queue
-                       (kind, work_order_id, job_id, channel_slug, payload)
-                   VALUES ('localization_qa', %s, %s, %s, %s::jsonb)""",
-                (job["work_order_id"], job["id"], job["params"].get("channel_slug"),
-                 json.dumps(payload, ensure_ascii=False)))
+                  (json.dumps(payload, ensure_ascii=False), job["id"], job["work_order_id"]))
+        if c.rowcount:
+            print(f"[localize] 대기 중이던 검수 카드를 이번 산출로 갱신했다({c.rowcount}건)")
+            return
+        c.execute(
+            """INSERT INTO public.review_queue
+                   (kind, work_order_id, job_id, channel_slug, payload)
+               VALUES ('localization_qa', %s, %s, %s, %s::jsonb)""",
+            (job["work_order_id"], job["id"], job["params"].get("channel_slug"),
+             json.dumps(payload, ensure_ascii=False)))
 
 
 def _run_scene_rerender(cfg, conn, job, deps):

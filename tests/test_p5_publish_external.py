@@ -210,3 +210,25 @@ def test_route_labels_match_the_engine_levels():
     for route in ("A:", "B:", "BJ:", "C:", "BC:"):
         assert route in block
     assert "무변환" not in block
+
+
+# ── ⑦ 재실행하면 검수 카드도 새 산출을 가리켜야 한다 ───────────────────────
+
+def test_rerun_refreshes_the_waiting_card_instead_of_skipping():
+    """🛑 종전엔 대기 카드가 있으면 **건너뛰었다** — 다시 돌려도 사람은 옛 자료를 본다.
+
+    0075 가 잡은 함정과 같은 부류다(새 카드의 ko_ja_pairs 가 직전 카드와 바이트 단위로
+    동일했다). 결정된 카드는 감사 기록이라 손대지 않는다(status='waiting' 조건)."""
+    src = pathlib.Path("ves/adapters/localize.py").read_text(encoding="utf-8")
+    fn = src.split("def _enqueue_qa(", 1)[1].split("\ndef ", 1)[0]
+    assert "UPDATE public.review_queue" in fn
+    assert "status='waiting'" in fn
+    assert fn.index("UPDATE public.review_queue") < fn.index("INSERT INTO public.review_queue")
+
+
+def test_both_modes_use_the_same_card_helper():
+    """overlay 와 rerender 가 각자 INSERT 하면 한쪽만 고쳐진다(실제로 그랬다)."""
+    src = pathlib.Path("ves/adapters/localize.py").read_text(encoding="utf-8")
+    assert src.count("INSERT INTO public.review_queue") == 1
+    calls = src.count("_enqueue_qa(conn, job,") - src.count("def _enqueue_qa(conn, job,")
+    assert calls == 2, f"호출부 {calls}곳"
