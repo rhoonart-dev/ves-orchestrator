@@ -5,6 +5,11 @@ laeebly 는 권리·성과의 정본이고 계속 읽기 전용이다(§2). 관�
 닿을 수 없으므로, 우리 채널(channels_mirror.channel_id)분만 fdidiqd 로 복사해
 성과 탭이 RLS 아래에서 직접 SELECT 하게 한다.
 
+0097 부터 **깔때기**(`youtube_studio` → `perf_studio_daily`)도 같이 미러한다 — 노출·CTR·
+완주율이다. 조회수만으로는 "조회 0" 이 배포 실패인지 콘텐츠 실패인지 갈리지 않는다
+(docs/TREND_REPORT.md §1). 알갱이가 다르니 테이블을 따로 둔다 — 영상 스냅샷은 **누적**,
+깔때기는 **그날치 증분**이다.
+
 창은 둘로 나뉜다 — **복사 창**(매시간 다시 읽는 최근 며칠)과 **보존 창**(미러에 남기는 기간).
 지난 스냅샷은 원천에서도 더 바뀌지 않으므로 매시간 다시 읽을 이유가 없다. 대신 오래
 보관해야 성과 탭에서 긴 기간을 고를 수 있다. 미러에 과거 구멍이 있으면(첫 회전이거나
@@ -18,11 +23,66 @@ COPY_DAYS = 7      # 매시간 다시 읽는 창 — 최근분만 갱신된다
 KEEP_DAYS = 120    # 미러 보존 창 — 성과 탭 기간 선택의 상한
 VIDEO_DAYS = 180   # 영상 목록 창(published_at 기준) — 성과 탭 목록 범위
 
+# 깔때기 원천(0097).
+#
+# ## 날짜 축은 upload_at 이다 — created_at 이 아니다
+#
+# `upload_at` 은 **그 통계가 어느 날짜의 것인지**이고 `created_at` 은 **언제 수집했는지**다.
+# 하루에 여러 날짜분을 몰아 넣는 날이 있어 둘이 갈린다 — 8/15 실측: 06:19 수집분은
+# 8/10 자(노출 107), 16:35 수집분은 8/11 자(노출 135)다. 같은 날 재보고가 아니라
+# **서로 다른 날의 증분**이라 둘 다 넣어야 맞다. `(content_id, upload_at)` 은 유일하다
+# (B급 순삭 8월 파티션 1,779행 = 1,779키 실측) — 그래서 중복 제거가 필요 없다.
+#
+# ## upload_at 으로 걸러야 파티션이 잘린다
+#
+# `youtube_studio` 는 RANGE (upload_at) 월별 파티션이다. `created_at` 으로 거르면
+# 프루닝이 안 돼 전 파티션(2025-01~)을 훑는다 — 실측에서 질의가 응답하지 못했다.
+#
+# · video_length 는 varchar 다. 관측값은 '25.0' 같은 초 단위 실수 문자열이지만
+#   형식이 어긋난 값이 오면 캐스팅이 통째로 죽으므로 정규식으로 거른다(맞지 않으면 NULL).
+# · publish_time 은 naive 다. laeebly 는 KST 로 쓴다(created_at 이 +09) — 그렇게 읽는다.
+STUDIO_SQL = """
+    SELECT content_id,
+           (upload_at AT TIME ZONE 'Asia/Seoul')::date AS stat_date,
+           channel_id,
+           licensed_video_title AS work_title,
+           video_title,
+           publish_time AT TIME ZONE 'Asia/Seoul' AS publish_time,
+           CASE WHEN video_length ~ '^[0-9]+(\\.[0-9]+)?$'
+                THEN video_length::numeric END AS video_length,
+           impressions,
+           impression_click_rate AS ctr,
+           views, valid_views,
+           average_view_percentage AS view_pct,
+           kept_watching_rate AS kept_rate,
+           watch_time_hours AS watch_hours,
+           subscribers, likes, shares, comments_added AS comments
+      FROM youtube_studio
+     WHERE channel_id = ANY(%s)
+       AND upload_at >= (%s::date AT TIME ZONE 'Asia/Seoul')
+"""
+
+STUDIO_COLS = ("content_id", "stat_date", "channel_id", "work_title", "video_title",
+               "publish_time", "video_length", "impressions", "ctr", "views",
+               "valid_views", "view_pct", "kept_rate", "watch_hours",
+               "subscribers", "likes", "shares", "comments")
+
 
 def chunks(seq, n=200):
     """IN 절 안전 분할. 순수 — 테스트 대상."""
     seq = list(seq)
     return [seq[i:i + n] for i in range(0, len(seq), n)] if seq else []
+
+
+def studio_since(mirror_max, today, keep_days=KEEP_DAYS, copy_days=COPY_DAYS):
+    """깔때기 미러(perf_studio_daily)가 이번 회전에 어느 날짜부터 읽을지. 순수 — 테스트 대상.
+
+    비었으면 보존 창 전체를 한 번에 받고(첫 회전), 이후로는 최근 창만 다시 읽는다.
+    영상 스냅샷(copy_since)과 달리 원천의 과거 하한을 보지 않는다 — youtube_studio 는
+    월별 파티션이라 하한 질의가 전 파티션을 훑는다."""
+    if mirror_max is None:
+        return today - timedelta(days=keep_days)
+    return today - timedelta(days=copy_days)
 
 
 def copy_since(mirror_min, src_min, today, keep_days=KEEP_DAYS, copy_days=COPY_DAYS):
@@ -89,6 +149,16 @@ def run(conn, cfg):
                     WHERE channel_id = ANY(%s) AND snapshot_date >= %s""",
                 (ch_ids, since))
             csnap = c.fetchall()
+
+        # 깔때기(노출·CTR·완주율) — 0097. 영상 스냅샷과 창을 따로 잡는다(알갱이가 다르다).
+        with conn.cursor() as c:
+            c.execute("SELECT max(stat_date) AS mx FROM public.perf_studio_daily")
+            studio_from = studio_since(c.fetchone()["mx"], today)
+        studio = []
+        for part in chunks(ch_ids):
+            with lae.cursor() as c:
+                c.execute(STUDIO_SQL, (part, studio_from))
+                studio.extend(c.fetchall())
     finally:
         lae.close()
 
@@ -121,13 +191,32 @@ def run(conn, cfg):
                    view_count=EXCLUDED.view_count, video_count=EXCLUDED.video_count""",
             [(s["channel_id"], s["snapshot_date"], s["subscriber_count"],
               s["view_count"], s["video_count"]) for s in csnap])
+        c.executemany(
+            """INSERT INTO public.perf_studio_daily
+                   (content_id, stat_date, channel_id, work_title, video_title,
+                    publish_time, video_length, impressions, ctr, views, valid_views,
+                    view_pct, kept_rate, watch_hours, subscribers, likes, shares,
+                    comments, synced_at)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,now())
+               ON CONFLICT (content_id, stat_date) DO UPDATE SET
+                   channel_id=EXCLUDED.channel_id, work_title=EXCLUDED.work_title,
+                   video_title=EXCLUDED.video_title, publish_time=EXCLUDED.publish_time,
+                   video_length=EXCLUDED.video_length, impressions=EXCLUDED.impressions,
+                   ctr=EXCLUDED.ctr, views=EXCLUDED.views, valid_views=EXCLUDED.valid_views,
+                   view_pct=EXCLUDED.view_pct, kept_rate=EXCLUDED.kept_rate,
+                   watch_hours=EXCLUDED.watch_hours, subscribers=EXCLUDED.subscribers,
+                   likes=EXCLUDED.likes, shares=EXCLUDED.shares, comments=EXCLUDED.comments,
+                   synced_at=now()""",
+            [tuple(r[k] for k in STUDIO_COLS) for r in studio])
         # 보존 창 밖 정리(테이블 비대 방지)
         c.execute("DELETE FROM public.perf_video_snapshot WHERE snapshot_date < current_date - %s",
                   (KEEP_DAYS,))
         c.execute("DELETE FROM public.perf_channel_snapshot WHERE snapshot_date < current_date - %s",
                   (KEEP_DAYS,))
+        c.execute("DELETE FROM public.perf_studio_daily WHERE stat_date < current_date - %s",
+                  (KEEP_DAYS,))
     print(f"[perf_sync] {since} 이후 복사 — 영상 {len(vmap)} · 영상스냅 {len(vsnap)} "
-          f"· 채널스냅 {len(csnap)} 미러됨")
+          f"· 채널스냅 {len(csnap)} · 깔때기 {len(studio)}({studio_from} 이후) 미러됨")
     backfill_missing(conn, cfg)
 
 
