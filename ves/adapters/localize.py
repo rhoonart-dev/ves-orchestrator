@@ -189,26 +189,54 @@ def overlay_pairs(eng: str, run_id: str, limit: int = 40) -> dict:
     실리지 않아서**, 완성본에 그려진 것을 검수자가 대조할 방법이 없었다(rerender 카드만
     실었다). 인형 무늬를 글자로 잡아 그린 편이 그대로 검수를 통과할 뻔했다.
 
-    화면에 그려지는 글자이므로 rerender 와 같은 칸(`telops`)에 넣는다 — 대시보드는
-    그 어휘를 이미 그린다(새 UI 를 만들지 않는다). 상한 40건도 그쪽과 같다."""
-    path = pathlib.Path(eng) / "outputs" / str(run_id) / "translations.json"
+    칸은 **`subs`** 다(P6-2 — 첫 판은 `telops` 였다). 이유는 편집 왕복이다: 대시보드가
+    고친 줄을 `p_edits.subs{idx:…}` 로 보내고, 엔진(`_apply_subtitle_overrides` — vlp
+    `process_video` 도 같다)이 읽는 것도 `subs{idx}` **하나뿐**이다. telops 로 실으면
+    화면은 그려도 고친 값이 엔진에서 조용히 증발한다.
+
+    idx = **translations.json entries 순번**(엔진 오버라이드 좌표 그대로 — render
+    `attach_entry_overrides` 독스트링이 이 계약을 명시한다). 재실행에도 안정적이다:
+    entries 순서는 detections(paddleocr 결정적 — 실측 18/18 동일) 순서고, 오버라이드
+    병합은 translate 가 초벌을 다시 쓴 **뒤**에 돈다. use:false(소프트 삭제) 줄은
+    빼되 **idx 는 건너뛴 채 보존**한다 — 좌표가 당겨지면 다음 편집이 엉뚱한 줄을 고친다.
+
+    시각·스타일은 ja_events.json(entry_idx ↔ start/end/style)에서 얹는다 — 없으면
+    (BC clean 모드·구 산출) 문구만 싣는다(시각 없는 카드도 편집은 된다)."""
+    base = pathlib.Path(eng) / "outputs" / str(run_id)
     try:
-        doc = json.loads(path.read_text(encoding="utf-8"))
+        doc = json.loads((base / "translations.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
+    ev_by_idx = {}
+    try:
+        events = json.loads((base / "ja_events.json").read_text(encoding="utf-8"))
+        for ev in (events.get("events") or []):
+            i = ev.get("entry_idx")
+            # 같은 줄이 여러 구간이면 **첫 구간**만 — 카드의 '이 시각으로 이동' 용도
+            if isinstance(i, int) and i not in ev_by_idx:
+                ev_by_idx[i] = ev
+    except (OSError, ValueError):
+        pass
     rows = []
-    for e in (doc.get("entries") or []):
+    for i, e in enumerate(doc.get("entries") or []):
         if not isinstance(e, dict) or e.get("use") is False:
             continue
         ko, ja = str(e.get("source") or ""), str(e.get("target") or "")
-        if ko or ja:
-            rows.append({"ko": ko, "ja": ja})
+        if not (ko or ja):
+            continue
+        row = {"idx": i, "ko": ko, "ja": ja}
+        ev = ev_by_idx.get(i)
+        if ev is not None:
+            row["start"], row["end"] = ev.get("start"), ev.get("end")
+        if isinstance(e.get("style"), dict):
+            row["style"] = e["style"]
+        rows.append(row)
     if not rows:
         return {}
     if len(rows) > limit:
         print(f"[localize] 검수 대역 {len(rows)}건 중 앞 {limit}건만 카드에 싣는다")
         rows = rows[:limit]
-    return {"telops": rows}
+    return {"subs": rows}
 
 
 def aivideo_overlay_argv(ai_py: str, video: str, video_id: str, params: dict) -> list:

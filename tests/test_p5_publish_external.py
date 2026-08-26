@@ -353,25 +353,62 @@ def test_overlay_cards_carry_the_on_screen_text():
     assert callable(overlay_pairs)
 
 
-def test_pairs_use_the_vocabulary_the_dashboard_already_draws():
-    """새 UI 를 만들지 않는다 — rerender 카드와 같은 칸(telops)에 넣는다."""
+def test_pairs_use_the_engine_override_coordinate():
+    """칸은 subs 다(P6-2 — 첫 판 telops 에서 교정). 엔진(_apply_subtitle_overrides ·
+    vlp process_video)이 읽는 오버라이드가 subs{idx} **하나뿐**이라, telops 로 실으면
+    화면은 그려도 편집실이 고친 값이 엔진에서 조용히 증발한다."""
     from ves.adapters import localize as lz
     got = lz.overlay_pairs.__doc__ or ""
-    assert "telops" in got
+    assert "subs" in got
     html = _html()
-    assert "pr.telops" in html                    # 대시보드가 이미 그리는 칸
+    assert "pr.subs" in html                      # 대시보드가 이미 그리는 칸
 
 
-def test_pairs_skip_soft_deleted_lines(tmp_path):
+def test_pairs_skip_soft_deleted_lines_but_keep_idx(tmp_path):
+    """use:false 줄은 빼되 **idx 는 건너뛴 채 보존** — 좌표가 당겨지면 다음 편집이
+    엉뚱한 줄을 고친다(idx = translations.json entries 순번 = 엔진 오버라이드 좌표)."""
+    from ves.adapters.localize import overlay_pairs
+    d = tmp_path / "outputs" / "vid"
+    d.mkdir(parents=True)
+    (d / "translations.json").write_text(json.dumps({"entries": [
+        {"source": "지운 줄", "target": "x", "use": False},
+        {"source": "루피야", "target": "ルーピー"},
+    ]}, ensure_ascii=False), encoding="utf-8")
+    got = overlay_pairs(str(tmp_path), "vid")
+    assert got == {"subs": [{"idx": 1, "ko": "루피야", "ja": "ルーピー"}]}
+
+
+def test_pairs_carry_timing_from_ja_events(tmp_path):
+    """시각은 ja_events.json(entry_idx ↔ start/end)에서 — 카드의 '이 시각으로 이동'과
+    편집실 타임라인이 이 값을 쓴다. 같은 줄이 여러 구간이면 첫 구간만."""
+    from ves.adapters.localize import overlay_pairs
+    d = tmp_path / "outputs" / "vid"
+    d.mkdir(parents=True)
+    (d / "translations.json").write_text(json.dumps({"entries": [
+        {"source": "루피야", "target": "ルーピー", "style": {"size": 44.0}},
+        {"source": "둘째", "target": "二番"},
+    ]}, ensure_ascii=False), encoding="utf-8")
+    (d / "ja_events.json").write_text(json.dumps({"events": [
+        {"entry_idx": 0, "start": 1.5, "end": 3.0, "text": "ルーピー"},
+        {"entry_idx": 0, "start": 9.0, "end": 10.0, "text": "ルーピー"},
+        {"entry_idx": None, "start": 4.0, "end": 5.0, "text": "?"},
+    ]}, ensure_ascii=False), encoding="utf-8")
+    got = overlay_pairs(str(tmp_path), "vid")
+    assert got["subs"][0] == {"idx": 0, "ko": "루피야", "ja": "ルーピー",
+                              "start": 1.5, "end": 3.0, "style": {"size": 44.0}}
+    assert got["subs"][1] == {"idx": 1, "ko": "둘째", "ja": "二番"}   # 시각 없는 줄도 실린다
+
+
+def test_pairs_without_events_still_editable(tmp_path):
+    """ja_events 가 없어도(구 산출·BC clean) 문구는 싣는다 — 시각 없는 카드도 편집은 된다."""
     from ves.adapters.localize import overlay_pairs
     d = tmp_path / "outputs" / "vid"
     d.mkdir(parents=True)
     (d / "translations.json").write_text(json.dumps({"entries": [
         {"source": "루피야", "target": "ルーピー"},
-        {"source": "지운 줄", "target": "x", "use": False},
     ]}, ensure_ascii=False), encoding="utf-8")
-    got = overlay_pairs(str(tmp_path), "vid")
-    assert got == {"telops": [{"ko": "루피야", "ja": "ルーピー"}]}
+    assert overlay_pairs(str(tmp_path), "vid") == {
+        "subs": [{"idx": 0, "ko": "루피야", "ja": "ルーピー"}]}
 
 
 def test_missing_translations_file_is_not_an_error(tmp_path):
