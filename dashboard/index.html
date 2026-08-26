@@ -10565,7 +10565,7 @@ const anyVideoPlaying = () =>
   [...document.querySelectorAll("video")].some(v => !v.paused && !v.ended);
 const userTyping = () => { const a = document.activeElement;
   return !!a && ["INPUT","TEXTAREA","SELECT"].includes(a.tagName); };
-setInterval(() => { if (auto && !document.hidden && tab !== "perf" && tab !== "edit"
+setInterval(() => { if (auto && !document.hidden && !window.__tlOpen && tab !== "perf" && tab !== "edit"
                     && !anyVideoPlaying() && !userTyping()) refresh(); }, 15000);
 $("#btnRefresh").onclick = () => refresh();
 $("#btnTheme").onclick = () =>
@@ -10573,7 +10573,7 @@ $("#btnTheme").onclick = () =>
 $("#btnAuto").onclick = e => { auto = !auto; e.target.textContent = `자동 15s: ${auto?"켬":"끔"}`; };
 // 편집실은 제외 — 복귀 refresh 가 미리보기 재생·편집 중 DOM 을 예고 없이 갈아치운다
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden && auto && tab !== "edit") refresh(); });
+  if (!document.hidden && auto && !window.__tlOpen && tab !== "edit") refresh(); });
 window.rpc = rpc; window.armed = armed; window.$ = $;
 </script>
 
@@ -11339,8 +11339,14 @@ window.openByReview = async rid => {
 async function openRun(runId, btn){
   document.querySelectorAll(".runbtn.on").forEach(b => b.classList.remove("on"));
   if (btn) btn.classList.add("on");
-  const { data, error } = await sb.from("editor_assets")
-    .select("*").eq("run_id", runId).maybeSingle();
+  // 1파: 재료 + ops_config(서로 무관) 동시에
+  const [{ data, error }, opsRes] = await Promise.all([
+    sb.from("editor_assets").select("*").eq("run_id", runId).maybeSingle(),
+    Object.keys(opsCfg).length ? Promise.resolve({ data: null })
+      : sb.from("ops_config").select("key,value")
+          .in("key", ["editor_tts_voices", "editor_tts_elevenlabs"]),
+  ]);
+  ((opsRes || {}).data || []).forEach(o => { opsCfg[o.key] = o.value; });
   if (error || !data){
     alert(error ? error.message
       : "이 run 의 편집 재료가 아직 없습니다.\n본 대시보드 검수함에서 [🎬 편집실] 을 한 번 열어 재료를 만든 뒤 다시 여세요.");
@@ -11349,34 +11355,27 @@ async function openRun(runId, btn){
   showRunLabel();
   // 자유 텍스트·이미지의 정본은 이전 라운드 제출값(edit_overrides) — 본 편집실과
   // 같은 소스(generate 잡 params)를 읽기만 한다.
-  cur.prevOv = {};
-  if (data.work_order_id){
-    const { data: gj } = await sb.from("job_queue")
-      .select("params").eq("kind", "generate").eq("status", "succeeded")
-      .eq("work_order_id", data.work_order_id)
-      .order("created_at", { ascending: false }).limit(1).maybeSingle();
-    cur.prevOv = ((gj || {}).params || {}).edit_overrides || {};
-  }
-  // AI 연출 요약(E15) — 검수 카드 payload.style. 전체 계획은 노드에만 있으므로
-  // 여기서는 요약(디자인 키 목록·건수·컨셉)까지만 보여준다.
-  cur.style = null;
-  {
-    const { data: rv } = await sb.from("review_queue")
-      .select("payload,channel_slug,created_at").eq("payload->>run_id", runId)
-      .order("created_at", { ascending: false }).limit(1).maybeSingle();
-    cur.style = ((rv || {}).payload || {}).style || null;
-    cur.channel = (rv || {}).channel_slug || null;
-    if (!Object.keys(opsCfg).length){
-      const { data: ops } = await sb.from("ops_config")
-        .select("key,value").in("key", ["editor_tts_voices", "editor_tts_elevenlabs"]);
-      (ops || []).forEach(o => { opsCfg[o.key] = o.value; });
-    }
-    cur.chDesign = {};
-    if (cur.channel){
-      const { data: cd } = await sb.from("channel_design_overrides")
-        .select("design").eq("token_slug", cur.channel).maybeSingle();
-      cur.chDesign = (cd || {}).design || {};
-    }
+  // 2파: 이전 라운드 오버라이드(job_queue) + AI 연출 요약·채널(review_queue) 동시에
+  cur.prevOv = {}; cur.style = null; cur.chDesign = {};
+  const [gjRes, rvRes] = await Promise.all([
+    data.work_order_id
+      ? sb.from("job_queue").select("params").eq("kind", "generate").eq("status", "succeeded")
+          .eq("work_order_id", data.work_order_id)
+          .order("created_at", { ascending: false }).limit(1).maybeSingle()
+      : Promise.resolve({ data: null }),
+    sb.from("review_queue").select("payload,channel_slug,created_at")
+      .eq("payload->>run_id", runId)
+      .order("created_at", { ascending: false }).limit(1).maybeSingle(),
+  ]);
+  cur.prevOv = (((gjRes || {}).data || {}).params || {}).edit_overrides || {};
+  const rv = (rvRes || {}).data;
+  cur.style = ((rv || {}).payload || {}).style || null;
+  cur.channel = (rv || {}).channel_slug || null;
+  // 3파: 채널 디자인(채널을 알아야 물을 수 있다)
+  if (cur.channel){
+    const { data: cd } = await sb.from("channel_design_overrides")
+      .select("design").eq("token_slug", cur.channel).maybeSingle();
+    cur.chDesign = (cd || {}).design || {};
   }
   buildModel(); $("#stage").style.display = "flex"; $("#empty").style.display = "none";
   if (window.__railOn && window.renderRailPanel) renderRailPanel(window.__railOn);
@@ -13748,6 +13747,7 @@ window.tlCur = () => cur;   // 디버깅용 상태 접근
 })();
 // ── 전환 글루 — 대시보드 쪽에서 부른다. 주소(#tl-…)에도 남겨 새로고침·공유 지원 ──
 window.tlOpen = opts => {
+  window.__tlOpen = true;              // 대시보드 폴링 정지(경합·DOM 재구성 방지)
   document.getElementById("tlcss").media = "all";
   const r = document.getElementById("tlRoot");
   r.style.display = "flex"; r.style.flexDirection = "column";
@@ -13756,6 +13756,7 @@ window.tlOpen = opts => {
   window.__tlEnter(opts);
 };
 window.tlClose = () => {
+  window.__tlOpen = false;
   document.getElementById("tlRoot").style.display = "none";
   document.getElementById("tlcss").media = "not all";
   document.body.classList.remove("applayout", "editing");
