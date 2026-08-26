@@ -31,6 +31,7 @@ DEFAULT_K = {"sweet_spot_sec": [30, 45],
 
 _NORM = re.compile(r"[^0-9a-z가-힣]")
 _PAREN = re.compile(r"\([^)]*\)")
+_KST = dt.timezone(dt.timedelta(hours=9))
 
 
 # ───────── 순수 (테스트 대상) ─────────
@@ -127,6 +128,25 @@ def success_axes(vids: list) -> dict:
 
 def _norm(s: str) -> str:
     return _NORM.sub("", _PAREN.sub("", (s or "").lower()))
+
+
+def cap_regions(trends: list, per_source: int = 10) -> dict:
+    """지역별 트렌드 목록 — **소스별로** 상한을 건다. 순수 — 테스트 대상.
+
+    리뷰 지적: 지역당 [:15] 일괄 절단은 정렬(google_trends < youtube_chart 사전순)과
+    상호작용해 15칸이 검색 트렌드로 먼저 차고 **유튜브 차트가 통째로 잘려 나갔다** —
+    수집은 됐는데 리포트가 주 소스를 매일 조용히 누락하는 버그."""
+    regions: dict = {}
+    used: dict = {}
+    for t in trends:
+        key = (t.get("region"), t.get("source"))
+        if used.get(key, 0) >= per_source:
+            continue
+        used[key] = used.get(key, 0) + 1
+        regions.setdefault(t.get("region"), []).append(
+            {"rank": t.get("rank"), "source": t.get("source"), "title": t.get("title"),
+             "category_id": t.get("category_id")})
+    return regions
 
 
 def match_overlaps(trends: list, works: list) -> list:
@@ -227,7 +247,9 @@ def build_facts(conn, today: dt.date) -> dict:
         conn, "SELECT channel_id, token_slug FROM public.channels_mirror")}
     for v in vids:
         v["channel"] = slug.get(v["channel_id"], v["channel_id"])
-        v["publish_hour"] = v["publish_time"].hour if v.get("publish_time") else None
+        pt = v.get("publish_time")
+        # 세션 TZ 가 UTC 라 .hour 를 그대로 쓰면 KST 발행 시각과 9시간 어긋난다(리뷰 지적)
+        v["publish_hour"] = (pt.astimezone(_KST).hour if pt.tzinfo else pt.hour) if pt else None
         v["len"] = float(v["len"]) if v.get("len") is not None else None
         v["ctr"] = round(float(v["ctr"]), 2) if v.get("ctr") is not None else None
         v["view_pct"] = round(float(v["view_pct"]), 1) if v.get("view_pct") is not None else None
@@ -268,16 +290,11 @@ def build_facts(conn, today: dt.date) -> dict:
         SELECT region, source, rank, title, category_id, view_count
           FROM public.trend_snapshot WHERE collected_date=%s
          ORDER BY region, source, rank""", (tdate,)) if tdate else []
-    outside = {"collected_date": tdate, "regions": {}}
+    outside = {"collected_date": tdate, "regions": cap_regions(trends)}
     catmix: dict = {}
     for t in trends:
-        outside["regions"].setdefault(t["region"], []).append(
-            {"rank": t["rank"], "source": t["source"], "title": t["title"],
-             "category_id": t["category_id"]})
         if t["source"] == "youtube_chart" and t["category_id"]:
             catmix[t["category_id"]] = catmix.get(t["category_id"], 0) + 1
-    for r in outside["regions"]:
-        outside["regions"][r] = outside["regions"][r][:15]
     outside["category_mix"] = catmix
     overlaps = match_overlaps(trends, [w["work"] for w in work_rows])
     outside["overlaps"] = overlaps

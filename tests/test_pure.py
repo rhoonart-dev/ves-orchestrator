@@ -5354,3 +5354,18 @@ def test_merge_constants_deep():
     assert k2["retention_min"] == DEFAULT_K["retention_min"]
     assert merge_constants("깨진 값")["retention_min"] == DEFAULT_K["retention_min"]
     assert merge_constants(None) == dict(DEFAULT_K, retention_min=dict(DEFAULT_K["retention_min"]))
+
+
+def test_trend_report_cap_regions_keeps_both_sources():
+    """지역별 절단은 소스별 상한 — 검색 트렌드가 유튜브 차트를 밀어내면 안 된다(리뷰 회귀).
+
+    google_trends < youtube_chart 사전순이라 일괄 [:15] 는 차트를 전멸시켰다."""
+    from ves.scheduler.trend_report import cap_regions
+    trends = ([{"region": "KR", "source": "google_trends", "rank": i, "title": f"g{i}",
+                "category_id": None} for i in range(1, 21)]
+              + [{"region": "KR", "source": "youtube_chart", "rank": i, "title": f"y{i}",
+                  "category_id": "10"} for i in range(1, 21)])
+    out = cap_regions(trends)
+    srcs = [t["source"] for t in out["KR"]]
+    assert srcs.count("google_trends") == 10 and srcs.count("youtube_chart") == 10
+    assert cap_regions([]) == {}
