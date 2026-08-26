@@ -4725,7 +4725,20 @@ def test_overlay_pipeline_chain_has_no_generate():
     """**우리가 만들지 않은 완성본**이 입력이다 — generate 가 끼면 엉뚱한 편을 새로 만든다."""
     from ves.scheduler.planner import job_chain
     kinds = [k for k, *_ in job_chain(_wo_overlay())]
-    assert kinds == ["acquire", "localize", "upload_artifacts"]
+    assert kinds == ["acquire", "localize"]
+
+
+def test_overlay_pipeline_has_no_upload_artifacts():
+    """🛑 그 어댑터는 **generate 런의 run_dir** 에서 올린다 — overlay 에는 그게 없다.
+
+    실측 2026-08-25(첫 실전 왕복): localize 성공 직후 upload_artifacts 가
+    `generate 결과(run_id/run_dir) 없음` 으로 permanent 실패했다. 올릴 것은 이미
+    localize 어댑터가 `ves-localized` 로 올리고 검수 카드에 preview_key 로 실린다."""
+    from ves.scheduler.planner import job_chain
+    assert "upload_artifacts" not in [k for k, *_ in job_chain(_wo_overlay())]
+    sql = _live_mig("CREATE OR REPLACE FUNCTION public._select_external_short_impl")
+    short_rows = [ln for ln in sql.splitlines() if "'short'" in ln]
+    assert not any("upload_artifacts" in ln for ln in short_rows), short_rows
 
 
 def test_overlay_pipeline_localize_runs_on_the_localize_cap():

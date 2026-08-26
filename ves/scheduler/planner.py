@@ -56,8 +56,11 @@ def job_chain(wo: dict) -> list:
     if wo.get("pipeline") == "shorts_jp_overlay":
         # L-P5: 잔망루피 쇼츠 — **우리가 만들지 않은 완성본**이 입력이다. generate 가
         # 없으므로 체인이 짧고, 소스는 아카이브(external_shorts)가 고른 유튜브 영상이다.
-        # 계획 §6-1 의 `shorts_jp_overlay` 그대로: acquire → localize(overlay) →
-        # upload_artifacts. 검수 카드(localization_qa)는 localize 어댑터가 올린다.
+        # 체인은 acquire → localize(overlay) **둘뿐**이다. 검수 카드(localization_qa)와
+        # 산출 업로드는 localize 어댑터가 직접 한다(ves-localized · preview_key).
+        # ⚠ 계획 §6-1 은 뒤에 upload_artifacts 를 뒀는데 **실물에서 죽는다**(0093):
+        #   그 어댑터는 generate 런의 run_dir 에서 올리는데 overlay 에는 generate 가
+        #   없다 — 실측 오류가 그대로 "generate 결과(run_id/run_dir) 없음" 이다.
         # ⚠ 캡은 "localize" 다 — overlay 는 OCR·인페인팅 스택이 있는 노드에서만 돈다
         #   (지금 mm-06 하나). generate 캡을 쓰면 스택 없는 노드가 집어 실패한다.
         return [
@@ -67,7 +70,6 @@ def job_chain(wo: dict) -> list:
             ("localize",         {**p_common, "mode": "overlay",
                                   "external_video_id": wo.get("external_video_id"),
                                   "source_url": wo.get("source_url")},  ["localize"], LOCALIZE_LEASE),
-            ("upload_artifacts", dict(p_common),                        ["analyze"], 120),
         ]
 
     if wo.get("pipeline") == "shorts_jp_localized":
