@@ -2204,9 +2204,11 @@ function loopyCard(r, pay){
   const edit = editable ? `
     <label class="sub" for="ltit_${r.id}">발행 제목 (일본어 · 100자)</label>
     <input class="reason" id="ltit_${r.id}" maxlength="100" value="${esc(pay.youtube_title || "")}"
-           title="비우면 초벌 1안이 그대로 올라갑니다">
+           title="비우면 초벌 1안이 그대로 올라갑니다" oninput="hangulHint('${r.id}')">
     <label class="sub" for="ldesc_${r.id}">발행 설명</label>
-    <textarea class="reason" id="ldesc_${r.id}" rows="4">${esc(pay.description || "")}</textarea>` : "";
+    <textarea class="reason" id="ldesc_${r.id}" rows="4"
+              oninput="hangulHint('${r.id}')">${esc(pay.description || "")}</textarea>
+    <div class="warn" id="lhan_${r.id}" style="display:none"></div>` : "";
   const acts = can("reviewer") ? `
     ${edit}
     <textarea class="reason" id="note_${r.id}" rows="3" placeholder="사유·메모 (선택)"></textarea>
@@ -2260,6 +2262,23 @@ function loopyPayload(pay){
     _meta_warning: cand.length ? "" : "일본어 제목 초벌이 없습니다 — 승인해도 발행 잡이 서지 않습니다",
   });
 }
+
+// 한글이 남아 있으면 승인 전에 보인다 — 승인 RPC 가 어차피 막지만(0096), 누르고 나서
+// 알면 왕복이 한 번 더 든다. 지우는 것은 사람이 한다(자동으로 안 고친다).
+const HANGUL_RE = /[\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F]/;
+window.hangulHint = (rid) => {
+  const box = $(`#lhan_${CSS.escape(rid)}`); if (!box) return;
+  const bits = [];
+  for (const el of [$(`#ltit_${CSS.escape(rid)}`), $(`#ldesc_${CSS.escape(rid)}`)]) {
+    if (!el) continue;
+    for (const tok of String(el.value || "").split(/\s+/))
+      if (HANGUL_RE.test(tok)) bits.push(tok);
+  }
+  box.style.display = bits.length ? "" : "none";
+  box.textContent = bits.length
+    ? `⚠ 일본 채널 문구에 한글이 남아 있습니다 — ${bits.slice(0,8).join(" · ")} (지워야 승인됩니다)`
+    : "";
+};
 
 window.decideLoopy = (rid, ok) => {
   const note = (($(`#note_${CSS.escape(rid)}`)||{}).value || "").trim() || null;

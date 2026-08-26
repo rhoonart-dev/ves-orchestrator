@@ -294,3 +294,48 @@ def test_credentials_are_checked_before_the_download():
     src = pathlib.Path("ves/adapters/publish_external.py").read_text(encoding="utf-8")
     body = src.split("def run(", 1)[1]
     assert body.index("_resolve_credentials(") < body.index("store.download(")
+
+
+# ── ⑨ 일본 채널 문구에 한글을 남기지 않는다 (세 겹) ────────────────────────
+#
+# 실측 2026-08-26(첫 실물 2편): 자동 메타가 원제의 한국어 해시태그(#닛몰캐쉬)를
+# **제목·설명 양쪽에** 남겼다. 편집칸은 고칠 수단이지 보장이 아니다.
+
+def test_hangul_is_detected_as_whole_tokens():
+    """사람이 무엇을 지울지 알아야 고친다 — 글자가 아니라 토막을 돌려준다."""
+    assert px.hangul_bits("ルーピー #닛몰캐쉬 #Shorts") == ["#닛몰캐쉬"]
+    assert px.hangul_bits("ルーピーをナメたらあかんで？👊✨") == []
+    assert px.hangul_bits("") == [] and px.hangul_bits(None) == []
+
+
+def test_hangul_jamo_counts_too():
+    assert px.hangul_bits("ㅋㅋㅋ 面白い") == ["ㅋㅋㅋ"]
+
+
+def test_publish_refuses_hangul_as_the_last_net():
+    """승인 게이트가 먼저 막지만, 자동 경로·되살아난 옛 잡에는 여기가 유일한 방어선이다."""
+    src = pathlib.Path("ves/adapters/publish_external.py").read_text(encoding="utf-8")
+    body = src.split("def run(", 1)[1]
+    assert "hangul_bits(snippet[\"title\"])" in body
+    assert body.index("hangul_bits(") < body.index("store.download(")   # 올리기 전에
+
+
+def test_approval_blocks_hangul_where_the_human_can_fix_it():
+    """발행이 아니라 **승인**에서 막는다 — 그 화면에 편집칸이 있다."""
+    sql = pathlib.Path("ves/control/migrations/0096_no_hangul_on_publish.sql").read_text(encoding="utf-8")
+    assert "v_title ~ '[가-힣ㄱ-ㆎ]' OR v_desc ~ '[가-힣ㄱ-ㆎ]'" in sql
+    assert "일본 채널 문구에 한글이 남아" in sql
+    assert "string_agg" in sql                      # 무엇이 걸렸는지 이름으로 알린다
+
+
+def test_nothing_is_silently_stripped():
+    """🛑 조용히 지우면 사람이 승인한 것과 다른 것이 나간다 — 막기만 한다."""
+    src = pathlib.Path("ves/adapters/publish_external.py").read_text(encoding="utf-8")
+    sql = pathlib.Path("ves/control/migrations/0096_no_hangul_on_publish.sql").read_text(encoding="utf-8")
+    assert "_HANGUL.sub(" not in src and "regexp_replace(v_title" not in sql
+
+
+def test_the_card_warns_before_the_click():
+    html = _html()
+    assert "window.hangulHint" in html and 'id="lhan_${r.id}"' in html
+    assert "지워야 승인됩니다" in html

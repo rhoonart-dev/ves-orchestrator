@@ -31,6 +31,7 @@ import datetime as dt
 import json
 import os
 import pathlib
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -121,6 +122,21 @@ def next_publish_at(now_utc: dt.datetime, taken: set, hhmm: str = "19:00",
             return iso
         slot += dt.timedelta(days=1)
     raise RuntimeError("빈 예약 슬롯을 찾지 못함(1년 초과)")
+
+
+# 한글 문자군 — 음절(가~힣) · 자모(ㄱ~ㆎ) · 호환 자모. 일본 채널 문구에는 들어갈 자리가 없다.
+_HANGUL = re.compile(r"[\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F\uA960-\uA97F\uD7B0-\uD7FF]")
+
+
+def hangul_bits(text) -> list:
+    """문구에서 한글이 든 **토막**들. 순수 — 테스트 대상.
+
+    글자 하나가 아니라 그것이 낀 공백 토큰을 돌려준다 — 사람이 무엇을 지워야 하는지
+    (`#닛몰캐쉬`) 알아야 고칠 수 있기 때문이다.
+
+    ⚠ 실측(2026-08-26 첫 실물 2편): 번역이 원제의 한국어 해시태그를 그대로 남겼다.
+    프롬프트로 줄일 수는 있어도 LLM 출력이라 **보장은 안 된다** — 그래서 여기서 센다."""
+    return [tok for tok in str(text or "").split() if _HANGUL.search(tok)]
 
 
 def publishable_snippet(snippet: dict) -> bool:
@@ -274,6 +290,14 @@ def run(cfg, conn, job, deps):
         raise base.PermanentError(
             "일본어 제목·설명이 없습니다 — 메타 초벌(metadata_draft.json)이 비었거나 "
             "검수 카드에 실리지 않았습니다. 현지화를 다시 돌리거나 제목을 직접 지정하세요")
+    # 마지막 그물. 승인 RPC 가 먼저 막지만(사람이 고칠 수 있는 자리), 자동 경로가
+    # 생기거나 옛 잡이 되살아나면 여기가 유일한 방어선이다. 조용히 지우지 않는다 —
+    # 문구를 고치는 것은 사람의 결정이다.
+    bad = hangul_bits(snippet["title"]) + hangul_bits(snippet["description"])
+    if bad:
+        raise base.PermanentError(
+            f"일본 채널 문구에 한글이 남아 있습니다: {' · '.join(bad[:8])} — "
+            f"검수 카드에서 지운 뒤 다시 승인하세요")
     publish_at = p.get("publish_at")
     if not publish_at and p.get("schedule"):
         # 사람이 '예약 공개'만 고르고 시각을 안 정했다 — 다음 빈 일일 슬롯(19:00 JST).
