@@ -1143,8 +1143,11 @@ const chLinkHtml = slug => { const c = (state.chans||[]).find(x => x.token_slug 
          rel="noopener" title="YouTube 채널 열기">${nm} ↗</a>`
     : `<span class="rv2-chn">${nm}</span>`; };
 const JP_SLUGS = new Set(["SHOTCONE"]);   // 일본 채널(가동 스위치 별도)
-/* 전용 파이프라인 채널(§10-①): 작업지시 체인이 아니라 일일 자동화 잡으로 도는 채널 */
-const EXT_PIPE = { LOOPY: "잔망루피 자동화 — 더빙 현지화·일 1편·19시 JST 예약" };
+/* 아카이브에서 소재를 고르는 채널 — 작품·회차 계획이 아니라 선별기가 고른다.
+   ⚠ 2026-08-26 컷오버 전에는 '전용 파이프라인'(zanmang_autopilot 일일 잡)이었다.
+   지금은 다른 채널과 **같은 작업지시 체인**을 타므로 홈 카드·신호등도 같은 규칙으로
+   그린다 — 여기 남은 것은 '작품·회차 지정 폼을 감춘다' 하나뿐이다(회차 개념이 없다). */
+const ARCHIVE_PIPE = { LOOPY: "아카이브 선별 — 수집기가 모으고 선별기가 고른다(작품·회차 없음)" };
 
 // ───────── 인증 ─────────
 let myRole = "viewer";
@@ -1704,34 +1707,6 @@ function boardHtml(cx){
     // 신호등 통일(운영 요청 8/14): 다른 채널과 같은 두 칸(생성·공개)·같은 점 색·같은
     // 라벨 어휘 — 종전 '자동화/예약제' 특수 표기는 칸 제목이 달라 스캔이 끊기고,
     // 공개 칸이 항상 초록(정보 0)이었다. 검수 대기도 이제 다른 채널처럼 노란 점으로 보인다.
-    if (EXT_PIPE[ch.token_slug]){
-      const auto = j.filter(x => x.kind === "zanmang_autopilot" && isToday(x.created_at));
-      const decs = j.filter(x => x.kind === "zanmang_decision" && isToday(x.created_at)
-        && !["skip","rerender"].includes((x.params||{}).action || "publish"));
-      const latest = a => a.find(x => x.status === "running")
-        || a.slice().sort((x,y) => new Date(y.updated_at||y.created_at) - new Date(x.updated_at||x.created_at))[0];
-      const lqWait = waiting.some(r => r.kind === "localization_qa" && r.channel_slug === ch.token_slug);
-      const zj = latest(auto);
-      const [gc, gl] = (zj && zj.status === "running") ? ["run","진행 중"]
-        : (zj && ["failed","dead"].includes(zj.status)) ? ["bad","실패"]
-        : lqWait ? ["wait","검수 대기"]
-        : (zj && zj.status === "succeeded") ? ["ok", dayW + " 완료"]
-        : zj ? ["wait","대기"] : ["none","없음"];
-      const up = latest(decs);
-      const [pc, pl] = !up ? ["none","없음"]
-        : ["failed","dead"].includes(up.status) ? ["bad","발행 실패"]
-        : up.status === "succeeded"
-          ? ((((up.params||{}).privacy) || "schedule") === "schedule"
-              ? ["wait","예약됨"] : ["ok","업로드됨"])
-          : ["wait","발행 대기"];
-      return `<div class="bch"><div class="bchL">
-          <div class="bchName">${chAvatarHtml(ch.token_slug, 18)}<span>${esc(ch.name || ch.token_slug)}</span></div>
-          <div class="bchWork" title="${esc(EXT_PIPE[ch.token_slug])}">${esc(EXT_PIPE[ch.token_slug])}</div></div>
-        <div class="dots">
-          <div class="dcol${gc === "none" ? " dim" : ""}"><span class="dcap">생성</span><span class="chdot ${gc}" title="${esc(gl)}"></span><span class="dlab">${esc(gl)}</span></div>
-          <div class="dcol${pc === "none" ? " dim" : ""}"><span class="dcap">공개</span><span class="chdot ${pc}" title="${dayW} 승인·업로드분 — 예약 업로드는 19:00 JST 슬롯"></span><span class="dlab">${esc(pl)}</span></div>
-        </div></div>`;
-    }
     const ws = woToday(ch);
     const cur = ws.length ? ws[0] : woRecent(ch);
     // 신호등은 '오늘 이 일이 일어났나' 만 추적한다(운영 결정 8/20). 오늘 작업지시가 없으면
@@ -1748,7 +1723,8 @@ function boardHtml(cx){
           esc(kstDay(cur.service_date||cur.created_at).slice(5).replace("-","/"))}</span>` : "";
     const open = boardOpen === ch.token_slug;
     // v3: 작업 이력 없는 채널도 "왜 없는지"를 말해준다 (JP 대기 / 소스 준비됨 / 소스 인입 대기)
-    const noWo = JP_SLUGS.has(ch.token_slug) ? "일본 채널 · 가동 대기"
+    const noWo = ARCHIVE_PIPE[ch.token_slug] ? "아카이브 선별 대기"
+      : JP_SLUGS.has(ch.token_slug) ? "일본 채널 · 가동 대기"
       : ((state.srcs||[]).some(s => (ch.works||[]).includes(s.work_title) && s.is_active !== false)
          ? "소스 준비됨 · 다음 회차 합류" : "소스 인입 대기 중");
     return `<div class="bch" onclick="boardOpen=boardOpen==='${esc(ch.token_slug)}'?null:'${esc(ch.token_slug)}';render()">
@@ -2020,7 +1996,9 @@ function geminiBanner(){
 let runOpen = null;   // 작품·회차 지정 폼이 열린 채널
 let runWork = "";     // 그 폼에서 고른 작품
 function runBox(slug){
-  if (EXT_PIPE[slug]) return "";                     // 전용 파이프라인(잔망루피)은 대상 아님
+  // 아카이브 채널은 작품·회차로 걸지 않는다 — 소재는 선별기가 고르고, 사람은
+  // 아카이브 탭에서 고른다(0086 select_external_short). 여기 폼은 회차 개념이 전제다.
+  if (ARCHIVE_PIPE[slug]) return "";
   if (!can("operator"))
     return '<div class="sub" style="margin-top:9px">작업 실행은 operator 권한이 필요합니다</div>';
   const works = effWorks(slug);
@@ -8766,14 +8744,6 @@ function chAvatarHtml(slug, size){
 // 채널의 현재 생성 신호등 (홈 탭과 동일 규칙: 오늘 작업분만 — 없으면 회색, 8/20)
 function chSignal(slug){
   const today = kstDay();
-  if (EXT_PIPE[slug]){
-    const zj = (state.jobs||[]).find(x => x.kind === "zanmang_autopilot" && kstDay(x.created_at) === today);
-    const [cls, label] = !zj ? ["none","오늘 실행 전"]
-      : zj.status === "succeeded" ? ["ok","오늘 실행 완료"]
-      : zj.status === "running" ? ["run","실행 중"]
-      : ["failed","dead"].includes(zj.status) ? ["bad","실패"] : ["wait","대기"];
-    return {cls, label};
-  }
   const alive = (state.wos||[]).filter(w => w.status !== "cancelled" && w.channel_slug === slug);
   const todays = alive.filter(w => kstDay(w.service_date || w.created_at) === today);
   // 달력의 '오늘' 칸에 두르는 테두리다 — 오늘 작업지시가 없으면 회색(8/20 홈 신호등과 같은 규칙).
@@ -9511,7 +9481,7 @@ function renderChannels(){
       : '<span class="sub">기본 디자인으로 생성됩니다</span>';
     const wOvr = state.worksOvr[ch.token_slug];
     const effWorks = (wOvr && wOvr.works) || ch.works || [];
-    const isExt = !!EXT_PIPE[ch.token_slug];
+    const isExt = !!ARCHIVE_PIPE[ch.token_slug];
     const plan = state.planOvr[ch.token_slug];
     const planTxt = plan
       ? `📌 ${esc(plan.work_title)} · ${plan.episode != null ? plan.episode + "회차 고정" : "회차 자동"}`
@@ -9520,7 +9490,7 @@ function renderChannels(){
         ${ovr ? `<span class="sub right">${esc((ovr.updated_by||"").split("@")[0])} · ${ago(ovr.updated_at)}</span>` : ""}</div>
       <div class="dsum" style="margin-bottom:6px"><b>작품 배정:</b> ${esc(effWorks.join(", ")) || "—"}
         ${wOvr ? chip("info","✎","관제 수정본") : ""}</div>
-      ${isExt ? `<div class="dsum" style="margin-bottom:6px"><b>파이프라인:</b> ${esc(EXT_PIPE[ch.token_slug])}</div>`
+      ${isExt ? `<div class="dsum" style="margin-bottom:6px"><b>파이프라인:</b> ${esc(ARCHIVE_PIPE[ch.token_slug])}</div>`
         : `<div class="dsum" style="margin-bottom:6px"><b>다음 작업:</b> ${planTxt}
           ${plan ? `<span class="sub"> · ${esc((plan.updated_by||"").split("@")[0])}</span>` : ""}</div>`}
       <div style="border-top:1px solid var(--line);margin:8px 0"></div>
@@ -9591,7 +9561,7 @@ function chModalHtml(ch){
       </select></label>` : ""}`;
   const wOvr = state.worksOvr[slug];
   const effWorks = (wOvr && wOvr.works) || ch.works || [];
-  const isExt = !!EXT_PIPE[slug];
+  const isExt = !!ARCHIVE_PIPE[slug];
   const plan = state.planOvr[slug];
   const epOpts = w => [`<option value="">회차 자동(순환)</option>`,
     ...(state.srcs||[]).filter(s => s.work_title === w && s.is_active !== false && s.episode != null)
@@ -9615,7 +9585,7 @@ function chModalHtml(ch){
 
       ${isExt
         ? `<div class="msec"><div class="msec-h">파이프라인</div>
-            <div class="sub">${esc(EXT_PIPE[slug])} — 작품·회차 지정 대상 아님</div></div>`
+            <div class="sub">${esc(ARCHIVE_PIPE[slug])} — 작품·회차 지정 대상 아님</div></div>`
         : `<div class="msec"><div class="msec-h">다음 작업</div>
           <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
             <select id="pw_${esc(slug)}" onchange="planWorkChanged('${esc(slug)}')">${

@@ -378,3 +378,42 @@ def test_missing_translations_file_is_not_an_error(tmp_path):
     """대역이 없다고 검수 자체를 막지 않는다(route BC 는 번역 단계가 없다)."""
     from ves.adapters.localize import overlay_pairs
     assert overlay_pairs(str(tmp_path), "nope") == {}
+
+
+# ── ⑪ 컷오버 뒤 홈 화면 (2026-08-26) ───────────────────────────────────────
+#
+# 🛑 zanmang_pipeline 을 끄자 잔망루피 홈 카드가 **죽은 잡을 읽고 있었다** —
+#    zanmang_autopilot/zanmang_decision 은 이제 안 생기므로 그 카드는 영원히
+#    '없음 / 없음' 이다. 계획 §6-2 가 말한 자리이기도 하다:
+#    "홈: EXT_PIPE 예외 삭제 → 다른 채널과 같은 카드로 그려진다."
+
+def test_home_card_no_longer_reads_the_retired_jobs():
+    html = _html()
+    board = html.split("function boardHtml", 1)[1].split("\nfunction ", 1)[0] \
+        if "function boardHtml" in html else html
+    assert "zanmang_autopilot" not in board
+    assert "zanmang_decision" not in board
+
+
+def test_channel_signal_uses_the_same_rule_as_everyone():
+    html = _html()
+    sig = html.split("function chSignal(slug)", 1)[1].split("\nfunction ", 1)[0]
+    assert "zanmang_autopilot" not in sig
+
+
+def test_archive_channels_still_hide_the_episode_form():
+    """작품·회차 폼은 감춘 채로 둔다 — 아카이브 채널엔 회차 개념이 없다."""
+    html = _html()
+    assert "ARCHIVE_PIPE[slug]) return \"\"" in html
+
+
+def test_the_constant_says_what_is_true_now():
+    """이름과 설명이 옛 구조를 가리키면 다음 사람이 그 구조를 찾는다."""
+    html = _html()
+    assert "const ARCHIVE_PIPE" in html and "const EXT_PIPE" not in html
+    assert "19시 JST 예약" not in html.split("const ARCHIVE_PIPE", 1)[1][:400]
+
+
+def test_empty_day_copy_matches_how_the_channel_works():
+    """작업지시가 없는 날 '일본 채널 · 가동 대기' 는 거짓이다 — 돌고 있다."""
+    assert "아카이브 선별 대기" in _html()
