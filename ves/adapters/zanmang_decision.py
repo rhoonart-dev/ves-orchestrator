@@ -214,6 +214,12 @@ def _task_argv(repo: str, task: str, vid: str, p: dict) -> list:
 
 
 def run(cfg, conn, job, deps):
+    # P8(2026-08-27): vlp 동결 — 레거시 카드 drain 후 어떤 잡도 vlp 로 보내지 않는다.
+    # 코드는 남긴다(감사 이력 재현용) — 켜고 끄는 것은 ops_config 한 줄(0102).
+    if base.ops_on(conn, "vlp_frozen"):
+        raise base.PermanentError(
+            "vlp 동결됨(P8, ops_config vlp_frozen=on) — 이 잡은 실행되지 않습니다. "
+            "필요한 소재는 새 파이프라인(overlay/롱폼)으로 재생산하세요. docs/P8_VLP_FREEZE.md")
     p = job["params"] or {}
     vid = p.get("video_id")
     action = p.get("action") or "publish"

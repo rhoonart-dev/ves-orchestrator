@@ -49,4 +49,4 @@ SELECT count(*) FROM review_queue
 
 ## 동결 일자
 
-- [ ] 미정 — drain 0 확인 후 기입.
+- [x] **2026-08-27** — 운영자 지시로 레거시 카드 15장 일괄 반려(drain 0), 0102 적용(vlp_frozen=on). 가드 은퇴(port-diff)는 ai-video 쪽 커밋에서.

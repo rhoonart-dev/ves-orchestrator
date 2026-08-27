@@ -5466,3 +5466,16 @@ def test_trend_report_diag_excludes_blocked():
     from ves.scheduler import trend_report
     src = inspect.getsource(trend_report.build_facts)
     assert 'not in ("정상", "배포 안 됨")' in src
+
+
+def test_p8_vlp_frozen_guard():
+    """P8(2026-08-27): vlp_frozen=on 이면 zanmang_decision 이 실행을 거절한다 —
+    동결 뒤 어떤 경로(잔존 잡 되살림·수동 재투입)로도 vlp 가 돌면 안 된다."""
+    import inspect
+    from ves.adapters import zanmang_decision as zd
+    src = inspect.getsource(zd.run)
+    head = src.split('p = job["params"]', 1)[0]
+    assert 'ops_on(conn, "vlp_frozen")' in head            # 다른 일보다 먼저
+    assert "PermanentError" in head                        # 재시도 없이 즉시
+    sql = pathlib.Path("ves/control/migrations/0102_vlp_frozen.sql").read_text(encoding="utf-8")
+    assert "'vlp_frozen', 'on'" in sql
