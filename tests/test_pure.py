@@ -3216,13 +3216,18 @@ def test_reuse_assets_partial_regen():
     """F-303: 재렌더 후 재생성에서 원본 불변 재료(전역 스프라이트·파형·scan)는
     재사용한다 — 단 길이·시트 수가 정확히 같고 scan 은 신 세대일 때만."""
     from ves.adapters.editor_assets import (reuse_assets, sprite_layout, scan_over_cap,
-                                            SCAN_GEN, GLOBAL_INTERVAL, GRID, THUMB_W)
+                                            SCAN_GEN, WAVE_GEN, GLOBAL_INTERVAL, GRID,
+                                            THUMB_W)
     def sp(dur, media):
         lay = sprite_layout(dur)
+        # wave_gen 은 **현 세대**로 둔다 — 이 테스트가 보는 것은 '길이·규격이 같으면
+        # 원본 불변 재료를 승계한다'이지 파형 세대가 아니다. 세대 게이트 자체는
+        # test_wave_gen_gate_drops_low_res_wave 가 따로 본다.
         return {"duration_sec": dur, "sprites": {
             "count": lay["count"], "interval": GLOBAL_INTERVAL, "grid": GRID,
             "thumb_w": THUMB_W,
-            "assets": {"global": ["a/g_0.jpg"], "wave": "a/wave.png", "media": media}}}
+            "assets": {"global": ["a/g_0.jpg"], "wave": "a/wave.png",
+                       "wave_gen": WAVE_GEN, "media": media}}}
     dur = 3600.0
     prev = sp(dur, {"scan": "a/scan.mp4", "scan_bytes": 100, "scan_gen": SCAN_GEN})
     r = reuse_assets(prev, dur)
