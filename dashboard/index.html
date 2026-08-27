@@ -9934,8 +9934,10 @@ function renderTrends(){
   const dates = trends.dates || [];
   const dateSel = `<select onchange="trendsPick(this.value)">${
     dates.map(d => `<option value="${d}" ${d===(trends.report||{}).report_date?"selected":""}>${d}</option>`).join("")}</select>`;
+  const notice = trends.notice ? `<section class="card"><h2>${esc(trends.notice.title||"공지")}</h2>${
+    String(trends.notice.body||"").split("\n").map(l => `<div class="pf-warnbar">${esc(l)}</div>`).join("")}</section>` : "";
   if (trends.empty){
-    $("#page").innerHTML = `<section class="card"><h2>트렌드 리포트</h2>
+    $("#page").innerHTML = notice + `<section class="card"><h2>트렌드 리포트</h2>
       <div class="empty">아직 생성된 리포트가 없다 — 매일 05:00 KST 에 만들어진다 (ops_config.trend_report)</div></section>`; return; }
   const r = trends.report, f = r.facts || {}, nr = r.narrative;
   const cur = trends.constants || {}, prop = trends.constants_proposed;
@@ -9955,7 +9957,7 @@ function renderTrends(){
       items.map(t => `<tr><td class="num">${t.rank}</td><td>${esc(t.title||"")}</td>
         <td>${t.source==="youtube_chart"?"YT 차트":"검색"}</td></tr>`).join("")
       || '<tr><td colspan="3" class="empty">수집 없음</td></tr>'}</table></div></section>`).join("");
-  $("#page").innerHTML = `
+  $("#page").innerHTML = notice + `
     <section class="card"><h2>트렌드 리포트 ${dateSel}
       <span class="pill">${esc(r.status||"")}</span>
       <button class="mini" onclick="trendsReload()">새로고침</button></h2>
