@@ -1145,6 +1145,38 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 .trx .mini{font-family:var(--tfb)}
 @media (max-width:640px){.trx{padding:1.4rem 1rem 3rem;border-radius:0;border-left:0;border-right:0}}
 
+/* 내레이션 길이 게이지 — 창 대비 예상 발화 길이 */
+/* ⚠ 구판 대시보드에도 .fitrow 가 있다(align-items:center) — 막대가 내용 폭으로
+   줄어들어 2px 가 됐다. #insp 로 한정해 늘어나게 못박는다. */
+#insp .fitrow{display:flex;flex-direction:column;align-items:stretch;gap:4px;
+  font-size:10.5px;color:var(--faint);width:100%}
+#insp .fitrow.over{color:var(--warn)}
+/* 창(트랙) 안에 예상 발화가 얼마나 차는지 — 두껍게, 25%마다 눈금.
+   창을 넘기면 넘친 만큼만 주황 빗금으로 덧그려 '얼마나 넘쳤나'가 보인다. */
+#insp .fitbar{position:relative;flex:0 0 12px;height:12px;border-radius:6px;
+  background:var(--panel2);overflow:hidden;
+  background-image:linear-gradient(90deg,transparent 24.7%,var(--line) 24.7%,var(--line) 25.3%,
+    transparent 25.3%,transparent 49.7%,var(--line) 49.7%,var(--line) 50.3%,
+    transparent 50.3%,transparent 74.7%,var(--line) 74.7%,var(--line) 75.3%,transparent 75.3%)}
+#insp .fitbar > i{display:block;height:100%;min-width:2px;background:var(--accent);
+  border-radius:6px 0 0 6px;transition:width .12s ease}
+#insp .fitrow.over .fitbar i{background:repeating-linear-gradient(45deg,
+  var(--warn),var(--warn) 5px,color-mix(in srgb,var(--warn) 60%,#000) 5px,
+  color-mix(in srgb,var(--warn) 60%,#000) 10px)}
+.fitcap{display:flex;justify-content:space-between;gap:8px}
+.fitcap b{font-family:var(--mono);font-weight:700}
+
+/* 라이트 모드는 그림자 없이 — 면 대비와 얇은 테두리로만 층을 나눈다(사용자 8/26) */
+:root[data-theme="light"] #side{box-shadow:0 0 0 1px var(--line)}
+:root[data-theme="light"] .blk{box-shadow:none}
+:root[data-theme="light"] .blk:hover{box-shadow:none}
+:root[data-theme="light"] .srcfloat{box-shadow:none}
+:root[data-theme="light"] .srcghost .thumb,
+:root[data-theme="light"] .ghostph .thumb{box-shadow:0 0 0 1px var(--line)}
+:root[data-theme="light"] .shorts .ovel .sh{box-shadow:0 0 0 1px var(--line2)}
+:root[data-theme="light"] .insbar{box-shadow:none}
+:root[data-theme="light"] #pvModal .shorts{box-shadow:0 0 0 1px var(--line)}
+
 </style>
 </head>
 <body>
@@ -11052,7 +11084,10 @@ body.editing .blk.t,body.editing .blk.c,body.editing .blk.s{cursor:grab}
 .srcanchor{position:absolute;top:108px;width:9px;height:9px;border-radius:50%;
   background:var(--tts);transform:translateX(-4px);cursor:pointer;z-index:2}
 .srcanchor.bad{background:var(--warn)}
-.srcph{position:absolute;top:0;bottom:0;width:2px;background:var(--danger);z-index:4;pointer-events:none}
+.srcph{position:absolute;top:0;bottom:0;width:2px;background:var(--danger);z-index:6;
+  pointer-events:none}
+.srcph::after{content:"";position:absolute;top:0;left:-5px;width:12px;height:12px;
+  background:var(--danger);clip-path:polygon(0 0,100% 0,100% 55%,50% 100%,0 55%)}
 .srcclick{position:absolute;inset:0;cursor:pointer}
 .srclab{position:absolute;bottom:2px;font-family:var(--mono);font-size:8.5px;color:var(--faint)}
 /* 경고 목록 */
@@ -11228,6 +11263,8 @@ button:hover{background:var(--panel2);border-color:var(--line2)}
 .tltools button:disabled{opacity:.4;cursor:default}
 #editToggle{color:var(--muted)}
 #editToggle.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+#sndBtn{color:var(--muted)}
+#sndBtn.on{color:var(--accent)}
 #aiplanLabel{color:var(--ai);border-color:var(--line2)}
 .tltools .zoomgrp{border:1px solid var(--line2);border-radius:9px;background:var(--panel2);
   padding:0 4px 0 9px;color:var(--muted)}
@@ -11311,10 +11348,11 @@ button:hover{border-color:transparent;background:var(--line)}
 #inner .track,#inner .ruler{cursor:crosshair}
 
 /* 원본 스트립 고스트 헤드 + 썸네일 툴팁(A+B) */
-.srcghost{position:absolute;top:0;bottom:0;width:1px;background:var(--danger);
-  opacity:.5;pointer-events:none;z-index:5}
+.srcghost{position:absolute;top:0;bottom:0;width:1px;pointer-events:none;z-index:5;
+  background:linear-gradient(var(--muted) 50%, transparent 50%);background-size:1px 7px;
+  opacity:.85}
 .srcghost i{position:absolute;bottom:2px;left:4px;font-style:normal;font-family:var(--mono);
-  font-size:9px;color:var(--danger);background:var(--panel);padding:0 4px;border-radius:3px;
+  font-size:9px;color:var(--muted);background:var(--panel);padding:0 4px;border-radius:3px;
   white-space:nowrap}
 .srcghost .thumb,.ghostph .thumb{position:absolute;top:4px;left:6px;width:80px;height:58px;
   border-radius:6px;background-color:#000;background-repeat:no-repeat;
@@ -11344,18 +11382,31 @@ button:hover{border-color:transparent;background:var(--line)}
 .lnk.danger{color:var(--danger)}
 .drawList{display:flex;flex-direction:column;gap:5px;max-height:38vh;overflow-y:auto}
 
-/* 가운데 화면 자막 조작 — 선택 상자 + 핸들 */
-.shorts .ovsub.sel{outline:1.5px dashed rgba(255,255,255,.85);outline-offset:3px;
+/* 가운데 화면 직접 조작 — 선택 상자 + 핸들(자막·제목·내레이션·텍스트 공용) */
+.shorts .ovel.sel{outline:1.5px dashed rgba(255,255,255,.85);outline-offset:3px;
   cursor:move}
-.shorts .ovsub .sh{position:absolute;background:#fff;border-radius:2px;
+.shorts .ovel.pick{outline:2px solid var(--accent);outline-offset:3px}
+.shorts .ovel .sh{position:absolute;background:#fff;border-radius:2px;
   box-shadow:0 0 0 1px rgba(0,0,0,.5);cursor:pointer}
-.shorts .ovsub .sh-w-l,.shorts .ovsub .sh-w-r{top:50%;width:5px;height:16px;
+.shorts .ovel .sh-w-l,.shorts .ovel .sh-w-r{top:50%;width:5px;height:16px;
   margin-top:-8px;cursor:ew-resize}
-.shorts .ovsub .sh-w-l{left:-8px} .shorts .ovsub .sh-w-r{right:-8px}
-.shorts .ovsub .sh-size{right:-8px;bottom:-8px;width:9px;height:9px;cursor:ns-resize;
+.shorts .ovel .sh-w-l{left:-8px} .shorts .ovel .sh-w-r{right:-8px}
+.shorts .ovel .sh-size{right:-8px;bottom:-8px;width:9px;height:9px;cursor:ns-resize;
   border-radius:50%}
-.shorts .ovsub .sh-rot{left:50%;top:-16px;width:9px;height:9px;margin-left:-4px;
+.shorts .ovel .sh-rot{left:50%;top:-16px;width:9px;height:9px;margin-left:-4px;
   border-radius:50%;background:var(--accent);cursor:grab}
+/* 라벨 위 · 입력칸 아래 통칸(제목 1줄·2줄) */
+.tfld{display:block}
+.tfld > span{display:block;font-size:11px;color:var(--faint);margin-bottom:3px}
+.tfld > span i{font-style:normal}
+.tfld input{width:100%}
+/* 크기 칸 +/- 스테퍼 — 숫자를 직접 치지 않고 눌러서 */
+.steprow{display:flex;gap:5px;align-items:center;min-width:0}
+.steprow input{flex:1;min-width:0}
+.steprow button{flex:0 0 22px;width:22px;height:24px;padding:0;border-radius:7px;
+  border:1px solid var(--line2);background:var(--panel2);color:var(--text);
+  font-weight:700;cursor:pointer;line-height:1;font-size:13px}
+.steprow button:hover{border-color:var(--accent);color:var(--accent)}
 
 /* 내레이션 — 목록 미리듣기 버튼 · 목소리 드롭다운 */
 .pvb{flex-shrink:0;width:22px;height:20px;padding:0;font-size:10px;border:none;
@@ -11370,7 +11421,7 @@ button:hover{border-color:transparent;background:var(--line)}
 /* ══ 인스펙터 플로팅화(2026-08-25) — 항상 떠 있는 열 대신, 블록을 고르면 뿅 ══ */
 body.applayout .top{position:relative}
 body.applayout #vdiv{display:none}
-body.applayout #side{position:absolute;right:14px;top:14px;max-height:calc(100% - 28px);
+body.applayout #side{position:absolute;right:14px;top:14px;bottom:14px;
   width:var(--sidew,320px);border-radius:16px;background:var(--panel);
   box-shadow:0 12px 48px rgba(0,0,0,.5), 0 0 0 1px var(--line);
   display:none;flex-direction:column;gap:8px;overflow-y:auto;padding:14px;z-index:30;
@@ -11452,12 +11503,12 @@ body.applayout #side{padding-left:18px}
             </div>
             <div id="shortsWrap">
               <div class="shorts">
-                <div class="ovtitle" id="ovTitle"></div>
+                <div class="ovtitle ovel" id="ovTitle"></div>
                 <div class="vslot" id="vslot"><video id="vid" preload="metadata" playsinline></video></div>
                 <span class="outtc tc" id="outTc">0:00.0</span>
-                <div class="ovtxt" id="ovTxt"></div>
-                <div class="ovsub" id="ovSub"></div>
-                <div class="ovtts" id="ovTts"></div>
+                <div class="ovtxt ovel" id="ovTxt"></div>
+                <div class="ovsub ovel" id="ovSub"></div>
+                <div class="ovtts ovel" id="ovTts"></div>
                 <div class="ovwork" id="ovWork"></div>
               <div class="ovplat" id="ovPlat"></div>
                 <div class="pbar" id="pbar"><div class="pline"></div><div class="pfill" id="pfill"></div></div>
@@ -11479,6 +11530,8 @@ body.applayout #side{padding-left:18px}
             <button onclick="doRedo()" title="다시 실행 (⇧⌘Z)"><i data-ico="redo"></i></button>
             <button onclick="splitSelClip()" title="선택한 구간을 재생 헤드에서 나누기 (S)"><i data-ico="cut"></i></button>
             <button onclick="startHere()" title="여기부터 — 선택한 블록(자막·내레이션·텍스트·구간)의 시작을 재생 헤드 위치로 (Q)"><i data-ico="starth"></i></button>
+            <button id="sndBtn" class="on" onclick="seqSndToggle()"
+              title="미리보기 중 내레이션 소리 켜기/끄기"><i data-ico="snd"></i></button>
             <button onclick="endHere()" title="여기까지 — 선택한 블록(자막·내레이션·텍스트·구간)의 끝을 재생 헤드 위치로 (E)"><i data-ico="endh"></i></button>
           </span>
           <button id="editToggle" class="ico" onclick="toggleEdit()"
@@ -11598,20 +11651,65 @@ window.openByReview = async rid => {
   const info = $("#empty");
   info.style.display = ""; $("#stage").style.display = "none";
   info.textContent = "편집 재료를 확인하는 중…";
+  // ⚠ request_editor_assets 는 죽은 잡을 되살리며 error 를 지운다(0071 ON CONFLICT).
+  // 그래서 **부르기 전에** 지난 실패를 봐야 한다 — 안 그러면 소재가 이미 정리된 편도
+  // 노드가 다시 집어 실패할 때까지(수 분) 화면이 "만드는 중"만 돈다(2026-08-26 실측).
+  {
+    const { data: rv } = await sb.from("review_queue")
+      .select("payload").eq("id", rid).maybeSingle();
+    const prevRun = ((rv || {}).payload || {}).run_id;
+    if (prevRun){
+      const { data: pj } = await sb.from("job_queue")
+        .select("status,error,error_class").eq("idempotency_key", "editor_assets:" + prevRun)
+        .maybeSingle();
+      const msg = String((pj || {}).error || "");
+      if (pj && (pj.status === "failed" || pj.status === "dead")
+          && /run 디렉토리 없음|없거나 정리/.test(msg)){
+        info.textContent = "이 편은 편집할 수 없습니다 — 원본 작업 폴더가 그 맥에서 이미 "
+          + "정리됐습니다(오래된 카드). 재료를 만들 소재가 없어 다시 시도해도 같습니다.";
+        return;
+      }
+    }
+  }
   const { data, error } = await sb.rpc("request_editor_assets", { p_review_id: rid });
   if (error){ info.textContent = "재료 요청 실패 — " + error.message; return; }
   const runId = data.run_id;
   if (data.cached){ openRun(runId); return; }        // 이미 신선한 재료 — 즉시
-  let tick = 0;
+  // ⚠ 재료 행(editor_assets.status)만 보면 안 된다(2026-08-26 실측): 생성 잡이
+  // permanent 로 죽어도 그 행은 'pending' 그대로라 화면이 영원히 "만드는 중"을 돈다.
+  // **잡 상태를 같이 본다** — 실패·재시도 대기·상한 초과를 사람에게 말한다.
+  const say = t => { info.textContent = t; };
+  const started = Date.now(), LIMIT_MS = 6 * 60 * 1000;
   for (;;){
-    const { data: row } = await sb.from("editor_assets")
-      .select("status,error").eq("run_id", runId).maybeSingle();
+    const [rowRes, jobRes] = await Promise.all([
+      sb.from("editor_assets").select("status,error").eq("run_id", runId).maybeSingle(),
+      sb.from("job_queue").select("status,attempt,max_attempts,error,error_class,run_after")
+        .eq("idempotency_key", "editor_assets:" + runId).maybeSingle(),
+    ]);
+    const row = rowRes.data, job = jobRes.data;
     if (row && row.status === "ready") break;
     if (row && row.status === "error"){
-      info.textContent = "재료 생성 실패 — " + (row.error || "노드 로그 확인"); return; }
-    tick += 5;
-    info.textContent = `원본 편집 재료를 만드는 중입니다 (${tick}초) — 4시간짜리 원본이면 2~5분 걸립니다.` +
-      " 썸네일·파형·편집용 영상을 그 영상을 만든 맥에서 뜨는 중…";
+      say("재료 생성 실패 — " + (row.error || "노드 로그 확인")); return; }
+    if (job && (job.status === "failed" || job.status === "dead")){
+      const msg = String(job.error || "").trim();
+      const gone = /run 디렉토리 없음|없거나 정리/.test(msg);
+      say(gone
+        ? "이 편은 편집할 수 없습니다 — 원본 작업 폴더가 그 맥에서 정리됐습니다(오래된 카드). "
+          + "재료를 만들 소재가 남아 있지 않아 다시 시도해도 같은 결과입니다."
+        : "재료 생성 실패 — " + (msg.slice(-200) || "노드 로그 확인"));
+      return;
+    }
+    const secs = Math.round((Date.now() - started) / 1000);
+    if (Date.now() - started > LIMIT_MS){
+      say(`재료 생성이 ${Math.round(LIMIT_MS / 60000)}분 넘게 끝나지 않았습니다 — 노드가 바쁘거나 잡이 밀려 있습니다. `
+        + "나중에 다시 열어보세요(작업은 계속 큐에 남아 있습니다).");
+      return;
+    }
+    const waitNext = job && job.run_after && new Date(job.run_after) > new Date()
+      ? `재시도 대기 중 — ${new Date(job.run_after).toLocaleTimeString("ko-KR")} 에 다시 시작합니다. `
+      : "";
+    say(`원본 편집 재료를 만드는 중입니다 (${secs}초) — 4시간짜리 원본이면 2~5분 걸립니다. `
+      + waitNext + "썸네일·파형·편집용 영상을 그 영상을 만든 맥에서 뜨는 중…");
     await new Promise(r => setTimeout(r, 5000));
   }
   openRun(runId);
@@ -11673,10 +11771,26 @@ function buildModel(){
                 : (tl.clips || []).map(c => ({ start: +c.start_sec || 0,
                   end: +c.end_sec || 0, role: c.role || "build" })))
     .filter(c => c.end > c.start);
-  const tts = (d.tts ? d.tts.map(t => ({ src: +t.source_time_sec, dur: +t.duration_sec || 3,
-                 text: t.text || "", voice: t.voice || "", speed: t.speed || "normal" }))
-               : (tl.tts || []).map(t => ({ src: +t.source_sec || 0, dur: +t.duration_sec || 3,
-                 text: t.text || "", voice: t.voice || "", speed: t.speed || "normal" })));
+  // key = 렌더가 만든 mp3(F-204). 이게 있어야 미리보기 소리가 **즉시** 난다 —
+  // 없으면 매 줄마다 엣지 함수로 즉석 합성해서 첫 마디가 잘린다(본 편집실과 같은 규약).
+  // 초안 행은 원본 타임라인과 src 로 맞춰 키를 물려받되, 문구·목소리·속도가 바뀐
+  // 줄은 그 키가 '옛 소리'이므로 stale 로 표시해 즉석 합성 쪽으로 보낸다.
+  const tlTts = tl.tts || [];
+  const keyAt = (src, text, voice, speed) => {
+    const o = tlTts.find(x => Math.abs((+x.source_sec || 0) - src) < 0.01);
+    if (!o || !o.key) return { key: null, stale: false };
+    const same = String(o.text || "") === String(text || "")
+      && (o.voice || "") === (voice || "")
+      && (o.speed || "normal") === (speed || "normal");
+    return { key: o.key, stale: !same };
+  };
+  const tts = (d.tts ? d.tts.map(t => { const src = +t.source_time_sec,
+                 text = t.text || "", voice = t.voice || "", speed = t.speed || "normal";
+                 return { src, dur: +t.duration_sec || 3, text, voice, speed,
+                          ...keyAt(src, text, voice, speed) }; })
+               : tlTts.map(t => ({ src: +t.source_sec || 0, dur: +t.duration_sec || 3,
+                 text: t.text || "", voice: t.voice || "", speed: t.speed || "normal",
+                 key: t.key || null, stale: false })));
   // follow = 장면 따라가기(앵커 유지). 끄면 완성본 시각에 못박힌다.
   // 앵커가 없는 줄은 따라갈 장면이 없으므로 기본이 '시각 고정'이다.
   const subs = (tl.subtitles || []).map((s, i) => ({ start: +s.edited_start || 0,
@@ -11919,6 +12033,9 @@ function layoutShorts(){
       op.style.color = d.platform_color || "#FFFFFF";
     }
   }
+  ovSyncHandles();
+  // 인덱스는 그대로인데 값만 바뀐 경우(디자인 칸·드래그) — 여기서 직접 다시 칠한다.
+  styleOvSub(curSubIdx); styleOvTxt(curTxtIdx);
 }
 window.layoutShorts = layoutShorts;
 
@@ -12016,9 +12133,10 @@ window.styleOvSub = styleOvSub;
     const up = () => {
       window.removeEventListener("mousemove", mv); window.removeEventListener("mouseup", up);
       if (!moved) return;
+      window.__ovDragged = true;
       markDirty();                        // 드래그 1회 = ⌘Z 1회(snap 은 시작에서 잡았다)
       if (window.__railOn === "subs") renderRailPanel("subs");
-      if (document.querySelector('#inner .blk.s.sel')) select("sub", i);
+      if (document.querySelector('#inner .blk.s.sel')) select("sub", i, null, true);
     };
     snap();
     window.addEventListener("mousemove", mv); window.addEventListener("mouseup", up);
@@ -12029,7 +12147,128 @@ window.styleOvSub = styleOvSub;
   window.setSubStyleLive = (i, k, v) => {
     const su = cur.model.subs[i]; su.style = { ...(su.style || {}) };
     su.style[k] = k === "color" ? v : +v;
-    styleOvSub(i);
+    styleOvSub(i);                    // paintCues 의 인덱스 가드를 우회 — 값이 바뀌었다
+  };
+  document.addEventListener("mousedown", start, true);
+})();
+
+// ── 텍스트(F-411) 개별 배치 — _raw(x·y·크기·색·회전)를 화면에 그대로 ──
+// 좌표는 엔진과 같은 글자 **중심** 비율(0~1). 큐가 없으면 CSS 기본으로 되돌린다.
+let curTxtIdx = -1;
+function styleOvTxt(i){
+  const el = $("#ovTxt"); if (!el) return;
+  const t = i >= 0 && cur && cur.model ? (cur.model.texts || [])[i] : null;
+  if (!t){ el.classList.remove("sel");
+    el.querySelectorAll(".sh").forEach(h => h.remove());
+    el.removeAttribute("style"); return; }
+  const r = t._raw || {};
+  const x = r.x != null ? +r.x : 0.5, y = r.y != null ? +r.y : 0.35;
+  el.style.left = (x * 100) + "%"; el.style.top = (y * 100) + "%";
+  el.style.right = "auto"; el.style.width = "max-content"; el.style.maxWidth = "94%";
+  el.style.fontSize = ((+r.size || 72) / CANVAS_H * 100) + "cqh";
+  el.style.color = r.color || "#FFFFFF";
+  const rot = Math.round(+r.rotate) || 0;
+  el.style.transform = "translate(-50%,-50%)" + (rot ? ` rotate(${rot}deg)` : "");
+  el.classList.toggle("sel", editMode);
+  const has = el.querySelector(".sh");
+  if (editMode && !has) ["size", "rot"].forEach(k => {
+    const h = document.createElement("b"); h.className = "sh sh-" + k; h.dataset.h = k;
+    el.appendChild(h); });
+  if (!editMode && has) el.querySelectorAll(".sh").forEach(h => h.remove());
+}
+window.styleOvTxt = styleOvTxt;
+
+// 제목·내레이션 핸들 — 편집 모드에서, 글자가 떠 있는 동안만
+function ovSyncHandles(){
+  [["#ovTitle", ["rot"]], ["#ovTts", ["w-l", "w-r", "size", "rot"]]].forEach(([q, ks]) => {
+    const el = $(q); if (!el) return;
+    const on = editMode && !!el.textContent.trim();
+    el.classList.toggle("sel", on);
+    const has = el.querySelector(".sh");
+    if (on && !has) ks.forEach(k => { const h = document.createElement("b");
+      h.className = "sh sh-" + k; h.dataset.h = k; el.appendChild(h); });
+    if (!on && has) el.querySelectorAll(".sh").forEach(h => h.remove());
+  });
+}
+window.ovSyncHandles = ovSyncHandles;
+
+// ── 제목·내레이션·텍스트 드래그 — 자막(bindSubDrag)과 같은 문법 ──
+// 제목·내레이션은 이 편 design 키로(전체 공통), 텍스트는 그 항목의 _raw 로.
+(function bindOvDrag(){
+  const start = e => {
+    if (!editMode || !cur || !cur.model) return;
+    const frame = tlRoot.querySelector(".shorts"); if (!frame) return;
+    let kind = null, el = null;
+    for (const [q, k] of [["#ovTxt", "txt"], ["#ovTitle", "title"], ["#ovTts", "tts"]]){
+      const c = $(q); if (c && c.contains(e.target)){ kind = k; el = c; break; } }
+    if (!kind || !el.textContent.trim()) return;
+    if (kind === "txt" && curTxtIdx < 0) return;
+    e.preventDefault(); e.stopPropagation();
+    const mode = e.target.dataset && e.target.dataset.h ? e.target.dataset.h : "move";
+    const fr = frame.getBoundingClientRect(), box = el.getBoundingClientRect();
+    const cx0 = box.left + box.width / 2, cy0 = box.top + box.height / 2;
+    const a0 = Math.atan2(e.clientY - cy0, e.clientX - cx0) * 180 / Math.PI;
+    const sx = e.clientX, sy = e.clientY;
+    const d0 = { ...(cur.chDesign || {}), ...((cur.row.draft || {}).design || {}),
+                 ...(cur.pendingDesign || {}) };
+    const st = {};
+    if (kind === "txt"){
+      const r = (cur.model.texts[curTxtIdx] || {})._raw || {};
+      st.x = r.x != null ? +r.x : 0.5; st.y = r.y != null ? +r.y : 0.35;
+      st.size = +r.size || 72; st.rot = Math.round(+r.rotate) || 0;
+    } else if (kind === "title"){
+      st.y = (box.top - fr.top) / fr.height * CANVAS_H;   // 지금 그려진 자리(캔버스 px)
+      st.rot = Math.round(+d0.title_rotate) || 0;
+    } else {
+      st.m = +d0.tts_y_margin || 550; st.size = +d0.tts_size || 70;
+      st.w = +d0.tts_width || 0.852; st.rot = Math.round(+d0.tts_rotate) || 0;
+    }
+    snap(); let moved = false;
+    const rotOf = ev => { const a = Math.atan2(ev.clientY - cy0, ev.clientX - cx0) * 180 / Math.PI;
+      let r = st.rot + (a - a0);
+      if (ev.shiftKey) r = Math.round(r / 15) * 15; else if (Math.abs(r) < 3) r = 0;
+      return Math.round(clamp(r, -180, 180)); };
+    const live = (k, v) => { edDesign()[k] = v; layoutShorts(); };
+    const mv = ev => {
+      moved = true;
+      const dx = ev.clientX - sx, dy = ev.clientY - sy;
+      if (kind === "txt"){
+        const t = cur.model.texts[curTxtIdx]; if (!t) return;
+        t._raw = { ...(t._raw || {}) };
+        if (mode === "move"){
+          t._raw.x = +clamp(st.x + dx / fr.width, 0.02, 0.98).toFixed(4);
+          t._raw.y = +clamp(st.y + dy / fr.height, 0.02, 0.98).toFixed(4);
+        } else if (mode === "size")
+          t._raw.size = Math.round(clamp(st.size + dy / fr.height * CANVAS_H, 12, 400));
+        else if (mode === "rot") t._raw.rotate = rotOf(ev);
+        styleOvTxt(curTxtIdx);
+      } else if (kind === "title"){
+        if (mode === "move"){
+          live("title_y", Math.round(clamp(st.y + dy / fr.height * CANVAS_H, 0, CANVAS_H - 120)));
+          edDesign().title_y_fixed = true;    // 직접 놓은 자리 = 고정 배치(F-409 규약)
+        } else if (mode === "rot") live("title_rotate", rotOf(ev));
+      } else {                                 // 내레이션 — 이 편 공통 design
+        if (mode === "move")
+          live("tts_y_margin", Math.round(clamp(st.m - dy / fr.height * CANVAS_H, 60, CANVAS_H - 60)));
+        else if (mode === "size")
+          live("tts_size", Math.round(clamp(st.size + dy / fr.height * CANVAS_H, 20, 300)));
+        else if (mode === "w-l" || mode === "w-r"){
+          const sign = mode === "w-r" ? 1 : -1;
+          live("tts_width", +clamp(st.w + sign * 2 * dx / fr.width, 0.3, 1).toFixed(4));
+        } else if (mode === "rot") live("tts_rotate", rotOf(ev));
+      }
+    };
+    const up = () => {
+      window.removeEventListener("mousemove", mv); window.removeEventListener("mouseup", up);
+      if (!moved) return;
+      window.__ovDragged = true;               // 곧 올 click 이 재생 토글로 새지 않게
+      markDirty();
+      if (window.__railOn) renderRailPanel(window.__railOn);
+      if (curSel && ((kind === "txt" && curSel.kind === "txt" && curSel.i === curTxtIdx)
+          || (kind === "title" && curSel.kind === "title")))
+        select(curSel.kind, curSel.i, null, true);   // 인스펙터 숫자 갱신(재탐색 없이)
+    };
+    window.addEventListener("mousemove", mv); window.addEventListener("mouseup", up);
   };
   document.addEventListener("mousedown", start, true);
 })();
@@ -12081,6 +12320,9 @@ async function mountVideo(){
   // 오버레이 초기값
   $("#ovWork").textContent = cur.row.run_id.replace(/_[0-9a-f]{6,}$/, "").replace(/_/g, " ");
   layoutShorts(); reCenter();
+  v.addEventListener("play", seqTickStart);
+  v.addEventListener("pause", seqAudioStop);   // 영상이 서면 소리도 선다(어디서 세우든)
+  seqWarm();                                   // 열자마자 예열 — 재생 전에 끝나 있게
 
   v.ontimeupdate = () => {
     const spans = liveSpans();
@@ -12098,19 +12340,38 @@ async function mountVideo(){
     // 활성 내레이션·자막
     $("#pfill").style.width = (outT != null && cur.model.total
       ? Math.min(100, outT / cur.model.total * 100) : 0) + "%";
-    const q = outT == null ? null
-      : (cur.model.cues || []).find(q => !q.dropped && outT >= q.out && outT < q.out + q.dur);
-    $("#ovTts").textContent = q ? q.text : "";
-    const si = outT == null ? -1
-      : (cur.model.subs || []).findIndex(s => !s.del && outT >= s.start && outT < s.end);
+    paintCues(outT);            // 글자·소리는 아래 한 곳에서 — rAF 도 같은 함수를 부른다
+  };
+}
+// 지금 순간의 내레이션·자막·텍스트를 화면에 얹는다. 값이 안 바뀌면 DOM 을 안 건드리므로
+// 60fps 로 불러도 싸다 — 그래서 소리와 **같은 격자**에 놓을 수 있다.
+function paintCues(outT){
+  if (!cur || !cur.model) return;
+  const v = $("#vid");
+  const q = outT == null ? null
+    : (cur.model.cues || []).find(q => !q.dropped && outT >= q.out && outT < q.out + q.dur);
+  const ttsEl = $("#ovTts"), ttsTx = q ? q.text : "";
+  if (ttsEl.dataset.tx !== ttsTx){                     // 바뀔 때만 다시 쓴다(핸들 보존)
+    ttsEl.dataset.tx = ttsTx; ttsEl.textContent = ttsTx; ovSyncHandles(); }
+  if (outT != null && v && !v.paused && seqSnd) seqAudioSync(outT);
+  const si = outT == null ? -1
+    : (cur.model.subs || []).findIndex(s => !s.del && outT >= s.start && outT < s.end);
+  if (si !== curSubIdx){                               // 줄이 바뀔 때만 다시 그린다
     curSubIdx = si;
     $("#ovSub").textContent = si >= 0 ? cur.model.subs[si].text : "";
     styleOvSub(si);
-    const x = outT == null ? null
-      : (cur.model.textCues || []).find(q => !q.dropped && outT >= q.out && outT < q.out + q.dur);
-    $("#ovTxt").textContent = x ? x.text : "";
-  };
+  }
+  const x = outT == null ? null
+    : (cur.model.textCues || []).find(q => !q.dropped && outT >= q.out && outT < q.out + q.dur);
+  const xi = x ? x.ti : -1;
+  if (xi !== curTxtIdx){
+    curTxtIdx = xi;
+    const txEl = $("#ovTxt"), txTx = x ? x.text : "";
+    txEl.dataset.tx = txTx; txEl.textContent = txTx;
+    styleOvTxt(xi);
+  }
 }
+window.paintCues = paintCues;
 function togglePlay(){
   const v = $("#vid"); if (!v.src) return;
   if (driving && !v.paused){ v.pause(); setPlay("▶ 재생"); return; }
@@ -12457,7 +12718,7 @@ function draw(){
   $("#outph").addEventListener("mousedown", e => {
     e.preventDefault(); e.stopPropagation();
     const v = $("#vid"); opWasPlaying = !v.paused;
-    v.pause(); setPlay("▶ 재생");
+    v.pause(); seqAudioStop(); setPlay("▶ 재생");
     opDrag = true; opScrub(e);
   });
   // 라벨 칸 높이를 트랙에 맞춘다(레인 수가 다르면 줄이 어긋난다)
@@ -12728,9 +12989,13 @@ window.sideRevert = () => {
   }
   select(curSel.kind, curSel.i);           // 되돌린 값으로 패널 다시 그림
 };
-const BLK_CLS = { clip: "c", tts: "t", sub: "s", txt: "x" };
-function select(kind, i, el){
+const BLK_CLS = { clip: "c", tts: "t", sub: "s", txt: "x", title: "ttl" };
+function select(kind, i, el, noSeek){
   document.querySelectorAll(".blk.sel").forEach(b => b.classList.remove("sel"));
+  // 미리보기에서 '지금 고른 요소'를 실선 강조 — 어떤 걸 골랐는지 화면에서 보이게
+  document.querySelectorAll(".shorts .ovel.pick").forEach(x => x.classList.remove("pick"));
+  const pk = { title: "#ovTitle", tts: "#ovTts", sub: "#ovSub", txt: "#ovTxt" }[kind];
+  if (pk && $(pk)) $(pk).classList.add("pick");
   // 서랍 목록에서 눌러도 타임라인 블록에 선택 테두리가 붙게 — el 이 없으면 찾는다
   if (!el && BLK_CLS[kind])
     el = document.querySelector(`#inner .blk.${BLK_CLS[kind]}[data-i="${i}"]`);
@@ -12741,7 +13006,7 @@ function select(kind, i, el){
   }
   const m = cur.model; let h = "";
   // 클릭한 요소의 완성본 시점으로 쇼츠를 멈춰 세운다(사용자 8/24) — 드래그 중은 제외
-  if (el){
+  if (el && !noSeek){
     let outT = null;
     if (kind === "clip"){ const f = m.final.find(x => x.i === i); outT = f && !f.dead ? f.out : null; }
     else if (kind === "tts"){ const q = m.cues[i]; outT = q && !q.dropped ? q.out : null; }
@@ -12769,17 +13034,12 @@ function select(kind, i, el){
     h = `<div class="khead"><span class="sw" style="background:var(--tts)"></span>
       <span class="ttl">내레이션</span></div>
       <div class="kv">
-        <span class="k">원본 앵커</span><span class="v">${fmt(q.src)} (${q.src.toFixed(3)}s)</span>
-        <span class="k">완성본</span><span class="v">${q.dropped ? "드롭" : fmt(q.out)}</span>
-        <span class="k">길이/속도</span><span class="v">${q.dur}s · ${esc(q.speed)}</span>
-        <span class="k">목소리</span><span class="v">${esc(q.voice)}</span>
+        <span class="k">완성본</span><span class="v">${q.dropped ? "드롭" : fmt(q.out)}
+          <button class="lnk" onclick="seekSrc(${q.src})">▶ 원본</button></span>
       </div>
       ${q.snapped ? `<div class="alert warn"><b>경계 밖 앵커</b> — 포함 구간이 없어
-        스냅됩니다. 본 편집실에서 시각을 ${q.gap ? `+${q.gap.toFixed(3)}s 이상` : "구간 안으로"}
-        옮기세요.</div>` : ""}
-      ${q.multi ? `<div class="alert warn"><b>중복 구간 앵커</b> — 앞쪽 구간에 붙습니다.</div>` : ""}
-      ${!q.snapped && !q.multi && !q.dropped ? `<div class="alert ok"><b>정상</b> — 의도한 구간 안에 있습니다.</div>` : ""}
-      <button onclick="seekSrc(${q.src})">▶ 앵커 지점 원본 재생</button>`;
+        스냅됩니다. 시각을 ${q.gap ? `+${q.gap.toFixed(3)}s 이상` : "구간 안으로"} 옮기세요.</div>` : ""}
+      ${q.multi ? `<div class="alert warn"><b>중복 구간 앵커</b> — 앞쪽 구간에 붙습니다.</div>` : ""}`;
   } else if (kind === "aip"){
     const q = (m.aiCues || [])[i] || {};
     h = `<div class="khead"><span class="sw" style="background:transparent;border:1.5px dashed var(--ai)"></span>
@@ -12834,10 +13094,18 @@ function select(kind, i, el){
       </div>
       ${s.src != null ? `<button onclick="seekSrc(${s.src})">▶ 원본 재생</button>` : ""}`;
   } else {
+    // 제목은 한 편에 하나뿐. 문구는 여기(오른쪽), 모양은 왼쪽 [제목] 탭이 정본이다.
+    // 편집 모드에서만 아래 editFormHtml 이 1줄·2줄 입력칸을 붙이므로, 꺼져 있을 때는
+    // 최소한 **읽을 수는 있게** 줄별로 보여준다(칩을 지운 뒤 아예 안 보였다).
+    const ls = String(m.title || "").split("\n");
     h = `<div class="khead"><span class="sw" style="background:var(--title)"></span>
       <span class="ttl">제목</span></div>
-      <div style="font-size:13px;white-space:pre-line">${esc(m.title)}</div>
-      <div class="kv"><span class="k">상영</span><span class="v">전체 (타임드 제목 미사용)</span></div>`;
+      ${editMode ? "" : `<div class="kv">
+        <span class="k">1줄</span><span class="v" style="font-family:inherit">${esc(ls[0] || "—")}</span>
+        <span class="k">2줄</span><span class="v" style="font-family:inherit">${esc(ls.slice(1).join(" ") || "—")}</span>
+      </div>
+      <div class="small faint">문구를 고치려면 위쪽 <b>🔒 편집 잠금</b>을 풀어주세요.</div>`}
+      <div class="small faint">전체 구간에 걸칩니다 (타임드 제목 미사용).</div>`;
   }
   $("#insp").innerHTML = h + (editMode ? editFormHtml(kind, i) : "");
   openSide();
@@ -12871,6 +13139,13 @@ function editFormHtml(kind, i){
         onchange="updTts(${i},'src',this.value)"></label>
       <label class="small">길이(초)<input class="efld" value="${t.dur}"
         onchange="updTts(${i},'dur',this.value)"></label></div>
+      ${(() => { const e = ttsEst(t), over = e > t.dur;
+        const pct = e / t.dur * 100;
+        return `<div class="fitrow${over ? " over" : ""}"
+            title="창(${t.dur.toFixed(1)}s) 대비 예상 발화 ${e.toFixed(1)}s — ${Math.round(pct)}%">
+          <div class="fitbar"><i style="width:${Math.min(100, pct).toFixed(1)}%"></i></div>
+          <span class="fitcap"><span>${over ? "창보다 길어 AI가 줄여 다시 씁니다" : "창 안에 들어갑니다"}</span>
+            <b>${e.toFixed(1)} / ${t.dur.toFixed(1)}s · ${Math.round(pct)}%</b></span></div>`; })()}
       <label class="small">목소리<span class="vsel">${voiceSelHtml(t.voice,
         `updTts(${i},'voice',this.value)`)}</span></label>
       <div class="erow">
@@ -12910,7 +13185,11 @@ function editFormHtml(kind, i){
         <em>${su.follow ? "구간을 옮기면 이 자막도 그 장면을 따라갑니다"
                         : "구간을 옮겨도 완성본 " + T(su.start) + " 에 그대로 남습니다"}</em></span></label>
       <div class="dgrp"><b>이 줄만</b>
-        ${sn("size", "크기", "이 편 기본")}
+        ${(() => { const bs = subEff(i).size; return `<label class="dfld"><span>크기</span>
+          <span class="steprow"><button type="button" onclick="stepFld(this,-2,${bs})">−</button>
+          <input value="${st.size ?? ""}" placeholder="이 편 기본"
+            onchange="subStyleSet(${i},'size',this.value)">
+          <button type="button" onclick="stepFld(this,2,${bs})">＋</button></span></label>`; })()}
         ${sc("color", "색")}
         ${sn("y", "세로(0~1)", "0=위 1=아래")}
         ${sn("width", "통 폭(0.3~1)", "기본 0.852")}
@@ -12923,6 +13202,7 @@ function editFormHtml(kind, i){
         ${su.del ? "삭제 취소" : "자막 삭제"}</button></div>`;
   }
   if (kind === "txt"){ const t = m.texts[i]; if (!t) return "";
+    const r = t._raw || {}, bs = +r.size || 72;
     return `<label class="small">문구<textarea class="efld" rows="2"
         onchange="updTxt(${i},'text',this.value)">${esc(t.text)}</textarea></label>
       <div class="erow">
@@ -12930,12 +13210,24 @@ function editFormHtml(kind, i){
         onchange="updTxt(${i},'src',this.value)"></label>
       <label class="small">길이(초)<input class="efld" value="${t.dur}"
         onchange="updTxt(${i},'dur',this.value)"></label></div>
+      <label class="dfld"><span>크기</span>
+        <span class="steprow"><button type="button" onclick="stepFld(this,-2,${bs})">−</button>
+        <input value="${r.size ?? ""}" placeholder="72"
+          onchange="updTxtRaw(${i},'size',this.value)">
+        <button type="button" onclick="stepFld(this,2,${bs})">＋</button></span></label>
       <div class="ebtns"><button class="danger" onclick="delTxt(${i})">텍스트 삭제</button></div>
-      <div class="small faint">위치·크기·색은 본 편집실 ✎ 에서 — 여기선 문구·시각만</div>`;
+      <div class="small faint">화면의 글자를 <b>끌면 위치</b>, ◢ 는 크기, ↻ 는 회전.
+        색은 본 편집실 ✎ 에서.</div>`;
   }
-  if (kind === "title")
-    return `<label class="small">제목(줄바꿈 = 1·2줄)<textarea class="efld" rows="2"
-      onchange="updTitle(this.value)">${esc(m.title)}</textarea></label>`;
+  if (kind === "title"){
+    const ls = String(m.title || "").split("\n");
+    const l2 = ls.slice(1).join(" ");
+    return `<label class="tfld"><span>1줄</span><input class="efld" id="ttl1"
+        value="${esc(ls[0] || "")}" onchange="updTitleLines()"></label>
+      <label class="tfld"><span>2줄 <i class="faint">비우면 한 줄 제목</i></span>
+        <input class="efld" id="ttl2" value="${esc(l2)}" onchange="updTitleLines()"></label>
+      <div class="small faint">왼쪽 <b>[제목]</b> 탭에서 스타일 설정이 가능합니다.</div>`;
+  }
   return "";
 }
 
@@ -12978,8 +13270,9 @@ window.addEventListener("mouseup", () => {
 }
 
 tlRoot.querySelector(".shorts").addEventListener("click", () => {
+  if (window.__ovDragged){ window.__ovDragged = false; return; }   // 드래그 끝맺음 클릭
   const v = $("#vid"); if (!v.src) return;
-  if (!v.paused) v.pause();                    // 멈춤 — 위치 유지
+  if (!v.paused){ v.pause(); seqAudioStop(); }  // 멈춤 — 위치·소리 함께
   else if (driving) v.play().catch(() => {});  // 이어서
   else seekOut(0);                             // 처음부터
 });
@@ -13036,7 +13329,8 @@ function toggleEdit(){
   $("#rochip").textContent = editMode
     ? "편집 중 — [초안 저장]을 눌러야 DB 에 쓰입니다"
     : "조회는 흔적 없음 — 쓰기는 [초안 저장]을 누를 때만";
-  if (cur && cur.model) draw();
+  if (cur && cur.model){ draw(); ovSyncHandles(); styleOvTxt(curTxtIdx);
+    styleOvSub(curSubIdx); }
 }
 const parseT = v => { v = String(v || "").trim(); if (!v) return null;
   if (/^\d+(\.\d+)?$/.test(v)) return parseFloat(v);
@@ -13052,10 +13346,14 @@ const modelState = () => JSON.stringify({ c: cur.model.clips, t: cur.model.tts,
   s: cur.model.subs, x: cur.model.texts, ti: cur.model.title });
 function snap(){ undoStack.push(modelState());
   if (undoStack.length > 60) undoStack.shift(); redoStack = []; }
+function ovRepaint(){                      // 멈춰 있어도 오버레이를 지금 시각으로
+  const v = $("#vid");
+  if (v && v.src && v.paused){ try { v.currentTime = v.currentTime; } catch (e) {} }
+}
 function applyState(j){ const st = JSON.parse(j);
   cur.model.clips = st.c; cur.model.tts = st.t; cur.model.subs = st.s;
   cur.model.texts = st.x; cur.model.title = st.ti;
-  markDirty(); runEngineRules(); draw();
+  markDirty(); runEngineRules(); draw(); layoutShorts(); ovRepaint();
   if (!curSel) closeSide(); }
 window.doUndo = () => { if (!undoStack.length){ toast("되돌릴 것이 없습니다"); return; }
   redoStack.push(modelState()); applyState(undoStack.pop()); };
@@ -13087,6 +13385,18 @@ window.addEventListener("keydown", e => {
 
 // ── 뮤테이터 — inspector 폼과 드래그가 부른다 ──
 window.updTitle = v => { snap(); cur.model.title = v; layoutShorts(); refresh("title", 0); };
+window.updTitleLines = () => {
+  const a = ($("#ttl1").value || "").trim(), b = ($("#ttl2").value || "").trim();
+  updTitle(b ? a + "\n" + b : a);          // 뒤에서는 종전대로 줄바꿈 한 덩어리
+};
+// 크기 칸 +/- 스테퍼 — 칸이 비어 있으면(=기본값 상속) base 에서 출발한다
+window.stepFld = (btn, d, base) => {
+  const inp = btn.parentElement.querySelector("input");
+  const v0 = String(inp.value).trim() === "" ? (+base || 0)
+    : (parseFloat(inp.value) || +base || 0);
+  inp.value = Math.max(1, Math.round(v0 + d));
+  inp.dispatchEvent(new Event("change"));
+};
 // 디자인 오버라이드 — 이 편에만 적용. 빈 값 = 키 제거(채널 기본으로 되돌림).
 // 저장은 saveDraft 의 pendingDesign 경로로 합류한다(템플릿 적용과 같은 자리).
 window.edDesign = () => (cur.pendingDesign = cur.pendingDesign
@@ -13115,6 +13425,10 @@ window.updTts = (i, f, v) => { snap(); const t = cur.model.tts[i];
   if (f === "src"){ const x = parseT(v); if (x == null){ toast("시각 형식: 16:04.1 또는 초"); return; } t.src = x; }
   else if (f === "dur"){ const x = parseFloat(v); if (!(x > 0)) return; t.dur = x; }
   else t[f] = v;
+  // 문구·목소리·속도가 바뀌면 렌더 mp3 는 더 이상 그 줄의 소리가 아니다 →
+  // 즉석 합성 쪽으로 보내고(stale), 새 소리를 미리 받아 둔다.
+  if (f === "text" || f === "voice" || f === "speed"){
+    t.stale = !!t.key; seqCue = -1; cueAudio(t).catch(() => {}); }
   refresh("tts", i); };
 window.delTts = i => { snap(); cur.model.tts.splice(i, 1); refresh(); closeSide(); };
 window.subFollowSet = (i, on) => {
@@ -13145,7 +13459,7 @@ window.subStyleSet = (i, k, v) => {
   else if (k === "color") su.style[k] = t.toUpperCase();
   else su.style[k] = +t;
   if (!Object.keys(su.style).length) delete su.style;
-  layoutShorts(); refresh("sub", i);
+  layoutShorts(); styleOvSub(i); refresh("sub", i);
 };
 // 자막 다중 선택 — 목록 체크박스. 카드가 바뀌면 비운다.
 window.subCk = new Set();
@@ -13199,7 +13513,15 @@ window.updTxt = (i, f, v) => { snap(); const t = cur.model.texts[i];
   else if (f === "dur"){ const x = parseFloat(v); if (!(x > 0)) return; t.dur = x; }
   else t[f] = v;
   refresh("txt", i); };
-window.delTxt = i => { snap(); cur.model.texts.splice(i, 1); refresh(); closeSide(); };
+window.updTxtRaw = (i, k, v) => { snap(); const t = cur.model.texts[i]; if (!t) return;
+  t._raw = { ...(t._raw || {}) };
+  const n = parseFloat(v);
+  if (k === "size"){ if (!(n > 0)) delete t._raw.size;      // 비우면 기본(72)
+    else t._raw.size = Math.round(clamp(n, 12, 400)); }
+  else t._raw[k] = v;
+  markDirty(); styleOvTxt(curTxtIdx); };
+window.delTxt = i => { snap(); cur.model.texts.splice(i, 1); refresh(); closeSide();
+  curTxtIdx = -1; ovRepaint(); };
 window.addTxtAt = () => { snap();
   const v = $("#vid"), src = +(v.currentTime || 0).toFixed(3);
   // 기본 배치는 본 편집실 '＋ 텍스트'와 같은 값(0071) — 위치·크기 조정은 본 편집실에서
@@ -13480,6 +13802,15 @@ const TTS_EL_DEFAULT = [
   ["elevenlabs:N2lVS1w4EtoT3dr4eOWO", "캐릭터 · 남 · 강렬함 (Callum)"],
   ["elevenlabs:XB0fDUnXU5powFXDhCwa", "캐릭터 · 여 · 나른함 (Charlotte, 스웨덴)"],
 ];
+// 예상 발화 길이(본 편집실 ED_TTS_CHARS_PER_SEC·SPEED_FACTOR 와 같은 값).
+// 창보다 길면 엔진이 뜻을 지키며 줄여 재합성한다 — 그 예고를 보여준다.
+const TTS_CHARS_PER_SEC = 5.5;
+const SPEED_FACTOR = { very_slow: 0.75, slow: 0.9, normal: 1, fast: 1.1, very_fast: 1.25 };
+const EL_SPEED_FACTOR = { very_slow: 0.7, slow: 0.85, normal: 1, fast: 1.1, very_fast: 1.2 };
+const speedFactor = t =>
+  (pvAble(t.voice) ? EL_SPEED_FACTOR : SPEED_FACTOR)[t.speed || "normal"] || 1;
+const ttsEst = t => String(t.text || "").replace(/\s/g, "").length
+  / TTS_CHARS_PER_SEC / speedFactor(t);
 const TTS_SPEEDS = ["very_slow","slow","normal","fast","very_fast"];
 let opsCfg = {};                       // ops_config 캐시(목록·게이트)
 function elVoices(){                   // 운영자 목록이 있으면 그것이 이긴다
@@ -13511,6 +13842,120 @@ function voiceSelHtml(curV, onchange){
 // ── 미리듣기 — 본 편집실과 같은 엣지 함수(tts-preview). 한 번에 하나만 운다 ──
 let pvAudio = null, pvGen = 0;
 const pvCache = new Map();
+// 미리보기 재생 중 내레이션 소리(2026-08-26) — 본 편집실 edSeqAudioSync 와 같은 규약:
+// 하늘색 자막이 뜨는 그 순간 그 줄이 울린다. 줄 중간부터 들어왔으면 그만큼 건너뛴다.
+let seqSnd = true, seqAudio = null, seqCue = -1, seqGen = 0;
+window.seqSndToggle = () => {
+  seqSnd = !seqSnd;
+  if (!seqSnd) seqAudioStop(); else { seqWarm(); seqTickStart(); }
+  const b = document.getElementById("sndBtn"); if (b) b.classList.toggle("on", seqSnd);
+};
+function seqAudioStop(){ ++seqGen; seqCue = -1;
+  if (seqAudio){ seqAudio.pause(); seqAudio = null; } }
+window.seqAudioStop = seqAudioStop;
+// 그 줄의 소리 — 렌더가 만든 mp3(tts[].key)가 정본, 없고 EL 목소리면 미리듣기로 합성
+const cueUrlCache = new Map();      // 키 → Promise<url> (동시 요청 합치기)
+const cueAudCache = new Map();      // 키 → 미리 디코딩해 둔 Audio
+const cueKey = t => `${t.stale ? "" : (t.key || "")}|${t.voice}|${t.speed || "normal"}|${t.text}`;
+function cueUrl(t){
+  const k = cueKey(t);
+  if (cueUrlCache.has(k)) return cueUrlCache.get(k);
+  const p = (async () => {
+    let url = null;
+    // 문구·목소리가 그대로면 렌더가 만든 mp3 가 정본이자 **가장 빠른 길**이다.
+    if (t.key && !t.stale){
+      const { data } = await sb.storage.from("ves-outputs").createSignedUrl(t.key, 1800);
+      url = data && data.signedUrl;
+    }
+    if (!url && pvAble(t.voice) && String(t.text || "").trim()){
+      const { data, error } = await sb.functions.invoke("tts-preview",
+        { body: { text: t.text, voice: t.voice, speed: t.speed || "normal" } });
+      if (!error && data && data.audio){
+        const bin = atob(data.audio), buf = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+        url = URL.createObjectURL(new Blob([buf], { type: data.mime || "audio/mpeg" }));
+      }
+    }
+    return url;
+  })();
+  cueUrlCache.set(k, p);
+  return p;
+}
+// 소리를 **미리 받아 디코딩까지** 해 둔다. 이게 없으면 그 줄에 닿는 순간
+// 서명 URL 요청 → 다운로드 → 디코딩이 줄줄이 붙어 첫 마디가 잘린다.
+async function cueAudio(t){
+  const k = cueKey(t);
+  if (cueAudCache.has(k)) return cueAudCache.get(k);
+  const url = await cueUrl(t);
+  if (!url) return null;
+  const a = new Audio(); a.preload = "auto"; a.src = url;
+  try { a.load(); } catch (e) {}
+  cueAudCache.set(k, a);
+  return a;
+}
+// 예열 — 타임라인 순서로 하나씩(동시에 쏘면 요금·레이트리밋만 튄다).
+// 저장된 mp3 는 서명만 하면 되니 빠르고, 즉석 합성만 1~2초 걸린다.
+let warmGen = 0, warmWarned = false;
+async function seqWarm(){
+  if (!seqSnd || !cur || !cur.model) return;
+  const gen = ++warmGen;
+  for (const q of (cur.model.cues || [])){
+    if (gen !== warmGen || !seqSnd) return;
+    const t = cur.model.tts[q.ti];
+    if (q.dropped || !t) continue;
+    try { await cueAudio(t); }
+    catch (e){ if (!warmWarned){ warmWarned = true;
+      toast("내레이션 미리듣기 예열 실패: " + (e.message || e), true); } }
+  }
+}
+window.seqWarm = seqWarm;
+window.__cueAudio = cueAudio;      // 진단용 — 예열 상태를 밖에서 확인할 때만 쓴다
+window.__cueKey = cueKey;
+window.__seqPeek = () => seqAudio;
+function seqAudioSync(outT){
+  if (!seqSnd || !cur || !cur.model) return;
+  let idx = -1, pos = 0;
+  (cur.model.cues || []).forEach((q, i) => {
+    if (idx >= 0 || q.dropped) return;
+    if (outT >= q.out && outT < q.out + q.dur){ idx = i; pos = outT - q.out; }
+  });
+  if (idx === seqCue) return;
+  seqCue = idx;
+  if (seqAudio){ seqAudio.pause(); seqAudio = null; }
+  const gen = ++seqGen;
+  if (idx < 0) return;
+  const t = cur.model.tts[cur.model.cues[idx].ti];
+  const start = a => {
+    if (!a || gen !== seqGen || !seqSnd) return;
+    seqAudio = a;
+    const go = () => { if (gen !== seqGen) return;
+      // 줄 중간부터 들어왔으면(클릭 점프) 그만큼 건너뛴다 — 처음부터 틀면 자막과 어긋난다
+      a.currentTime = pos > 0.2 && isFinite(a.duration)
+        ? Math.min(pos, Math.max(0, a.duration - 0.05)) : 0;
+      a.play().catch(() => {}); };
+    if (a.readyState > 0) go(); else a.addEventListener("loadedmetadata", go, { once: true });
+  };
+  // 예열이 끝난 줄은 **기다리지 않고 그 자리에서** 운다 — 이게 지연의 핵심이었다.
+  const k = cueKey(t);
+  if (cueAudCache.has(k)) start(cueAudCache.get(k));
+  else cueAudio(t).then(start).catch(() => {});
+}
+
+// 프레임 단위 소리 동기 — timeupdate(≈250ms)보다 15배 촘촘하다. 재생 중에만 돈다.
+let seqRaf = 0;
+function seqTick(){
+  seqRaf = 0;
+  const v = document.getElementById("vid");
+  if (!v || !v.src || v.paused) return;                 // 멈추면 루프도 멈춘다
+  if (cur && cur.model){
+    const outT = srcToOut(v.currentTime);
+    if (outT != null) paintCues(outT);      // 소리와 글자를 한 프레임에 함께
+  }
+  seqRaf = requestAnimationFrame(seqTick);
+}
+function seqTickStart(){ if (!seqRaf) seqRaf = requestAnimationFrame(seqTick); }
+window.seqTickStart = seqTickStart;
+
 window.ttsStop = () => { pvGen++; if (pvAudio){ pvAudio.pause(); pvAudio = null; } };
 window.ttsPreview = async (slot, btnId, text, voice, speed) => {
   if (pvAudio && pvAudio._slot === slot && !pvAudio.paused){ ttsStop(); return; }
@@ -13540,7 +13985,7 @@ window.ttsPreview = async (slot, btnId, text, voice, speed) => {
       pvCache.set(k, url);
     }
     if (gen !== pvGen) return;
-    $("#vid").pause();                  // 미리듣기와 영상이 겹쳐 나오면 안 된다
+    $("#vid").pause(); seqAudioStop();  // 미리듣기와 영상·시퀀스 소리가 겹치면 안 된다
     pvAudio = new Audio(url); pvAudio._slot = slot;
     pvAudio.play().catch(() => toast("미리듣기를 재생할 수 없습니다"));
   } catch (e){
@@ -13560,6 +14005,7 @@ const I = {
   starth:'<svg viewBox="0 0 24 24"><path d="M21 12H11M15 6l-6 6 6 6M4 4v16"/></svg>',
   endh:'<svg viewBox="0 0 24 24"><path d="M3 12h10M9 6l6 6-6 6M20 4v16"/></svg>',
   misc:'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 8.9 19a1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 5 8.9a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9.6a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
+  snd:'<svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M17 8.5a5 5 0 0 1 0 7"/></svg>',
   zoom:'<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5M8 11h6"/></svg>',
   sun:'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/></svg>',
   moon:'<svg viewBox="0 0 24 24"><path d="M21 13.5A9 9 0 1 1 10.5 3a7 7 0 0 0 10.5 10.5z"/></svg>',
@@ -13668,6 +14114,12 @@ window.toggleTheme = () => applyTheme(
   const dnum = (k, label, hint) => `<label class="dfld"><span>${label}</span>
     <input value="${esc(dsGet(k) ?? "")}" placeholder="${esc(ph(k) || hint || "")}"
       onchange="dsSet('${k}',this.value)"></label>`;
+  // 크기 칸 — 직접 입력 + −/＋ 클릭(빈 칸이면 base 에서 출발)
+  const dstep = (k, label, hint, base) => `<label class="dfld"><span>${label}</span>
+    <span class="steprow"><button type="button" onclick="stepFld(this,-2,${base})">−</button>
+    <input value="${esc(dsGet(k) ?? "")}" placeholder="${esc(ph(k) || hint || "")}"
+      onchange="dsSet('${k}',this.value)">
+    <button type="button" onclick="stepFld(this,2,${base})">＋</button></span></label>`;
   const dsel = (k, label, opts) => `<label class="dfld"><span>${label}</span>
     <select onchange="dsSet('${k}',this.value)">${opts.map(([v, t]) =>
       `<option value="${v}" ${String(dsGet(k) ?? "") === v ? "selected" : ""}>${esc(t)}</option>`).join("")}
@@ -13680,23 +14132,20 @@ window.toggleTheme = () => applyTheme(
         onchange="dsSet('${k}',this.value)"></span></label>`; };
 
   window.titleTabHtml = m => `
-    <textarea class="efld" rows="2" onchange="updTitle(this.value)"
-      placeholder="제목 — 줄바꿈으로 1줄·2줄">${esc(m.title)}</textarea>
-    <div class="small faint">줄바꿈 = 1줄·2줄</div>
     <div class="dgrp"><b>공통</b>
       ${dsel("title_font", "폰트", FONTS)}
       ${dnum("title_y", "세로 위치(위에서 px)", "비우면 자동 배치")}
       ${dnum("title_rotate", "회전(도)", "-180~180 · 시계 +")}
     </div>
     <div class="dgrp"><b>1줄</b>
-      ${dnum("title_size", "크기", "예: 70")}
+      ${dstep("title_size", "크기", "예: 70", +dsBase("title_size") || 70)}
       ${dcol("title_color", "색")}
       ${dsel("title_box", "배경", BOXES)}
       ${dcol("title_box_color", "배경색")}
       ${dsel("title_bold", "굵게", BOLDS)}
     </div>
     <div class="dgrp"><b>2줄</b>
-      ${dnum("title_size2", "크기", "비우면 1줄 × 90/70")}
+      ${dstep("title_size2", "크기", "비우면 1줄 × 90/70", Math.round(+dsBase("title_size2") || (+dsGet("title_size") || +dsBase("title_size") || 70) * 90 / 70))}
       ${dcol("title_color2", "색")}
       ${dsel("title_box2", "배경", BOXES)}
       ${dcol("title_box_color2", "배경색")}
@@ -13705,6 +14154,12 @@ window.toggleTheme = () => applyTheme(
     <div class="small faint">비운 칸은 채널 기본값을 씁니다 — 이 편에만 적용되고,
       [저장]을 눌러야 초안에 실립니다.</div>`;
 
+  window.openRail = k => {
+    if (window.__railOn !== k){
+      const b = rail.querySelector(`button[data-k="${k}"]`);
+      if (b) b.click();
+    }
+  };
   window.renderRailPanel = k => {
     stashSrc();   // innerHTML 재구성 전에 항상 대피 — 안 하면 플레이어가 파괴된다
     if (!k){ railPanel.innerHTML = ""; return; }
@@ -13740,7 +14195,7 @@ window.toggleTheme = () => applyTheme(
         <div class="dgrp"><b>이 편 공통 스타일</b>
           ${dsel("subtitle_font", "폰트", FONTS)}
           ${dsel("subtitle_style", "프리셋", SUBSTYLES)}
-          ${dnum("subtitle_size", "기본 크기", "예: 65")}
+          ${dstep("subtitle_size", "기본 크기", "예: 65", +dsBase("subtitle_size") || 65)}
           ${dcol("subtitle_color", "기본 색")}
           <div class="small faint">모든 줄에 걸립니다 — 한 줄만 다르게 하려면
             그 줄을 골라 오른쪽에서 덮어쓰세요.</div>
@@ -13784,7 +14239,7 @@ window.toggleTheme = () => applyTheme(
             <button onclick="applyVoiceAll()">${nCk ? `선택 ${nCk}줄` : "전체"}에 적용</button>
             <button id="pvBulk" onclick="previewBulkVoice()">▶ 이 목소리 들어보기</button>
           </div>
-          ${dnum("tts_size", "자막 크기", "예: 70")}
+          ${dstep("tts_size", "자막 크기", "예: 70", +dsBase("tts_size") || 70)}
           ${dcol("tts_color", "자막 색")}
           ${dnum("tts_y_margin", "세로(하단 px)", "예: 550")}
           ${dnum("tts_width", "글자 통 폭", "비우면 0.852 · 0.3~1.0")}
@@ -13807,6 +14262,8 @@ window.toggleTheme = () => applyTheme(
             <span class="tc" onclick="select('tts',${i})">${fmt(t.src)}</span>
             <span class="tx" onclick="select('tts',${i})">${esc(t.text)}</span>
             ${warn ? '<em class="stbadge warnb" title="앵커 경고 — 오른쪽 참고">⚠</em>' : ""}
+            ${ttsEst(t) > t.dur ? `<em class="stbadge warnb"
+              title="예상 ${ttsEst(t).toFixed(1)}s > 창 ${t.dur.toFixed(1)}s — AI가 줄여 다시 씁니다">넘침</em>` : ""}
             ${pvAble(t.voice) ? `<button class="pvb" id="pvrow${i}"
               title="들어보기" onclick="event.stopPropagation();ttsPreview('row${i}','pvrow${i}',
                 ${JSON.stringify(t.text)},${JSON.stringify(t.voice)},${JSON.stringify(t.speed || "normal")})">▶</button>` : ""}

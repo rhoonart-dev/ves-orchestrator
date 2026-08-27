@@ -54,8 +54,14 @@ jobs:
       # no-cache 를 걸어두므로 업로드만으로 즉시 반영된다(무효화는 엣지 잔여분 정리용).
       - name: S3 업로드
         run: |
-          aws s3 cp dashboard/index.html "s3://$BUCKET/index.html" \
+          # gzip 으로 올린다(2026-08-26) — CloudFront 가 자동 압축을 하지 않아
+          # 1.0MB 원본이 매번 그대로 전송되고 있었다(실측: 전송 1042KB = 원본).
+          # 미리 압축해 두면 배포 설정과 무관하게 ~311KB 로 줄어든다.
+          gzip -9 -c dashboard/index.html > /tmp/index.html.gz
+          echo "원본 $(wc -c < dashboard/index.html) → gzip $(wc -c < /tmp/index.html.gz) 바이트"
+          aws s3 cp /tmp/index.html.gz "s3://$BUCKET/index.html" \
             --content-type "text/html; charset=utf-8" \
+            --content-encoding gzip \
             --cache-control "no-cache, must-revalidate"
 
       - name: CloudFront 무효화
