@@ -11725,6 +11725,11 @@ window.openByReview = async rid => {
 };
 
 async function openRun(runId, btn){
+  // ⚠ 저장 안 된 편집 위에 덮어쓰지 않는다 — buildModel 은 모델을 통째로 갈아끼우므로
+  // 여기서 막지 않으면 고친 제목·구간이 흔적 없이 사라진다(2026-08-27 유실 사고).
+  if (dirty && cur && cur.model && !confirm(
+      "저장하지 않은 편집이 있습니다.\n\n지금 다시 열면 그 편집은 사라집니다 " +
+      "(초안 저장도, 렌더 제출도 하지 않았습니다).\n\n그래도 계속할까요?")) return;
   document.querySelectorAll(".runbtn.on").forEach(b => b.classList.remove("on"));
   if (btn) btn.classList.add("on");
   // 1파: 재료 + ops_config(서로 무관) 동시에
@@ -13445,6 +13450,10 @@ tlRoot.querySelector(".shorts").addEventListener("click", () => {
     wRaf = requestAnimationFrame(() => { wRaf = 0; drawWave(); });
   }, { passive: true });
   window.addEventListener("resize", () => drawWave());
+// 새로고침·창 닫기로도 편집이 날아간다 — 브라우저 기본 확인창을 띄운다
+window.addEventListener("beforeunload", e => {
+  if (dirty && window.__tlOpen){ e.preventDefault(); e.returnValue = ""; }
+});
 }
 $("#srcScroll").addEventListener("wheel", e => {
   if (!cur || !cur.model) return;
