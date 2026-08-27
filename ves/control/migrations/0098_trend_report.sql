@@ -67,11 +67,11 @@ GRANT  EXECUTE ON FUNCTION public.get_trend_report(date) TO authenticated;
 -- 작업 완료"로 켠 채 출발을 지시했다 — 사람이 켰다는 사실을 여기 남긴다.
 INSERT INTO public.ops_config(key, value, note) VALUES
  ('trend_report',
-  '{"enabled": true, "model": "gemini-2.5-flash", "narrative": true}',
+  '{"enabled": true, "model": "gemini-3.6-flash", "narrative": true}',
   '일일 리포트 생성기(T-P2) — 매일 05:00 KST. facts 는 SQL, 해설은 Gemini(실패해도 '
   'facts 로 성립). 모델·해설 여부는 여기서 고친다. 2026-08-27 운영자 지시로 켠 채 시작'),
  ('algo_watch',
-  '{"enabled": true, "model": "gemini-2.5-flash", "interval_days": 7}',
+  '{"enabled": true, "model": "gemini-3.6-flash", "interval_days": 7}',
   '알고리즘 상수 주간 조사(T-C3) — 주 1회 검색 grounding 조사, algo_constants_proposed '
   '에 제안만 기록. 자동 반영 안 함 — 반영은 사람이 algo_constants 를 고친다. '
   '2026-08-27 운영자 지시로 켠 채 시작')

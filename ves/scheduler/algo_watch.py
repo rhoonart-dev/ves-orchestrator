@@ -17,7 +17,7 @@ import json
 
 CONFIG_KEY = "algo_watch"
 PROPOSED_KEY = "algo_constants_proposed"
-DEFAULTS = {"enabled": False, "model": "gemini-2.5-flash", "interval_days": 7}
+DEFAULTS = {"enabled": False, "model": "gemini-3.6-flash", "interval_days": 7}
 
 PROMPT = (
     "웹 검색으로 지금(오늘 기준) YouTube Shorts 추천 알고리즘의 임계값 통설을 조사하라. "
