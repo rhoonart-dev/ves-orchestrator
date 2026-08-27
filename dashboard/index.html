@@ -1137,6 +1137,11 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 .trx .trx-note{border:1px solid var(--tmkt);border-radius:10px;background:var(--tsf);
   padding:.8rem 1rem;margin:1.5rem 0 0;font-size:.85rem;color:var(--ti2)}
 .trx .trx-empty{color:var(--ti3);font-size:.9rem;padding:1rem}
+.trx .trx-mkmed{font-family:var(--tfm);font-size:.66rem;color:var(--ti3);font-weight:400;
+  text-transform:none;letter-spacing:0;margin-left:.4rem}
+.trx .trx-mknum{font-family:var(--tfm);font-size:.78rem;font-variant-numeric:tabular-nums;color:var(--ti2)}
+.trx .trx-details summary{font-family:var(--tfm);font-size:.7rem;color:var(--ti3);cursor:pointer;
+  margin:1rem 0 .6rem;letter-spacing:.08em;text-transform:uppercase}
 .trx .mini{font-family:var(--tfb)}
 @media (max-width:640px){.trx{padding:1.4rem 1rem 3rem;border-radius:0;border-left:0;border-right:0}}
 
@@ -10078,7 +10083,8 @@ function renderTrends(){
 
   // 진단 — 정상 아닌 영상
   const vcls = {"정상":"ok","이탈":"warn","안 눌림":"warn","배포 안 됨":"crit","판정 보류":"mut"};
-  const diagRows = (d.videos||[]).map(v => `
+  // 운영자 지시(8/27): '배포 안 됨' 개별 나열 제외 — 집계(타일)로만. 구 리포트 호환 필터.
+  const diagRows = (d.videos||[]).filter(v => v.verdict !== "배포 안 됨").map(v => `
     <tr><td><span class="trx-v ${vcls[v.verdict]||"mut"}">${esc(v.verdict)}</span></td>
       <td class="trx-tname">${esc((v.title||"").slice(0,42))}<div class="trx-tsub">${esc(v.work||"")} · ${esc(v.channel||"")}</div></td>
       <td class="num">${tvN(v.impr)}</td><td class="num">${v.ctr==null?"—":v.ctr}</td>
@@ -10121,20 +10127,39 @@ function renderTrends(){
       <div class="trx-ledger">${(f.actions||[]).map(a => `
         <div class="trx-lrow act"><span class="trx-v ${a.pri===1?"crit":"warn"}">P${a.pri}</span>
           <span class="trx-lname">${esc(a.text)}</span></div>`).join("")}</div>`) : ""}
+    ${((f.momentum||[]).length) ? tvSect("turning point", "전환점 — 급증·급락", nr.momentum, `
+      <div class="trx-cols">${(f.momentum||[]).map(m => `
+        <div class="trx-panel"><div class="trx-clab"><span class="trx-v ${m.dir==="surge"?"ok":"crit"}">${m.dir==="surge"?"급증":"급락"}</span>
+          ${esc(m.channel)} <span class="trx-mkmed">최근 7일 ${tvN(m.recent)} · 이전 7일 ${tvN(m.prev)}</span></div>
+          <div class="trx-ledger">${(m.drivers||[]).map(dv => `
+            <div class="trx-lrow"><span class="trx-lname">${esc((dv.title||"").slice(0,34))}
+              <div class="trx-tsub">${esc(dv.published||"")}${(dv.matches||[]).length ? " · 외부 겹침: " + esc(dv.matches.map(x=>(x.tokens||[]).join("·")).join(" / ")) : ""}</div></span>
+              <span class="trx-mknum">${tvN(dv.views)}</span></div>`).join("")
+            || '<div class="trx-empty">주도 영상 없음</div>'}</div></div>`).join("")}</div>
+      <div class="trx-figsub">기준: 최근 7일 vs 이전 7일 (급증 ≥3배·급락 ≤0.4배) · '외부 겹침'은 그 무렵 트렌드·시장 제목과 겹친 고유명사 — 인과가 아니라 검증할 단서다</div>`) : ""}
     ${ov.length ? tvSect("crossover", "밖 ↔ 안 — 트렌드에 등장한 작품", null,
       ov.map(h => `<span class="trx-v ok">「${esc(h.work)}」 ← ${esc(h.region||"")} "${esc(h.trend)}"</span>`).join(" ")) : ""}
-    ${tvSect("outside", "밖 — 시장의 신호", nr.outside, `
-      <div class="trx-cols">${regionCols || '<div class="trx-empty">오늘 수집 없음</div>'}</div>
-      <div class="trx-figsub">수집 ${esc(String(out.collected_date||""))} · YouTube 차트 + Google 검색 트렌드 · 지역당 상위 10</div>`)}
+    ${tvSect("market", "밖 — 우리 작품의 시장", nr.outside, `
+      ${(out.market||[]).length ? `<div class="trx-cols">${(out.market||[]).map(m => `
+        <div class="trx-panel"><div class="trx-clab">${esc(m.work)} <span class="trx-mkmed">외부 중앙 ${tvN(m.market_median)}회</span></div>
+          <div class="trx-ledger">${(m.videos||[]).map(v => `
+            <div class="trx-lrow"><span class="trx-lname">${esc((v.title||"").slice(0,34))}
+              <div class="trx-tsub">${esc(v.channel||"")}</div></span>
+              <span class="trx-mknum">${tvN(v.views)}</span></div>`).join("")}</div></div>`).join("")}</div>
+        <div class="trx-figsub">최근 7일 · 같은 작품을 다루는 외부 상위 영상(순위 상위 편향 — 중앙값은 실제보다 높게 잡힌다) · 방영 중(prefer_latest) 작품만</div>`
+      : '<div class="trx-empty">시장 스냅샷 없음 — 다음 03:00 수집부터(방영 중 작품 대상)</div>'}
+      <details class="trx-details"><summary>검색·차트 트렌드 (참고)</summary>
+        <div class="trx-cols">${regionCols || '<div class="trx-empty">오늘 수집 없음</div>'}</div></details>
+      <div class="trx-figsub">수집 ${esc(String(out.collected_date||""))}</div>`)}
     ${tvSect("inside", "안 — 작품별 깔때기", nr.inside, `
       <div class="trx-tablewrap"><table class="trx-table">
       <tr><th>작품 · 채널</th><th class="num">편수</th><th class="num">노출</th><th class="num">CTR%</th>
           <th class="num">완주%</th><th class="num">조회</th><th>판정 분포</th></tr>${workRows}</table></div>`)}
-    ${tvSect("diagnosis", "진단 — 정상이 아닌 영상", nr.diagnosis, `
+    ${tvSect("diagnosis", "진단 — 콘텐츠로 고칠 수 있는 영상", nr.diagnosis, `
       <div class="trx-tablewrap"><table class="trx-table">
       <tr><th>판정</th><th>영상</th><th class="num">노출</th><th class="num">CTR%</th>
           <th class="num">완주%</th><th class="num">길이s</th><th>처방</th></tr>${diagRows}</table></div>
-      <div class="trx-figsub">노출 많은 순 상위 60 · 판정은 깔때기 순서로 먼저 걸리는 데서 멈춘다</div>`)}
+      <div class="trx-figsub">이탈·안 눌림만 — '배포 안 됨' ${tvN(cnt["배포 안 됨"])}건은 집계로만 본다(처방은 회차·태그, 상단 공지)</div>`)}
     ${sc.axes ? tvSect("success", `왜 되나 — 상위 ${sc.top_n}편(조회 ${tvN(sc.top_views_min)}+) vs 나머지`, nr.success, `
       <div class="trx-pairs">${axesHtml}</div>
       <div class="trx-legend"><span class="sw ours"></span>상위 10% 중앙값 <span class="sw mkt"></span>나머지 중앙값</div>

@@ -5390,3 +5390,79 @@ def test_planner_episode_order():
     assert "DESC" not in episode_order(False)
     assert episode_order(True).startswith("s.episode DESC")
     assert "published_ts" in episode_order(True)          # 같은 회차 안에서도 최신 먼저
+
+
+def test_trend_report_momentum():
+    """전환점 감지 — 락커룸형 급증(0→터짐)과 재미쇼츠형 급락(반토막 이하). 순수."""
+    from datetime import date, timedelta
+    from ves.scheduler.trend_report import classify_momentum
+    ref = date(2026, 8, 22)
+    def days(ch, vals):    # vals[0]=ref일, 뒤로 하루씩
+        return [{"channel": ch, "date": ref - timedelta(days=i), "views": v}
+                for i, v in enumerate(vals)]
+    daily = (days("LOCKERROOM", [2000, 1500, 900, 0, 0, 0, 0,  10, 5, 3, 0, 0, 0, 0])
+             + days("JAEMISHOTS", [100, 80, 90, 70, 60, 50, 40,  500, 400, 300, 200, 100, 150, 100])
+             + days("BGSUNSAK",  [1000] * 14))
+    out = classify_momentum(daily, ref)
+    got = {m["channel"]: m["dir"] for m in out}
+    assert got.get("LOCKERROOM") == "surge"
+    assert got.get("JAEMISHOTS") == "decay"
+    assert "BGSUNSAK" not in got                       # 평탄 — 전환 아님
+    assert classify_momentum([], None) == []
+    # 창 밖(14일 이전) 데이터는 무시된다
+    old = [{"channel": "X", "date": ref - timedelta(days=30), "views": 99999}]
+    assert classify_momentum(old, ref) == []
+
+
+def test_trend_report_title_matches():
+    """제목 토큰 겹침 — 실명 같은 고유명사가 잡히고, 불용어는 안 잡힌다. 순수."""
+    from ves.scheduler.trend_report import title_matches
+    hits = title_matches("독일까지 찾아가 옌스 카스트로프에게 사과한 조원희",
+                         ["옌스 카스트로프 사과 사건 전말", "오늘의 주식 시황"])
+    assert len(hits) == 1 and "카스트로프" in hits[0]["tokens"]
+    assert title_matches("충격 공개 영상", ["충격 공개"]) == []   # 불용어만 → 무시
+    assert title_matches(None, ["아무거나"]) == []
+
+
+def test_trend_report_group_market():
+    """시장 스냅샷 → 작품별 카드(중앙값·상위 영상). raw 가 문자열이어도 산다. 순수."""
+    import json as _json
+    from ves.scheduler.trend_report import group_market
+    rows = [
+        {"title": "A", "channel_title": "chA", "view_count": 100, "raw": {"work": "가왕쇼"}},
+        {"title": "B", "channel_title": "chB", "view_count": 900, "raw": _json.dumps({"work": "가왕쇼"})},
+        {"title": "C", "channel_title": "chC", "view_count": 50, "raw": {"work": "SNL"}},
+        {"title": "D", "channel_title": "chD", "view_count": None, "raw": "깨진"},
+    ]
+    out = group_market(rows)
+    kw = next(m for m in out if m["work"] == "가왕쇼")
+    assert kw["n"] == 2 and kw["videos"][0]["title"] == "B"     # 조회 내림차순
+    assert all(m["work"] != "깨진" for m in out)                 # raw 못 읽으면 버림
+
+
+def test_trend_scout_parse_market():
+    """search+videos → 시장 행. rank 는 rank_base 연속(PK 충돌 방지), 작품은 raw.work."""
+    import json as _json
+    from datetime import date
+    from ves.scheduler.trend_scout import parse_market
+    sr = {"items": [
+        {"id": {"videoId": "v1"}, "snippet": {"title": "s1", "channelTitle": "c1"}},
+        {"id": {}},                                            # 채널 결과 등 → 건너뜀
+        {"id": {"videoId": "v2"}, "snippet": {"title": "s2"}}]}
+    vr = {"items": [{"id": "v1", "snippet": {"title": "풀제목1", "categoryId": "24",
+                                             "publishedAt": "2026-08-25T00:00:00Z"},
+                     "statistics": {"viewCount": "1234"}}]}
+    rows = parse_market(sr, vr, "가왕쇼", date(2026, 8, 27), rank_base=200)
+    assert [r["rank"] for r in rows] == [201, 203]
+    assert rows[0]["title"] == "풀제목1" and rows[0]["view_count"] == 1234
+    assert rows[1]["title"] == "s2" and rows[1]["view_count"] is None   # 통계 없어도 산다
+    assert all(_json.loads(r["raw"])["work"] == "가왕쇼" for r in rows)
+    assert all(r["source"] == "youtube_market" for r in rows)
+
+
+def test_trend_report_diag_excludes_blocked():
+    """운영자 지시(8/27): 진단 표에서 '배포 안 됨' 개별 나열 제외 — 집계만 남는다."""
+    import inspect
+    from ves.scheduler import trend_report
+    src = inspect.getsource(trend_report.build_facts)
+    assert 'not in ("정상", "배포 안 됨")' in src

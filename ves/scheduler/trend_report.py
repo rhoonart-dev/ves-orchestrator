@@ -149,6 +149,92 @@ def cap_regions(trends: list, per_source: int = 10) -> dict:
     return regions
 
 
+def classify_momentum(daily: list, ref_date, min_views: int = 300) -> list:
+    """채널별 전환점 감지(급증/급락). 순수 — 테스트 대상.
+
+    daily: [{"channel","date","views"}] (일별 합). ref_date 기준 최근 7일 vs 그 전 7일.
+    급증: 최근 >= 3×이전 그리고 최근 >= min_views (락커룸 8/20: 12편 0~43회 → 실명
+    제목 하나로 연속 폭발 — 이런 전환을 잡는다). 급락: 이전 >= min_views 이고
+    최근 <= 0.4×이전 (재미쇼츠: 태그가 사라진 8월에 5월 대비 반토막)."""
+    import datetime as _dt
+    if not ref_date:
+        return []
+    if isinstance(ref_date, str):
+        ref_date = _dt.date.fromisoformat(ref_date)
+    sums: dict = {}
+    for r in daily:
+        d = r["date"]
+        if isinstance(d, str):
+            d = _dt.date.fromisoformat(d)
+        age = (ref_date - d).days
+        if age < 0 or age > 13:
+            continue
+        cur = sums.setdefault(r["channel"], [0, 0])          # [recent, prev]
+        cur[0 if age <= 6 else 1] += r.get("views") or 0
+    out = []
+    for ch, (recent, prev) in sums.items():
+        if recent >= min_views and recent >= 3 * max(prev, 1):
+            out.append({"channel": ch, "dir": "surge", "recent": recent, "prev": prev})
+        elif prev >= min_views and recent <= 0.4 * prev:
+            out.append({"channel": ch, "dir": "decay", "recent": recent, "prev": prev})
+    return sorted(out, key=lambda m: -(m["recent"] + m["prev"]))
+
+
+_TOKEN = re.compile(r"[가-힣]{2,}|[a-zA-Z]{3,}")
+_STOP = {"영상", "쇼츠", "순간", "결국", "충격", "공개", "이유", "하는", "있는", "진짜"}
+
+
+def title_matches(video_title: str, ext_titles: list) -> list:
+    """우리 영상 제목 ↔ 외부(트렌드·시장) 제목의 고유명사급 토큰 겹침. 순수 — 테스트 대상.
+
+    전환점 '왜'의 근거 — 락커룸 8/20 은 외부 '옌스 카스트로프' 파도와 실명 제목이
+    겹친 날이었다. 확정 인과가 아니라 사람이 검증할 단서다."""
+    vt = {t for t in _TOKEN.findall(video_title or "") if t not in _STOP}
+    hits = []
+    for t in ext_titles:
+        et = {x for x in _TOKEN.findall(t or "") if x not in _STOP}
+        # 접두 일치(3자+)도 겹침으로 본다 — 한국어 어절은 조사가 붙는다
+        # ('카스트로프에게' ↔ '카스트로프'). 겹친 토큰은 짧은 쪽(원형에 가까운 쪽)으로 싣는다.
+        common = set()
+        for a in vt:
+            for b in et:
+                if a == b or (min(len(a), len(b)) >= 3
+                              and (a.startswith(b) or b.startswith(a))):
+                    common.add(min(a, b, key=len))
+        if common:
+            hits.append({"title": t, "tokens": sorted(common)[:4]})
+    return hits[:3]
+
+
+def group_market(rows: list) -> list:
+    """youtube_market 스냅샷 → 작품별 시장 카드. 순수 — 테스트 대상.
+
+    rows: trend_snapshot 행(raw.work 에 작품). 작품별 외부 상위 영상 + 편당 중앙값 —
+    검증 3차의 '시장 대비' 관점을 일일로 잇는다. ⚠ search.list 는 order=viewCount
+    상위 편향 — 중앙값이 실제 시장보다 높게 잡힌다(그 한계는 검증 3차 §한계와 같다)."""
+    by: dict = {}
+    for r in rows:
+        raw = r.get("raw") or {}
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw)
+            except ValueError:
+                raw = {}
+        w = raw.get("work")
+        if not w:
+            continue
+        by.setdefault(w, []).append(
+            {"title": r.get("title"), "channel": r.get("channel_title"),
+             "views": r.get("view_count")})
+    out = []
+    for w, vids in by.items():
+        views = sorted((v["views"] or 0) for v in vids)
+        med = views[len(views) // 2] if views else None
+        out.append({"work": w, "n": len(vids), "market_median": med,
+                    "videos": sorted(vids, key=lambda v: -(v["views"] or 0))[:5]})
+    return sorted(out, key=lambda m: -(m["market_median"] or 0))
+
+
 def match_overlaps(trends: list, works: list) -> list:
     """작품명 ↔ 트렌드 제목 정규화 부분일치(§6 — 문자열 매칭으로 시작한다). 순수."""
     hits = []
@@ -185,11 +271,19 @@ def build_prompt(facts: dict) -> str:
         "규칙:\n"
         "· facts 에 없는 숫자를 절대 쓰지 마라. 수치를 인용할 땐 facts 값 그대로.\n"
         "· 판정(verdict)을 뒤집지 마라 — 이유를 풀어 설명만 한다.\n"
+        "· '배포 안 됨'은 총 건수로만 — 개별 영상을 나열하지 마라.\n"
+        "· outside 는 유튜브 **알고리즘 관점**으로 쓴다: facts.outside.market(우리 작품의 "
+        "외부 상위 영상들)에서 제목 패턴·소재·게시 시점의 공통점을 읽고 우리가 오늘 "
+        "무엇을 만들지 힌트를 내라. 일반 검색 트렌드는 우리 작품·출연자와 겹칠 때만 언급.\n"
+        "· momentum 은 전환점 서사로 쓴다: 각 급증/급락 채널이 왜 그런지 drivers(주도 "
+        "영상)와 matches(외부 제목 겹침)를 근거로 설명하라. 근거가 부족하면 '원인 단서 "
+        "없음'이라고 정직하게 써라.\n"
         "· 한국어로, 각 항목 2~4문장. 과장 없이.\n\n"
         "다음 키를 가진 JSON 하나만 출력하라(코드펜스 없이):\n"
-        '{"summary": "오늘 한 줄 총평", "outside": "밖(트렌드) 해설", '
+        '{"summary": "오늘 한 줄 총평", "outside": "시장·알고리즘 해설", '
         '"inside": "안(작품 성과) 해설", "diagnosis": "진단 해설", '
-        '"success": "성공 요인 해설", "actions": ["할 일 1", "할 일 2"]}\n\n'
+        '"momentum": "전환점 해설", "success": "성공 요인 해설", '
+        '"actions": ["할 일 1", "할 일 2"]}\n\n'
         f"facts:\n{json.dumps(facts, ensure_ascii=False, default=str)}"
     )
 
@@ -290,7 +384,10 @@ def build_facts(conn, today: dt.date) -> dict:
         SELECT region, source, rank, title, category_id, view_count
           FROM public.trend_snapshot WHERE collected_date=%s
          ORDER BY region, source, rank""", (tdate,)) if tdate else []
-    outside = {"collected_date": tdate, "regions": cap_regions(trends)}
+    market = group_market(_rows(conn, """
+        SELECT title, channel_title, view_count, raw FROM public.trend_snapshot
+         WHERE collected_date=%s AND source='youtube_market'""", (tdate,))) if tdate else []
+    outside = {"collected_date": tdate, "regions": cap_regions(trends), "market": market}
     catmix: dict = {}
     for t in trends:
         if t["source"] == "youtube_chart" and t["category_id"]:
@@ -307,10 +404,30 @@ def build_facts(conn, today: dt.date) -> dict:
         SELECT title, view_count, publish_at FROM public.loopy_ledger
          WHERE youtube_id IS NOT NULL ORDER BY publish_at DESC NULLS LAST LIMIT 5""")
 
-    diag_vids = sorted([v for v in vids if v["verdict"] != "정상"],
-                       key=lambda v: (v["verdict"] != "배포 안 됨", -(v["impr"] or 0)))
+    # 운영자 지시(8/27): '배포 안 됨' 개별 영상은 나열하지 않는다 — 콘텐츠로 못 고치는
+    # 판정이라 표가 소음이 된다. 집계(counts·타일)와 작품 단위 액션으로만 말한다.
+    diag_vids = sorted([v for v in vids if v["verdict"] not in ("정상", "배포 안 됨")],
+                       key=lambda v: -(v["impr"] or 0))
+    # 전환점(8/27) — 채널 일별 조회 합에서 급증·급락을 갈라 '왜'의 단서(주도 영상 +
+    # 외부 제목 겹침)를 붙인다. 락커룸(8/20 실명 제목 + 뉴스 파도)이 원형이다.
+    daily = _rows(conn, """
+        SELECT d.channel_id, d.stat_date AS date, sum(d.views)::bigint AS views
+          FROM public.perf_studio_daily d GROUP BY 1, 2""")
+    for r in daily:
+        r["channel"] = slug.get(r.pop("channel_id"), "?")
+    momentum = classify_momentum(daily, ref)[:6]
+    ext_titles = [t["title"] for t in trends if t.get("title")] + [
+        v["title"] for m in market for v in m["videos"] if v.get("title")]
+    for m in momentum:
+        drivers = sorted([v for v in vids if v["channel"] == m["channel"]],
+                         key=lambda v: -(v["views"] or 0))[:3]
+        m["drivers"] = [{"title": v["title"], "views": v["views"],
+                         "published": str(v["publish_time"])[:10] if v.get("publish_time") else None,
+                         "matches": title_matches(v["title"], ext_titles)}
+                        for v in drivers]
+
     return {
-        "version": 1, "report_date": today, "ref_date": ref, "data_lag_days": lag,
+        "version": 2, "report_date": today, "ref_date": ref, "data_lag_days": lag,
         "constants": k,
         "outside": outside,
         "inside": {"works": work_rows},
@@ -322,6 +439,7 @@ def build_facts(conn, today: dt.date) -> dict:
                         "impr": v["impr"], "ctr": v["ctr"], "view_pct": v["view_pct"],
                         "len": v["len"], "verdict": v["verdict"], "hint": v["hint"]}
                        for v in diag_vids[:60]]},
+        "momentum": momentum,
         "success": success_axes(vids),
         "actions": derive_actions(work_rows, overlaps),
         "zanmang": {"source": "loopy_ledger(JP·잔망루피)",
