@@ -11175,6 +11175,7 @@ button:hover{background:var(--panel2);border-color:var(--line2)}
 .blk{border-radius:6px;font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,.35)}
 .blk:hover{filter:brightness(1.1);box-shadow:0 2px 8px rgba(0,0,0,.5)}
 .blk.sel{outline:2px solid var(--accent);box-shadow:0 0 0 4px var(--sel)}
+.blk.msel{outline:1.5px solid #1d4ed8;outline-offset:1px;box-shadow:none}
 .ruler{background:var(--rail)}
 .ruler i{font-size:8.5px;color:var(--faint)}
 .outph::after{content:"";position:absolute;top:0;left:-5px;width:12px;height:12px;
@@ -11263,6 +11264,9 @@ button:hover{background:var(--panel2);border-color:var(--line2)}
 .tltools button:disabled{opacity:.4;cursor:default}
 #editToggle{color:var(--muted)}
 #editToggle.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+#trashBtn{color:var(--danger)}
+#trashBtn:disabled{color:var(--faint);opacity:.45}
+#trashBtn:not(:disabled):hover{background:rgba(239,68,68,.12);border-color:var(--danger)}
 #sndBtn{color:var(--muted)}
 #sndBtn.on{color:var(--accent)}
 #aiplanLabel{color:var(--ai);border-color:var(--line2)}
@@ -11533,6 +11537,8 @@ body.applayout #side{padding-left:18px}
             <button id="sndBtn" class="on" onclick="seqSndToggle()"
               title="미리보기 중 내레이션 소리 켜기/끄기"><i data-ico="snd"></i></button>
             <button onclick="endHere()" title="여기까지 — 선택한 블록(자막·내레이션·텍스트·구간)의 끝을 재생 헤드 위치로 (E)"><i data-ico="endh"></i></button>
+            <button id="trashBtn" class="danger" onclick="delSelected()" disabled
+              title="선택한 블록 삭제 (Delete) — ⇧클릭으로 여러 개 골랐으면 한꺼번에"><i data-ico="trash"></i></button>
           </span>
           <button id="editToggle" class="ico" onclick="toggleEdit()"
             title="편집 잠금 — 끄면 보기 전용"><i data-ico="lock"></i></button>
@@ -12155,6 +12161,11 @@ window.styleOvSub = styleOvSub;
 // ── 텍스트(F-411) 개별 배치 — _raw(x·y·크기·색·회전)를 화면에 그대로 ──
 // 좌표는 엔진과 같은 글자 **중심** 비율(0~1). 큐가 없으면 CSS 기본으로 되돌린다.
 let curTxtIdx = -1;                 // 마지막으로 고른 텍스트(드래그·인스펙터 기준)
+let followClip = -1;                // 재생 중 지금 울리는 구간(자동 선택 커서)
+// ⇧클릭 다중 선택 — 한 번에 한 종류만(구간·자막·내레이션·텍스트). 종류가 섞이면
+// '여기부터/여기까지'가 각기 다른 좌표계를 건드려 결과를 예측할 수 없다.
+let multiSel = { kind: null, idx: [] };
+const clipMulti = { get length(){ return multiSel.kind === "clip" ? multiSel.idx.length : 0; } };
 let ovTxtOn = [];                   // 지금 화면에 떠 있는 텍스트 인덱스들
 // 한 칸의 위치·크기·색·회전 — 좌표는 엔진과 같은 글자 **중심** 비율(0~1)
 function styleOvTx(el, t){
@@ -12439,6 +12450,25 @@ function paintCues(outT){
   if (ttsEl.dataset.tx !== ttsTx){                     // 바뀔 때만 다시 쓴다(핸들 보존)
     ttsEl.dataset.tx = ttsTx; ttsEl.textContent = ttsTx; ovSyncHandles(); }
   if (outT != null && v && !v.paused && seqSnd) seqAudioSync(outT);
+  // 재생 중이면 지금 울리는 구간 블록을 따라가며 선택한다(사용자 8/27).
+  // 사람이 다른 종류(자막·내레이션…)를 골라 뒀거나 ⇧다중 선택 중이면 뺏지 않는다.
+  if (v && !v.paused && driving && !multiSel.idx.length
+      && (!curSel || curSel.kind === "clip")){
+    const f = outT == null ? null : (cur.model.final || [])
+      .find(c => !c.dead && outT >= c.out && outT < c.out + (c.end - c.start));
+    if (f && f.i !== followClip){
+      followClip = f.i;
+      const side = document.getElementById("side");
+      if (curSel && side && side.classList.contains("on"))
+        select("clip", f.i, null, true);         // 인스펙터가 떠 있으면 내용도 갱신
+      else {                                     // 아니면 테두리만 옮긴다(조용히)
+        curSel = { kind: "clip", i: f.i };
+        document.querySelectorAll("#inner .blk.sel").forEach(b => b.classList.remove("sel"));
+        const el = document.querySelector(`#inner .blk.c[data-i="${f.i}"]`);
+        if (el) el.classList.add("sel");
+      }
+    }
+  }
   const si = outT == null ? -1
     : (cur.model.subs || []).findIndex(s => !s.del && outT >= s.start && outT < s.end);
   if (si !== curSubIdx){                               // 줄이 바뀔 때만 다시 그린다
@@ -12626,7 +12656,11 @@ function draw(){
   document.querySelectorAll("#inner [data-k]").forEach(el =>
     el.addEventListener("click", e => { e.stopPropagation();
       if (el.__moved){ el.__moved = false; return; }        // 드래그 직후 클릭 무시
-      select(el.dataset.k, +el.dataset.i, el); }));
+      if (e.shiftKey && MULTI_KINDS.includes(el.dataset.k)){   // ⇧클릭 = 다중 선택
+        multiToggle(el.dataset.k, +el.dataset.i); return; }
+      const noSeek = el.__edgeSeek; el.__edgeSeek = false;  // 날개 클릭 = 그 경계에 선다
+      select(el.dataset.k, +el.dataset.i, el, noSeek); }));
+  paintMulti();                       // 다시 그린 뒤에도 ⇧다중 선택 테두리 유지
   // ── 블록 드래그·리사이즈(편집 모드) ─────────────────────────────────
   // 규약: 가장자리 8px = 늘이기/줄이기, 가운데 = 이동(구간만 예외 — 순서 버튼으로).
   // 드래그 중에는 잡고 있는 가장자리의 시각으로 **영상을 실시간 스크럽**한다 —
@@ -12648,6 +12682,7 @@ function draw(){
       el.style.cursor = onEdge ? "col-resize" : (movable ? "grab" : "pointer");
     });
     el.addEventListener("mousedown", e => {
+      if (e.shiftKey) return;                 // ⇧클릭 = 범위 선택(click 에서)
       const r = el.getBoundingClientRect();
       // 좁은 블록은 양끝 8px 가 겹친다 — 가까운 쪽 끝으로 판정
       const offL = e.clientX - r.left, offR = r.right - e.clientX;
@@ -12669,6 +12704,10 @@ function draw(){
       const up = () => {
         window.removeEventListener("mousemove", mv); window.removeEventListener("mouseup", up);
         if (el.__moved) commit(edge, dPx / px);
+        else if (edge){                   // 클릭만 = 그 경계 시각으로 빨간 선을 세운다
+          el.__edgeSeek = true;           // 곧 올 click 의 select 가 시작점으로 되돌리지 않게
+          seekOutPaused(Math.max(0, (edge === "start" ? left0 : left0 + w0) / px));
+        }
       };
       window.addEventListener("mousemove", mv); window.addEventListener("mouseup", up);
     });
@@ -12713,6 +12752,7 @@ function draw(){
     document.querySelectorAll('#inner .blk.c').forEach(el => {
       if (el.classList.contains("dead")) return;
       el.addEventListener("mousedown", e => {
+        if (e.shiftKey) return;               // ⇧클릭 = 범위 선택(click 에서)
         const r = el.getBoundingClientRect();
         const offL = e.clientX - r.left, offR = r.right - e.clientX;
         if (offL < 8 || offR < 8) return;             // 가장자리는 트림 담당
@@ -13062,6 +13102,7 @@ window.closeSide = () => {
   document.querySelectorAll(".blk.sel").forEach(b => b.classList.remove("sel"));
   reCenter();
   curSel = null; panelOpenState = null;
+  updTrashBtn();                         // 고른 게 없으면 쓰레기통도 잠근다
 };
 window.sideRevert = () => {
   if (!panelOpenState || !curSel) return;
@@ -13073,7 +13114,9 @@ window.sideRevert = () => {
 };
 const BLK_CLS = { clip: "c", tts: "t", sub: "s", txt: "x", title: "ttl" };
 function select(kind, i, el, noSeek){
-  document.querySelectorAll(".blk.sel").forEach(b => b.classList.remove("sel"));
+  multiSel = { kind: null, idx: [] };    // 보통 선택은 ⇧다중을 푼다
+  document.querySelectorAll(".blk.sel, .blk.msel")
+    .forEach(b => b.classList.remove("sel", "msel"));
   // 미리보기에서 '지금 고른 요소'를 실선 강조 — 어떤 걸 골랐는지 화면에서 보이게
   document.querySelectorAll(".shorts .pick").forEach(x => x.classList.remove("pick"));
   if (kind === "txt"){
@@ -13195,6 +13238,7 @@ function select(kind, i, el, noSeek){
       <div class="small faint">전체 구간에 걸칩니다 (타임드 제목 미사용).</div>`;
   }
   $("#insp").innerHTML = h + (editMode ? editFormHtml(kind, i) : "");
+  updTrashBtn();                         // curSel 이 정해진 뒤에(라벨이 이전 선택을 읽었다)
   openSide();
 }
 
@@ -13425,6 +13469,7 @@ function toggleEdit(){
   $("#rochip").textContent = editMode
     ? "편집 중 — [초안 저장]을 눌러야 DB 에 쓰입니다"
     : "조회는 흔적 없음 — 쓰기는 [초안 저장]을 누를 때만";
+  updTrashBtn();
   if (cur && cur.model){ draw(); ovSyncHandles();
     const bx = document.getElementById("ovTxt"); if (bx) bx.dataset.sig = "";
     styleOvTxt(ovTxtOn); styleOvSub(curSubIdx); }
@@ -13470,6 +13515,7 @@ window.addEventListener("keydown", e => {
     const sel = document.querySelector("#inner .blk.c.sel");
     if (sel) splitClip(+sel.dataset.i); else toast("나눌 구간을 먼저 선택하세요");
   }
+  else if (k === "delete" || k === "backspace"){ e.preventDefault(); delSelected(); }
   else if (k === "e"){ e.preventDefault(); endHere(); }
   else if (k === "q"){ e.preventDefault(); startHere(); }
 });
@@ -13698,6 +13744,7 @@ window.splitAt = i => {
 // '여기까지'(사용자 8/25) — 선택한 블록의 끝을 재생 헤드 위치로 마무리.
 // 자막은 완성본 끝 시각을, 내레이션·텍스트는 길이를, 구간은 원본 OUT 을 조정한다.
 window.endHere = () => {
+  if (multiSel.idx.length){ multiTrim("end"); return; }
   const sel = document.querySelector("#inner .blk.sel");
   if (!sel){ toast("먼저 블록을 클릭해 선택하세요"); return; }
   const v = $("#vid"), outT = srcToOut(v.currentTime);
@@ -13723,6 +13770,7 @@ window.endHere = () => {
 };
 
 window.startHere = () => {
+  if (multiSel.idx.length){ multiTrim("start"); return; }
   const sel = document.querySelector("#inner .blk.sel");
   if (!sel){ toast("먼저 블록을 클릭해 선택하세요"); return; }
   const v = $("#vid"), outT = srcToOut(v.currentTime);
@@ -13754,6 +13802,142 @@ window.startHere = () => {
     if (srcT < 0){ toast("원본 시작(0초)보다 앞으로는 못 갑니다"); return; }
     snap(); c.start = +srcT.toFixed(3); refresh("clip", i);
   } else toast("자막·내레이션·텍스트·구간 블록에서 씁니다");
+};
+
+// ⇧클릭 다중 선택(사용자 8/27) — 누른 블록을 하나씩 담고, 다시 누르면 뺀다.
+// 구간·자막·내레이션·텍스트 모두. 이미 보통 클릭으로 골라둔 같은 종류가 있으면
+// 그것부터 담고 시작한다. 이후 여기부터(Q)·여기까지(E)·삭제가 담긴 것들에 걸린다.
+const MULTI_KINDS = ["clip", "sub", "tts", "txt"];
+const MULTI_LABEL = { clip: "구간", sub: "자막", tts: "내레이션", txt: "텍스트" };
+// 화면 순서 — 구간은 완성본 배열 순, 나머지는 인덱스 순(정렬은 표시·다듬기 순서용)
+function multiOrder(kind){
+  if (kind !== "clip") return null;
+  return cur.model.final.filter(c => !c.dead).map(c => c.i);
+}
+function paintMulti(){
+  document.querySelectorAll("#inner .blk.msel").forEach(b => b.classList.remove("msel"));
+  if (!multiSel.kind) return;
+  const cls = BLK_CLS[multiSel.kind];
+  multiSel.idx.forEach(k => {
+    const el = document.querySelector(`#inner .blk.${cls}[data-i="${k}"]`);
+    if (el) el.classList.add("msel");
+  });
+}
+window.paintMulti = paintMulti;
+function multiToggle(kind, i){
+  if (multiSel.kind !== kind) multiSel = { kind, idx: [] };   // 종류를 바꾸면 새로 시작
+  const order = multiOrder(kind);
+  if (order && order.indexOf(i) < 0) return;                  // 완성본에 없는 구간
+  if (!multiSel.idx.length && curSel && curSel.kind === kind && curSel.i !== i
+      && (!order || order.includes(curSel.i)))
+    multiSel.idx = [curSel.i];
+  const at = multiSel.idx.indexOf(i);
+  if (at >= 0) multiSel.idx.splice(at, 1); else multiSel.idx.push(i);
+  multiSel.idx.sort((a, b) => order ? order.indexOf(a) - order.indexOf(b) : a - b);
+  if (!multiSel.idx.length) multiSel.kind = null;
+  else curSel = { kind, i };
+  document.querySelectorAll("#inner .blk.sel").forEach(b => b.classList.remove("sel"));
+  paintMulti(); updTrashBtn();
+  toast(multiSel.idx.length
+    ? `${MULTI_LABEL[kind]} ${multiSel.idx.length}개 선택 — ⇧클릭으로 더 담거나 빼기`
+    : "다중 선택 해제");
+}
+window.multiToggle = multiToggle;
+
+// 다중 다듬기 — 재생 헤드 기준으로 담긴 블록들의 시작/끝을 한꺼번에 맞춘다.
+// 헤드 밖으로 완전히 나간 것은 삭제, 헤드를 품은 것은 트림, 나머지는 유지.
+// 완성본 시각(out)으로 판정하고, 저장은 각 종류의 좌표계로 되돌려 쓴다.
+function multiTrim(edge){
+  const v = $("#vid"), outT = srcToOut(v.currentTime);
+  if (outT == null){ toast("재생 헤드를 먼저 찍으세요"); return true; }
+  const m = cur.model, kind = multiSel.kind;
+  // 각 항목의 완성본 [시작, 끝] — 종류마다 출처가 다르다
+  const spans = multiSel.idx.map(i => {
+    if (kind === "clip"){ const f = m.final.find(x => x.i === i && !x.dead);
+      return f && { i, a: f.out, b: f.out + (f.end - f.start), f }; }
+    if (kind === "sub"){ const su = m.subs[i];
+      return su && !su.del && { i, a: su.start, b: su.end }; }
+    const q = (kind === "tts" ? m.cues : m.textCues)[i];
+    return q && !q.dropped && { i, a: q.out, b: q.out + q.dur };
+  }).filter(Boolean).sort((p, q) => p.a - q.a);
+  if (!spans.length){ multiSel = { kind: null, idx: [] }; updTrashBtn(); return false; }
+  if (outT <= spans[0].a + 0.01 || outT >= spans[spans.length - 1].b - 0.01){
+    toast(`재생 헤드가 선택한 ${MULTI_LABEL[kind]}들 안쪽에 있어야 합니다`); return true; }
+  const MIN = kind === "clip" ? 0.5 : 0.3;
+  const del = [], trim = [];
+  for (const sp of spans){
+    if (edge === "start"){ if (sp.b <= outT + 0.001) del.push(sp);
+      else if (sp.a < outT) trim.push(sp); }
+    else { if (sp.a >= outT - 0.001) del.push(sp);
+      else if (sp.b > outT) trim.push(sp); }
+  }
+  if (del.length && !confirm(`선택한 ${MULTI_LABEL[kind]}를 재생 헤드${edge === "start" ? "부터 시작" : "까지"}로 다듬습니다.\n\n` +
+      `${del.length}개 삭제 · ${trim.length}개 트림 — 계속할까요?`)) return true;
+  snap();
+  for (const sp of trim){
+    if (kind === "clip"){
+      const c = m.clips[sp.i], srcT = sp.f.start + (outT - sp.f.out);
+      if (edge === "start") c.start = +Math.max(0, Math.min(c.end - MIN, srcT)).toFixed(3);
+      else c.end = +Math.max(c.start + MIN, srcT).toFixed(3);
+    } else if (kind === "sub"){
+      const su = m.subs[sp.i];
+      if (edge === "start"){ su.start = +Math.min(su.end - MIN, outT).toFixed(3);
+        if (su.follow){ const hit = outToSrc(su.start); if (hit) su.src = +hit.src.toFixed(3); }
+      } else su.end = +Math.max(su.start + MIN, outT).toFixed(3);
+    } else {                                  // 내레이션·텍스트 — 앵커(원본초)+길이
+      const it = (kind === "tts" ? m.tts : m.texts)[sp.i];
+      if (edge === "start"){ const hit = outToSrc(outT);
+        if (hit){ it.src = +hit.src.toFixed(3); it.dur = +Math.max(MIN, sp.b - outT).toFixed(3); }
+      } else it.dur = +Math.max(MIN, outT - sp.a).toFixed(3);
+    }
+  }
+  multiDelete(del.map(sp => sp.i), kind, true);   // 삭제는 한 곳에서(인덱스 밀림 처리)
+  multiSel = { kind: null, idx: [] }; curSel = null;
+  refresh(); closeSide(); updTrashBtn();
+  toast(`다듬기 완료 — 삭제 ${del.length} · 트림 ${trim.length}`);
+  return true;
+}
+// 여러 개 삭제 — 인덱스가 splice 로 밀리므로 **객체 참조**로 지운다.
+// 자막만 예외: 소프트 삭제(del 표시)라 되살리기가 가능하다(전량 교체 규약).
+function multiDelete(idx, kind, quiet){
+  const m = cur.model;
+  if (!idx.length) return 0;
+  if (!quiet) snap();
+  if (kind === "sub"){ idx.forEach(i => { if (m.subs[i]) m.subs[i].del = true; }); return idx.length; }
+  const arr = kind === "clip" ? m.clips : kind === "tts" ? m.tts : m.texts;
+  const gone = new Set(idx.map(i => arr[i]).filter(Boolean));
+  const kept = arr.filter(x => !gone.has(x));
+  if (kind === "clip") m.clips = kept; else if (kind === "tts") m.tts = kept; else m.texts = kept;
+  return gone.size;
+}
+
+// 쓰레기통 — 지금 고른 것(⇧다중이면 전부)을 지운다. 자막은 소프트 삭제라 다시 살릴
+// 수 있고(전량 교체 규약), 나머지는 목록에서 빠진다. 전부 ⌘Z 로 되돌아간다.
+function updTrashBtn(){
+  const b = document.getElementById("trashBtn"); if (!b) return;
+  const n = multiSel.idx.length;
+  const one = !n && curSel && MULTI_KINDS.includes(curSel.kind);
+  b.disabled = !(n || one);
+  b.title = n ? `${MULTI_LABEL[multiSel.kind]} ${n}개 삭제 (Delete)`
+    : one ? `${MULTI_LABEL[curSel.kind]} 삭제 (Delete)`
+          : "삭제할 블록을 먼저 고르세요";
+}
+window.updTrashBtn = updTrashBtn;
+window.delSelected = () => {
+  if (!editMode){ toast("편집 잠금을 먼저 푸세요"); return; }
+  const kind = multiSel.idx.length ? multiSel.kind
+    : (curSel && MULTI_KINDS.includes(curSel.kind) ? curSel.kind : null);
+  if (!kind){ toast("삭제할 블록을 먼저 고르세요"); return; }
+  const idx = multiSel.idx.length ? [...multiSel.idx] : [curSel.i];
+  const soft = kind === "sub";
+  if (!confirm(`${MULTI_LABEL[kind]} ${idx.length}개를 삭제할까요?` +
+      (soft ? "\n\n자막은 표시만 지웁니다 — 목록에서 되살릴 수 있습니다." : "") +
+      "\n\n⌘Z 로 되돌릴 수 있습니다.")) return;
+  snap();
+  const n = multiDelete(idx, kind, true);
+  multiSel = { kind: null, idx: [] }; curSel = null;
+  refresh(); closeSide(); updTrashBtn();
+  toast(`${MULTI_LABEL[kind]} ${n}개 삭제 — ⌘Z 로 되돌리기`);
 };
 
 window.splitSelClip = () => {
@@ -14101,6 +14285,7 @@ const I = {
   cut:'<svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.6"/><circle cx="6" cy="18" r="2.6"/><path d="M8.2 7.6 20 19M8.2 16.4 20 5"/></svg>',
   starth:'<svg viewBox="0 0 24 24"><path d="M21 12H11M15 6l-6 6 6 6M4 4v16"/></svg>',
   endh:'<svg viewBox="0 0 24 24"><path d="M3 12h10M9 6l6 6-6 6M20 4v16"/></svg>',
+  trash:'<svg viewBox="0 0 24 24"><path d="M4 7h16M10 4h4M6 7l1 13h10l1-13M10 11v6M14 11v6"/></svg>',
   misc:'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 8.9 19a1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 5 8.9a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9.6a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
   snd:'<svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M17 8.5a5 5 0 0 1 0 7"/></svg>',
   zoom:'<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5M8 11h6"/></svg>',
