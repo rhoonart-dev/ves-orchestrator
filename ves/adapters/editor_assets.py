@@ -39,7 +39,9 @@ GRID = 10                      # 시트당 10×10 = 100장. 시트 단위 지연
 GLOBAL_INTERVAL = 10.0         # 전역 스크럽 간격(초)
 EDGE_INTERVAL = 2.0            # 클립 경계 부근 밀집 간격(초)
 EDGE_WINDOW = 15.0             # 경계 ±이 초를 밀집 구간으로
-WAVE_SIZE = "1920x120"
+WAVE_SIZE = "7680x480"         # 가로 4배(30분물 기준 0.25초/열)·세로 4배(진폭 단계)
+WAVE_GEN = 2                   # 파형 세대 — scan_gen 과 같은 규약. 올리면 구 재료의
+                               # 저해상 파형을 재사용하지 않고 다시 뜬다(0.5초 남짓)
 ASSET_TTL = "7 days"
 TIMEOUT_SEC = 60 * 20
 
@@ -374,8 +376,8 @@ def reuse_assets(prev: dict | None, duration_sec: float) -> dict:
         return out
     if pa.get("global"):
         out["global"] = pa["global"]
-    if pa.get("wave"):
-        out["wave"] = pa["wave"]
+    if pa.get("wave") and int(pa.get("wave_gen") or 1) >= WAVE_GEN:
+        out["wave"] = pa["wave"]        # 구세대(저해상)는 승계하지 않는다 — 다시 뜬다
     if pm.get("scan") and int(pm.get("scan_gen") or 0) >= SCAN_GEN:
         out["scan"] = {k: pm[k] for k in
                        ("scan", "scan_bytes", "source", "scan_fps", "scan_gen", "scan_kbps")
@@ -476,7 +478,8 @@ def run(cfg, conn, job, deps):
     work = pathlib.Path(cfg.home) / "cache" / "editor" / run_id
     work.mkdir(parents=True, exist_ok=True)
     store = Store(cfg.supabase_url, cfg.supabase_service_key)
-    assets: dict = {"global": [], "edges": [], "wave": None, "tts_gen": TTS_GEN}
+    assets: dict = {"global": [], "edges": [], "wave": None, "wave_gen": WAVE_GEN,
+                    "tts_gen": TTS_GEN}
 
     # 내레이션 미리듣기(F-204) — 합성 mp3 가 run_dir 에 있으면 올린다. 경로 필드가 없는
     # 스키마·유실 파일은 건너뛰되 **건수는 남긴다** — cue 는 있는데 오디오가 0건이면

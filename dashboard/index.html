@@ -10975,8 +10975,9 @@ input{font:inherit;font-size:13px;background:var(--panel2);color:var(--text);
   font-size:11px;font-weight:700;color:var(--tts);text-shadow:0 1px 3px #000;min-height:1.4em}
 .shorts .ovsub{position:absolute;left:8px;right:8px;top:57%;text-align:center;
   font-size:10.5px;font-weight:700;color:#fff;text-shadow:0 1px 3px #000}
-.shorts .ovtxt{position:absolute;left:8px;right:8px;top:36%;text-align:center;
-  font-size:12px;font-weight:800;color:var(--txt);text-shadow:0 1px 4px #000}
+.shorts .ovtxt{position:absolute;inset:0;pointer-events:none}
+.shorts .ovtx{position:absolute;white-space:pre;max-width:94%;
+  font-weight:800;color:var(--txt);text-shadow:0 1px 4px #000;pointer-events:auto}
 .shorts .ovwork{position:absolute;left:0;right:0;bottom:10px;text-align:center;
   font-size:10px;color:rgba(255,255,255,.6);letter-spacing:.25em}
 .shorts .outtc{position:absolute;right:8px;top:calc(17% + 4px);font-family:var(--mono);
@@ -11064,8 +11065,7 @@ body.editing .blk.t,body.editing .blk.c,body.editing .blk.s{cursor:grab}
 .fstile{position:absolute;top:2px;height:42px;background-color:var(--panel2);
   background-repeat:no-repeat;pointer-events:none;
   border-right:1px solid rgba(0,0,0,.4)}
-.srcarea .wave{position:absolute;left:0;right:0;top:48px;height:56px;opacity:.75;
-  background-size:100% 100%;background-repeat:no-repeat;pointer-events:none}
+.srcarea .wave{position:absolute;top:48px;height:56px;opacity:.75;pointer-events:none}
 /* 안 쓰인 원본을 어둡게 — 쓰인 구간이 밝게 남아 한눈에 갈린다(NLE 표준 문법) */
 .srcdim{position:absolute;top:2px;height:42px;background:var(--dim);
   z-index:1;pointer-events:none}
@@ -12035,7 +12035,7 @@ function layoutShorts(){
   }
   ovSyncHandles();
   // 인덱스는 그대로인데 값만 바뀐 경우(디자인 칸·드래그) — 여기서 직접 다시 칠한다.
-  styleOvSub(curSubIdx); styleOvTxt(curTxtIdx);
+  styleOvSub(curSubIdx); styleOvTxt(ovTxtOn);
 }
 window.layoutShorts = layoutShorts;
 
@@ -12154,27 +12154,41 @@ window.styleOvSub = styleOvSub;
 
 // ── 텍스트(F-411) 개별 배치 — _raw(x·y·크기·색·회전)를 화면에 그대로 ──
 // 좌표는 엔진과 같은 글자 **중심** 비율(0~1). 큐가 없으면 CSS 기본으로 되돌린다.
-let curTxtIdx = -1;
-function styleOvTxt(i){
-  const el = $("#ovTxt"); if (!el) return;
-  const t = i >= 0 && cur && cur.model ? (cur.model.texts || [])[i] : null;
-  if (!t){ el.classList.remove("sel");
-    el.querySelectorAll(".sh").forEach(h => h.remove());
-    el.removeAttribute("style"); return; }
+let curTxtIdx = -1;                 // 마지막으로 고른 텍스트(드래그·인스펙터 기준)
+let ovTxtOn = [];                   // 지금 화면에 떠 있는 텍스트 인덱스들
+// 한 칸의 위치·크기·색·회전 — 좌표는 엔진과 같은 글자 **중심** 비율(0~1)
+function styleOvTx(el, t){
   const r = t._raw || {};
   const x = r.x != null ? +r.x : 0.5, y = r.y != null ? +r.y : 0.35;
   el.style.left = (x * 100) + "%"; el.style.top = (y * 100) + "%";
-  el.style.right = "auto"; el.style.width = "max-content"; el.style.maxWidth = "94%";
   el.style.fontSize = ((+r.size || 72) / CANVAS_H * 100) + "cqh";
   el.style.color = r.color || "#FFFFFF";
   const rot = Math.round(+r.rotate) || 0;
   el.style.transform = "translate(-50%,-50%)" + (rot ? ` rotate(${rot}deg)` : "");
-  el.classList.toggle("sel", editMode);
-  const has = el.querySelector(".sh");
-  if (editMode && !has) ["size", "rot"].forEach(k => {
-    const h = document.createElement("b"); h.className = "sh sh-" + k; h.dataset.h = k;
-    el.appendChild(h); });
-  if (!editMode && has) el.querySelectorAll(".sh").forEach(h => h.remove());
+}
+// 지금 순간의 텍스트 전부를 그린다. 목록이 그대로면 위치만 갱신(DOM 안 건드림).
+function styleOvTxt(list){
+  const box = $("#ovTxt"); if (!box || !cur || !cur.model) return;
+  const on = Array.isArray(list) ? list.filter(i => (cur.model.texts || [])[i])
+                                 : (curTxtIdx >= 0 ? [curTxtIdx] : []);
+  ovTxtOn = on;
+  const sig = on.map(i => i + ":" + (cur.model.texts[i].text || "")).join("|")
+    + (editMode ? "|e" : "");
+  if (box.dataset.sig !== sig){
+    box.dataset.sig = sig;
+    box.innerHTML = on.map(i => `<div class="ovtx ovel" data-i="${i}">${
+      esc(cur.model.texts[i].text || "")}${editMode
+        ? '<b class="sh sh-size" data-h="size"></b><b class="sh sh-rot" data-h="rot"></b>' : ""
+      }</div>`).join("");
+    if (editMode) box.querySelectorAll(".ovtx").forEach(e => e.classList.add("sel"));
+    // 고른 것 표시는 select() 가 붙인다 — 다시 그렸으니 여기서 복원한다
+    if (curSel && curSel.kind === "txt"){
+      const e = box.querySelector(`.ovtx[data-i="${curSel.i}"]`);
+      if (e) e.classList.add("pick");
+    }
+  }
+  on.forEach(i => { const e = box.querySelector(`.ovtx[data-i="${i}"]`);
+    if (e) styleOvTx(e, cur.model.texts[i]); });
 }
 window.styleOvTxt = styleOvTxt;
 
@@ -12199,10 +12213,12 @@ window.ovSyncHandles = ovSyncHandles;
     if (!editMode || !cur || !cur.model) return;
     const frame = tlRoot.querySelector(".shorts"); if (!frame) return;
     let kind = null, el = null;
-    for (const [q, k] of [["#ovTxt", "txt"], ["#ovTitle", "title"], ["#ovTts", "tts"]]){
+    const hitTx = e.target.closest && e.target.closest(".ovtx");
+    if (hitTx){ kind = "txt"; el = hitTx; curTxtIdx = +hitTx.dataset.i; }
+    else for (const [q, k] of [["#ovTitle", "title"], ["#ovTts", "tts"]]){
       const c = $(q); if (c && c.contains(e.target)){ kind = k; el = c; break; } }
     if (!kind || !el.textContent.trim()) return;
-    if (kind === "txt" && curTxtIdx < 0) return;
+    if (kind === "txt" && !(cur.model.texts || [])[curTxtIdx]) return;
     e.preventDefault(); e.stopPropagation();
     const mode = e.target.dataset && e.target.dataset.h ? e.target.dataset.h : "move";
     const fr = frame.getBoundingClientRect(), box = el.getBoundingClientRect();
@@ -12241,7 +12257,7 @@ window.ovSyncHandles = ovSyncHandles;
         } else if (mode === "size")
           t._raw.size = Math.round(clamp(st.size + dy / fr.height * CANVAS_H, 12, 400));
         else if (mode === "rot") t._raw.rotate = rotOf(ev);
-        styleOvTxt(curTxtIdx);
+        styleOvTx(el, t);                  // 잡고 있는 칸만 갱신(다시 그리지 않는다)
       } else if (kind === "title"){
         if (mode === "move"){
           live("title_y", Math.round(clamp(st.y + dy / fr.height * CANVAS_H, 0, CANVAS_H - 120)));
@@ -12285,22 +12301,58 @@ async function normWave(url){
     g.drawImage(bm, 0, 0);
     const d = g.getImageData(0, 0, W, H).data;
     const amp = new Float32Array(W); let max = 0;
+    // showwavespic 은 중앙 대칭으로 꽉 채워 그린다 — 위에서 내려오다 처음 만나는
+    // 불투명 픽셀이 그 열의 진폭이다. 만나면 즉시 멈춘다(7680×480 이라 전수 주사는
+    // 370만 회, 이 방식은 대개 열당 몇 회).
     for (let x = 0; x < W; x++){
       let m = 0;
-      for (let y = 0; y < H; y++)
-        if (d[(y * W + x) * 4 + 3] > 10){ const e = Math.abs(y - mid); if (e > m) m = e; }
+      for (let y = 0; y < mid; y++)
+        if (d[(y * W + x) * 4 + 3] > 10){ m = mid - y; break; }
       amp[x] = m; if (m > max) max = m;
     }
-    if (max < 1) return url;               // 통무음 — 그냥 원본
-    g.clearRect(0, 0, W, H);
-    g.fillStyle = "#5b8def";
-    for (let x = 0; x < W; x++){
-      const h = Math.max(0.5, Math.sqrt(amp[x] / max) * (mid - 1));
-      g.fillRect(x, mid - h, 1, h * 2);
-    }
-    return c.toDataURL("image/png");
-  } catch (e){ return url; }
+    if (max < 1) return null;              // 통무음
+    for (let x = 0; x < W; x++) amp[x] /= max;
+    return amp;                            // 0~1 정규화 표본. 그리기는 drawWave 가.
+  } catch (e){ return null; }
 }
+// 표본 → 높이. **최대치 기준 선형**이다.
+//  · 정규화 전(선형·원척): 소재 피크가 화면 높이의 8%뿐이라 실선처럼 납작했다.
+//  · dB(−45dB 바닥)이나 √: 단계가 전부 위쪽으로 몰려 통짜 덩어리가 됐다(사용자 8/27).
+// 원본 PNG 가 120px 높이라 진폭 단계 자체가 4~5개뿐이라서, 정규화만 하면 그 단계가
+// 20/40/60/100% 로 고르게 퍼져 높낮이가 가장 잘 읽힌다.
+const waveH = a => (a > 0 ? Math.min(1, a) : 0);
+// 보이는 구간만 그린다 — 스트립 전체(확대 시 수만 px)를 한 장으로 그릴 수는 없다.
+// 표본은 1920개뿐이라 그보다 잘게는 못 나누지만, 늘린 비트맵과 달리 계단이 안 진다.
+function drawWave(){
+  const cv = document.getElementById("waveCv"), sc = document.getElementById("srcScroll");
+  if (!cv || !sc || !cur || !cur.waveAmp || !cur.srcScale) return;
+  const left = sc.scrollLeft, vw = Math.max(2, sc.clientWidth);
+  cv.style.left = left + "px"; cv.style.width = vw + "px";
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const W = Math.round(vw * dpr), H = Math.round((cv.clientHeight || 56) * dpr);
+  if (cv.width !== W) cv.width = W;
+  if (cv.height !== H) cv.height = H;
+  const g = cv.getContext("2d");
+  g.clearRect(0, 0, W, H);
+  const amp = cur.waveAmp, n = amp.length;
+  // 파형 PNG 는 **원본 전체**를 1920열로 담는다 — 스트립이 '쓰인 범위만'일 때
+  // 스트립 폭에 맞춰 늘이면 엉뚱한 시각의 소리가 그려진다(종전 버그).
+  const dur = cur.waveDur; if (!(dur > 0)) return;
+  const mid = H / 2, cap = mid * 0.92;
+  const at = px => {                        // 화면 x → 원본초 → 표본(선형 보간)
+    const t = cur.srcMin + (left + px / dpr) / cur.srcScale;
+    const f = t / dur * (n - 1);
+    if (f < 0 || f > n - 1) return 0;        // 영상 밖 — 그리지 않는다
+    const i = Math.floor(f), j = Math.min(n - 1, i + 1), r = f - i;
+    return amp[i] * (1 - r) + amp[j] * r;
+  };
+  g.fillStyle = "#5b8def";
+  g.beginPath(); g.moveTo(0, mid);
+  for (let x = 0; x < W; x++) g.lineTo(x, mid - waveH(at(x)) * cap);
+  for (let x = W - 1; x >= 0; x--) g.lineTo(x, mid + waveH(at(x)) * cap);
+  g.closePath(); g.fill();
+}
+window.drawWave = drawWave;
 
 async function mountVideo(){
   const med = ((cur.row.sprites || {}).assets || {}).media || {};
@@ -12317,10 +12369,14 @@ async function mountVideo(){
     if (ph && cur.srcScale) ph.style.left = ((vs.currentTime - cur.srcMin) * cur.srcScale) + "px";
   };
   const wave = (cur.row.sprites.assets || {}).wave;
-  cur.waveUrl = null;
+  cur.waveAmp = null;
   if (wave){
     const { data } = await sb.storage.from("ves-outputs").createSignedUrl(wave, 1800);
-    if (data) cur.waveUrl = await normWave(data.signedUrl);
+    if (data) cur.waveAmp = await normWave(data.signedUrl);
+    // 파형 PNG 의 시간축(= 원본 전체 길이). 없으면 아는 최댓값으로 하한을 잡는다.
+    cur.waveDur = +cur.row.duration_sec
+      || Math.max(0, ...(cur.model.clips || []).map(c => c.end),
+                     ...(cur.model.tts || []).map(t => t.src + 2));
   }
   // 필름스트립 시트 — 전역 스프라이트(10초 간격). 시트 몇 장이면 전체가 커버되므로
   // 한 번에 서명한다(4시간물도 15장 남짓).
@@ -12390,14 +12446,14 @@ function paintCues(outT){
     $("#ovSub").textContent = si >= 0 ? cur.model.subs[si].text : "";
     styleOvSub(si);
   }
-  const x = outT == null ? null
-    : (cur.model.textCues || []).find(q => !q.dropped && outT >= q.out && outT < q.out + q.dur);
-  const xi = x ? x.ti : -1;
-  if (xi !== curTxtIdx){
-    curTxtIdx = xi;
-    const txEl = $("#ovTxt"), txTx = x ? x.text : "";
-    txEl.dataset.tx = txTx; txEl.textContent = txTx;
-    styleOvTxt(xi);
+  // 같은 순간에 겹치는 텍스트가 여럿일 수 있다 — find 로 첫 건만 집으면 나머지가
+  // 미리보기에서 사라진다(사용자 8/27). 전부 넘긴다.
+  const xs = outT == null ? []
+    : (cur.model.textCues || [])
+        .filter(q => !q.dropped && outT >= q.out && outT < q.out + q.dur).map(q => q.ti);
+  if (xs.join(",") !== ovTxtOn.join(",")){
+    if (!xs.includes(curTxtIdx)) curTxtIdx = xs.length ? xs[0] : -1;
+    styleOvTxt(xs);
   }
 }
 window.paintCues = paintCues;
@@ -12832,7 +12888,7 @@ function drawSrc(){
     }
     h += `<div class="srcdim" style="left:${sx(pos)}px;width:${Math.max(0, (srcMax - pos) * cur.srcScale)}px"></div>`;
   }
-  h += `${cur.waveUrl ? `<div class="wave" style="background-image:url('${cur.waveUrl}')"></div>` : ""}
+  h += `${cur.waveAmp ? `<canvas class="wave" id="waveCv"></canvas>` : ""}
     <div class="srcclick" id="srcclick"></div>
     <div class="srcph" id="srcph" style="left:-9999px"></div>`;
   m.clips.forEach((c, i) => {
@@ -12857,6 +12913,7 @@ function drawSrc(){
     <div class="srclab" style="right:4px">${fmt(srcMax)}</div></div>`;
 
   $("#innerSrc").innerHTML = h;
+  drawWave();                               // 보이는 구간 파형(확대·스크롤마다 갱신)
   document.querySelectorAll("#innerSrc [data-k]").forEach(el =>
     el.addEventListener("click", e => { e.stopPropagation();
       if (el.__moved){ el.__moved = false; return; }
@@ -13018,9 +13075,14 @@ const BLK_CLS = { clip: "c", tts: "t", sub: "s", txt: "x", title: "ttl" };
 function select(kind, i, el, noSeek){
   document.querySelectorAll(".blk.sel").forEach(b => b.classList.remove("sel"));
   // 미리보기에서 '지금 고른 요소'를 실선 강조 — 어떤 걸 골랐는지 화면에서 보이게
-  document.querySelectorAll(".shorts .ovel.pick").forEach(x => x.classList.remove("pick"));
-  const pk = { title: "#ovTitle", tts: "#ovTts", sub: "#ovSub", txt: "#ovTxt" }[kind];
-  if (pk && $(pk)) $(pk).classList.add("pick");
+  document.querySelectorAll(".shorts .pick").forEach(x => x.classList.remove("pick"));
+  if (kind === "txt"){
+    const e = document.querySelector(`#ovTxt .ovtx[data-i="${i}"]`);
+    if (e) e.classList.add("pick");          // 겹친 것 중 **이것**을 골랐다
+  } else {
+    const pk = { title: "#ovTitle", tts: "#ovTts", sub: "#ovSub" }[kind];
+    if (pk && $(pk)) $(pk).classList.add("pick");
+  }
   // 서랍 목록에서 눌러도 타임라인 블록에 선택 테두리가 붙게 — el 이 없으면 찾는다
   if (!el && BLK_CLS[kind])
     el = document.querySelector(`#inner .blk.${BLK_CLS[kind]}[data-i="${i}"]`);
@@ -13302,6 +13364,15 @@ tlRoot.querySelector(".shorts").addEventListener("click", () => {
   else seekOut(0);                             // 처음부터
 });
 
+// 가로 스크롤 — 보이는 구간이 바뀌면 파형을 다시 그린다(프레임당 1회로 묶는다)
+{
+  let wRaf = 0;
+  $("#srcScroll").addEventListener("scroll", () => {
+    if (wRaf) return;
+    wRaf = requestAnimationFrame(() => { wRaf = 0; drawWave(); });
+  }, { passive: true });
+  window.addEventListener("resize", () => drawWave());
+}
 $("#srcScroll").addEventListener("wheel", e => {
   if (!cur || !cur.model) return;
   e.preventDefault();
@@ -13354,8 +13425,9 @@ function toggleEdit(){
   $("#rochip").textContent = editMode
     ? "편집 중 — [초안 저장]을 눌러야 DB 에 쓰입니다"
     : "조회는 흔적 없음 — 쓰기는 [초안 저장]을 누를 때만";
-  if (cur && cur.model){ draw(); ovSyncHandles(); styleOvTxt(curTxtIdx);
-    styleOvSub(curSubIdx); }
+  if (cur && cur.model){ draw(); ovSyncHandles();
+    const bx = document.getElementById("ovTxt"); if (bx) bx.dataset.sig = "";
+    styleOvTxt(ovTxtOn); styleOvSub(curSubIdx); }
 }
 const parseT = v => { v = String(v || "").trim(); if (!v) return null;
   if (/^\d+(\.\d+)?$/.test(v)) return parseFloat(v);
@@ -13544,9 +13616,9 @@ window.updTxtRaw = (i, k, v) => { snap(); const t = cur.model.texts[i]; if (!t) 
   if (k === "size"){ if (!(n > 0)) delete t._raw.size;      // 비우면 기본(72)
     else t._raw.size = Math.round(clamp(n, 12, 400)); }
   else t._raw[k] = v;
-  markDirty(); styleOvTxt(curTxtIdx); };
+  markDirty(); styleOvTxt(ovTxtOn); };
 window.delTxt = i => { snap(); cur.model.texts.splice(i, 1); refresh(); closeSide();
-  curTxtIdx = -1; ovRepaint(); };
+  curTxtIdx = -1; ovTxtOn = []; ovRepaint(); };
 window.addTxtAt = () => { snap();
   const v = $("#vid"), src = +(v.currentTime || 0).toFixed(3);
   // 기본 배치는 본 편집실 '＋ 텍스트'와 같은 값(0071) — 위치·크기 조정은 본 편집실에서

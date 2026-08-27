@@ -2217,6 +2217,36 @@ def test_sprite_and_wave_cmd():
     assert "showwavespic" in " ".join(wave_cmd("/p/x.mp4", "/tmp/w.png"))
 
 
+def test_wave_gen_gate_drops_low_res_wave():
+    """파형 세대(2026-08-27) — 구세대 저해상 파형은 승계하지 않고 다시 뜬다.
+
+    1920x120 은 30분물이면 한 열이 1초, 세로도 진폭 단계가 4~5개뿐이라 편집실에서
+    읽히지 않았다(사용자 보고). 크기만 키우면 재사용 경로가 옛 PNG 를 영원히
+    물려주므로 scan_gen 과 같은 세대 규약을 건다. 스프라이트 재사용은 영향 없어야
+    한다 — 파형 하나 때문에 시트를 다시 뜨면 재진입이 2~5분으로 돌아간다(F-303)."""
+    from ves.adapters.editor_assets import (reuse_assets, sprite_layout, wave_cmd,
+                                            WAVE_GEN, WAVE_SIZE, GRID, GLOBAL_INTERVAL,
+                                            THUMB_W)
+    assert WAVE_SIZE.split("x") == ["7680", "480"]
+    assert WAVE_SIZE in " ".join(wave_cmd("/p/x.mp4", "/tmp/w.png"))
+    dur = 600.0
+    lay = sprite_layout(dur)
+
+    def prev(gen):
+        a = {"global": ["g1"], "wave": "w.png", "media": {}}
+        if gen is not None:
+            a["wave_gen"] = gen
+        return {"duration_sec": dur,
+                "sprites": {"count": lay["count"], "interval": GLOBAL_INTERVAL,
+                            "grid": GRID, "thumb_w": THUMB_W, "assets": a}}
+
+    old = reuse_assets(prev(None), dur)          # 세대 표시가 없으면 구세대로 본다
+    assert "wave" not in old
+    assert old["global"] == ["g1"], "파형 세대는 스프라이트 재사용을 막으면 안 된다"
+    assert reuse_assets(prev(1), dur).get("wave") is None
+    assert reuse_assets(prev(WAVE_GEN), dur)["wave"] == "w.png"
+
+
 def test_pick_scrub_source_prefers_proxy(tmp_path):
     """프록시(480p·4fps)가 마스터보다 훨씬 빨리 훑힌다 — 타임코드는 1:1."""
     from ves.adapters.editor_assets import pick_scrub_source
