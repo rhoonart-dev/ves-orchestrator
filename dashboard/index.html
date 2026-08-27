@@ -11064,7 +11064,7 @@ body.editing .blk.t,body.editing .blk.c,body.editing .blk.s{cursor:grab}
 .fstile{position:absolute;top:2px;height:42px;background-color:var(--panel2);
   background-repeat:no-repeat;pointer-events:none;
   border-right:1px solid rgba(0,0,0,.4)}
-.srcarea .wave{position:absolute;left:0;right:0;top:48px;height:56px;opacity:.5;
+.srcarea .wave{position:absolute;left:0;right:0;top:48px;height:56px;opacity:.75;
   background-size:100% 100%;background-repeat:no-repeat;pointer-events:none}
 /* 안 쓰인 원본을 어둡게 — 쓰인 구간이 밝게 남아 한눈에 갈린다(NLE 표준 문법) */
 .srcdim{position:absolute;top:2px;height:42px;background:var(--dim);
@@ -12273,6 +12273,35 @@ window.ovSyncHandles = ovSyncHandles;
   document.addEventListener("mousedown", start, true);
 })();
 
+// 파형 PNG 를 세로로 꽉 차게 — 열마다 파형의 위아래 범위를 재고, 전체 최대치로
+// 정규화한 뒤 √ 스케일로 다시 그린다(작은 소리도 보이게, 상대 강약은 유지).
+// 실패하면(CORS 등) 원본 URL 그대로 — 파형이 작게라도 나온다.
+async function normWave(url){
+  try {
+    const bm = await createImageBitmap(await (await fetch(url)).blob());
+    const W = bm.width, H = bm.height, mid = H / 2;
+    const c = document.createElement("canvas"); c.width = W; c.height = H;
+    const g = c.getContext("2d", { willReadFrequently: true });
+    g.drawImage(bm, 0, 0);
+    const d = g.getImageData(0, 0, W, H).data;
+    const amp = new Float32Array(W); let max = 0;
+    for (let x = 0; x < W; x++){
+      let m = 0;
+      for (let y = 0; y < H; y++)
+        if (d[(y * W + x) * 4 + 3] > 10){ const e = Math.abs(y - mid); if (e > m) m = e; }
+      amp[x] = m; if (m > max) max = m;
+    }
+    if (max < 1) return url;               // 통무음 — 그냥 원본
+    g.clearRect(0, 0, W, H);
+    g.fillStyle = "#5b8def";
+    for (let x = 0; x < W; x++){
+      const h = Math.max(0.5, Math.sqrt(amp[x] / max) * (mid - 1));
+      g.fillRect(x, mid - h, 1, h * 2);
+    }
+    return c.toDataURL("image/png");
+  } catch (e){ return url; }
+}
+
 async function mountVideo(){
   const med = ((cur.row.sprites || {}).assets || {}).media || {};
   const v = $("#vid");
@@ -12291,7 +12320,7 @@ async function mountVideo(){
   cur.waveUrl = null;
   if (wave){
     const { data } = await sb.storage.from("ves-outputs").createSignedUrl(wave, 1800);
-    if (data) cur.waveUrl = data.signedUrl;
+    if (data) cur.waveUrl = await normWave(data.signedUrl);
   }
   // 필름스트립 시트 — 전역 스프라이트(10초 간격). 시트 몇 장이면 전체가 커버되므로
   // 한 번에 서명한다(4시간물도 15장 남짓).
@@ -12876,8 +12905,9 @@ function drawSrc(){
     const vs = $("#vidSrc");                       // 찍으면 멈춘 채 선다(완성본과 같은 문법)
     if (vs.src){ vs.pause(); vs.currentTime = Math.max(0, t); }
   });
-  // 고스트 헤드(A) + 썸네일 툴팁(B) — 훑을 때 왼쪽 원본이 따라오고, 마우스 옆에
-  // 그 지점 스프라이트 썸네일. 시작(I)만 찍힌 상태면 시작~마우스가 미리 칠해진다.
+  // 고스트 헤드(A) + 썸네일 툴팁(B) — 훑을 때 마우스 옆에 그 지점 스프라이트 썸네일.
+  // 왼쪽 원본 영상은 호버로 건드리지 않는다(재생 중이면 계속 재생) — 이동은 클릭만.
+  // 시작(I)만 찍힌 상태면 시작~마우스가 미리 칠해진다.
   {
     const area = $("#srcclick").parentElement;     // .srcarea
     const g = document.createElement("div"); g.className = "srcghost";
@@ -12886,7 +12916,6 @@ function drawSrc(){
     const gi = g.querySelector("i"), gth = g.querySelector(".thumb");
     const pre = document.createElement("div"); pre.className = "srcpre";
     pre.style.left = "-9999px"; area.appendChild(pre);
-    let lastScr = 0;
     $("#srcclick").addEventListener("mousemove", e => {
       if (e.buttons){ g.style.left = "-9999px"; pre.style.left = "-9999px"; return; }
       const r = e.currentTarget.getBoundingClientRect();
@@ -12896,10 +12925,6 @@ function drawSrc(){
       const p2 = thumbAt(t);
       if (p2){ gth.style.display = ""; gth.style.cssText += ";" + thumbCss(p2); }
       else gth.style.display = "none";
-      // 왼쪽 원본 실시간 스크럽(쓰로틀) — 핸들 드래그와 같은 배관
-      const vs = $("#vidSrc");
-      if (vs.src && Date.now() - lastScr > 150){ lastScr = Date.now();
-        if (!vs.paused) vs.pause(); vs.currentTime = Math.max(0, t); }
       // 시작만 찍혀 있으면 시작~마우스 미리 칠하기 — "여기서 끝내면 이만큼"
       if (marks.in != null && marks.out == null && t > marks.in){
         pre.style.left = sx(marks.in) + "px";
