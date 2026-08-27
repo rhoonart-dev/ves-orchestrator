@@ -189,26 +189,46 @@ def run(conn, cfg):
     today = dt.datetime.now(dt.timezone(dt.timedelta(hours=9))).date()   # KST 기준 하루
     limit = int(conf.get("max_per_region") or CHART_MAX)
 
-    total, notes = 0, []
+    total, notes, chart_dead = 0, [], not api_key
     for region in conf["regions"]:
-        if api_key:
+        if not chart_dead:
             try:
                 total += upsert_rows(conn, fetch_chart(region, api_key, limit, today))
             except QuotaExceeded as e:
-                # 일시 장애 — 오늘 차트는 포기하되 **어제 것을 지우지 않는다**
+                # 일시 장애 — 남은 차트만 접는다. ⚠ break 는 쿼터가 필요 없는 RSS 까지
+                # 다 건너뛰었다(8/27 첫 운행 교훈). 어제 스냅샷은 지우지 않는다.
+                chart_dead = True
                 notes.append(f"{region}:쿼터소진")
-                print(f"[trend_scout] {e} — 차트 수집 보류")
-                break
+                print(f"[trend_scout] {e} — 남은 차트 보류(RSS 는 계속)")
             except Exception as e:                         # noqa: BLE001 — 한 지역 실패가 전체를 죽이지 않는다
-                notes.append(f"{region}:차트실패")
+                notes.append(f"{region}:차트실패:{type(e).__name__}:{str(e)[:80]}")
                 print(f"[trend_scout] {region} 차트 실패(무시): {type(e).__name__} {e}")
         try:
             total += upsert_rows(conn, fetch_trends(region, today))
         except Exception as e:                             # noqa: BLE001
-            notes.append(f"{region}:검색실패")
+            notes.append(f"{region}:검색실패:{type(e).__name__}:{str(e)[:80]}")
             print(f"[trend_scout] {region} 검색 트렌드 실패(무시): {type(e).__name__} {e}")
 
     if not api_key:
         notes.append("YOUTUBE_API_KEY 없음 — 검색 트렌드만")
+    _note_status(conn, total, notes)
     print(f"[trend_scout] {today} {total}행 수집"
           + (f" ({', '.join(notes)})" if notes else ""))
+
+
+def _note_status(conn, total: int, notes: list) -> None:
+    """수집 성패를 관제가 보는 자리에 남긴다 — 8/27 첫 운행이 0행으로 끝났는데 사유가
+    노드 로그에만 있어 원격에서 아무것도 알 수 없었다. 기록 실패는 본 작업을 안 죽인다."""
+    import datetime as _dt
+    try:
+        with conn.cursor() as c:
+            c.execute(
+                """INSERT INTO public.ops_config(key, value, note)
+                   VALUES ('trend_scout_status', %s,
+                           '외부 트렌드 수집 상태(코드가 씀) — 트렌드 탭·운영자가 읽는다')
+                   ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=now()""",
+                (json.dumps({"rows": total, "notes": notes[:10],
+                             "at": _dt.datetime.now(_dt.timezone.utc)
+                                   .isoformat(timespec="seconds")}, ensure_ascii=False),))
+    except Exception as e:                                 # noqa: BLE001
+        print(f"[trend_scout] 상태 기록 실패(무시): {e}")
