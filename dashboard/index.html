@@ -11820,8 +11820,27 @@ function buildModel(){
                  subs: !!d.subtitles, texts: !!d.texts } };
   // 변경 감지 기준(초안 저장은 바뀐 섹션만 싣는다 — 안 바뀐 자막까지 실으면
   // '자막을 고친 편'으로 읽혀 자막 끔 채널에서 자막이 켜진다, 8/17 규칙)
-  cur.orig = { clips: JSON.stringify(clips), tts: JSON.stringify(tts),
-               subs: JSON.stringify(subs), texts: JSON.stringify(texts), title };
+  //
+  // ⚠ 기준선은 **오버라이드 없이 렌더하면 나올 값**(타임라인 정본)이어야 한다.
+  // 초안(draft)은 '아직 안 보낸 편집'이라 기준선에 넣으면 안 된다 — 넣으면
+  // model==orig 가 되어 그 섹션이 **영원히 제출되지 않는다**.
+  // 실사고(커리어데이_c7e39306, 2026-08-27): 초안에 제목·구간이 들어 있었는데
+  // 두 번의 재렌더(17:59·18:44) 모두 title·clips 키가 빠진 채 나갔다. 사람이
+  // 고친 제목·구간이 조용히 유실됐다(제출 뒤 초안이 비워져 되돌릴 근거도 사라졌다).
+  const baseClips = (tl.clips || []).map(c => ({ start: +c.start_sec || 0,
+    end: +c.end_sec || 0, role: c.role || "build" })).filter(c => c.end > c.start);
+  const baseTts = tlTts.map(t => ({ src: +t.source_sec || 0, dur: +t.duration_sec || 3,
+    text: t.text || "", voice: t.voice || "", speed: t.speed || "normal",
+    key: t.key || null, stale: false }));
+  const baseSubs = (tl.subtitles || []).map((sv, i) => ({ start: +sv.edited_start || 0,
+    end: +sv.edited_end || 0, src: sv.source_sec, text: sv.text || "", i0: i, del: false,
+    follow: sv.source_sec != null }));
+  const baseTexts = (cur.prevOv.texts || []).map(t => ({ src: +t.source_time_sec || 0,
+    dur: +t.duration_sec || 2, text: t.text || "", voice: "", speed: "",
+    _raw: { ...t } }));
+  cur.orig = { clips: JSON.stringify(baseClips), tts: JSON.stringify(baseTts),
+               subs: JSON.stringify(baseSubs), texts: JSON.stringify(baseTexts),
+               title: tl.top_title || "" };
   dirty = false; updSaveBtn(); window.subCk = new Set(); window.ttsCk = new Set();
   cur.sent = false;
   runEngineRules();
@@ -14035,6 +14054,7 @@ function collectOv(forDraft){
   return { d, n };
 }
 
+window.__collectOv = collectOv;   // 진단용 — 무엇이 제출되는지 밖에서 확인할 때만
 window.saveDraft = async () => {
   const { d: dNew, n } = collectOv(true);
   const d = { ...(cur.row.draft || {}), ...dNew };
