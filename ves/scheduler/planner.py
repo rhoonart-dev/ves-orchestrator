@@ -247,6 +247,34 @@ def pick_from_rows(rows, legacy=None):
     return None
 
 
+def episode_order(prefer_latest: bool) -> str:
+    """소스 정렬(0101). 순수 — 테스트 대상.
+
+    기본은 회차 오름차순('오래된 것 = 낮은 번호' 규약 그대로). 작품 카드
+    prefer_latest 는 내림차순 — 성과 검증 3차: 시즌8 은 3/28 방영인데 8월에 1~5화를
+    올리고 있었고(4~5개월 지연), 같은 작품 1위는 당일 최신 회차로 편당 39.5만 회.
+    방영 중 작품은 최신 회차부터 파는 게 맞다. 켜고 끄는 것은 사람이다(set_work_publish_policy)."""
+    if prefer_latest:
+        return "s.episode DESC NULLS LAST, COALESCE(s.published_ts, s.created_at) DESC, s.id"
+    return "s.episode NULLS LAST, COALESCE(s.published_ts, s.created_at), s.id"
+
+
+def _prefer_latest(conn, work) -> bool:
+    """작품 카드의 최신 우선 스위치 — 0101 이전 DB(컬럼 없음)면 종전 동작(False)."""
+    try:
+        with conn.cursor() as c:
+            c.execute("SELECT prefer_latest FROM public.work_cards WHERE work_title=%s", (work,))
+            row = c.fetchone()
+        return bool(row and row.get("prefer_latest"))
+    except Exception as e:                                  # noqa: BLE001
+        print(f"[planner] prefer_latest 조회 실패(종전 정렬): {e}")
+        try:
+            conn.rollback()
+        except Exception:                                   # noqa: BLE001
+            pass
+        return False
+
+
 def _pick_source(conn, work, pipeline="shorts_kr", episode=None, channel_slug=None):
     """소스 순환: 활성 소스 중 그 **채널이** 아직 use_limit 만큼 안 쓴 첫 행.
 
@@ -260,7 +288,7 @@ def _pick_source(conn, work, pipeline="shorts_kr", episode=None, channel_slug=No
       마친 회차를 오케스트레이터가 처음부터 다시 돌지 않게 한다(차감 규칙은 pick_from_rows).
     ★0064: 한도(use_limit)는 **발행된 편수**로 센다. 반려·취소로 끝난 시도는 한도를
       깎지 않되, 시도 자체는 **한도 + 시도 여유**(작품 카드, 기본 3)에서 멈춘다.
-    ★정렬: 회차 오름차순('오래된 것 = 낮은 번호' 규약) → 회차 안에서는 업로드시각
+    ★정렬: 기본 회차 오름차순 — 단 작품 카드 prefer_latest(0101)면 내림차순(최신 회차 먼저)
       (published_ts, 없으면 등록시각).
     episode 지정(0016) 시 그 회차만 — 소진이면 None(사람 결정을 조용히 바꾸지 않는다)."""
     with conn.cursor() as c:
@@ -291,8 +319,7 @@ def _pick_source(conn, work, pipeline="shorts_kr", episode=None, channel_slug=No
                   AND (s.duration_sec IS NULL
                        OR s.duration_sec > public.source_min_duration(s.work_title))
                   AND (%(ep)s::int IS NULL OR s.episode = %(ep)s::int)
-                ORDER BY s.episode NULLS LAST,
-                         COALESCE(s.published_ts, s.created_at), s.id""",
+                ORDER BY {order}""".format(order=episode_order(_prefer_latest(conn, work))),
             {"work": work, "ep": episode, "ch": channel_slug})
         rows = c.fetchall()
         legacy = []

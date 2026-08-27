@@ -5369,3 +5369,24 @@ def test_trend_report_cap_regions_keeps_both_sources():
     srcs = [t["source"] for t in out["KR"]]
     assert srcs.count("google_trends") == 10 and srcs.count("youtube_chart") == 10
     assert cap_regions([]) == {}
+
+
+def test_publish_cast_tags():
+    """출연자 해시태그(0101) — [작품명]+출연자, # 벗김·중복 제거. 순수.
+
+    검증 3차: 도달을 가르는 건 태그 개수가 아니라 '검색되는 고유명사'다."""
+    from ves.adapters.brain import cast_tags
+    assert cast_tags("가왕쇼", ["박서진", "홍지윤", "전유진"]) == ["가왕쇼", "박서진", "홍지윤", "전유진"]
+    assert cast_tags("가왕쇼", ["#박서진", " 가왕쇼 ", "", None]) == ["가왕쇼", "박서진"]
+    assert cast_tags("가왕쇼", None) == ["가왕쇼"]        # 출연자 없음 → 엔진 기본과 동일
+    assert cast_tags(None, ["박서진"]) == ["박서진"]
+
+
+def test_planner_episode_order():
+    """소스 정렬(0101) — 기본은 옛 회차부터(종전 규약), prefer_latest 는 최신부터.
+
+    검증 3차: 4~5개월 늦은 회차가 도달 0의 확정 원인 — 방영 중 작품은 최신이 먼저다."""
+    from ves.scheduler.planner import episode_order
+    assert "DESC" not in episode_order(False)
+    assert episode_order(True).startswith("s.episode DESC")
+    assert "published_ts" in episode_order(True)          # 같은 회차 안에서도 최신 먼저
