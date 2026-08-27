@@ -36,3 +36,14 @@ def test_level_b_argv_unchanged():
     # zanmang 등 완성-mp4 경로(level B)는 그대로 — mode 없는 잡은 기존 argv
     argv = localize.localize_argv("/py", "/v.mp4", "rid", {"level": "B"})
     assert argv[:3] == ["/py", "-m", "src.process_video"]
+
+
+# ── 잔망루피 롱폼 내레이션 끔 (2026-08-27) ─────────────────────────────
+def test_narration_switch_maps_to_no_narration_flag():
+    """channel design `narration:false` → --no-narration. ⚠ 새 CLI 플래그라 엔진 전
+    노드 배포 뒤에만 채널 design 에 싣는다(style_compose 와 같은 롤아웃)."""
+    assert aivideo.CHANNEL_DESIGN_SWITCHES["narration"] == ("--no-narration", False)
+    flags = aivideo.channel_design_flags({"narration": False, "style_compose": True}, "LOOPY")
+    assert "--no-narration" in flags and "--style-compose" in flags
+    # true(기본 동작)면 플래그가 안 붙는다 — 종전 채널 회귀 0
+    assert "--no-narration" not in aivideo.channel_design_flags({"narration": True}, "SHOTCONE")

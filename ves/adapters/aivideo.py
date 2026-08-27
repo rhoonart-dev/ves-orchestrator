@@ -119,6 +119,11 @@ CHANNEL_DESIGN_SWITCHES = {
     # style 은 silence_cut 뒤 단계라 편집실 재렌더(from_step=resources|render)로는 다시 뜨지
     # 않는다(체크포인트를 그대로 재적용). 개방은 엔진 전 노드 배포 후 ops_config channel_style=on.
     "style_compose": ("--style-compose", True),
+    # 내레이션 끔(ai-video 2026-08-27, 잔망루피 롱폼 결정 — 대사는 L4d 더빙이 맡고
+    # 나레이션은 아예 없다). false 면 --no-narration: cue 합성(요금)·TTS 자막·믹스 전부
+    # 생략, 현지화 L3t 재합성도 자연 소멸. ⚠ 새 CLI 플래그라 구 엔진 노드에서는 argparse
+    # 즉사 — 엔진 전 노드 배포 뒤에만 채널 design 에 싣는다(style_compose 와 같은 롤아웃).
+    "narration": ("--no-narration", False),
 }
 
 
