@@ -38,7 +38,8 @@ CONFIG_KEY = "trend_scout"
 TRENDS_RSS = "https://trends.google.com/trending/rss"
 CHART_MAX = 50                 # videos.list 1회 상한 — 그래도 1유닛이다
 
-DEFAULTS = {"enabled": False, "regions": ["KR", "JP", "US"], "max_per_region": CHART_MAX}
+DEFAULTS = {"enabled": False, "regions": ["KR", "JP", "US"], "max_per_region": CHART_MAX,
+            "market": True, "market_max_works": 5}
 
 
 # ───────── 순수 (테스트 대상) ─────────
@@ -161,6 +162,72 @@ def fetch_trends(region: str, today: dt.date) -> list[dict]:
         return parse_trends_rss(resp.read().decode("utf-8", errors="replace"), region, today)
 
 
+def parse_market(search_payload: dict, videos_payload: dict, work: str,
+                 today, rank_base: int) -> list:
+    """search.list + videos.list → 시장 행. 순수 — 테스트 대상.
+
+    운영자 지시(8/27): '시장의 신호에서 인사이트가 없다 — 유튜브 쪽 트렌드가 필요하다.'
+    일반 검색 트렌드 대신 **우리 작품의 외부 시장**(같은 소재를 다루는 남의 영상 중 지금
+    터지는 것)을 일일로 잰다 — 성과 검증 3차의 방법(search→videos)을 그대로 잇는다.
+    rank 는 전 작품 연속 번호(rank_base+i) — PK (date,region,source,rank) 충돌 방지.
+    작품명은 raw.work 로 실린다."""
+    stats = {v.get("id"): v for v in (videos_payload.get("items") or [])}
+    rows = []
+    for i, it in enumerate((search_payload.get("items") or []), start=1):
+        vid = ((it.get("id") or {}).get("videoId"))
+        if not vid:
+            continue
+        v = stats.get(vid) or {}
+        sn, st = v.get("snippet") or {}, v.get("statistics") or {}
+        s2 = it.get("snippet") or {}
+        rows.append({
+            "collected_date": today, "region": "KR", "source": "youtube_market",
+            "rank": rank_base + i,
+            "title": sn.get("title") or s2.get("title"),
+            "video_id": vid,
+            "channel_title": sn.get("channelTitle") or s2.get("channelTitle"),
+            "category_id": sn.get("categoryId"),
+            "view_count": _int_or_none(st.get("viewCount")),
+            "published_at": sn.get("publishedAt") or s2.get("publishedAt"),
+            "raw": json.dumps({"work": work}, ensure_ascii=False),
+        })
+    return rows
+
+
+def _market_works(conn, limit: int) -> list:
+    """시장을 잴 작품 — prefer_latest(방영 중 표시, 0101) 작품이 대상이다. 상한 초과는
+    자르고 로그를 남긴다(search.list 가 작품당 100유닛 — 조용한 폭식을 막는다)."""
+    with conn.cursor() as c:
+        try:
+            c.execute("""SELECT work_title FROM public.work_cards
+                          WHERE prefer_latest ORDER BY work_title""")
+            works = [r["work_title"] for r in c.fetchall()]
+        except Exception as e:                             # noqa: BLE001 — 0101 이전 DB
+            print(f"[trend_scout] prefer_latest 조회 실패 — 시장 스윕 생략: {e}")
+            try:
+                conn.rollback()
+            except Exception:                              # noqa: BLE001
+                pass
+            return []
+    if len(works) > limit:
+        print(f"[trend_scout] 시장 대상 {len(works)}개 중 {limit}개만 (상한 — 쿼터 보호)")
+    return works[:limit]
+
+
+def fetch_market(work: str, api_key: str, today, rank_base: int) -> list:
+    after = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=7)) \
+        .strftime("%Y-%m-%dT%H:%M:%SZ")
+    sr = _api_get("search", {
+        "part": "id,snippet", "q": work, "type": "video", "order": "viewCount",
+        "publishedAfter": after, "regionCode": "KR", "relevanceLanguage": "ko",
+        "videoDuration": "short", "maxResults": 10}, api_key)
+    ids = [((it.get("id") or {}).get("videoId")) for it in (sr.get("items") or [])]
+    ids = [i for i in ids if i]
+    vr = _api_get("videos", {"part": "snippet,statistics", "id": ",".join(ids)},
+                  api_key) if ids else {}
+    return parse_market(sr, vr, work, today, rank_base)
+
+
 def upsert_rows(conn, rows: list[dict]) -> int:
     if not rows:
         return 0
@@ -208,6 +275,23 @@ def run(conn, cfg):
         except Exception as e:                             # noqa: BLE001
             notes.append(f"{region}:검색실패:{type(e).__name__}:{str(e)[:80]}")
             print(f"[trend_scout] {region} 검색 트렌드 실패(무시): {type(e).__name__} {e}")
+
+    # 시장 스윕(8/27) — 방영 중 작품의 외부 상위 영상. 작품당 ~101유닛이라 쿼터가
+    # 이미 죽었으면(chart_dead) 시도하지 않는다 — 내일 03:00 이 다시 온다.
+    if conf.get("market") and api_key and not chart_dead:
+        rank_base = 0
+        for work in _market_works(conn, int(conf.get("market_max_works") or 5)):
+            try:
+                total += upsert_rows(conn, fetch_market(work, api_key, today, rank_base))
+                rank_base += 100
+            except QuotaExceeded:
+                notes.append(f"시장:{work}:쿼터소진")
+                print(f"[trend_scout] 시장 스윕 쿼터 소진 — {work} 에서 중단")
+                break
+            except Exception as e:                         # noqa: BLE001
+                notes.append(f"시장:{work}:실패:{type(e).__name__}:{str(e)[:60]}")
+                print(f"[trend_scout] 시장 {work} 실패(무시): {type(e).__name__} {e}")
+                rank_base += 100
 
     if not api_key:
         notes.append("YOUTUBE_API_KEY 없음 — 검색 트렌드만")
