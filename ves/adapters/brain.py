@@ -190,6 +190,22 @@ class Evaluate:
                             ensure_ascii=False)))
 
 
+def cast_tags(work_title, cast_names) -> list:
+    """발행 일반 해시태그(0101) — [작품명] + 출연자 실명, # 벗김·중복 제거. 순수 — 테스트 대상.
+
+    성과 검증 3차('4개월 늦은 1화'): 도달을 가르는 건 태그 개수가 아니라 **검색되는
+    고유명사**다 — 레전드라마(#이수지 #신동엽, 편당 39.5만)와 우리(#SNL_코리아_리부트_시즌8,
+    편당 0)의 차이. 한 입 주막은 자사 유일하게 출연자 태그를 달고 첫 영상 63,852회.
+    ⚠ laeebly 정산 태그(#식별코드)는 엔진이 work_hashtags 별도 경로로 항상 뒤에 붙인다
+    (publish_youtube.py build_snippet) — 이 목록이 그걸 대체하지 않는다."""
+    tags = []
+    for t in [work_title, *(cast_names or [])]:
+        t = str(t or "").strip().lstrip("#").strip()
+        if t and t not in tags:
+            tags.append(t)
+    return tags
+
+
 class Publish:
     """발행 (publish_youtube.py) — R9/지오블락/오채널 게이트는 이 스크립트가 최종 방어선.
     ⚠ 예약공개(publishAt)는 publish_youtube.py 에 아직 없다 — Phase 2 코드 작업(놓친 부분 ④)."""
@@ -213,6 +229,27 @@ class Publish:
     @staticmethod
     def enrich_params(cfg, conn, job):
         p = dict(job.get("params") or {})
+        # 출연자 해시태그(0101) — 작품 카드(cast_names)가 있으면 일반 태그로 주입한다.
+        # 현지화판 태그(JP 카드)가 이미 있으면 건드리지 않는다. 아래 publish_localized_meta
+        # 게이트를 그대로 지나므로(--hashtags 는 같은 롤아웃) 구 엔진에서도 안전하다.
+        if not p.get("publish_tags") and job.get("work_order_id"):
+            try:
+                with conn.cursor() as c:
+                    c.execute("""SELECT w.work_title, wc.cast_names
+                                   FROM public.work_orders w
+                                   LEFT JOIN public.work_cards wc ON wc.work_title = w.work_title
+                                  WHERE w.id = %s""", (job["work_order_id"],))
+                    row = c.fetchone()
+                if row and row.get("cast_names"):
+                    p["publish_tags"] = cast_tags(row["work_title"], row["cast_names"])
+                    print(f"[publish] 출연자 해시태그 주입 — {row['work_title']}: "
+                          f"{' '.join('#' + t for t in p['publish_tags'])}")
+            except Exception as e:                          # noqa: BLE001 — 0101 이전 DB
+                print(f"[publish] cast_names 조회 실패(무시 — 종전 경로): {e}")
+                try:
+                    conn.rollback()
+                except Exception:                           # noqa: BLE001
+                    pass
         if not any(p.get(k) for k in ("publish_title", "publish_description",
                                       "publish_tags")):
             return p
