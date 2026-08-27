@@ -368,7 +368,8 @@ def run(conn, cfg):
                 except Exception as fe:                     # noqa: BLE001
                     print(f"[trend_report] failover 실패(무시): {fe}")
             except Exception as e:                          # noqa: BLE001
-                status = f"gemini_error:{type(e).__name__}"
+                # 타입명만 남기면 원격에서 진단 불가(8/27: RuntimeError 만 보였다) — 상세를 싣는다
+                status = f"gemini_error:{type(e).__name__}:{str(e)[:200]}"
                 print(f"[trend_report] 해설 생성 실패(무시 — facts 로 성립): {e}")
 
     with conn.cursor() as c:
