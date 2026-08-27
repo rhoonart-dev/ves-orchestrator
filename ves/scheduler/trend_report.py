@@ -24,7 +24,7 @@ import re
 import statistics
 
 CONFIG_KEY = "trend_report"
-DEFAULTS = {"enabled": False, "model": "gemini-2.5-flash", "narrative": True}
+DEFAULTS = {"enabled": False, "model": "gemini-3.6-flash", "narrative": True}
 DEFAULT_K = {"sweet_spot_sec": [30, 45],
              "retention_min": {"lt30": 65.0, "30to60": 50.0},
              "impression_floor": 100, "ctr_floor": 2.0}
