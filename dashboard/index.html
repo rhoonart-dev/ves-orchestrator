@@ -11264,6 +11264,9 @@ button:hover{background:var(--panel2);border-color:var(--line2)}
 .tltools button:disabled{opacity:.4;cursor:default}
 #editToggle{color:var(--muted)}
 #editToggle.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+#inner, #innerSrc, #rail, #railPanel .drawList, #tlRoot .top .grp,
+.shorts .ovel{user-select:none;-webkit-user-select:none}
+#tlRoot input, #tlRoot textarea{user-select:text;-webkit-user-select:text}
 #trashBtn{color:var(--danger)}
 #trashBtn:disabled{color:var(--faint);opacity:.45}
 #trashBtn:not(:disabled):hover{background:rgba(239,68,68,.12);border-color:var(--danger)}
@@ -12586,10 +12589,12 @@ function draw(){
   const BLK_MIN = 14, BLK_GAP = 3;
   const pxSpan = (out, dur) => ({ a: out * px,
     b: out * px + Math.max(BLK_MIN, dur * px) + BLK_GAP });
-  const subLanes = laneOf(m.subs.map(s => pxSpan(s.start, s.end - s.start)));
+  const subLanes = laneOf(m.subs.map(s =>              // 삭제줄은 줄 배치에서도 제외
+    s.del ? { a: -1e9, b: -1e9 } : pxSpan(s.start, s.end - s.start)));
   h += `<div class="track" data-lab="lsubs" style="${trackStyle(subLanes.n)}">`;
   m.subs.forEach((s, i) => {
-    h += `<div class="blk s${s.del ? " dead" : ""}" data-k="sub" data-i="${i}"
+    if (s.del) return;                                  // 숨김 — 되살리기는 [자막] 서랍에서
+    h += `<div class="blk s" data-k="sub" data-i="${i}"
       style="left:${s.start * px}px;width:${Math.max(14, (s.end - s.start) * px)}px;
         ${blkTop(subLanes.lane[i])}">${esc(s.text)}</div>`;
   });
@@ -13400,6 +13405,11 @@ window.addEventListener("mouseup", () => {
   window.addEventListener("mouseup", () => { pbDrag = false; });
 }
 
+// 브라우저 기본 '선택된 글자 드래그' 차단 — user-select:none 이전에 생긴 선택이나
+// 인스펙터에서 시작된 선택이 타임라인 위로 끌려오는 경우까지 막는다
+tlRoot.addEventListener("dragstart", e => {
+  if (!e.target.closest("input, textarea")) e.preventDefault();
+});
 tlRoot.querySelector(".shorts").addEventListener("click", () => {
   if (window.__ovDragged){ window.__ovDragged = false; return; }   // 드래그 끝맺음 클릭
   const v = $("#vid"); if (!v.src) return;
@@ -13844,9 +13854,14 @@ function multiToggle(kind, i){
 }
 window.multiToggle = multiToggle;
 
-// 다중 다듬기 — 재생 헤드 기준으로 담긴 블록들의 시작/끝을 한꺼번에 맞춘다.
-// 헤드 밖으로 완전히 나간 것은 삭제, 헤드를 품은 것은 트림, 나머지는 유지.
-// 완성본 시각(out)으로 판정하고, 저장은 각 종류의 좌표계로 되돌려 쓴다.
+// 다중 다듬기 — 재생 헤드 기준으로 담긴 블록들을 한꺼번에.
+// **구간**: 재생 길이를 맞추는 도구다 — 헤드 밖으로 완전히 나간 조각은 삭제,
+//   헤드를 품은 조각은 트림, 나머지는 유지(범위 다듬기).
+// **자막·내레이션·텍스트**: 끝(또는 시작)을 헤드에 **딱 맞추는** 도구다(사용자
+//   8/27 — "특정 구간 끝까지 띄우다가 딱 맞게 끝내고 싶다"). 선택한 전부의
+//   끝/시작을 헤드로 옮긴다 — 늘어나든 줄어들든. 헤드가 시작보다 앞이라 끝을
+//   못 맞추는 줄만 건너뛰고 알린다. 삭제는 없다(삭제는 쓰레기통이 한다).
+// 판정은 완성본 시각, 저장은 각 종류의 좌표계로 되돌려 쓴다.
 function multiTrim(edge){
   const v = $("#vid"), outT = srcToOut(v.currentTime);
   if (outT == null){ toast("재생 헤드를 먼저 찍으세요"); return true; }
@@ -13861,40 +13876,59 @@ function multiTrim(edge){
     return q && !q.dropped && { i, a: q.out, b: q.out + q.dur };
   }).filter(Boolean).sort((p, q) => p.a - q.a);
   if (!spans.length){ multiSel = { kind: null, idx: [] }; updTrashBtn(); return false; }
-  if (outT <= spans[0].a + 0.01 || outT >= spans[spans.length - 1].b - 0.01){
-    toast(`재생 헤드가 선택한 ${MULTI_LABEL[kind]}들 안쪽에 있어야 합니다`); return true; }
   const MIN = kind === "clip" ? 0.5 : 0.3;
-  const del = [], trim = [];
-  for (const sp of spans){
-    if (edge === "start"){ if (sp.b <= outT + 0.001) del.push(sp);
-      else if (sp.a < outT) trim.push(sp); }
-    else { if (sp.a >= outT - 0.001) del.push(sp);
-      else if (sp.b > outT) trim.push(sp); }
-  }
-  if (del.length && !confirm(`선택한 ${MULTI_LABEL[kind]}를 재생 헤드${edge === "start" ? "부터 시작" : "까지"}로 다듬습니다.\n\n` +
-      `${del.length}개 삭제 · ${trim.length}개 트림 — 계속할까요?`)) return true;
-  snap();
-  for (const sp of trim){
-    if (kind === "clip"){
+
+  if (kind === "clip"){                       // ── 구간: 범위 다듬기(삭제+트림) ──
+    if (outT <= spans[0].a + 0.01 || outT >= spans[spans.length - 1].b - 0.01){
+      toast("재생 헤드가 선택한 구간들 안쪽에 있어야 합니다"); return true; }
+    const del = [], trim = [];
+    for (const sp of spans){
+      if (edge === "start"){ if (sp.b <= outT + 0.001) del.push(sp);
+        else if (sp.a < outT) trim.push(sp); }
+      else { if (sp.a >= outT - 0.001) del.push(sp);
+        else if (sp.b > outT) trim.push(sp); }
+    }
+    if (del.length && !confirm(`선택한 구간을 재생 헤드${edge === "start" ? "부터 시작" : "까지"}로 다듬습니다.\n\n` +
+        `${del.length}개 삭제 · ${trim.length}개 트림 — 계속할까요?`)) return true;
+    snap();
+    for (const sp of trim){
       const c = m.clips[sp.i], srcT = sp.f.start + (outT - sp.f.out);
       if (edge === "start") c.start = +Math.max(0, Math.min(c.end - MIN, srcT)).toFixed(3);
       else c.end = +Math.max(c.start + MIN, srcT).toFixed(3);
-    } else if (kind === "sub"){
+    }
+    multiDelete(del.map(sp => sp.i), kind, true);   // 인덱스 밀림은 저쪽이 처리
+    multiSel = { kind: null, idx: [] }; curSel = null;
+    refresh(); closeSide(); updTrashBtn();
+    toast(`다듬기 완료 — 삭제 ${del.length} · 트림 ${trim.length}`);
+    return true;
+  }
+
+  // ── 자막·내레이션·텍스트: 전부의 끝/시작을 헤드에 맞춘다 ──
+  const can = sp => edge === "end" ? outT > sp.a + MIN : outT < sp.b - MIN;
+  const fit = spans.filter(can), skip = spans.length - fit.length;
+  if (!fit.length){
+    toast(edge === "end" ? "재생 헤드가 모든 선택의 시작보다 앞이라 끝을 맞출 수 없습니다"
+                         : "재생 헤드가 모든 선택의 끝보다 뒤라 시작을 맞출 수 없습니다");
+    return true;
+  }
+  snap();
+  for (const sp of fit){
+    if (kind === "sub"){
       const su = m.subs[sp.i];
-      if (edge === "start"){ su.start = +Math.min(su.end - MIN, outT).toFixed(3);
-        if (su.follow){ const hit = outToSrc(su.start); if (hit) su.src = +hit.src.toFixed(3); }
-      } else su.end = +Math.max(su.start + MIN, outT).toFixed(3);
+      if (edge === "end") su.end = +outT.toFixed(3);
+      else { su.start = +outT.toFixed(3);
+        if (su.follow){ const hit = outToSrc(su.start); if (hit) su.src = +hit.src.toFixed(3); } }
     } else {                                  // 내레이션·텍스트 — 앵커(원본초)+길이
       const it = (kind === "tts" ? m.tts : m.texts)[sp.i];
-      if (edge === "start"){ const hit = outToSrc(outT);
-        if (hit){ it.src = +hit.src.toFixed(3); it.dur = +Math.max(MIN, sp.b - outT).toFixed(3); }
-      } else it.dur = +Math.max(MIN, outT - sp.a).toFixed(3);
+      if (edge === "end") it.dur = +(outT - sp.a).toFixed(3);
+      else { const hit = outToSrc(outT);
+        if (hit){ it.src = +hit.src.toFixed(3); it.dur = +(sp.b - outT).toFixed(3); } }
     }
   }
-  multiDelete(del.map(sp => sp.i), kind, true);   // 삭제는 한 곳에서(인덱스 밀림 처리)
   multiSel = { kind: null, idx: [] }; curSel = null;
   refresh(); closeSide(); updTrashBtn();
-  toast(`다듬기 완료 — 삭제 ${del.length} · 트림 ${trim.length}`);
+  toast(`${MULTI_LABEL[kind]} ${fit.length}개의 ${edge === "end" ? "끝" : "시작"}을 ` +
+    `${fmt(outT)} 에 맞췄습니다` + (skip ? ` — ${skip}개는 맞출 수 없어 건너뜀` : ""));
   return true;
 }
 // 여러 개 삭제 — 인덱스가 splice 로 밀리므로 **객체 참조**로 지운다.
@@ -13931,7 +13965,7 @@ window.delSelected = () => {
   const idx = multiSel.idx.length ? [...multiSel.idx] : [curSel.i];
   const soft = kind === "sub";
   if (!confirm(`${MULTI_LABEL[kind]} ${idx.length}개를 삭제할까요?` +
-      (soft ? "\n\n자막은 표시만 지웁니다 — 목록에서 되살릴 수 있습니다." : "") +
+      (soft ? "\n\n자막은 왼쪽 [자막] 서랍 목록에 흐리게 남아 되살릴 수 있습니다." : "") +
       "\n\n⌘Z 로 되돌릴 수 있습니다.")) return;
   snap();
   const n = multiDelete(idx, kind, true);
