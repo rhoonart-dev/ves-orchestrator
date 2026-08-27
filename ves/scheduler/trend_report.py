@@ -76,7 +76,7 @@ def judge(v: dict, k: dict) -> dict:
     impr = v.get("impr") or 0
     if impr < k["impression_floor"]:
         return {"verdict": "배포 안 됨",
-                "hint": "채널·계정 문제 — 썸네일/훅 손대지 말 것"}
+                "hint": "회차 시점·출연자 태그 점검(§11 정정) — 썸네일/훅 아님"}
     ctr = v.get("ctr")
     if ctr is not None and ctr < k["ctr_floor"]:
         return {"verdict": "안 눌림", "hint": "제목·썸네일 재작업"}
@@ -295,7 +295,7 @@ def derive_actions(work_diag: list, overlaps: list) -> list:
         n = w.get("n_videos") or 0
         if n >= 3 and (w.get("n_blocked") or 0) >= n * 0.7:
             acts.append({"pri": 1, "text": f"「{w['work']}」 {w['n_blocked']}/{n}편 배포 안 됨"
-                                           " — 채널·계정 점검. 콘텐츠 수정 금지"})
+                                           " — 회차 시점·출연자 태그 점검(§11 정정)"})
         elif n >= 3 and (w.get("n_exit") or 0) >= n * 0.5:
             acts.append({"pri": 2, "text": f"「{w['work']}」 {w['n_exit']}/{n}편 이탈"
                                            " — 훅 3초 재작업"})
