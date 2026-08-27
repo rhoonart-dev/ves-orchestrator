@@ -9917,6 +9917,12 @@ async function loadTrends(){
   finally { if (seq === trendsSeq) render(); }
 }
 window.trendsPick = d => { trendsDate = d || null; trends = null; render(); };
+window.trendsDismissNotice = btn => armed(btn, "공지 내리기", async () => {
+  // 내리기 = ops_config 행 삭제(0100, operator 게이트·감사) — 다음 공지는 사람이 새 행을 넣는다
+  const { error } = await sb.rpc("dismiss_trend_notice");
+  if (error){ toast(`공지 내리기 거부: ${error.message}`, true); return; }
+  toast("공지 내렸다"); trends = null; render();
+});
 window.trendsReload = () => { trends = null; render(); };
 const tvN = v => v == null ? "—" : Number(v).toLocaleString();
 const tvVerdict = v => ({"정상":"st-good","이탈":"st-warn","안 눌림":"st-warn",
@@ -9934,7 +9940,8 @@ function renderTrends(){
   const dates = trends.dates || [];
   const dateSel = `<select onchange="trendsPick(this.value)">${
     dates.map(d => `<option value="${d}" ${d===(trends.report||{}).report_date?"selected":""}>${d}</option>`).join("")}</select>`;
-  const notice = trends.notice ? `<section class="card"><h2>${esc(trends.notice.title||"공지")}</h2>${
+  const notice = trends.notice ? `<section class="card"><h2>${esc(trends.notice.title||"공지")}${
+    ["operator","admin"].includes(myRole) ? ` <button class="mini" onclick="trendsDismissNotice(this)">공지 내리기</button>` : ""}</h2>${
     String(trends.notice.body||"").split("\n").map(l => `<div class="pf-warnbar">${esc(l)}</div>`).join("")}</section>` : "";
   if (trends.empty){
     $("#page").innerHTML = notice + `<section class="card"><h2>트렌드 리포트</h2>
