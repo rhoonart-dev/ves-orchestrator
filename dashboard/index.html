@@ -10981,6 +10981,9 @@ input{font:inherit;font-size:13px;background:var(--panel2);color:var(--text);
 .shorts .ovtitle .l2{color:#ff3b30}
 .shorts .ovtts{position:absolute;left:8px;right:8px;top:66%;text-align:center;
   font-size:11px;font-weight:700;color:var(--tts);text-shadow:0 1px 3px #000;min-height:1.4em}
+/* 글자 없는 오버레이는 클릭을 통과시킨다(빈 상자가 남의 손잡이를 덮지 않게) */
+.shorts .ovel:empty,.shorts .ovwork{pointer-events:none}
+.shorts .ovel.sel,.shorts .ovel.pick{pointer-events:auto}
 .shorts .ovsub{position:absolute;left:8px;right:8px;top:57%;text-align:center;
   font-size:10.5px;font-weight:700;color:#fff;text-shadow:0 1px 3px #000}
 .shorts .ovtxt{position:absolute;inset:0;pointer-events:none}
@@ -11398,8 +11401,14 @@ button:hover{border-color:transparent;background:var(--line)}
 .drawList{display:flex;flex-direction:column;gap:5px;max-height:38vh;overflow-y:auto}
 
 /* 가운데 화면 직접 조작 — 선택 상자 + 핸들(자막·제목·내레이션·텍스트 공용) */
+/* ⚠ 고른 요소는 반드시 맨 위 — 뒤에 오는 오버레이(내레이션·작품명)가 자막 밖으로
+   튀어나온 ⇔·◢ 손잡이를 덮어 안 잡혔다(8/28 실측: elementFromPoint → .ovtts). */
+.shorts .ovel.sel,.shorts .ovel.pick{z-index:8}
 .shorts .ovel.sel{outline:1.5px dashed rgba(255,255,255,.85);outline-offset:3px;
   cursor:move}
+/* 손잡이는 보이는 것보다 넓게 잡힌다 — 5px 짜리를 정확히 찍기는 어렵다 */
+.shorts .ovel .sh::after{content:"";position:absolute;left:-7px;right:-7px;
+  top:-7px;bottom:-7px}
 .shorts .ovel.pick{outline:2px solid var(--accent);outline-offset:3px}
 .shorts .ovel .sh{position:absolute;background:#fff;border-radius:2px;
   box-shadow:0 0 0 1px rgba(0,0,0,.5);cursor:pointer}
@@ -13550,7 +13559,8 @@ function ovRepaint(){                      // 멈춰 있어도 오버레이를 �
 function applyState(j){ const st = JSON.parse(j);
   cur.model.clips = st.c; cur.model.tts = st.t; cur.model.subs = st.s;
   cur.model.texts = st.x; cur.model.title = st.ti;
-  markDirty(); runEngineRules(); draw(); layoutShorts(); ovRepaint();
+  syncDirty();                       // ⌘Z 로 되돌아왔으면 '저장 안 됨'도 풀린다
+  runEngineRules(); draw(); layoutShorts(); ovRepaint();
   if (!curSel) closeSide(); }
 window.doUndo = () => { if (!undoStack.length){ toast("되돌릴 것이 없습니다"); return; }
   redoStack.push(modelState()); applyState(undoStack.pop()); };
@@ -14081,6 +14091,24 @@ function collectOv(forDraft){
 }
 
 window.__collectOv = collectOv;   // 진단용 — 무엇이 제출되는지 밖에서 확인할 때만
+// 키 순서에 흔들리지 않는 비교 — 저장 여부 판정에만 쓴다
+function canon(v){
+  if (Array.isArray(v)) return "[" + v.map(canon).join(",") + "]";
+  if (v && typeof v === "object")
+    return "{" + Object.keys(v).sort().map(k => JSON.stringify(k) + ":" + canon(v[k])).join(",") + "}";
+  return JSON.stringify(v);
+}
+// '지금 [저장]을 누르면 초안이 달라지는가' = 저장 안 된 편집이 있는가.
+function syncDirty(){
+  try {
+    const { d } = collectOv(true);
+    const cu = cur.row.draft || {};
+    dirty = canon({ ...cu, ...d }) !== canon(cu);
+  } catch (e) { /* 판정 실패 시엔 보수적으로 그대로 둔다 */ }
+  updSaveBtn(); $("#saveMsg").textContent = dirty ? "저장 안 됨" : "";
+}
+window.syncDirty = syncDirty;
+
 window.saveDraft = async () => {
   const { d: dNew, n } = collectOv(true);
   const d = { ...(cur.row.draft || {}), ...dNew };
@@ -14123,6 +14151,16 @@ window.submitRender = async () => {
       subtitles:"자막",texts:"텍스트",design:"디자인"}[k] || k)).join(" · ")}`)) return;
   const btn = $("#renderBtn");
   if (btn){ btn.disabled = true; btn.querySelector("span").textContent = "보내는 중…"; }
+  // 보낸 내용을 초안으로도 남긴다 — 렌더가 실패해도 편집이 남아 있어야 한다.
+  // 초안 저장은 실패해도 렌더는 계속한다(보내는 것이 본 목적) — 대신 알린다.
+  {
+    const { d: dDraft } = collectOv(true);
+    const merged = { ...(cur.row.draft || {}), ...dDraft };
+    const { error: eD } = await sb.rpc("save_editor_draft",
+      { p_run_id: cur.row.run_id, p_draft: merged });
+    if (eD) toast("초안 자동 저장 실패(렌더는 계속합니다) — " + eD.message, true);
+    else cur.row.draft = merged;
+  }
   const { data, error } = await sb.rpc("submit_editor_render",
     { p_review_id: rv.id, p_overrides: ov, p_note: null });
   if (error){
