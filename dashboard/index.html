@@ -3707,8 +3707,10 @@ function renderEditJp(){
       <span class="rv2-mac">${esc(chName(r.channel_slug))}</span>
       <span class="sub">일본어 편집 — 문구를 고치면 그 항목만 다시 렌더됩니다</span>
       <span class="right">${edJpMode === "rerender" && r.work_order_id
-        ? `<button class="mini" onclick="openEditor('${edRid}', true)"
-            title="한국어 원본을 KR 편집실 전체 기능(컷·구간·자막·내레이션·이미지·스타일)으로 고칩니다 — 보내면 다시 렌더한 뒤 재번역까지 이어져 새 일본어 카드가 올라옵니다">🎬 원본(한국어) 편집실</button>` : ""}
+        ? `<button class="mini" onclick="tlOpen({rid:'${edRid}'})"
+            title="한국어 원본을 타임라인 편집실(신판)로 고칩니다 — 보내면 다시 렌더한 뒤 재번역까지 이어져 새 일본어 카드가 올라옵니다">🎬 원본(한국어) 편집실</button>
+          <u class="sub" style="cursor:pointer" onclick="openEditor('${edRid}', true)"
+            title="종전 편집실로 엽니다 — 신판에 문제가 있을 때의 안전 폴백">구판</u>` : ""}
       <button class="mini" onclick="tab='review';render()">← 검수함</button></span></div>`;
   $("#page").innerHTML = `<section class="card">${head}
     <div class="edgrid2">
@@ -14200,14 +14202,18 @@ window.submitRender = async () => {
     .limit(1).maybeSingle();
   if (e0){ toast("검수 카드 조회 실패 — " + e0.message); return; }
   if (!rv){ toast("이 run 의 검수 카드가 닫혀 있어 보낼 수 없습니다 (재렌더·발행·반려됨)"); return; }
-  if (rv.kind === "localization_qa"){ toast("JP 카드는 본 편집실에서 보내세요"); return; }
+  // JP(localization_qa) 카드도 보낸다(8/28) — 서버 submit_editor_render 가 0066 규약
+  // 그대로 재렌더 뒤 재번역(localize)을 잇는다. 종전 차단은 신판 초기의 보수적 처리.
+  const jp = rv.kind === "localization_qa";
   // 전량 삭제 확인 — 본 편집실과 같은 문구·같은 판정
   if (ov.subtitles && !ov.subtitles.length
       && !confirm("대사 자막을 전부 삭제한 채 다시 렌더합니다 — 이 편은 자막 없이 나갑니다. 계속할까요?")) return;
   if (ov.tts && !ov.tts.length
       && !confirm("내레이션을 전부 삭제한 채 다시 렌더합니다 — 음성도 자막도 모두 빠집니다. 계속할까요?")) return;
   const warns = document.querySelectorAll("#warns .alert.warn").length;
-  if (!confirm(`다시 렌더합니다 — 끝나면 검수함에 새 카드가 올라옵니다(수십 초~수 분).` +
+  if (!confirm(`다시 렌더합니다 — ${jp
+      ? "끝나면 재번역까지 이어져 검수함에 새 일본어 카드가 올라옵니다(수 분)."
+      : "끝나면 검수함에 새 카드가 올라옵니다(수십 초~수 분)."}` +
     (warns ? `\n\n⚠ 엔진 규칙 경고 ${warns}건이 있습니다 — 그대로 반영됩니다.` : "") +
     `\n\n보낼 항목: ${Object.keys(ov).map(k => ({clips:"구간",tts:"내레이션",title:"제목",
       subtitles:"자막",texts:"텍스트",design:"디자인"}[k] || k)).join(" · ")}`)) return;
@@ -14226,7 +14232,8 @@ window.submitRender = async () => {
   cur.sent = true; dirty = false; updSaveBtn();
   if (btn) btn.querySelector("span").textContent = "보냄";
   $("#saveMsg").textContent = "렌더로 보냈습니다 " + new Date().toLocaleTimeString("ko-KR") +
-    " — 끝나면 검수함에 새 카드가 올라옵니다";
+    (jp ? " — 재번역까지 이어져 검수함에 새 일본어 카드가 올라옵니다"
+        : " — 끝나면 검수함에 새 카드가 올라옵니다");
 };
 
   // ── 앱 레이아웃 셋업 — DOM 을 100vh 격자로 재배치(1회) ──
