@@ -5665,6 +5665,14 @@ window.edTxtSet = (i, k, v) => {
   render();
 };
 
+// 자막 색을 **안 정했을 때** 엔진이 실제로 쓰는 색.
+// ⚠ 정본은 ai-video app/modules/subtitle_styles.py 의 DEFAULT_PRESET = "kvar_yellow"
+// (primary_color &H0000FFFF = 노랑). subtitle_color 를 명시해야만 그 색을 덮는다.
+// 여기를 흰색으로 두면 화면과 결과가 어긋난다 — 실제로 그래서 사고가 났다
+// (2026-08-27 락커룸: 화면은 흰색, 렌더는 노랑). 엔진이 바뀌면 여기도 바꿔야 한다.
+// 장르 태그에 따라 다른 프리셋이 걸릴 수 있어 칸 안내는 '프리셋 색'이라고 적는다.
+const SUB_PRESET_COLOR = "#FFFF00";
+
 // ── 우측 패널: 스타일 ──────────────────────────────────────────────────
 // 채널 디자인 위에 이 한 편만 얹는다(빈 칸 = 채널 값 그대로).
 const ED_STYLE_FIELDS = [
@@ -5678,7 +5686,7 @@ const ED_STYLE_FIELDS = [
   ["title_color",      "제목 색(1줄)",   "#FFFFFF"],
   ["title_color2",     "제목 색(2줄)",   "#FFFF00"],
   ["subtitle_size",    "자막 크기",     "예: 65"],
-  ["subtitle_color",   "자막 색",       "#FFFFFF"],
+  ["subtitle_color",   "자막 색",       "비우면 프리셋 색(기본 노랑)"],
   ["subtitle_style",   "자막 스타일",   "kvar_yellow 등"],
   ["subtitle_font",    "자막 폰트",     "여기어때 잘난체 2 TTF"],
   // TTS(내레이션) 자막 — 엔진 tts_line_*. 세로는 하단에서 px(스테이지 드래그와 동기)
@@ -7599,7 +7607,7 @@ function edStagePaint(outT){
     const sty = (sub && sub.style) || {};
     se.style.display = (seqMode || editing) ? "" : "none";
     se.style.fontSize = ((+sty.size || +d.subtitle_size || 65) * sc) + "px";
-    se.style.color = sty.color || d.subtitle_color || "#FFFFFF";
+    se.style.color = sty.color || d.subtitle_color || SUB_PRESET_COLOR;
     const yv = Math.max(0.05, Math.min(0.98, sty.y != null ? +sty.y : edSubYDef(d)));
     se.style.bottom = ((1 - yv) * 100) + "%";
     // 통 가로 폭(F-412) — 좌우 대칭. 미지정이면 엔진 기본 폭(=(1080−80×2)/1080)이라
@@ -7757,7 +7765,7 @@ function edStagePaint(outT){
   if (col && document.activeElement !== col){   // 피커 조작 중엔 덮어쓰지 않는다
     const c = edOvSel === "title" ? String(d.title_color || "#FFFFFF")
             : edOvSel === "tts" ? String(d.tts_color || "#87CEEB")
-            : sub ? String((sub.style || {}).color || d.subtitle_color || "#FFFFFF") : null;
+            : sub ? String((sub.style || {}).color || d.subtitle_color || SUB_PRESET_COLOR) : null;
     if (c && /^#[0-9a-fA-F]{6}$/.test(c)) col.value = c.toLowerCase();
   }
 }
@@ -9597,7 +9605,7 @@ const DESIGN_DEFAULTS = {
   title_box2: "none (없음)", title_box_color2: "#000000", title_bold2: "보통",
   work_color: "#FF69B4", work_title_y: "1400", work_font_size: "40",
   subtitle_font: "여기어때 잘난체", subtitle_size: "65",
-  subtitle_color: "프리셋 색 자동", subtitle_y_margin: "380",
+  subtitle_color: "비우면 프리셋 색(기본 노랑)", subtitle_y_margin: "380",
   tts_color: "#87CEEB 하늘색", tts_size: "70", tts_y_margin: "580",
   aspect_ratio: "1:1",
   platform_image: "없음 (assets/logos 파일명)", platform_text: "없음 (예: 티빙)",
@@ -12031,7 +12039,7 @@ function layoutShorts(){
   const sub = $("#ovSub");
   sub.style.top = pct(Math.min(H - 200, vtop + vh - 170), H);
   sub.style.fontSize = cq((+d.subtitle_size || 65) * 0.9);
-  sub.style.color = d.subtitle_color || "#FFFFFF";
+  sub.style.color = d.subtitle_color || SUB_PRESET_COLOR;
   // 작품명/작품 로고 — work_title_y(기본 하단 근처). 이미지는 자리 표시 칩으로.
   const ow = $("#ovWork");
   ow.style.top = pct(+d.work_title_y || H - 140, H);
@@ -12104,7 +12112,7 @@ function subEff(i){                       // 이 줄에 실제로 적용될 값(
               ...(cur.pendingDesign || {}) };
   const st = (cur.model.subs[i] || {}).style || {};
   return { size: +(st.size ?? d.subtitle_size ?? 65),
-           color: st.color || d.subtitle_color || "#FFFFFF",
+           color: st.color || d.subtitle_color || SUB_PRESET_COLOR,
            width: +(st.width ?? SUB_W_BASE),
            rotate: +(st.rotate ?? 0),
            y: st.y };                     // undefined = 자동 배치(layoutShorts 기본)
@@ -14470,10 +14478,13 @@ window.toggleTheme = () => applyTheme(
       `<option value="${v}" ${String(dsGet(k) ?? "") === v ? "selected" : ""}>${esc(t)}</option>`).join("")}
     </select></label>`;
   const dcol = (k, label) => { const v = dsGet(k) ?? "";
+    // 미지정 자막 색은 흰색이 아니라 **엔진 프리셋 색**이다 — 견본도 안내도 그렇게
+    // 보여야 한다(8/27 락커룸: 화면 흰색·렌더 노랑).
+    const fallback = k === "subtitle_color" ? SUB_PRESET_COLOR : "#ffffff";
     return `<label class="dfld"><span>${label}</span><span class="colrow">
-      <input type="color" value="${/^#[0-9a-f]{6}$/i.test(v) ? v : (/^#[0-9a-f]{6}$/i.test(dsBase(k) || "") ? dsBase(k) : "#ffffff")}"
+      <input type="color" value="${/^#[0-9a-f]{6}$/i.test(v) ? v : (/^#[0-9a-f]{6}$/i.test(dsBase(k) || "") ? dsBase(k) : fallback)}"
         onchange="dsSet('${k}',this.value)">
-      <input class="hex" value="${esc(v)}" placeholder="${esc(ph(k) || "#FFFFFF")}"
+      <input class="hex" value="${esc(v)}" placeholder="${esc(ph(k) || fallback)}"
         onchange="dsSet('${k}',this.value)"></span></label>`; };
 
   window.titleTabHtml = m => `
@@ -14542,6 +14553,9 @@ window.toggleTheme = () => applyTheme(
           ${dsel("subtitle_style", "프리셋", SUBSTYLES)}
           ${dstep("subtitle_size", "기본 크기", "예: 65", +dsBase("subtitle_size") || 65)}
           ${dcol("subtitle_color", "기본 색")}
+          ${dsGet("subtitle_color") || dsBase("subtitle_color") ? "" :
+            `<div class="small faint">비워두면 흰색이 아니라 <b>엔진 프리셋 색</b>
+             (장르별 · 기본 노랑)으로 렌더됩니다 — 흰색을 원하면 직접 지정하세요.</div>`}
           <div class="small faint">모든 줄에 걸립니다 — 한 줄만 다르게 하려면
             그 줄을 골라 오른쪽에서 덮어쓰세요.</div>
         </div>
