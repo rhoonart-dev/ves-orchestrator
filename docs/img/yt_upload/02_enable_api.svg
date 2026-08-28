@@ -10,7 +10,7 @@
   <!-- 검색 -->
   <rect x="24" y="64" width="912" height="48" fill="#FFFFFF"/>
   <line x1="24" y1="112" x2="936" y2="112" stroke="#E0E0E0"/>
-  <text x="48" y="94" font-size="15" fill="#5F6368">Google Cloud · ves-publish-01 ▾</text>
+  <text x="48" y="94" font-size="15" fill="#5F6368">Google Cloud · my-yt-uploader ▾</text>
 
   <rect x="180" y="136" width="600" height="44" rx="22" fill="#FFFFFF" stroke="#1A73E8" stroke-width="2"/>
   <text x="206" y="164" font-size="15" fill="#202124">YouTube Data API v3</text>

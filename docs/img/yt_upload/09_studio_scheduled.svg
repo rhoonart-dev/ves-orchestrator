@@ -24,8 +24,8 @@
   <!-- 행 1: 예약됨 -->
   <rect x="60" y="180" width="96" height="54" rx="4" fill="#2B3037"/>
   <polygon points="100,197 100,217 116,207" fill="#FFFFFF"/>
-  <text x="172" y="202" font-size="14" fill="#202124">今日のハイライト #48（自動アップロード）</text>
-  <text x="172" y="222" font-size="12" fill="#5F6368">자동 업로드 — publish_external</text>
+  <text x="172" y="202" font-size="14" fill="#202124">여행 브이로그 #48 — 오늘의 하이라이트</text>
+  <text x="172" y="222" font-size="12" fill="#5F6368">자동 업로드 스크립트가 올린 영상</text>
   <circle cx="528" cy="204" r="8" fill="none" stroke="#5F6368" stroke-width="1.6"/>
   <line x1="528" y1="199" x2="528" y2="204" stroke="#5F6368" stroke-width="1.6"/>
   <line x1="528" y1="204" x2="532" y2="207" stroke="#5F6368" stroke-width="1.6"/>
@@ -37,8 +37,8 @@
   <!-- 행 2: 비공개 -->
   <rect x="60" y="270" width="96" height="54" rx="4" fill="#2B3037"/>
   <polygon points="100,287 100,307 116,297" fill="#FFFFFF"/>
-  <text x="172" y="292" font-size="14" fill="#202124">昨日のまとめ #47</text>
-  <text x="172" y="312" font-size="12" fill="#5F6368">검수 대기 — 아직 예약 시각 없음</text>
+  <text x="172" y="292" font-size="14" fill="#202124">여행 브이로그 #47</text>
+  <text x="172" y="312" font-size="12" fill="#5F6368">예약 없이 private 로만 올린 영상</text>
   <rect x="521" y="288" width="14" height="11" rx="2" fill="none" stroke="#5F6368" stroke-width="1.6"/>
   <path d="M 523 288 v -4 a 5 5 0 0 1 10 0 v 4" fill="none" stroke="#5F6368" stroke-width="1.6"/>
   <text x="546" y="299" font-size="13.5" fill="#202124">비공개</text>
@@ -48,7 +48,7 @@
   <!-- 행 3: 공개됨 -->
   <rect x="60" y="360" width="96" height="54" rx="4" fill="#2B3037"/>
   <polygon points="100,377 100,397 116,387" fill="#FFFFFF"/>
-  <text x="172" y="382" font-size="14" fill="#202124">先週の人気シーン #46</text>
+  <text x="172" y="382" font-size="14" fill="#202124">여행 브이로그 #46</text>
   <text x="172" y="402" font-size="12" fill="#5F6368">예약 시각 도달 — 자동 공개됨</text>
   <circle cx="528" cy="389" r="8" fill="none" stroke="#188038" stroke-width="1.6"/>
   <circle cx="528" cy="389" r="3" fill="#188038"/>
@@ -60,6 +60,6 @@
   <circle cx="480" cy="204" r="13" fill="#C5221F"/>
   <text x="480" y="209" font-size="14" fill="#FFFFFF" text-anchor="middle">1</text>
   <text x="60" y="470" font-size="13" fill="#C5221F">① API 로 올린 예약 건은 'private + publishAt' — Studio 에는 '예약됨'으로 보이고, 시각이 되면 유튜브가 알아서 공개한다.</text>
-  <text x="60" y="492" font-size="13" fill="#5F6368">워커 로그의 https://youtu.be/&lt;id&gt; 링크와 이 목록이 일치하는지 확인하면 업로드 검증 끝.</text>
+  <text x="60" y="492" font-size="13" fill="#5F6368">업로드 스크립트가 출력한 https://youtu.be/&lt;id&gt; 링크와 이 목록이 일치하는지 확인하면 업로드 검증 끝.</text>
   <text x="60" y="524" font-size="12" fill="#8A867F">※ 실제 화면 구성을 재현한 그림</text>
 </svg>

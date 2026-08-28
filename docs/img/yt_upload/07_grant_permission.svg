@@ -8,9 +8,9 @@
   <text x="126" y="46" font-size="13" fill="#5F6368">accounts.google.com/signin/oauth/consent</text>
 
   <rect x="290" y="92" width="380" height="450" rx="12" fill="#FFFFFF" stroke="#DADCE0"/>
-  <text x="480" y="140" font-size="18" fill="#202124" text-anchor="middle">VES Publisher에서 내 Google 계정에</text>
+  <text x="480" y="140" font-size="18" fill="#202124" text-anchor="middle">My Uploader에서 내 Google 계정에</text>
   <text x="480" y="164" font-size="18" fill="#202124" text-anchor="middle">액세스하려고 합니다</text>
-  <text x="480" y="196" font-size="13" fill="#5F6368" text-anchor="middle">채널 이름 (브랜드 계정)</text>
+  <text x="480" y="196" font-size="13" fill="#5F6368" text-anchor="middle">내 채널 (브랜드 계정)</text>
 
   <line x1="290" y1="220" x2="670" y2="220" stroke="#E8EAED"/>
   <text x="322" y="252" font-size="13.5" fill="#5F6368">앱에 허용할 권한:</text>

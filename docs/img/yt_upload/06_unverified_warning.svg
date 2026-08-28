@@ -20,7 +20,7 @@
   <text x="330" y="326" font-size="13.5" fill="#1A73E8">고급 ▾</text>
   <rect x="316" y="342" width="328" height="70" rx="6" fill="#F8F9FA"/>
   <text x="330" y="370" font-size="12.5" fill="#5F6368">위험을 이해하고 개발자를 신뢰하는 경우에만</text>
-  <text x="330" y="398" font-size="13.5" fill="#1A73E8">VES Publisher(안전하지 않음)(으)로 이동</text>
+  <text x="330" y="398" font-size="13.5" fill="#1A73E8">My Uploader(안전하지 않음)(으)로 이동</text>
 
   <rect x="500" y="440" width="140" height="38" rx="19" fill="#1A73E8"/>
   <text x="570" y="464" font-size="14" fill="#FFFFFF" text-anchor="middle">안전한 페이지로 돌아가기</text>

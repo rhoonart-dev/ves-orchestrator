@@ -10,7 +10,7 @@
   <!-- 로그인 카드 -->
   <rect x="290" y="92" width="380" height="440" rx="12" fill="#FFFFFF" stroke="#DADCE0"/>
   <text x="480" y="136" font-size="21" fill="#202124" text-anchor="middle">계정 선택</text>
-  <text x="480" y="164" font-size="14" fill="#5F6368" text-anchor="middle">VES Publisher(으)로 이동</text>
+  <text x="480" y="164" font-size="14" fill="#5F6368" text-anchor="middle">My Uploader(으)로 이동</text>
 
   <!-- 개인 계정 -->
   <line x1="290" y1="192" x2="670" y2="192" stroke="#E8EAED"/>
@@ -24,7 +24,7 @@
   <rect x="296" y="268" width="368" height="62" rx="8" fill="#FCE8E6"/>
   <circle cx="330" cy="299" r="17" fill="#CC2B2B"/>
   <text x="330" y="305" font-size="13" fill="#FFFFFF" text-anchor="middle">CH</text>
-  <text x="362" y="294" font-size="14.5" fill="#202124">채널 이름 (예: まいにちルーピー)</text>
+  <text x="362" y="294" font-size="14.5" fill="#202124">내 채널 (예: 여행 브이로그)</text>
   <text x="362" y="314" font-size="12.5" fill="#5F6368">브랜드 계정 — 이 채널로 업로드된다</text>
 
   <!-- 다른 브랜드 계정 -->
@@ -42,7 +42,7 @@
   <!-- 주석 -->
   <circle cx="692" cy="299" r="13" fill="#C5221F"/>
   <text x="692" y="304" font-size="14" fill="#FFFFFF" text-anchor="middle">!</text>
-  <text x="60" y="500" font-size="13.5" fill="#C5221F">토큰은 여기서 고른 계정(채널)에 영구 바인딩된다 — 오채널 업로드 사고의 근원.</text>
+  <text x="60" y="500" font-size="13.5" fill="#C5221F">토큰은 여기서 고른 계정(채널)에 영구 바인딩된다 — 엉뚱한 채널에 올라가는 사고의 근원.</text>
   <text x="60" y="522" font-size="13.5" fill="#C5221F">개인 계정이 아니라 반드시 업로드할 채널의 브랜드 계정 줄을 클릭할 것. 발급 후 §5-4 검증으로 채널명을 확인한다.</text>
   <text x="60" y="556" font-size="12" fill="#8A867F">※ 실제 화면 구성을 재현한 그림</text>
 </svg>

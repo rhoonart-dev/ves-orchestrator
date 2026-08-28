@@ -23,7 +23,7 @@
   <text x="374" y="180" font-size="14" fill="#202124">데스크톱 앱 ▾</text>
   <text x="360" y="222" font-size="13" fill="#5F6368">이름 *</text>
   <rect x="360" y="232" width="340" height="38" rx="4" fill="#FFFFFF" stroke="#DADCE0"/>
-  <text x="374" y="256" font-size="14" fill="#202124">ves-desktop-01</text>
+  <text x="374" y="256" font-size="14" fill="#202124">my-uploader-desktop</text>
   <rect x="360" y="288" width="86" height="36" rx="4" fill="#1A73E8"/>
   <text x="382" y="311" font-size="14" fill="#FFFFFF">만들기</text>
 
@@ -45,5 +45,5 @@
   <text x="330" y="185" font-size="14" fill="#FFFFFF" text-anchor="middle">1</text>
   <circle cx="150" cy="454" r="13" fill="#C5221F"/>
   <text x="150" y="459" font-size="14" fill="#FFFFFF" text-anchor="middle">2</text>
-  <text x="60" y="614" font-size="13" fill="#C5221F">① 유형은 반드시 '데스크톱 앱'   ② 이 두 값이 ves.env 의 YT_CLIENT_ID_* / YT_CLIENT_SECRET_* 가 된다 — 지금 안전한 곳에 복사</text>
+  <text x="60" y="614" font-size="13" fill="#C5221F">① 유형은 반드시 '데스크톱 앱'   ② 이 두 값이 .env 의 YT_CLIENT_ID / YT_CLIENT_SECRET 가 된다 — 지금 안전한 곳에 복사</text>
 </svg>

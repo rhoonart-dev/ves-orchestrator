@@ -22,8 +22,8 @@
 
   <text x="72" y="206" font-size="13" fill="#5F6368">프로젝트 이름 *</text>
   <rect x="72" y="216" width="420" height="40" rx="4" fill="#FFFFFF" stroke="#1A73E8" stroke-width="2"/>
-  <text x="86" y="241" font-size="15" fill="#202124">ves-publish-01</text>
-  <text x="72" y="278" font-size="12.5" fill="#5F6368">프로젝트 ID: ves-publish-01 — 나중에 변경할 수 없습니다.</text>
+  <text x="86" y="241" font-size="15" fill="#202124">my-yt-uploader</text>
+  <text x="72" y="278" font-size="12.5" fill="#5F6368">프로젝트 ID: my-yt-uploader — 나중에 변경할 수 없습니다.</text>
 
   <text x="72" y="316" font-size="13" fill="#5F6368">위치 *</text>
   <rect x="72" y="326" width="420" height="40" rx="4" fill="#FFFFFF" stroke="#DADCE0"/>
@@ -38,7 +38,7 @@
   <!-- 주석 -->
   <circle cx="512" cy="236" r="13" fill="#C5221F"/>
   <text x="512" y="241" font-size="14" fill="#FFFFFF" text-anchor="middle">1</text>
-  <text x="534" y="241" font-size="13" fill="#C5221F">프로젝트 이름 입력 — ves.env 접미사(gcp_project)와 대응</text>
+  <text x="534" y="241" font-size="13" fill="#C5221F">프로젝트 이름 입력 — 용도를 알아볼 수 있는 이름으로</text>
   <circle cx="188" cy="380" r="13" fill="#C5221F"/>
   <text x="188" y="385" font-size="14" fill="#FFFFFF" text-anchor="middle">2</text>
   <text x="210" y="385" font-size="13" fill="#C5221F">만들기 클릭 → 상단 알림에서 새 프로젝트로 전환</text>
