@@ -11501,7 +11501,7 @@ body.applayout #side{padding-left:18px}
 <div class="wrap">
   <header>
     <h1>타임라인 실험실</h1>
-    <span class="rochip" id="rochip">조회는 흔적 없음 — 쓰기는 [초안 저장]을 누를 때만</span>
+    <span class="rochip" id="rochip">보기 전용 — 편집 잠금을 풀면 자동 저장됩니다</span>
     <div class="grow"></div>
     <span id="who" class="small muted"></span>
     <button id="logout" style="display:none" onclick="sb.auth.signOut().then(()=>location.reload())">로그아웃</button>
@@ -11742,6 +11742,7 @@ window.openByReview = async rid => {
 };
 
 async function openRun(runId, btn){
+  autoSaveStop();                        // 이전 run 의 타이머는 여기서 끝난다
   // ⚠ 저장 안 된 편집 위에 덮어쓰지 않는다 — buildModel 은 모델을 통째로 갈아끼우므로
   // 여기서 막지 않으면 고친 제목·구간이 흔적 없이 사라진다(2026-08-27 유실 사고).
   if (dirty && cur && cur.model && !confirm(
@@ -11863,7 +11864,10 @@ function buildModel(){
   cur.orig = { clips: JSON.stringify(baseClips), tts: JSON.stringify(baseTts),
                subs: JSON.stringify(baseSubs), texts: JSON.stringify(baseTexts),
                title: tl.top_title || "" };
-  dirty = false; updSaveBtn(); window.subCk = new Set(); window.ttsCk = new Set();
+  dirty = false; lastSavedAt = cur.row.draft_at ? new Date(cur.row.draft_at) : null;
+  updSaveBtn(); paintSaveMsg();
+  if (editMode) autoSaveStart();
+  window.subCk = new Set(); window.ttsCk = new Set();
   cur.sent = false;
   runEngineRules();
 }
@@ -13524,15 +13528,25 @@ $("#aiplan").addEventListener("change", ev => {
   // ═════════ 편집 모드 (2026-08-24) — 고치기는 자유, 쓰기는 [초안 저장] 하나 ═════════
 let editMode = false, dirty = false;
 function updSaveBtn(){ const b = $("#saveDraftBtn"); if (b) b.disabled = !dirty; }
-function markDirty(){ dirty = true; updSaveBtn(); $("#saveMsg").textContent = "저장 안 됨"; }
+// 저장 상태 한 줄 — '초안'이라는 말이 헷갈린다는 지적(8/28)에 따라 '마지막 저장'으로.
+let lastSavedAt = null;
+const hhmm = d => d.toLocaleTimeString("ko-KR", { hour: "numeric", minute: "2-digit" });
+function saveMsgText(){
+  if (dirty) return lastSavedAt ? "저장 안 됨 · 마지막 저장 " + hhmm(lastSavedAt) : "저장 안 됨";
+  return lastSavedAt ? "마지막 저장 · " + hhmm(lastSavedAt) : "";
+}
+function paintSaveMsg(){ $("#saveMsg").textContent = saveMsgText(); }
+window.paintSaveMsg = paintSaveMsg;
+function markDirty(){ dirty = true; updSaveBtn(); paintSaveMsg(); }
 function toggleEdit(){
   editMode = !editMode;
   document.body.classList.toggle("editing", editMode);
   $("#editToggle").classList.toggle("on", editMode);
   $("#editBtns").style.display = editMode ? "" : "none";
   $("#rochip").textContent = editMode
-    ? "편집 중 — [초안 저장]을 눌러야 DB 에 쓰입니다"
-    : "조회는 흔적 없음 — 쓰기는 [초안 저장]을 누를 때만";
+    ? "편집 중 — 30초마다 자동 저장됩니다"
+    : "보기 전용 — 편집 잠금을 풀면 자동 저장됩니다";
+  if (editMode) autoSaveStart(); else autoSaveStop();
   updTrashBtn();
   if (cur && cur.model){ draw(); ovSyncHandles();
     const bx = document.getElementById("ovTxt"); if (bx) bx.dataset.sig = "";
@@ -14053,7 +14067,7 @@ window.addClipFromSel = () => {
   refresh("clip", cur.model.clips.length - 1);
 };
 function toast(msg){ $("#saveMsg").textContent = msg;
-  setTimeout(() => { if ($("#saveMsg").textContent === msg) $("#saveMsg").textContent = dirty ? "저장 안 됨" : ""; }, 3500); }
+  setTimeout(() => { if ($("#saveMsg").textContent === msg) paintSaveMsg(); }, 3500); }
 
 // ── 초안 저장 — 바뀐 섹션만, 기존 초안(디자인·이미지 등) 위에 얹어서 ──
 // 바뀐 섹션만 모은다 — 안 보낸 키는 서버가 이전 라운드를 승계한다(0053).
@@ -14105,9 +14119,37 @@ function syncDirty(){
     const cu = cur.row.draft || {};
     dirty = canon({ ...cu, ...d }) !== canon(cu);
   } catch (e) { /* 판정 실패 시엔 보수적으로 그대로 둔다 */ }
-  updSaveBtn(); $("#saveMsg").textContent = dirty ? "저장 안 됨" : "";
+  updSaveBtn(); paintSaveMsg();
 }
 window.syncDirty = syncDirty;
+
+// 조용한 저장 — 확인창 없이. 자동 저장과 렌더 제출 직전이 함께 쓴다.
+async function saveDraftQuiet(){
+  if (!cur || !cur.model) return false;
+  const { d: dNew } = collectOv(true);
+  const merged = { ...(cur.row.draft || {}), ...dNew };
+  if (canon(merged) === canon(cur.row.draft || {})) return false;   // 바뀐 게 없다
+  const { error } = await sb.rpc("save_editor_draft",
+    { p_run_id: cur.row.run_id, p_draft: merged });
+  if (error){ $("#saveMsg").textContent = "자동 저장 실패 — " + error.message; return false; }
+  cur.row.draft = merged; lastSavedAt = new Date(); dirty = false;
+  updSaveBtn(); paintSaveMsg();
+  return true;
+}
+window.saveDraftQuiet = saveDraftQuiet;
+
+// 30초 주기. 저장이 겹치지 않게 진행 중이면 건너뛴다.
+let autoTimer = 0, autoBusy = false;
+function autoSaveStart(){
+  if (autoTimer) return;
+  autoTimer = setInterval(async () => {
+    if (autoBusy || !dirty || !editMode || !cur || !cur.model || cur.sent) return;
+    autoBusy = true;
+    try { await saveDraftQuiet(); } catch (e) {} finally { autoBusy = false; }
+  }, 30000);
+}
+function autoSaveStop(){ if (autoTimer){ clearInterval(autoTimer); autoTimer = 0; } }
+window.autoSaveStart = autoSaveStart; window.autoSaveStop = autoSaveStop;
 
 window.saveDraft = async () => {
   const { d: dNew, n } = collectOv(true);
@@ -14118,8 +14160,7 @@ window.saveDraft = async () => {
   const { error } = await sb.rpc("save_editor_draft",
     { p_run_id: cur.row.run_id, p_draft: d });
   if (error){ $("#saveMsg").textContent = "저장 실패 — " + error.message; return; }
-  cur.row.draft = d; dirty = false; updSaveBtn();
-  $("#saveMsg").textContent = "초안 저장됨 " + new Date().toLocaleTimeString("ko-KR");
+  cur.row.draft = d; dirty = false; lastSavedAt = new Date(); updSaveBtn(); paintSaveMsg();
 };
 
 // ── 렌더 보내기(2026-08-25) — 본 편집실과 같은 RPC(submit_editor_render).
@@ -14153,14 +14194,8 @@ window.submitRender = async () => {
   if (btn){ btn.disabled = true; btn.querySelector("span").textContent = "보내는 중…"; }
   // 보낸 내용을 초안으로도 남긴다 — 렌더가 실패해도 편집이 남아 있어야 한다.
   // 초안 저장은 실패해도 렌더는 계속한다(보내는 것이 본 목적) — 대신 알린다.
-  {
-    const { d: dDraft } = collectOv(true);
-    const merged = { ...(cur.row.draft || {}), ...dDraft };
-    const { error: eD } = await sb.rpc("save_editor_draft",
-      { p_run_id: cur.row.run_id, p_draft: merged });
-    if (eD) toast("초안 자동 저장 실패(렌더는 계속합니다) — " + eD.message, true);
-    else cur.row.draft = merged;
-  }
+  try { await saveDraftQuiet(); }        // 렌더가 실패해도 편집은 남아야 한다
+  catch (e){ toast("자동 저장 실패(렌더는 계속합니다)", true); }
   const { data, error } = await sb.rpc("submit_editor_render",
     { p_review_id: rv.id, p_overrides: ov, p_note: null });
   if (error){
