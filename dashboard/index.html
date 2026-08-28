@@ -13174,12 +13174,21 @@ function select(kind, i, el, noSeek){
   const m = cur.model; let h = "";
   // 클릭한 요소의 완성본 시점으로 쇼츠를 멈춰 세운다(사용자 8/24) — 드래그 중은 제외
   if (el && !noSeek){
-    let outT = null;
-    if (kind === "clip"){ const f = m.final.find(x => x.i === i); outT = f && !f.dead ? f.out : null; }
-    else if (kind === "tts"){ const q = m.cues[i]; outT = q && !q.dropped ? q.out : null; }
-    else if (kind === "txt"){ const q = (m.textCues || [])[i]; outT = q && !q.dropped ? q.out : null; }
-    else if (kind === "sub"){ outT = m.subs[i] && m.subs[i].start; }
-    if (outT != null) seekOutPaused(outT);
+    let outT = null, outEnd = null;
+    if (kind === "clip"){ const f = m.final.find(x => x.i === i);
+      if (f && !f.dead){ outT = f.out; outEnd = f.out + (f.end - f.start); } }
+    else if (kind === "tts"){ const q = m.cues[i];
+      if (q && !q.dropped){ outT = q.out; outEnd = q.out + q.dur; } }
+    else if (kind === "txt"){ const q = (m.textCues || [])[i];
+      if (q && !q.dropped){ outT = q.out; outEnd = q.out + q.dur; } }
+    else if (kind === "sub"){ const su = m.subs[i];
+      if (su){ outT = su.start; outEnd = su.end; } }
+    if (outT != null){
+      // 시작 정각은 시크 왕복 오차로 '블록 밖'이 될 수 있다 — 조금 안쪽에 세운다.
+      const inside = outEnd != null
+        ? Math.min(outT + 0.06, Math.max(outT, outEnd - 0.02)) : outT;
+      seekOutPaused(inside);
+    }
   }
   if (kind === "clip"){
     const c = m.clips[i], f = m.final.find(x => x.i === i);
