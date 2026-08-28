@@ -90,6 +90,11 @@
 
 프로젝트를 만들어도 API 는 꺼져 있다. 켜지 않고 호출하면 `accessNotConfigured` 403 이 난다.
 
+§2~§4 의 화면은 전부 왼쪽 위 **≡(햄버거) 메뉴 → API 및 서비스**의 하위 메뉴로 드나든다 —
+목적지만 다르다: **라이브러리**(§2) · **OAuth 동의 화면**(§3) · **사용자 인증 정보**(§4).
+
+![콘솔 메뉴에서 이동](img/yt_upload/01b_nav_menu.svg)
+
 ![YouTube Data API v3 사용 설정](img/yt_upload/02_enable_api.svg)
 
 1. 왼쪽 햄버거 메뉴 **≡ → API 및 서비스 → 라이브러리** 로 간다.
@@ -111,9 +116,9 @@
 업로드 권한은 채널 소유 계정이 브라우저에서 "허용"을 눌러 주는 방식(OAuth)이다.
 그 허용 화면에 뜰 앱 정보와, 누가 허용을 누를 수 있는지를 여기서 정한다.
 
-2025년 이후 콘솔에서는 **≡ → API 및 서비스 → OAuth 동의 화면** 으로 들어가면
-**Google Auth Platform**(브랜딩·대상·클라이언트·데이터 액세스 메뉴)으로 연결된다 —
-이름만 바뀐 같은 화면이니 당황하지 말 것.
+들어가는 길은 **≡ → API 및 서비스 → OAuth 동의 화면** (§2 첫 그림의 메뉴).
+2025년 이후 콘솔에서는 여기로 들어가면 **Google Auth Platform**(브랜딩·대상·클라이언트·
+데이터 액세스 메뉴)으로 연결된다 — 이름만 바뀐 같은 화면이니 당황하지 말 것.
 
 ![OAuth 동의 화면 구성](img/yt_upload/03_consent_screen.svg)
 
@@ -150,7 +155,8 @@
 
 ![OAuth 클라이언트 ID 만들기](img/yt_upload/04_oauth_client.svg)
 
-1. **≡ → API 및 서비스 → 사용자 인증 정보** (<https://console.cloud.google.com/apis/credentials>)
+1. **≡ → API 및 서비스 → 사용자 인증 정보** (§2 첫 그림의 메뉴,
+   또는 <https://console.cloud.google.com/apis/credentials>)
 2. 상단 **[+ 사용자 인증 정보 만들기] → OAuth 클라이언트 ID** 를 고른다.
 3. **① 애플리케이션 유형: `데스크톱 앱`** 을 고른다.
    - 웹 앱이 아니라 데스크톱 앱이다 — 발급 스크립트(부록 A)가 로컬 루프백
