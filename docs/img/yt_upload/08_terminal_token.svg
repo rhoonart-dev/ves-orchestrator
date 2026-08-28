@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 560" font-family="Menlo,Consolas,'SF Mono',monospace" role="img" aria-label="터미널에서 refresh token 발급 결과와 ves.env 등록 예시">
+  <rect width="960" height="560" fill="#ECEAE6"/>
+
+  <!-- 터미널 창 -->
+  <rect x="24" y="20" width="912" height="330" rx="10" fill="#1E2227"/>
+  <rect x="24" y="20" width="912" height="36" rx="10" fill="#2B3037"/>
+  <rect x="24" y="38" width="912" height="18" fill="#2B3037"/>
+  <circle cx="46" cy="38" r="6" fill="#DF5A49"/><circle cx="66" cy="38" r="6" fill="#E6B93F"/><circle cx="86" cy="38" r="6" fill="#5FAE58"/>
+  <text x="480" y="43" font-size="12.5" fill="#9AA0A6" text-anchor="middle" font-family="'Apple SD Gothic Neo','Malgun Gothic',sans-serif">토큰 발급 — mm-01</text>
+
+  <text x="48" y="88" font-size="14" fill="#8CC265">$</text>
+  <text x="66" y="88" font-size="14" fill="#E6E6E6">python3 get_youtube_token.py</text>
+  <text x="48" y="116" font-size="14" fill="#B9BFC7" font-family="'Apple SD Gothic Neo','Malgun Gothic',sans-serif">브라우저가 열립니다 — 채널(브랜드 계정)을 고르고 허용하세요…</text>
+  <text x="48" y="144" font-size="14" fill="#B9BFC7" font-family="'Apple SD Gothic Neo','Malgun Gothic',sans-serif">허용 확인. 토큰을 교환합니다…</text>
+
+  <text x="48" y="184" font-size="14" fill="#79B8FF" font-family="'Apple SD Gothic Neo','Malgun Gothic',sans-serif">바인딩된 채널: 채널 이름 (UC1a2b3c4d5e6f…)</text>
+  <text x="48" y="216" font-size="14" fill="#E6B93F">refresh_token:</text>
+  <text x="48" y="244" font-size="14" fill="#E6E6E6">1//0eAbCdEfGhIjKlMnOpQrStUvWxYz••••••••••••••••••••</text>
+
+  <text x="48" y="290" font-size="13" fill="#8A9199" font-family="'Apple SD Gothic Neo','Malgun Gothic',sans-serif">⚠ 이 값은 비밀번호와 같다 — 채팅·이슈·화면 공유에 붙여넣지 말 것 (docs/rclone_all_nodes.md 의 규칙과 동일)</text>
+
+  <!-- ves.env 창 -->
+  <rect x="24" y="374" width="912" height="150" rx="10" fill="#FFFFFF" stroke="#D5D2CC"/>
+  <rect x="24" y="374" width="912" height="34" rx="10" fill="#F1F3F4"/>
+  <rect x="24" y="390" width="912" height="18" fill="#F1F3F4"/>
+  <text x="480" y="396" font-size="12.5" fill="#5F6368" text-anchor="middle" font-family="'Apple SD Gothic Neo','Malgun Gothic',sans-serif">/opt/ves/secrets/ves.env — chmod 600</text>
+  <text x="48" y="438" font-size="14" fill="#7A5900">YT_CLIENT_ID_VES01</text><text x="220" y="438" font-size="14" fill="#202124">=1234567890-abc123….apps.googleusercontent.com</text>
+  <text x="48" y="466" font-size="14" fill="#7A5900">YT_CLIENT_SECRET_VES01</text><text x="258" y="466" font-size="14" fill="#202124">=GOCSPX-••••••••</text>
+  <text x="48" y="494" font-size="14" fill="#7A5900">YT_REFRESH_TOKEN_LOOPY</text><text x="262" y="494" font-size="14" fill="#202124">=1//0eAbCd••••••••</text>
+
+  <text x="640" y="466" font-size="12.5" fill="#C5221F" font-family="'Apple SD Gothic Neo','Malgun Gothic',sans-serif">접미사 = channels 의 gcp_project</text>
+  <text x="640" y="494" font-size="12.5" fill="#C5221F" font-family="'Apple SD Gothic Neo','Malgun Gothic',sans-serif">접미사 = 채널의 token_slug</text>
+
+  <text x="48" y="546" font-size="12" fill="#8A867F" font-family="'Apple SD Gothic Neo','Malgun Gothic',sans-serif">※ 출력 예시 재현 — 토큰 값은 가림 처리</text>
+</svg>

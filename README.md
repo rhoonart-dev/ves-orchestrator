@@ -6,6 +6,7 @@
 
 - 설계 정본: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (v3.1 통합본)
 - 머신 셋업: [docs/MACHINE_SETUP.md](docs/MACHINE_SETUP.md) · 장애 대응: [docs/RUNBOOK.md](docs/RUNBOOK.md)
+- 유튜브 자동 업로드 설명서(화면 포함): [docs/YOUTUBE_UPLOAD_GUIDE.md](docs/YOUTUBE_UPLOAD_GUIDE.md)
 - 어댑터 계약: [docs/CONTRACTS.md](docs/CONTRACTS.md)
 
 ## 구조

@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 460" font-family="'Apple SD Gothic Neo','Malgun Gothic',Helvetica,Arial,sans-serif" role="img" aria-label="자동 업로드 흐름 — 검수 승인에서 유튜브 발행과 원장 기록까지">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#3C4043"/>
+    </marker>
+  </defs>
+  <rect width="960" height="460" fill="#F7F6F3"/>
+
+  <!-- 1. 사람 검수 -->
+  <rect x="32" y="64" width="168" height="84" rx="8" fill="#FFFFFF" stroke="#3B6EA5" stroke-width="2"/>
+  <text x="116" y="98" font-size="14" fill="#202124" text-anchor="middle">대시보드 검수 카드</text>
+  <text x="116" y="120" font-size="12" fill="#5F6368" text-anchor="middle">사람이 제목·설명 확인 후</text>
+  <text x="116" y="136" font-size="12" fill="#5F6368" text-anchor="middle">승인 (유일한 게이트)</text>
+
+  <line x1="200" y1="106" x2="268" y2="106" stroke="#3C4043" stroke-width="1.6" marker-end="url(#arr)"/>
+  <text x="234" y="94" font-size="11.5" fill="#5F6368" text-anchor="middle">승인 RPC</text>
+
+  <!-- 2. job_queue -->
+  <rect x="268" y="64" width="150" height="84" rx="8" fill="#FFFFFF" stroke="#9AA0A6"/>
+  <text x="343" y="98" font-size="14" fill="#202124" text-anchor="middle">job_queue</text>
+  <text x="343" y="120" font-size="12" fill="#5F6368" text-anchor="middle">kind=publish /</text>
+  <text x="343" y="136" font-size="12" fill="#5F6368" text-anchor="middle">publish_external</text>
+
+  <line x1="418" y1="106" x2="486" y2="106" stroke="#3C4043" stroke-width="1.6" marker-end="url(#arr)"/>
+  <text x="452" y="94" font-size="11.5" fill="#5F6368" text-anchor="middle">claim</text>
+
+  <!-- 3. 워커 -->
+  <rect x="486" y="40" width="200" height="132" rx="8" fill="#FFFFFF" stroke="#9AA0A6"/>
+  <text x="586" y="68" font-size="14" fill="#202124" text-anchor="middle">워커 (mm-0X)</text>
+  <text x="586" y="92" font-size="12" fill="#5F6368" text-anchor="middle">① 자격증명 선검사 (ves.env)</text>
+  <text x="586" y="112" font-size="12" fill="#5F6368" text-anchor="middle">② Storage 에서 mp4 다운로드</text>
+  <text x="586" y="132" font-size="12" fill="#5F6368" text-anchor="middle">③ refresh → access token</text>
+  <text x="586" y="152" font-size="12" fill="#5F6368" text-anchor="middle">④ resumable 업로드 (init→PUT)</text>
+
+  <line x1="686" y1="106" x2="756" y2="106" stroke="#3C4043" stroke-width="1.6" marker-end="url(#arr)"/>
+  <text x="721" y="94" font-size="11.5" fill="#5F6368" text-anchor="middle">videos.insert</text>
+
+  <!-- 4. YouTube -->
+  <rect x="756" y="64" width="172" height="84" rx="8" fill="#FFFFFF" stroke="#CC2B2B" stroke-width="2"/>
+  <rect x="778" y="88" width="30" height="21" rx="5" fill="#CC2B2B"/>
+  <polygon points="789,93 789,104 798,98.5" fill="#FFFFFF"/>
+  <text x="818" y="103" font-size="14" fill="#202124">YouTube</text>
+  <text x="842" y="132" font-size="12" fill="#5F6368" text-anchor="middle">private + publishAt</text>
+
+  <!-- 원장 기록 -->
+  <line x1="586" y1="172" x2="586" y2="234" stroke="#3C4043" stroke-width="1.6" marker-end="url(#arr)"/>
+  <text x="598" y="208" font-size="11.5" fill="#5F6368">youtube_id 기록</text>
+  <rect x="486" y="234" width="200" height="64" rx="8" fill="#FFFFFF" stroke="#9AA0A6"/>
+  <text x="586" y="262" font-size="13.5" fill="#202124" text-anchor="middle">원장 (external_shorts / clips)</text>
+  <text x="586" y="282" font-size="12" fill="#5F6368" text-anchor="middle">id 가 있으면 재업로드 금지 (멱등)</text>
+
+  <!-- 예약 공개 -->
+  <line x1="842" y1="148" x2="842" y2="234" stroke="#3C4043" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#arr)"/>
+  <rect x="756" y="234" width="172" height="64" rx="8" fill="#FFFFFF" stroke="#9AA0A6"/>
+  <text x="842" y="262" font-size="13.5" fill="#202124" text-anchor="middle">예약 시각 도달 → 공개</text>
+  <text x="842" y="282" font-size="12" fill="#5F6368" text-anchor="middle">기본 19:00 JST · 하루 1편</text>
+
+  <!-- 안전 게이트 박스 -->
+  <rect x="32" y="330" width="896" height="100" rx="8" fill="#FDF3F2" stroke="#E5B8B4"/>
+  <text x="56" y="360" font-size="13.5" fill="#A63A32">업로드 전에 워커가 강제하는 안전 규칙 (하나라도 걸리면 발행하지 않는다)</text>
+  <text x="56" y="386" font-size="12.5" fill="#7A2E28">· R9: public 직행 금지 — private / unlisted / 예약(private+publishAt)만    · R10: refresh token 미발급 채널은 하드실패</text>
+  <text x="56" y="408" font-size="12.5" fill="#7A2E28">· 재업로드 금지: 원장에 youtube_id 있으면 건너뜀    · 일본 채널 문구 한글 잔류 차단    · 제목·설명 비면 발행 중단</text>
+</svg>

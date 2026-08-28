@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 600" font-family="'Apple SD Gothic Neo','Malgun Gothic',Helvetica,Arial,sans-serif" role="img" aria-label="OAuth 권한 허용 화면 재현 — YouTube 동영상 관리 권한을 허용">
+  <rect width="960" height="600" fill="#ECEAE6"/>
+  <rect x="24" y="20" width="912" height="560" rx="10" fill="#FFFFFF" stroke="#D5D2CC"/>
+  <rect x="24" y="20" width="912" height="44" rx="10" fill="#F1F3F4"/>
+  <rect x="24" y="42" width="912" height="22" fill="#F1F3F4"/>
+  <circle cx="48" cy="42" r="6" fill="#DF5A49"/><circle cx="68" cy="42" r="6" fill="#E6B93F"/><circle cx="88" cy="42" r="6" fill="#5FAE58"/>
+  <rect x="110" y="30" width="440" height="24" rx="12" fill="#E8EAED"/>
+  <text x="126" y="46" font-size="13" fill="#5F6368">accounts.google.com/signin/oauth/consent</text>
+
+  <rect x="290" y="92" width="380" height="450" rx="12" fill="#FFFFFF" stroke="#DADCE0"/>
+  <text x="480" y="140" font-size="18" fill="#202124" text-anchor="middle">VES Publisher에서 내 Google 계정에</text>
+  <text x="480" y="164" font-size="18" fill="#202124" text-anchor="middle">액세스하려고 합니다</text>
+  <text x="480" y="196" font-size="13" fill="#5F6368" text-anchor="middle">채널 이름 (브랜드 계정)</text>
+
+  <line x1="290" y1="220" x2="670" y2="220" stroke="#E8EAED"/>
+  <text x="322" y="252" font-size="13.5" fill="#5F6368">앱에 허용할 권한:</text>
+
+  <rect x="322" y="270" width="316" height="56" rx="6" fill="#F8F9FA"/>
+  <rect x="338" y="286" width="22" height="16" rx="4" fill="#FF0000"/>
+  <polygon points="346,289 346,299 354,294" fill="#FFFFFF"/>
+  <text x="372" y="292" font-size="13.5" fill="#202124">YouTube 동영상 관리(업로드 포함)</text>
+  <text x="372" y="312" font-size="12" fill="#5F6368">youtube.upload — 업로드에 필수</text>
+
+  <rect x="322" y="338" width="316" height="56" rx="6" fill="#F8F9FA"/>
+  <rect x="338" y="354" width="22" height="16" rx="4" fill="#FF0000"/>
+  <polygon points="346,357 346,367 354,362" fill="#FFFFFF"/>
+  <text x="372" y="360" font-size="13.5" fill="#202124">YouTube 계정 보기</text>
+  <text x="372" y="380" font-size="12" fill="#5F6368">youtube.readonly — 채널 검증(§5-4)에 필요</text>
+
+  <line x1="290" y1="420" x2="670" y2="420" stroke="#E8EAED"/>
+  <text x="322" y="448" font-size="12" fill="#5F6368">계속을 누르면 이 앱이 위 권한으로 채널에 접근합니다.</text>
+
+  <text x="520" y="496" font-size="14" fill="#1A73E8">취소</text>
+  <rect x="560" y="474" width="84" height="36" rx="18" fill="#1A73E8"/>
+  <text x="602" y="497" font-size="14" fill="#FFFFFF" text-anchor="middle">계속</text>
+
+  <!-- 주석 -->
+  <circle cx="672" cy="492" r="13" fill="#C5221F"/>
+  <text x="672" y="497" font-size="14" fill="#FFFFFF" text-anchor="middle">1</text>
+  <text x="60" y="566" font-size="13" fill="#C5221F">권한 체크박스가 보이면 모두 체크 후 [계속] — 허용을 마치면 터미널의 발급 스크립트가 refresh token 을 출력한다.</text>
+</svg>
