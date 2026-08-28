@@ -13625,7 +13625,11 @@ window.stepFld = (btn, d, base) => {
 };
 // 디자인 오버라이드 — 이 편에만 적용. 빈 값 = 키 제거(채널 기본으로 되돌림).
 // 저장은 saveDraft 의 pendingDesign 경로로 합류한다(템플릿 적용과 같은 자리).
-window.edDesign = () => (cur.pendingDesign = cur.pendingDesign
+// ⚠ window 에 올리면 안 된다 — 구판 편집실의 전역 edDesign()(7447)을 덮어써서
+// 구판 KR 열기(SHOTCONE 일본어 카드의 '원본(한국어) 편집실')가 cur=null 로 즉사한다
+// (8/28 실사고: '편집실 여는 중…'에서 영영 안 넘어감. 8/26 병합 e6b27e2 이후 잠복).
+// 인라인 핸들러는 dsGet/dsSet 만 부르므로 IIFE 안 이름으로 충분하다.
+const edDesign = () => (cur.pendingDesign = cur.pendingDesign
   || { ...((cur.row.draft || {}).design || {}) });
 window.dsGet = k => edDesign()[k];
 window.dsBase = k => (cur.chDesign || {})[k];      // 채널 기본값(플레이스홀더용)
