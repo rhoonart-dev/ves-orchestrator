@@ -12050,7 +12050,8 @@ function layoutShorts(){
   tts.style.color = d.tts_color || "#87CEEB";
   // 대사 자막 — 밴드 하단 안쪽(근사)
   const sub = $("#ovSub");
-  sub.style.top = pct(Math.min(H - 200, vtop + vh - 170), H);
+  sub.dataset.top = pct(Math.min(H - 200, vtop + vh - 170), H);   // 기본 자리(복구용)
+  sub.style.top = sub.dataset.top;
   sub.style.fontSize = cq((+d.subtitle_size || 65) * 0.9);
   sub.style.color = d.subtitle_color || SUB_PRESET_COLOR;
   // 작품명/작품 로고 — work_title_y(기본 하단 근처). 이미지는 자리 표시 칩으로.
@@ -12140,7 +12141,10 @@ function styleOvSub(i){
   el.style.left = ((100 - w) / 2) + "%"; el.style.right = "auto"; el.style.width = w + "%";
   el.style.transform = e.rotate ? `rotate(${e.rotate}deg)` : "";
   if (e.y != null){ el.style.top = "auto"; el.style.bottom = ((1 - e.y) * 100) + "%"; }
-  else el.style.bottom = "auto";          // top 은 layoutShorts 가 정한 값 유지
+  else { el.style.bottom = "auto";
+    // ⚠ top 을 반드시 되돌린다 — 안 되돌리면 auto 로 남아 자막이 프레임 맨 위로
+    // 튄다(8/28: "고치지도 않았는데 위로 올라간다"). layoutShorts 가 남긴 기본 자리.
+    el.style.top = el.dataset.top || ""; }
   // 편집 모드면 조작 핸들을 얹는다(문구는 그대로 두고 핸들만 추가)
   el.classList.toggle("sel", editMode);
   el.querySelectorAll(".sh").forEach(x => x.remove());
@@ -13628,6 +13632,19 @@ window.dsBase = k => (cur.chDesign || {})[k];      // 채널 기본값(플레이
 window.dsSet = (k, v) => {
   const d = edDesign();
   const t = String(v ?? "").trim();
+  // 제목 1줄 크기를 칸에서 바꿀 때 2줄이 따라 커지지 않게(사용자 8/28).
+  // 엔진 계약: title_size 는 **두 줄을 비율 유지한 채 함께** 스케일한다(90/70) —
+  // 화면에서 제목 블록을 통째로 끄는 동작을 위한 규약이다(ai-video cli.py F-409).
+  // 반면 탭의 '1줄 크기' 칸은 그 줄만 바꾸는 뜻으로 읽힌다. 그래서 값을 바꾸기 **전에**
+  // 지금 2줄 크기를 그대로 못박아 둔다 — title_size2 가 명시되면 엔진이 스케일을
+  // 덮으므로, 2줄은 보이던 크기 그대로 남고 1줄만 바뀐다.
+  if (k === "title_size" && t !== ""){
+    const cur2 = dsGet("title_size2") ?? dsBase("title_size2");
+    if (cur2 == null || cur2 === ""){
+      const s1 = +dsGet("title_size") || +dsBase("title_size") || 70;
+      d.title_size2 = Math.round(s1 * 90 / 70);
+    }
+  }
   if (t === "") delete d[k]; else d[k] = /^-?\d+(\.\d+)?$/.test(t) ? +t : t;
   // 제목 세로를 직접 적으면 고정 배치 의도 — 스위치를 함께 보낸다(F-409 규약)
   if (k === "title_y"){ if (t === "") delete d.title_y_fixed; else d.title_y_fixed = true; }
