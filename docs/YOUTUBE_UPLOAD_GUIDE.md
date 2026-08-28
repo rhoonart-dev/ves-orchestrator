@@ -7,9 +7,10 @@
 
 **준비물**: 채널을 소유한 구글 계정 · Python 3.9+ · 브라우저가 있는 컴퓨터 (토큰 발급 때 1회).
 
-> **그림에 대하여** — 이 문서의 화면 그림([img/yt_upload/](img/yt_upload/))은 실제 화면
-> 구성을 재현한 그림이다(스크린샷 아님). 빨간 번호 ①②③이 클릭·입력 지점이고, 구글이 UI 를
-> 바꾸면 문구·배치는 조금 다를 수 있지만 **흐름과 입력값은 동일**하다.
+> **그림에 대하여** — §1~§4·§8 화면은 **실제 콘솔 스크린샷**(2026년 8월, 한국어 UI 기준)이고,
+> §2 의 메뉴 이동 그림과 §5 의 계정 선택·허용 화면은 실제 계정 정보가 떠서 **재현 그림**으로
+> 두었다. 빨간 번호 ①②③이 클릭·입력 지점이고, 구글이 UI 를 바꾸면 문구·배치는 조금 다를 수
+> 있지만 **흐름과 입력값은 동일**하다.
 
 ---
 
@@ -69,7 +70,11 @@
 **프로젝트 = 쿼터의 단위**이기도 하다(하루 약 6편, 부록 B) — 채널·물량이 많아지면
 프로젝트를 나누게 된다.
 
-![새 프로젝트 만들기](img/yt_upload/01_gcp_new_project.svg)
+![Google Cloud 콘솔 '새 프로젝트' 화면 — 실제 스크린샷](img/yt_upload/01_gcp_new_project.webp)
+
+*새 프로젝트 화면 — ① 프로젝트 이름 입력(이름 아래 자동으로 잡히는 프로젝트 ID 는 나중에 못
+바꾼다) ② 만들기. 캡처는 조직(Workspace) 계정이라 결제 계정·조직 필드가 보인다 — 개인 @gmail
+계정이면 위치가 '조직 없음'으로만 뜬다.*
 
 1. 채널을 소유한 구글 계정으로 <https://console.cloud.google.com> 에 로그인한다.
    처음이면 약관 동의 화면이 한 번 뜬다. (결제 등록 없이도 이 문서의 전 과정이 된다 —
@@ -95,7 +100,10 @@
 
 ![콘솔 메뉴에서 이동](img/yt_upload/01b_nav_menu.svg)
 
-![YouTube Data API v3 사용 설정](img/yt_upload/02_enable_api.svg)
+![YouTube Data API v3 상세 화면 — 실제 스크린샷](img/yt_upload/02_enable_api.webp)
+
+*API 상세 화면 — 라이브러리에서 "YouTube Data API v3"를 검색해 들어오면 이 화면. ① 파란
+[사용] 클릭, 프로젝트마다 한 번. 이미 켠 프로젝트에서는 버튼이 [관리]로 보인다.*
 
 1. 왼쪽 햄버거 메뉴 **≡ → API 및 서비스 → 라이브러리** 로 간다.
    (또는 <https://console.cloud.google.com/apis/library>)
@@ -120,7 +128,10 @@
 2025년 이후 콘솔에서는 여기로 들어가면 **Google Auth Platform**(브랜딩·대상·클라이언트·
 데이터 액세스 메뉴)으로 연결된다 — 이름만 바뀐 같은 화면이니 당황하지 말 것.
 
-![OAuth 동의 화면 구성](img/yt_upload/03_consent_screen.svg)
+![Google 인증 플랫폼 브랜딩 화면 — 실제 스크린샷](img/yt_upload/03a_branding.webp)
+
+*브랜딩(앱 정보) 화면 — 앱 이름(§5 허용 화면에 뜬다)과 사용자 지원 이메일만 채우면 된다.
+로고·도메인은 개인용이면 비워도 된다.*
 
 1. **① User Type(대상)은 `외부(External)`** 를 고른다.
    - `내부(Internal)`는 Google Workspace 조직 계정 전용이다. 채널이 일반 @gmail
@@ -147,13 +158,21 @@
    추가한다 — 등록 안 된 계정은 §5 에서 `access_denied` 가 난다. 프로덕션으로 게시했다면
    이 목록은 안 써도 된다.
 
+![Google 인증 플랫폼 대상 화면 — 실제 스크린샷](img/yt_upload/03b_audience.webp)
+
+*대상(Audience) 화면 — ① User Type 은 외부(External) ② 게시 상태: 캡처처럼 '테스트 중'이면
+[앱 게시]를 눌러 프로덕션으로 바꾼다(위 경고) ③ 테스트 사용자 등록은 테스트 상태로 잠시 쓸 때만.*
+
 ---
 
 ## §4 OAuth 클라이언트 ID 만들기 (데스크톱 앱)
 
 앱(우리 스크립트)이 자신을 증명할 열쇠 한 쌍 — `client_id` / `client_secret` — 을 만든다.
 
-![OAuth 클라이언트 ID 만들기](img/yt_upload/04_oauth_client.svg)
+![OAuth 클라이언트 ID 만들기 화면 — 실제 스크린샷](img/yt_upload/04_oauth_client.webp)
+
+*클라이언트 생성 화면 — ① 유형은 반드시 '데스크톱 앱'(이름은 콘솔 관리용일 뿐). [만들기]를
+누르면 완료 모달이 뜨고, 거기 두 값(클라이언트 ID·클라이언트 보안 비밀번호)을 지금 복사한다.*
 
 1. **≡ → API 및 서비스 → 사용자 인증 정보** (§2 첫 그림의 메뉴,
    또는 <https://console.cloud.google.com/apis/credentials>)
@@ -470,7 +489,10 @@ cron 등록 (`crontab -e`) — 매일 18:50 실행, 로그 남기기:
 
 ## §8 결과 확인 (YouTube Studio)
 
-![YouTube Studio 예약 확인](img/yt_upload/09_studio_scheduled.svg)
+![YouTube Studio 콘텐츠 목록 — 실제 스크린샷](img/yt_upload/09_studio_content.webp)
+
+*studio.youtube.com → 콘텐츠 — ① 공개 상태 열: private 로만 올린 영상은 캡처처럼 "비공개",
+예약 건은 "예약됨"+공개 예정 시각으로 보인다.*
 
 <https://studio.youtube.com> → **콘텐츠** 에서:
 
