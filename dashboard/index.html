@@ -932,6 +932,17 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
      기다려도 안 풀리므로 색을 올린다. */
   .warnbar.crit{border-color:var(--crit)}
   .warnbar.crit b{color:var(--crit)}
+  /* 0104: 채널 일시정지 — 쉬는 채널은 접힌 ⏸ 묶음으로 내려간다(15채널이면 보드를 덮는다) */
+  .bch.paused{opacity:.62}
+  .bch.paused:hover{opacity:.85}
+  .bchName .pausemk{flex:none;color:var(--accent);font-size:12px}
+  .pausehd{display:flex;align-items:center;gap:8px;margin:14px 0 8px;cursor:pointer;
+    font-size:12px;color:var(--muted)}
+  .pausehd:hover{color:var(--ink-2)}
+  .pausehd .ln{flex:1;height:1px;background:var(--line)}
+  button.pausebtn{border-color:var(--accent);color:var(--accent);background:transparent}
+  button.pausebtn:hover{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+  .chcard.paused{opacity:.7}
   /* v3.3: 홈 채널 카드 — 작업 실행 (0024 run_channel_now) */
   .runbar{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:9px;
     padding-top:9px;border-top:1px solid var(--line)}
@@ -1802,6 +1813,19 @@ function boardSectionHtml(){
        · 카드를 누르면 그날 진행과 지금 결과를 함께 봅니다`
     : `오늘(KST) 기준 · 오늘 작업이 없으면 마지막 작업분을 날짜 배지와 함께 표시
        · 공개 점은 만든 날이 아니라 실제 공개된 날(발행·예약 시각)에 켜짐`;
+  // 0104: 쉬는 채널은 접힌 ⏸ 묶음으로 내린다 — 15채널이 보드를 덮으면 오늘 도는 채널이 안 보인다.
+  // 지난 날짜(cx) 모드에서는 가르지 않는다: 정지는 '지금'의 사실이라 그날 기록에 겹치면 거짓이 된다.
+  const pz = cx ? new Set() : pausedSet();
+  const chOn  = (state.chans||[]).filter(c => !pz.has(c.token_slug));
+  const chOff = (state.chans||[]).filter(c =>  pz.has(c.token_slug));
+  const offNames = chOff.slice(0,3).map(c => esc(c.name || c.token_slug)).join(" · ")
+                 + (chOff.length > 3 ? ` 외 ${chOff.length - 3}` : "");
+  const offBlock = !chOff.length ? "" : `
+    <div class="pausehd" onclick="boardOffOpen=!boardOffOpen;render()">
+      <span>${boardOffOpen ? "▾" : "▸"}</span>
+      <span>⏸ 일시정지 <b>${chOff.length}</b>채널 — planner 가 계획하지 않습니다</span>
+      <span class="ln"></span><span class="sub">${offNames}</span></div>
+    ${boardOffOpen ? `<div class="board">${boardHtml(cx, chOff)}</div>` : ""}`;
   const body = !boardDate || (cx && boardPastState === "ok")
     ? `${cx ? `<div class="pastbar"><b>${esc(sel)} 마감 기록</b>
         <span class="why">작업지시 ${cx.kpi.wos} · 검수 대기 ${cx.kpi.wait} · 그날 실패 ${cx.kpi.fail}
@@ -1809,7 +1833,7 @@ function boardSectionHtml(){
             " — 그날 작업지시가 없습니다(이 오케스트레이터의 작업 기록은 2026-08-10부터입니다)"}</span>
         <span class="sp"></span>
         <button class="mini" onclick="boardGo('today')">오늘로 돌아가기</button></div>` : ""}
-       <div class="board">${boardHtml(cx) || '<div class="empty">channels_mirror 비어 있음</div>'}</div>`
+       <div class="board">${boardHtml(cx, chOn) || '<div class="empty">channels_mirror 비어 있음</div>'}</div>${offBlock}`
     : boardPastState === "loading" ? `<div class="empty">${esc(sel)} 되짚는 중…</div>`
     : `<div class="empty">그날 기록을 불러오지 못했습니다 — ${esc(boardPastErr)}
         <button class="mini" onclick="boardGo('${esc(sel)}')">다시 시도</button>
@@ -1823,12 +1847,24 @@ function boardSectionHtml(){
       <span class="lg"><span class="chdot rej"></span>반려</span>
       <span class="lg"><span class="chdot bad"></span>실패</span>
       <span class="lg"><span class="chdot none"></span>없음</span>
+      ${!cx && chOff.length ? `<span class="chip st-good" style="margin-right:6px"><span class="d"></span>오늘 계획 ${chOn.length}채널</span>
+        <span class="chip st-mut"><span class="d"></span>⏸ 쉬는 채널 ${chOff.length}</span>` : ""}
       <span class="sub">${hint}</span></div>
     ${body}</section>`;
 }
 
+// 0104: 일시정지 채널(ops_config.paused_channels). 값이 비었거나 깨졌으면 **빈 집합** —
+// planner.paused_slugs 와 같은 안전측이다(설정 오류로 화면이 조용히 거짓말하지 않게).
+function pausedSet(){
+  try {
+    const v = JSON.parse((((state.ops||{}).paused_channels)||{}).value || "[]");
+    return new Set(Array.isArray(v) ? v.map(String) : []);
+  } catch { return new Set(); }
+}
+let boardOffOpen = false;    // 쉬는 채널 목록 펼침(기본 접힘)
+
 // 신호등 카드 본문 — cx 가 있으면 그날 마감 기준, 없으면 오늘 라이브.
-function boardHtml(cx){
+function boardHtml(cx, chans){
   const today = cx ? cx.day : kstDay();
   const dayW = cx ? "그날" : "오늘";
   const j = (cx ? cx.jobs : state.jobs) || [];
@@ -1840,7 +1876,9 @@ function boardHtml(cx){
   const woToday = ch => alive.filter(w =>
     w.channel_slug === ch.token_slug && (kstDay(w.service_date||w.created_at) === today));
   const woRecent = ch => alive.find(w => w.channel_slug === ch.token_slug);
-  return (state.chans||[]).map(ch => {
+  const paused = pausedSet();
+  return (chans || state.chans || []).map(ch => {
+    const off = paused.has(ch.token_slug);
     // 전용 파이프라인 채널(잔망루피): 작업지시 대신 오늘의 자동화 잡 상태를 보여준다.
     // 신호등 통일(운영 요청 8/14): 다른 채널과 같은 두 칸(생성·공개)·같은 점 색·같은
     // 라벨 어휘 — 종전 '자동화/예약제' 특수 표기는 칸 제목이 달라 스캔이 끊기고,
@@ -1865,15 +1903,20 @@ function boardHtml(cx){
       : JP_SLUGS.has(ch.token_slug) ? "일본 채널 · 가동 대기"
       : ((state.srcs||[]).some(s => (ch.works||[]).includes(s.work_title) && s.is_active !== false)
          ? "소스 준비됨 · 다음 회차 합류" : "소스 인입 대기 중");
-    return `<div class="bch" onclick="boardOpen=boardOpen==='${esc(ch.token_slug)}'?null:'${esc(ch.token_slug)}';render()">
+    // 0104: 쉬는 채널 — 작품줄은 '왜 조용한지'를 말한다. 신호등 색은 손대지 않고
+    // '없음' 라벨만 '쉬는 중'으로 바꾼다(오늘 남은 일이 있으면 그 상태가 그대로 보여야 한다).
+    const workLine = off ? "일시정지 — 계획하지 않습니다" : (cur ? esc(cur.work_title) : noWo);
+    return `<div class="bch${off ? " paused" : ""}" onclick="boardOpen=boardOpen==='${esc(ch.token_slug)}'?null:'${esc(ch.token_slug)}';render()">
       <div class="bchL">
-        <div class="bchName">${chAvatarHtml(ch.token_slug, 18)}<span title="${esc(ch.name || ch.token_slug)}">${esc(ch.name || ch.token_slug)}</span></div>
-        <div class="bchWork" title="${cur ? esc(cur.work_title) : noWo}">${cur ? esc(cur.work_title) : noWo}</div>
+        <div class="bchName">${chAvatarHtml(ch.token_slug, 18)}${
+          off ? '<span class="pausemk" title="일시정지 — planner 가 계획하지 않습니다">⏸</span>' : ""
+        }<span title="${esc(ch.name || ch.token_slug)}">${esc(ch.name || ch.token_slug)}</span></div>
+        <div class="bchWork" title="${workLine}">${workLine}</div>
         ${dateBadge}${punv ? `<span class="fpill fp-wait" title="${esc(punv)}">예약 기준</span>` : ""}
       </div>
       <div class="dots">
-        <div class="dcol${gc === "none" ? " dim" : ""}"><span class="dcap">생성</span><span class="chdot ${gc}" title="${esc(gl)}"></span><span class="dlab">${esc(gl)}</span></div>
-        <div class="dcol${pc === "none" ? " dim" : ""}"><span class="dcap">공개</span><span class="chdot ${pc}" title="${esc(punv || pt || pl)}"></span><span class="dlab">${esc(pl)}</span></div>
+        <div class="dcol${gc === "none" ? " dim" : ""}"><span class="dcap">생성</span><span class="chdot ${gc}" title="${esc(gl)}"></span><span class="dlab">${esc(off && gc === "none" ? "쉬는 중" : gl)}</span></div>
+        <div class="dcol${pc === "none" ? " dim" : ""}"><span class="dcap">공개</span><span class="chdot ${pc}" title="${esc(punv || pt || pl)}"></span><span class="dlab">${esc(off && pc === "none" ? "쉬는 중" : pl)}</span></div>
       </div></div>` +
       (open ? `<div class="bdetail">${cur ? chainHtml(cur, cx)
               : `<span class="sub">${chLinkHtml(ch.token_slug)} · 최근 작업지시 없음</span>`}${cx ? "" : runBox(ch.token_slug)}</div>` : "");
@@ -2128,6 +2171,27 @@ function geminiBanner(){
     </details><span class="right"></span>${act}</section>`;
 }
 
+// ───────── 채널 일시정지 (0104 set_channel_paused) ─────────
+// 값 자체(배열)는 화면에서 만들지 않는다 — 두 사람이 동시에 누르면 나중 사람이 앞사람의
+// 변경을 지운다. RPC 는 슬러그 하나만 넣고 뺀다.
+function pauseBtnHtml(slug, off){
+  if (!can("operator")) return "";
+  if (ARCHIVE_PIPE[slug]) return "";     // 전용 파이프라인 — 이 스위치가 멈추지 못한다(0104 가 값도 막는다)
+  return off
+    ? `<button class="mini pausebtn" data-slug="${esc(slug)}"
+         onclick="event.stopPropagation();chPause(this.dataset.slug,false)">재개</button>`
+    : `<button class="mini pausebtn" data-slug="${esc(slug)}"
+         onclick="event.stopPropagation();armed(this,'일시정지',()=>chPause(this.dataset.slug,true))"
+         >일시정지</button>`;
+}
+window.chPause = (slug, on) => {
+  const ch = (state.chans||[]).find(c => c.token_slug === slug) || {};
+  const nm = ch.name || slug;
+  rpc("set_channel_paused", { p_slug: slug, p_on: on },
+      on ? `${nm} — 일시정지. 내일 계획부터 빠집니다`
+         : `${nm} — 재개. 다음 계획(09:00 KST)부터 다시 만듭니다`);
+};
+
 // ───────── 홈: 채널 즉시 실행 (0024 run_channel_now) ─────────
 // 오늘 planner 가 만든 것과 '별개로 한 편 더'다(사용자 결정 8/12). 되돌리기가 아니라
 // 추가 생산이므로 기존 작업지시·검수 카드는 건드리지 않는다.
@@ -2162,14 +2226,19 @@ function runBox(slug){
                         document.getElementById('runDir').value)"
         >이 설정으로 실행</button>
     </div>`;
+  // 0104: 쉬는 채널도 '작업 실행'은 열어둔다 — 재개 전에 시험 한 편을 만들 길이 필요하다.
+  const off = pausedSet().has(slug);
   return `<div class="runbar">
       <button class="mini pri" data-slug="${esc(slug)}"
         onclick="armed(this,'작업 실행',()=>runNow(this.dataset.slug))">작업 실행</button>
       <button class="mini" data-slug="${esc(slug)}"
         onclick="runOpen = runOpen === this.dataset.slug ? null : this.dataset.slug; render()"
         >작품·회차 지정</button>
-      <span class="sub">오늘 것과 별개로 한 편 더 만듭니다${
-        auto ? ` · 자동 선택: ${esc(w)} ${esc(epLab(auto))}` : " · 지금 쓸 수 있는 소스가 없습니다"}</span>
+      ${pauseBtnHtml(slug, off)}
+      <span class="sub">${off
+        ? "재개하면 다음 계획(09:00 KST)부터 다시 만듭니다 · 지금 한 편만 필요하면 [작업 실행]"
+        : `오늘 것과 별개로 한 편 더 만듭니다${
+            auto ? ` · 자동 선택: ${esc(w)} ${esc(epLab(auto))}` : " · 지금 쓸 수 있는 소스가 없습니다"}`}</span>
     </div>${form}`;
 }
 window.runNow = async (slug, work, ep, direction) => {
@@ -9668,10 +9737,14 @@ function renderChannels(){
     const effWorks = (wOvr && wOvr.works) || ch.works || [];
     const isExt = !!ARCHIVE_PIPE[ch.token_slug];
     const plan = state.planOvr[ch.token_slug];
-    const planTxt = plan
+    // 0104: 쉬는 채널 — 정지 칩은 쉴 때만 붙인다(늘 붙는 '운영 중' 칩은 옆의 템플릿 칩과 다툰다).
+    const off = pausedSet().has(ch.token_slug);
+    const planTxt = off ? '<span class="sub">일시정지 — 자동 계획 없음</span>'
+      : plan
       ? `📌 ${esc(plan.work_title)} · ${plan.episode != null ? plan.episode + "회차 고정" : "회차 자동"}`
       : "자동 (작품 순서 · 회차 순환)";
-    return `<div class="chcard"><div class="h">${chAvatarHtml(ch.token_slug, 26)}<b>${esc(ch.name || ch.token_slug)}</b>${st}
+    return `<div class="chcard${off ? " paused" : ""}"><div class="h">${chAvatarHtml(ch.token_slug, 26)}<b>${esc(ch.name || ch.token_slug)}</b>${
+        off ? chip("mut","⏸","일시정지 중") : ""}${st}
         ${ovr ? `<span class="sub right">${esc((ovr.updated_by||"").split("@")[0])} · ${ago(ovr.updated_at)}</span>` : ""}</div>
       <div class="dsum" style="margin-bottom:6px"><b>작품 배정:</b> ${esc(effWorks.join(", ")) || "—"}
         ${wOvr ? chip("info","✎","관제 수정본") : ""}</div>
@@ -9682,6 +9755,7 @@ function renderChannels(){
       <div class="dsum dsum-clamp" title="전체 값은 ✎ 편집에서">${sum}</div>
       <div class="dacts">${can("operator")
         ? `<button class="mini" onclick="chEdit='${esc(ch.token_slug)}';render()">✎ 편집</button>`
+          + pauseBtnHtml(ch.token_slug, off)
         : '<span class="sub">편집은 operator 권한</span>'}</div></div>`;
   }).join("");
   const mch = (state.chans||[]).find(c => c.token_slug === chEdit);

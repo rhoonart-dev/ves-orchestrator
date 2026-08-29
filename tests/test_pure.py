@@ -315,6 +315,29 @@ def test_paused_channels():
     assert src.index("if slug in paused") < src.index("_pick_source")
 
 
+def test_channel_pause_switch_wiring():
+    """0104: 관제 버튼과 planner 가 **같은 값**을 본다. 키가 갈리면 화면은 껐다는데
+    planner 는 계속 만든다 — 조용한 거짓말이라 며칠 지나야 들킨다."""
+    import pathlib
+    sql = pathlib.Path("ves/control/migrations/0104_set_channel_paused.sql") \
+        .read_text(encoding="utf-8")
+    dash = pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+    from ves.scheduler import planner
+    import inspect
+    assert "'paused_channels'" in inspect.getsource(planner._load_paused)
+    assert "set_channel_paused" in sql and "paused_channels" in sql
+    assert "has_role(auth.uid(),'operator')" in sql          # 쓰기는 operator 이상
+    # 🛑 전용 파이프라인(잔망루피)은 planner 가 애초에 안 본다 — 값이 들어가면 목록만
+    #    '정지'가 되고 실제로는 계속 만든다. 값 자체를 막는지 지킨다.
+    assert "pipeline IS NOT NULL" in sql
+    # 화면은 배열을 만들지 않는다(동시 편집이 서로를 지운다) — 슬러그 하나씩만 넘긴다
+    assert 'rpc("set_channel_paused", { p_slug: slug, p_on: on }' in dash
+    assert "paused_channels" in dash                          # 같은 키를 읽어 표시한다
+    # 쉬는 채널도 수동 '작업 실행'은 열려 있어야 한다(재개 전 시험 한 편)
+    box = dash.split("function runBox(slug){", 1)[1].split("window.runNow", 1)[0]
+    assert "작업 실행" in box and "pauseBtnHtml(slug, off)" in box
+
+
 def test_zanmang_daily_argv():
     """잔망루피 편입(8/10): 그 레포 .venv 로 autopilot 을 그대로 실행 — task 화이트리스트."""
     from ves.adapters.zanmang import daily_argv
