@@ -300,6 +300,21 @@ def test_plan_for_channel():
     assert plan_for_channel(None, {"work_title": "x"}) == ([], None)
 
 
+def test_paused_channels():
+    """0103: 일시정지 채널 — 계획에서만 빠진다. 값이 깨지면 '정지 없음'(안전측)."""
+    import inspect
+    from ves.scheduler import planner
+    from ves.scheduler.planner import paused_slugs
+    assert paused_slugs('["DARAMJI","KIKKIK"]') == {"DARAMJI", "KIKKIK"}
+    assert paused_slugs('[" DARAMJI ", "", "DARAMJI"]') == {"DARAMJI"}   # 정리·중복 제거
+    assert paused_slugs(None) == set() and paused_slugs("") == set()
+    assert paused_slugs("{쓰레기") == set()      # 깨진 값이 전 채널을 멈추면 안 된다
+    assert paused_slugs('{"a":1}') == set()      # 배열이 아니면 무시
+    # 소스 조회·'소스 없음' 경보 전에 걸러야 쉬는 채널이 매일 알림을 만들지 않는다
+    src = inspect.getsource(planner.run)
+    assert src.index("if slug in paused") < src.index("_pick_source")
+
+
 def test_zanmang_daily_argv():
     """잔망루피 편입(8/10): 그 레포 .venv 로 autopilot 을 그대로 실행 — task 화이트리스트."""
     from ves.adapters.zanmang import daily_argv

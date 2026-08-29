@@ -91,6 +91,26 @@ def pipeline_for(ch: dict) -> str:
     return "shorts_jp_localized" if ch.get("country") == "JP" else "shorts_kr"
 
 
+def paused_slugs(raw) -> set:
+    """ops_config.paused_channels(슬러그 JSON 배열) → 일시정지 채널 집합. 순수 — 테스트 대상.
+
+    운영을 몇 채널로 좁힐 때 쓴다. 채널↔작품 매핑(권리 관계)·소스·검수분은 건드리지
+    않고 **오늘 무엇을 새로 만들지**만 멈춘다 — 되돌리기가 값 하나 지우기여야 하기 때문이다.
+    값이 비었거나 깨졌으면 **빈 집합**(= 종전대로 전 채널 계획): 설정 오류로 조용히
+    전 채널이 멈추면 며칠 뒤에야 알아챈다. 과잉생산은 눈에 띄지만 무생산은 안 띈다.
+    """
+    if isinstance(raw, (list, tuple, set)):
+        items = list(raw)
+    else:
+        try:
+            items = json.loads(raw or "[]")
+        except (TypeError, ValueError):
+            return set()
+        if not isinstance(items, list):
+            return set()
+    return {str(x).strip() for x in items if str(x).strip()}
+
+
 def plan_for_channel(works, ovr) -> tuple:
     """(시도할 작품 목록, 고정 회차 | None). 오버라이드(0016)가 정본 작품 안에 있을 때만
     적용 — 정본 밖이면 무시(자동 유지)하고 실행부가 경고를 찍는다. 순수 — 테스트 대상."""
@@ -149,6 +169,18 @@ def _load_localize_cfg(conn, key: str) -> dict:
         return {}
 
 
+def _load_paused(conn) -> set:
+    """일시정지 채널(0103). 조회 실패는 '일시정지 없음' — paused_slugs 의 안전측과 같다."""
+    try:
+        with conn.cursor() as c:
+            c.execute("SELECT value FROM public.ops_config WHERE key='paused_channels'")
+            row = c.fetchone()
+        return paused_slugs((row or {}).get("value"))
+    except Exception as e:  # noqa: BLE001 — 0103 이전 DB 호환(키 없음 → 전 채널 진행)
+        print(f"[planner] paused_channels 조회 실패(전 채널 진행): {e}")
+        return set()
+
+
 def _jp_enabled(conn) -> bool:
     """JP 가동 스위치(ops_config.jp_pipeline='on') — 기존 현지화 autopilot 과의
     이중 생산을 막는 컷오버 장치(2026-08-10). 켜기 전에 구 autopilot 을 내릴 것."""
@@ -162,6 +194,7 @@ def run(conn, cfg):
     today = dt.datetime.now(dt.timezone(dt.timedelta(hours=9))).date()
     channels = _load_channels(cfg)
     jp_on = _jp_enabled(conn)
+    paused = _load_paused(conn)              # 0103: 일시정지 채널
     plan_ovr = _load_plan_overrides(conn)    # 0016: 채널별 작품·회차 지정
     works_ovr = _load_works_overrides(conn)  # 0017: 채널 작품 배정 수정본
     loc_lv = _load_localize_cfg(conn, "localize_levels")     # 채널별 현지화 등급(8/12)
@@ -169,11 +202,17 @@ def run(conn, cfg):
     loc_vo = _load_localize_cfg(conn, "localize_voices")     # 더빙 목소리(8/13)
     made = 0
     for ch in channels:
+        slug = ch.get("token_slug")
+        if slug in paused:
+            # 맨 앞에서 거른다 — 소스 조회·'소스 없음' 경보(지표14)까지 멈춰야
+            # 쉬는 채널이 매일 알림을 만들지 않는다. 관제 '작업 실행'(수동)은 그대로 — 사람이
+            # 직접 부르는 것까지 막으면 재개 전 시험 한 편을 만들 방법이 없어진다.
+            print(f"[planner] ⏸ {ch.get('name')} — 일시정지(ops_config.paused_channels)")
+            continue
         if ch.get("pipeline") == "zanmang_autopilot":
             continue  # 전용 파이프라인(§10-①) — zanmang_daily(매일 10시, mm-06)가 담당
         if ch.get("country") == "JP" and not jp_on:
             continue  # 스위치 off — 현지화 autopilot 담당 유지(이중 생산 방지)
-        slug = ch.get("token_slug")
         eff_works = works_ovr.get(slug, ch.get("works"))
         ovr = plan_ovr.get(slug)
         works_try, pin_ep = plan_for_channel(eff_works, ovr)

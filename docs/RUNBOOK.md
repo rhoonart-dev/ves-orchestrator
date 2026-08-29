@@ -93,3 +93,32 @@ SELECT channel_slug, work_title, episode, reason, stage, tries, stalled_at, note
 
 해소는 자동이다 — 그 작업지시에 대기·실행 잡이 다시 서거나, 새 검수 카드가 생기거나,
 작업지시가 취소되면 뷰에서 빠진다(경고줄·배지도 같이 사라진다).
+
+## 10. 채널 일시정지 / 재개 (0103)
+
+`ops_config.paused_channels` 에 든 token_slug 는 planner(매일 09:00 KST)가 건너뛴다 —
+**하루치 작업지시 생성만** 멈춘다. 채널↔작품 매핑(channels.json 정본)·소스·이미 만든
+검수/승인/발행분은 그대로이고, 관제 '작업 실행'(`run_channel_now`, 사람이 직접 부르는
+경로)도 그대로 동작한다. 그래서 재개가 값 하나 고치기다.
+
+값이 비었거나 JSON 이 깨지면 **일시정지 없음**(전 채널 계획)으로 흐른다 — 설정 오류로
+조용히 전 채널이 멈추는 쪽이 훨씬 늦게 발견되기 때문이다(`planner.paused_slugs`).
+
+```sql
+-- 지금 쉬는 채널
+SELECT value FROM public.ops_config WHERE key='paused_channels';
+
+-- 한 채널만 재개 (슬러그 하나 빼기)
+UPDATE public.ops_config
+   SET value = coalesce((SELECT jsonb_agg(x)::text
+                           FROM jsonb_array_elements_text(value::jsonb) x
+                          WHERE x <> 'DARAMJI'), '[]'),   -- 마지막 하나를 빼면 NULL 이 된다
+       updated_at = now()
+ WHERE key='paused_channels';
+
+-- 전체 재개
+UPDATE public.ops_config SET value='[]', updated_at=now() WHERE key='paused_channels';
+```
+
+재개 당일 바로 한 편 돌리려면 `planner_kick` 을 건드려 그날 계획을 다시 부른다
+(§8-2 · `ops_config.planner_kick` 값을 now()::text 로 갱신).
