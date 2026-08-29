@@ -96,6 +96,11 @@ SELECT channel_slug, work_title, episode, reason, stage, tries, stalled_at, note
 
 ## 10. 채널 일시정지 / 재개 (0103)
 
+**평소에는 관제 화면에서 한다**(0104): 홈 신호등의 채널 행을 펼치거나 채널 탭 카드에서
+[일시정지]/[재개] — operator 이상. 아래 SQL 은 화면이 막혔을 때의 뒷문이다.
+🛑 잔망루피(전용 파이프라인)는 이 스위치로 멈추지 않는다 — RPC 가 값 자체를 거절한다.
+그 채널은 `ops_config.zanmang_pipeline`(일일 잡)과 `loopy_picker.enabled`(자동 선별)를 내린다.
+
 `ops_config.paused_channels` 에 든 token_slug 는 planner(매일 09:00 KST)가 건너뛴다 —
 **하루치 작업지시 생성만** 멈춘다. 채널↔작품 매핑(channels.json 정본)·소스·이미 만든
 검수/승인/발행분은 그대로이고, 관제 '작업 실행'(`run_channel_now`, 사람이 직접 부르는
