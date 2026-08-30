@@ -29,6 +29,96 @@ STEP_ORDER = ["research", "probe", "proxy", "chunk", "character_index",
 
 _RUNLOG_RE = re.compile(r"([^/\s]+)/run_log\.json")
 
+# ── V3(M5) 채널 전환 배선 — orders/v3-m5-channel-switch.md ───────────────────
+# 게이트 둘 다 켜져야 v3: ops_config aivideo_v3(전역, 기본 off — enrich_params 가
+# params.aivideo_v3_allowed 로 실어 준다. editor_e10 롤아웃 패턴) + 채널 design
+# pipeline_v3:true. 꺼져 있으면 기존 경로 **바이트 동일**(분기 함수만 신설).
+# v3 미지원 플래그(--design-*·--max-shorts 등)는 argv 에 싣지 않는다 — 구 엔진
+# argparse 즉사 방지 규율(style_compose 롤아웃과 동일)의 대칭: 신 CLI 에 구 플래그.
+# ⚠ 채널 전환 자체는 건별 사용자 승인(기획 멈춤 ③) — 여기는 배선까지다.
+STEP_ORDER_V3 = ["research", "probe", "proxy", "grid", "seq_analyze",
+                 "chunk_split", "chunk_analyze", "story", "resources",
+                 "draft_render", "style", "render", "validate"]
+# checkpoint_<name>.json → v3 --from-step 값. research/probe/character_index 는
+# --from-step 대상이 아니다(엔진 캐시가 자동 재사용 — v1 과 달리 재실행 지정 불가).
+V3_CHECKPOINT_STEP = {"grid_words": "grid", "chunk_split": "chunk_split",
+                      "chunk_analyze": "chunk_analyze", "story": "story",
+                      "resources": "resources", "style": "style"}
+
+
+def v3_enabled(cfg, params) -> bool:
+    """이 잡이 v3 로 가는가 — ops 게이트(enrich_params 가 실음) ∧ 채널 design 스위치."""
+    p = params or {}
+    if not p.get("aivideo_v3_allowed"):
+        return False
+    rec = _channel_record(cfg, p.get("channel_name"))
+    design = effective_design(p.get("design_override"), (rec or {}).get("design"))
+    return bool((design or {}).get("pipeline_v3"))
+
+
+def build_argv_v3_pure(py: str, params: dict, source_path: str | None) -> list:
+    """v3 엔트리 argv. 순수 — 테스트 대상. build_argv_pure 와 대칭."""
+    p = params
+    cmd = [py, "-u", "-m", "app.v3",
+           "--work-title", p["work_title"]]
+    if source_path:
+        cmd += ["--video", source_path]
+    else:
+        raise base.PermanentError(
+            "v3 는 로컬 소스가 필요합니다(--youtube-url 미지원) — acquire 선행 확인")
+    if p.get("episode") is not None:
+        cmd += ["--episode", str(p["episode"])]
+    if p.get("no_research", True):
+        cmd += ["--skip-research"]
+    cmd += ["--outdir", p.get("outdir") or "outputs"]
+    return cmd
+
+
+def pick_resume_step_v3(checkpoint_filenames) -> str | None:
+    """v3 재개 스텝 — 마지막 완료 체크포인트를 --from-step 어휘로(★⑦ 과 같은 규약)."""
+    done = []
+    for fn in checkpoint_filenames:
+        name = str(fn).rsplit("/", 1)[-1]
+        if name.startswith("checkpoint_") and name.endswith(".json"):
+            step = V3_CHECKPOINT_STEP.get(name[len("checkpoint_"):-len(".json")])
+            if step:
+                done.append(step)
+    if not done:
+        return None
+    return max(done, key=STEP_ORDER_V3.index)
+
+
+def _build_argv_v3(cfg, job):
+    """v3 분기 — fresh/resume 공통. 디자인·브랜딩 플래그는 싣지 않는다(v3 미지원 —
+    스타일은 엔진 Stage 4 가 정본, 채널 프리셋 주입은 M5 후속)."""
+    p = job["params"] or {}
+    rid = p.get("resume_run_id")
+    if p.get("edit_overrides") and not rid:
+        raise base.PermanentError(
+            "edit_overrides 는 resume_run_id 와 함께여야 합니다 — 새 run 에는 적용할 수 없습니다")
+    src = cfgmod.source_cache_path(cfg, p["source_sha256"]) if p.get("source_sha256") else None
+    if src and not pathlib.Path(src).exists():
+        raise base.PermanentError(f"소스 캐시 없음: {src} — acquire 선행 확인")
+    argv = build_argv_v3_pure(cfgmod.engine_py(cfg, "ai_video"), p, src)
+    if not rid:
+        return argv
+    outdir = p.get("outdir") or "outputs"
+    run_dir = pathlib.Path(cfgmod.engine_dir(cfg, "ai_video")) / outdir / rid
+    argv += ["--job-id", rid]
+    # 사람이 고른 단계가 절대 우선(resolve_resume_step 규약) — 단 v3 어휘 검증:
+    # v1 스텝명(silence_cut 등)이 새면 엔진 argparse 즉사가 아니라 여기서 크게 거절.
+    explicit = p.get("from_step")
+    v3_choices = set(STEP_ORDER_V3) - {"research", "probe", "proxy"}
+    if explicit and explicit not in v3_choices:
+        raise base.PermanentError(
+            f"v3 --from-step 어휘 밖: {explicit!r} (허용: {sorted(v3_choices)})")
+    step = explicit or pick_resume_step_v3(
+        glob.glob(str(run_dir / "checkpoint_*.json")))
+    if step:
+        argv += ["--from-step", step]
+    ov = engine_overrides(p.get("edit_overrides"))
+    return edit_overrides_argv(argv, _write_edit_overrides(run_dir, ov))
+
 # 이 잡의 산출물(run_dir)을 로컬에서 읽는 후속 kind — executor 가 완료 시 이 노드로 고정
 # (upload=글롭, ingest/evaluate=--run-dir. publish 는 검수 후 별도 생성이라 대상 밖 —
 #  스토리지 폴백(Phase 2)이 정답이며, 그 전까지는 같은 노드 유지가 사실상 강제됨)
@@ -231,6 +321,7 @@ def enrich_params(cfg, conn, job):
     design_for_job 이 이 값을 보고 키를 걷어낸다."""
     p = dict(job.get("params") or {})
     p["style_compose_allowed"] = base.ops_on(conn, "channel_style")
+    p["aivideo_v3_allowed"] = base.ops_on(conn, "aivideo_v3")   # V3(M5) 게이트
     if not p.get("channel_slug"):
         return p
     with conn.cursor() as c:
@@ -500,6 +591,9 @@ def resource(cfg, job):
 
 
 def build_argv(cfg, job):
+    # V3(M5): 게이트 둘 다 켜진 채널만 — 꺼져 있으면 아래 기존 경로 바이트 동일
+    if v3_enabled(cfg, job.get("params")):
+        return _build_argv_v3(cfg, job)
     # 반려 재생성(0019): '제작' 반려는 같은 run 을 렌더 단계부터 이어달린다(수 분).
     rid = (job["params"] or {}).get("resume_run_id")
     if rid:

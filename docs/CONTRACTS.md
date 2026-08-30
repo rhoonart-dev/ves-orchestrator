@@ -54,3 +54,17 @@ publish: `clip_id` · `privacy(private|unlisted)` · `publish_at`(예약 — §1
 
 M2~M4 동안 v3 run 은 오케스트레이터 밖(수동/스모크)에서만 돈다. `aivideo` 어댑터의
 v3 엔트리(`python -m app.v3`) 분기는 M5 전환 때 채널 게이트 뒤로 들어온다.
+
+### V3 스텝명 부록 (C3 고지 — M5, 2026-08-31)
+
+v3 잡의 `checkpoint_<step>.json` → 재개 스텝 매핑(어댑터 `pick_resume_step_v3`):
+`grid_words→grid · chunk_split · chunk_analyze · story · resources · style`.
+v3 `--from-step` 어휘: `grid seq_analyze chunk_split chunk_analyze story resources
+draft_render style render validate` — **v1 스텝명(silence_cut 등)은 어댑터가 거절**한다.
+
+게이트: `ops_config aivideo_v3`(전역, 기본 off) ∧ 채널 design `pipeline_v3: true`
+둘 다 켜져야 v3 (`python -m app.v3`). 꺼진 채널은 기존 경로 바이트 동일.
+**채널 전환은 건별 사용자 승인 — 자동 전환 금지**(기획 멈춤 ③). brain
+CHANNEL_DESIGN_SWITCHES 미러는 채널 템플릿 승격 시점에(1:1 규율 — 이번 범위 아님).
+편집실 edit_overrides 는 v3 에서도 같은 파일·같은 플래그(`--edit-overrides`)로 가며,
+clip 경계는 엔진이 최근접 grid span 경계로 정착한다(C4 — 오차는 run_log 기록).
