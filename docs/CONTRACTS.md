@@ -36,3 +36,21 @@
 공통: `work_title`(laeebly 정본) · `episode` · `channel_slug` · `channel_name`
 generate: `source_sha256`|`source_url` · `flags{silence,length,loudness}` · `no_subtitles` · `resource` · `outdir`
 publish: `clip_id` · `privacy(private|unlisted)` · `publish_at`(예약 — §1 규칙, RPC가 검증)
+
+## V3 경계면 동결 (ai-video pipeline v3, 2026-08-31 합의)
+
+정본: `ai-premiere-pro/orders/v3-m2-adapter-contract.md` (사용자 승인 2026-08-31).
+원칙 — **경계면 동결, 내부 표현만 교체**: v3 의 meaning/span 은 내부 표현이고,
+편집실·어댑터가 만지는 스키마는 기존 그대로다. v3 는 additive 필드만 추가한다.
+
+| 접점 | 계약 |
+|---|---|
+| `edit_plan.timeline[]` | `clip_start_sec/clip_end_sec`(원본 절대초)·`role`·`use_original_audio`·`subtitle` 필드 호환 유지 |
+| TTS cue | `source_time_sec` = 좌표이자 신원(edit_overrides/v2) 유지 · voice/speed 라벨 E11 불변 |
+| 체크포인트 | `checkpoint_<step>.json` 네이밍 유지 (v3 스텝명은 M2 완료 시 부록 고지) |
+| `edit_overrides` | 키·의미 무변경. v3 는 경계 이동을 grid 스냅으로 정착(오차 run_log 기록) |
+| `edit_overrides.design` | 무변경 — v3 style.json 은 design-* 어휘만 사용 |
+| additive | `edit_plan.schema="edit_plan/v3"` · `timeline[].span_ids` · `grid_marks`(예약, UI 활용은 별도 발주) |
+
+M2~M4 동안 v3 run 은 오케스트레이터 밖(수동/스모크)에서만 돈다. `aivideo` 어댑터의
+v3 엔트리(`python -m app.v3`) 분기는 M5 전환 때 채널 게이트 뒤로 들어온다.
