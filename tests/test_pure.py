@@ -2206,6 +2206,26 @@ def test_timeline_from_plan_dual_coordinates():
     # 편집본 31초 = 둘째 클립 offset 30 → 원본 500 + 1 = 501초
     assert tl["subtitles"][1]["source_sec"] == 501.0
     assert tl["subtitles"][2]["source_sec"] is None        # 클립 밖 = 매핑 없음
+    # 창이 없는 플랜은 빈 목록 — 화면이 '타임드 제목 미사용'으로 읽는 값이다
+    assert tl["title_segments"] == []
+
+
+def test_timeline_from_plan_carries_ai_title_segments():
+    """AI 연출(E15)이 만든 제목 창을 편집실이 볼 수 있어야 한다 (2026-09-01).
+
+    실사고(가왕쇼_9bca673b): 창 하나가 완성본 0~67.4초 전체를 덮는데 편집실은
+    top_title 만 보여 줬다 — 사람이 제목을 고쳐 보내도 화면에 한 글자도 안 나왔다."""
+    from ves.adapters.editor_assets import timeline_from_plan
+    plan = {"layout": {"top_title": "윗줄\n기본 아랫줄", "title_segments": [
+                {"text": "윗줄\n뒤 창", "start_sec": 30.0, "end_sec": 67.365},
+                {"text": "윗줄\n앞 창", "start_sec": 0.0, "end_sec": 30.0},
+                {"text": "  ", "start_sec": 0.0, "end_sec": 5.0},      # 빈 문구 → 버림
+                {"text": "역전", "start_sec": 9.0, "end_sec": 9.0}]},  # 길이 0 → 버림
+            "timeline": [{"role": "hook", "clip_start_sec": 0.0, "clip_end_sec": 67.365}]}
+    tl = timeline_from_plan(plan, [], duration_sec=3600)
+    assert [s["text"] for s in tl["title_segments"]] == ["윗줄\n앞 창", "윗줄\n뒤 창"]
+    assert tl["title_segments"][1]["end_sec"] == 67.365
+    assert tl["top_title"] == "윗줄\n기본 아랫줄"   # 기본 제목은 그대로 함께 간다
 
 
 def test_tts_from_checkpoints_prefers_resources():

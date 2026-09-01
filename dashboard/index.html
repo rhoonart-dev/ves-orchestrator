@@ -1331,14 +1331,23 @@ function armed(btn, label, fire){
 
 // ───────── 서명 URL 캐시 ─────────
 const _signed = new Map();
-async function signedUrl(bucket, key, sec = 900){
-  const ck = bucket + "/" + key, hit = _signed.get(ck);
+// 🛑 ver(2026-09-01) — 재렌더는 **같은 오브젝트 키**를 덮어쓴다(a1b2…/preview.mp4).
+// 그래서 키만으로 캐시하면 새 영상이 올라와도 ① 이 맵이 30분 동안 옛 URL 을 돌려주고
+// ② 브라우저·CDN 은 같은 URL 을 캐시된 영상으로 답한다 — 검수자가 고치기 전 영상을
+// 보고 '수정이 안 됐다'고 읽는다(가왕쇼_9bca673b 문의). 카드가 만들어진 시각처럼 렌더마다
+// 달라지는 값을 ver 로 주면 캐시 키도 URL 도 갈라진다. 안 주면 종전 동작 그대로.
+async function signedUrl(bucket, key, sec = 900, ver = ""){
+  const ck = bucket + "/" + key + (ver ? "#" + ver : ""), hit = _signed.get(ck);
   if (hit && hit.exp > Date.now()) return hit.url;
   const { data, error } = await sb.storage.from(bucket).createSignedUrl(key, sec);
   if (error) throw new Error(error.message);
-  _signed.set(ck, { url: data.signedUrl, exp: Date.now() + (sec - 60) * 1000 });
-  return data.signedUrl;
+  // 서명 URL 은 이미 query 를 가진다(token=…) — 구분자는 항상 &.
+  const url = ver ? data.signedUrl + "&v=" + encodeURIComponent(ver) : data.signedUrl;
+  _signed.set(ck, { url, exp: Date.now() + (sec - 60) * 1000 });
+  return url;
 }
+// 렌더 판본표 — 검수 카드는 렌더 한 번에 하나씩 새로 생기므로 카드 생성 시각이 곧 판본이다.
+const rvVer = r => String((r || {}).created_at || "");
 
 // ───────── 데이터 ─────────
 let state = {}, tab = "home", jobFilter = "all", showRejected = false;
@@ -2635,7 +2644,7 @@ function renderReview(){
   rs.forEach(async r => {
     const pay = r.payload || {}; if (!pay.preview_key) return;
     try {
-      const url = await signedUrl(pay.bucket || "ves-outputs", pay.preview_key, 1800);
+      const url = await signedUrl(pay.bucket || "ves-outputs", pay.preview_key, 1800, rvVer(r));
       const v = document.getElementById("pvv_" + r.id);
       if (v && v.src !== url) v.src = url;
     } catch(e){
@@ -2765,6 +2774,8 @@ let edUndo = [], edRedo = [], edSnapTag = "", edSnapAt = 0;
 // 스테이지(좌측 9:16 쇼츠 화면) 모드 — prev: 완성본 mp4, seq: 가상 시퀀스(원본을 이어 재생).
 // 원본 스크럽은 모드가 아니라 타임라인 아래 상설 플레이어(#edsrcv)다.
 let edStageMode = "prev", edSeq = null, edPrevKey = null, edPrevBucket = null, edPrevT = 0;
+let edPrevVer = "";            // 완성본 판본(카드 생성 시각) — 같은 키를 덮어쓰는 재렌더가
+                               // 옛 영상으로 캐시되지 않게 signedUrl 에 함께 넘긴다
 // 가상 미리보기의 내레이션 소리(E12-P) — 화면은 하늘색 자막으로 '언제 무엇이 나오는지'를
 // 이미 그린다. 소리가 없으면 고른 목소리를 영상 흐름 속에서 들어볼 수 없다(줄 단위 ▶ 로는
 // "이 줄이 저 장면 위에서 어떻게 들리는가"를 알 수 없다). edSeqCue = 지금 울리는 줄.
@@ -2815,7 +2826,15 @@ function edResetForm(){
   // (탭 전환·재조회) 고치던 것이 날아가지 않는다. clips 는 편집 자체가 순서·개수를
   // 바꾸므로 원본 스냅샷(clips0)과 비교해 '고쳤는지'를 판정한다.
   // 타임드 제목(E8) — 이전 라운드 세그먼트가 초기값(편집본 시간축 초)
-  const tsegs0 = (edPrevTitleSegs || []).map(x => ({
+  // 🛑 2026-09-01 — 사람이 보낸 창(prev_title_segments)이 없으면 **AI 연출(E15)이 만든
+  //   창**(timeline.title_segments, 어댑터가 edit_plan.layout 에서 실어 준다)을 시드로
+  //   쓴다. 종전엔 AI 창을 아예 안 보여 줘서 화면이 '타임드 제목 미사용'이라고 말했는데,
+  //   실제로는 그 창이 완성본 전체를 덮고 있어 상단 제목이 한 글자도 안 나왔다
+  //   (가왕쇼_9bca673b — 고쳐 보낸 제목이 두 라운드 연속 무시됨).
+  //   AI 창은 **손대지 않으면 전송되지 않는다**(titleSegs0 이 곧 기준선) — 그대로 두면
+  //   엔진이 checkpoint_style 의 같은 창을 다시 얹으므로 종전과 결과가 같다.
+  const tsegsAI = !(edPrevTitleSegs || []).length;
+  const tsegs0 = (tsegsAI ? (tl.title_segments || []) : edPrevTitleSegs).map(x => ({
     text: String(x.text || ""), start: Number(x.start_sec) || 0,
     end: Number(x.end_sec) || 0 })).filter(x => x.text.trim());
   // 자유 텍스트(F-411) — 이미지와 같은 규약: 이전 라운드 오버라이드(prev_texts)가 정본
@@ -2828,7 +2847,7 @@ function edResetForm(){
              images: imgs0.map(m => ({ ...m })), images0: imgs0,
              texts: txts0.map(t => ({ ...t })), texts0: txts0,
              titleSegs: tsegs0.map(x => ({ ...x })),
-             titleSegs0: JSON.stringify(tsegs0),
+             titleSegs0: JSON.stringify(tsegs0), titleSegsAI: tsegsAI && !!tsegs0.length,
              design: {}, in: null, out: null };
   edSel = -1; edTtsSel = -1;
   edUndo = []; edRedo = []; edSnapTag = "";
@@ -2837,10 +2856,12 @@ function edResetForm(){
   const d = (edData && edData.draft) || null;
   if (d){
     if (d.title && d.title.top_title) edForm.dTitle = d.title.top_title;
-    if (d.title && Array.isArray(d.title.segments))       // 타임드 제목 초안(E8)
+    if (d.title && Array.isArray(d.title.segments)){      // 타임드 제목 초안(E8)
       edForm.titleSegs = d.title.segments.map(x => ({
         text: String(x.text || ""), start: Number(x.start_sec) || 0,
         end: Number(x.end_sec) || 0 }));
+      edForm.titleSegsAI = false;      // 초안 = 사람이 이미 만진 값(AI 시드 안내 끈다)
+    }
     if (d.design && typeof d.design === "object") edForm.design = { ...d.design };
     if (Array.isArray(d.clips) && d.clips.length)
       edForm.clips = d.clips.map(c => ({ start: Number(c.start_sec) || 0,
@@ -3599,6 +3620,7 @@ window.openEditor = async (rid, kr) => {
   // JP 재진입 시 rid 가 다르면 위 분기가 새로 연다.
   edZoom = 1; edTlScroll = 0; edKbHelp = false;
   edStageMode = "prev"; edSeq = null; edPrevKey = null; edPrevBucket = null; edPrevT = 0;
+  edPrevVer = "";
   edStyleTool = false; edStageCur = -1; edStageT = 0;
   edPrevWarned = false; edPvWarned = false; edSubColorFor = -1; edOvSel = "sub"; edOutSel = null;
   edTtsStop();
@@ -3724,6 +3746,7 @@ function edJpResetForm(r){
     ext: pay.external_video_id || null,
     woId: r.work_order_id || null, vid: pay.zanmang_video_id || null,
     prevKey: pay.preview_key || null, prevBucket: pay.bucket || "ves-localized",
+    prevVer: rvVer(r),   // 재번역도 같은 키를 덮어쓴다 — 캐시가 옛 영상을 물지 않게
     url: pay.url || null,                        // LOOPY A 라우트 — 파일 없이 원본 링크 검수
     // cur = 사람이 지금 만지는 값 — DOM 에만 두면 render() 한 번에 타이핑이 전량
     // 증발한다(KR 의 edForm 과 같은 이유). 원본(ja)과 따로 들어야 diff 도 성립한다.
@@ -3871,7 +3894,7 @@ function renderEditJp(){
     };
   }
   if (f.prevKey)
-    signedUrl(f.prevBucket, f.prevKey, 1800).then(u => {
+    signedUrl(f.prevBucket, f.prevKey, 1800, f.prevVer).then(u => {
       const v = document.getElementById("jpvid");
       if (v && v.src !== u) v.src = u;
     }).catch(() => toast("완성본을 열 수 없습니다(보존 만료일 수 있음)", true));
@@ -4885,6 +4908,7 @@ function renderEdit(){
   const pct = t => (Math.max(0, Math.min(dur, Number(t)||0)) / dur * 100).toFixed(4);
   const pay = r.payload || {};
   edPrevKey = pay.preview_key || null; edPrevBucket = pay.bucket || null;
+  edPrevVer = rvVer(r);
   const canEdit = edCanEdit(r);   // 체인 잠금 포함(edCanEdit 내부)
   if (!edForm || edForm.rid !== edRid) edResetForm();
   const med = (sp.assets || {}).media || {};
@@ -5252,12 +5276,60 @@ function edTitleSegsBad(){
   if (rows.length > 20) return "최대 20개입니다";
   return "";
 }
+// 완성본 길이(초) — 시간대별 제목의 좌표계와 같은 축. 구간을 고쳤으면 그 결과가 기준이다.
+function edOutDur(){
+  return edClipsEff().reduce((a, c) => a + Math.max(0, +c.end - +c.start), 0);
+}
+// 창이 완성본을 **틈 없이** 덮는가. 덮으면 상단 제목(top_title)은 화면에 한 번도 안 나온다
+// — 엔진은 창이 못 덮은 시간에만 기본 제목을 쓴다(style_compose.fill_title_gaps).
+// 실사고(가왕쇼_9bca673b, 2026-09-01): 창 하나가 0~67.4초 전부를 덮어, 고쳐 보낸 제목이
+// 두 라운드 연속 조용히 무시됐다. 화면이 말해 주지 않으면 사람은 알 길이 없다.
+function edTitleSegsCoverAll(){
+  const rows = (edForm.titleSegs || []).filter(x => String(x.text).trim()
+    && isFinite(+x.start) && isFinite(+x.end) && +x.end > +x.start)
+    .slice().sort((a, b) => a.start - b.start);
+  const dur = edOutDur();
+  if (!rows.length || dur <= 0) return false;
+  let at = 0;
+  for (const r of rows){
+    if (+r.start > at + 0.05) return false;     // 앞이 뚫렸다 = 그 시간엔 기본 제목이 나온다
+    at = Math.max(at, +r.end);
+  }
+  return at >= dur - 0.05;
+}
+// 상단 제목을 전 구간 창 하나로 못박는다 — 창이 전부를 덮을 때 사람이 제목을 실제로
+// 바꿀 수 있는 유일한 통로다. 엔진은 편집실이 창을 보내면 AI 창을 통째로 버린다
+// (pipeline.py "제목은 편집실이 보낸 것이 이깁니다"). 창을 **지우는** 것으로는 안 된다 —
+// 키가 없으면 엔진이 checkpoint_style 의 AI 창을 그대로 다시 얹는다.
+window.edTitleSegAll = () => {
+  if (!edCanEdit()) return;
+  const t = String(edForm.dTitle || edForm.title || "").trim();
+  if (!t){ toast("상단 제목이 비어 있습니다", true); return; }
+  const dur = edOutDur();
+  if (dur <= 0){ toast("구간이 없어 길이를 알 수 없습니다", true); return; }
+  edSnap();
+  edForm.titleSegs = [{ text: t, start: 0, end: +dur.toFixed(1) }];
+  edForm.titleSegsAI = false;
+  render();
+  toast(`상단 제목을 전 구간(0~${dur.toFixed(1)}초)에 적용했습니다`);
+};
 function edTitleSegsHtml(canEdit){
   const rows = edForm.titleSegs || [];
   const bad = edTitleSegsBad();
-  return `<div class="edcap">시간대별 제목 ${rows.length}건
-      <span class="sub">— 자막처럼 구간마다 다른 제목 · 창 밖 시간은 제목 없음 ·
-      비워두면 위 단일 제목이 전체 상영 (시각 = 완성본 초)</span></div>
+  const covered = edTitleSegsCoverAll();
+  return `${covered ? `<div class="edwarn">⚠ <b>상단 제목은 화면에 나오지 않습니다</b> —
+      아래 시간대별 제목이 완성본 전체(0~${edOutDur().toFixed(1)}초)를 덮습니다.
+      기본 제목은 창이 <b>못 덮은 시간에만</b> 쓰입니다. 제목을 실제로 바꾸려면 아래 창의
+      문구를 고치거나${canEdit ? ` <button class="mini" onclick="edTitleSegAll()"
+        title="위 상단 제목을 0~${edOutDur().toFixed(1)}초 창 하나로 만들어 전 구간에 겁니다">
+        상단 제목을 전 구간에 적용</button>` : " 전 구간 창을 만드세요"}.</div>` : ""}
+    ${edForm.titleSegsAI ? `<div class="edwarn" style="border-color:var(--line)">
+      아래 ${rows.length}건은 <b>AI 연출이 만든 제목 창</b>입니다 — 손대지 않으면 그대로
+      나가고, 한 글자라도 고치면 사람 값으로 확정되어 AI 창을 대체합니다.</div>` : ""}
+    <div class="edcap">시간대별 제목 ${rows.length}건
+      <span class="sub">— 자막처럼 구간마다 다른 제목 · 창 밖 시간은 위 단일 제목 ·
+      (시각 = 완성본 초)${rows.length ? " · <b>전부 지워도 AI 창이 다시 얹힙니다</b> —"
+        + " 바꾸려면 창의 문구를 고치세요" : ""}</span></div>
     ${bad ? `<div class="edwarn">⚠ 시간대별 제목: ${esc(bad)}</div>` : ""}
     ${rows.map((x, i) => `
       <div class="edsub">
@@ -6184,7 +6256,7 @@ async function edMountStage(){
       toast("완성본을 열 수 없습니다(보존 만료일 수 있음) — ▶ 가상 미리보기로 확인하세요", true);
     };
     try {
-      const url = await signedUrl(edPrevBucket || "ves-outputs", edPrevKey, 1800);
+      const url = await signedUrl(edPrevBucket || "ves-outputs", edPrevKey, 1800, edPrevVer);
       if (v.src !== url || v.error) v.src = url;
       if (edPrevT > 0){
         const seekBack = () => { v.removeEventListener("loadedmetadata", seekBack);
@@ -11905,6 +11977,15 @@ function buildModel(){
     end: +s.edited_end || 0, src: s.source_sec, text: s.text || "", i0: i, del: false,
     follow: s.source_sec != null }));
   const title = (d.title && d.title.top_title) || tl.top_title || "";
+  // 시간대별 제목(E8) — 초안 > 이전 라운드 제출 > AI 연출(타임라인이 실어 준 edit_plan 창).
+  // 실험실은 창의 **문구를 고치는 화면은 아니지만**, 창이 있다는 사실과 그 창이 완성본을
+  // 다 덮는지를 알아야 한다 — 안 그러면 제목을 고쳐도 조용히 무시된다(2026-09-01 실사고).
+  const rawSegs = (d.title && Array.isArray(d.title.segments) && d.title.segments)
+    || ((cur.prevOv.title || {}).segments) || tl.title_segments || [];
+  const titleSegs = rawSegs.map(x => ({ text: String(x.text || ""),
+    start: +x.start_sec || 0, end: +x.end_sec || 0 }))
+    .filter(x => x.text.trim() && x.end > x.start)
+    .sort((a, b) => a.start - b.start);
   // 자유 텍스트(F-411) — 초안 > 이전 라운드 제출값. 좌표는 내레이션과 같은 원본 앵커.
   if (d.subtitles) subs.forEach((su, i) => {
     const o = d.subtitles[i]; if (o) su.follow = o.source_time_sec != null;
@@ -11914,7 +11995,7 @@ function buildModel(){
   const texts = rawTexts.map(t => ({ src: +t.source_time_sec || 0,
     dur: +t.duration_sec || 2, text: t.text || "", voice: "", speed: "",
     _raw: { ...t } }));
-  cur.model = { clips, tts, subs, title, texts,
+  cur.model = { clips, tts, subs, title, texts, titleSegs,
     fromDraft: { clips: !!d.clips, tts: !!d.tts, title: !!(d.title),
                  subs: !!d.subtitles, texts: !!d.texts } };
   // 변경 감지 기준(초안 저장은 바뀐 섹션만 싣는다 — 안 바뀐 자막까지 실으면
@@ -11937,9 +12018,12 @@ function buildModel(){
   const baseTexts = (cur.prevOv.texts || []).map(t => ({ src: +t.source_time_sec || 0,
     dur: +t.duration_sec || 2, text: t.text || "", voice: "", speed: "",
     _raw: { ...t } }));
+  const baseSegs = (((cur.prevOv.title || {}).segments) || tl.title_segments || [])
+    .map(x => ({ text: String(x.text || ""), start: +x.start_sec || 0, end: +x.end_sec || 0 }))
+    .filter(x => x.text.trim() && x.end > x.start).sort((a, b) => a.start - b.start);
   cur.orig = { clips: JSON.stringify(baseClips), tts: JSON.stringify(baseTts),
                subs: JSON.stringify(baseSubs), texts: JSON.stringify(baseTexts),
-               title: tl.top_title || "" };
+               title: tl.top_title || "", titleSegs: JSON.stringify(baseSegs) };
   dirty = false; lastSavedAt = cur.row.draft_at ? new Date(cur.row.draft_at) : null;
   updSaveBtn(); paintSaveMsg();
   if (editMode) autoSaveStart();
@@ -13374,7 +13458,7 @@ function select(kind, i, el, noSeek){
         <span class="k">2줄</span><span class="v" style="font-family:inherit">${esc(ls.slice(1).join(" ") || "—")}</span>
       </div>
       <div class="small faint">문구를 고치려면 위쪽 <b>🔒 편집 잠금</b>을 풀어주세요.</div>`}
-      <div class="small faint">전체 구간에 걸칩니다 (타임드 제목 미사용).</div>`;
+      ${labSegsHtml(editMode)}`;
   }
   $("#insp").innerHTML = h + (editMode ? editFormHtml(kind, i) : "");
   updTrashBtn();                         // curSel 이 정해진 뒤에(라벨이 이전 선택을 읽었다)
@@ -13684,6 +13768,50 @@ window.addEventListener("keydown", e => {
   if (tag === "input" || tag === "textarea") return;   // 입력칸 안은 브라우저 기본 undo
   e.preventDefault(); e.shiftKey ? doRedo() : doUndo();
 });
+
+// ── 시간대별 제목(E8) — 실험실은 창을 **읽고 통째로 대체**만 한다 ────────────
+// 창의 문구·시각을 하나씩 고치는 화면은 본 편집실이다. 여기서 꼭 알려야 하는 것은 하나:
+// 창이 완성본을 다 덮으면 위 1줄·2줄(top_title)은 화면에 한 번도 안 나온다. 종전엔
+// "타임드 제목 미사용"이라고 단정해 말해서, 고친 제목이 무시되는 걸 아무도 못 봤다.
+function labOutDur(){
+  return (cur.model.clips || []).reduce((a, c) => a + Math.max(0, +c.end - +c.start), 0);
+}
+function labSegsCoverAll(){
+  const rows = (cur.model.titleSegs || []).slice().sort((a, b) => a.start - b.start);
+  const dur = labOutDur();
+  if (!rows.length || dur <= 0) return false;
+  let at = 0;
+  for (const r of rows){
+    if (+r.start > at + 0.05) return false;
+    at = Math.max(at, +r.end);
+  }
+  return at >= dur - 0.05;
+}
+function labSegsHtml(editMode){
+  const rows = cur.model.titleSegs || [];
+  if (!rows.length)
+    return `<div class="small faint">전체 구간에 걸칩니다 (시간대별 제목 없음).</div>`;
+  const dur = labOutDur();
+  return `<div class="small faint">시간대별 제목 ${rows.length}건 —
+      ${rows.map(r => `${(+r.start).toFixed(1)}~${(+r.end).toFixed(1)}s`).join(" · ")}
+      (문구는 본 편집실에서 고칩니다)</div>
+    ${labSegsCoverAll() ? `<div class="alert warn"><b>위 제목은 화면에 안 나옵니다</b> —
+      시간대별 제목이 완성본 전체(0~${dur.toFixed(1)}초)를 덮습니다. 1줄·2줄만 고쳐
+      보내도 화면은 그대로입니다.${editMode
+        ? ` <button onclick="labTitleAll()">이 제목을 전 구간에 적용</button>` : ""}</div>` : ""}`;
+}
+// 전 구간 창 하나로 못박기 — 창을 **지우는** 것으로는 안 된다(키가 없으면 엔진이
+// checkpoint_style 의 AI 창을 다시 얹는다). 본 편집실 edTitleSegAll 과 같은 규약.
+window.labTitleAll = () => {
+  const t = String(cur.model.title || "").trim();
+  if (!t){ toast("제목이 비어 있습니다"); return; }
+  const dur = labOutDur();
+  if (dur <= 0){ toast("구간이 없어 길이를 알 수 없습니다"); return; }
+  snap();
+  cur.model.titleSegs = [{ text: t, start: 0, end: +dur.toFixed(1) }];
+  layoutShorts(); refresh("title", 0); syncDirty();
+  toast(`제목을 전 구간(0~${dur.toFixed(1)}초)에 적용했습니다 — 창 1건으로 나갑니다`);
+};
 
 // ── 뮤테이터 — inspector 폼과 드래그가 부른다 ──
 window.updTitle = v => { snap(); cur.model.title = v; layoutShorts(); refresh("title", 0); };
@@ -14179,7 +14307,16 @@ function collectOv(forDraft){
     d.tts = m.tts.filter(t => String(t.text).trim()).map(t => ({
       text: String(t.text).trim(), source_time_sec: +t.src.toFixed(3),
       duration_sec: +t.dur.toFixed(3), voice: t.voice, speed: t.speed || "normal" })); n++; }
-  if (m.title !== cur.orig.title){ d.title = { top_title: m.title }; n++; }
+  // 제목 — 창(E8)이 있으면 top_title 과 **한 몸**으로 나간다. 승계가 title 키를 통째로
+  // 교체하므로 창을 빼고 보내면 엔진이 checkpoint_style 의 AI 창을 다시 얹어, 고친 제목이
+  // 조용히 무시된다(본 편집실 edCollect 와 같은 규약 · 2026-09-01 실사고).
+  const segsNow = JSON.stringify(m.titleSegs || []);
+  if (m.title !== cur.orig.title || segsNow !== (cur.orig.titleSegs || "[]")){
+    d.title = { top_title: m.title };
+    if ((m.titleSegs || []).length)
+      d.title.segments = m.titleSegs.map(x => ({ text: x.text,
+        start_sec: +(+x.start).toFixed(3), end_sec: +(+x.end).toFixed(3) }));
+    n++; }
   if (cur.pendingDesign && Object.keys(cur.pendingDesign).length){
     d.design = { ...cur.pendingDesign }; n++; }
   if (JSON.stringify(m.subs) !== cur.orig.subs){

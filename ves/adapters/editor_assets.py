@@ -132,7 +132,16 @@ def timeline_from_plan(edit_plan: dict, segments: list | None = None,
       · clips[].start_sec/end_sec — **원본 절대초**(타임라인에 그릴 위치)
       · clips[].offset_sec        — 편집본에서 이 클립이 시작하는 초(자막·프리뷰 대조용)
     자막(subtitle_segments.json)은 편집본 기준이라 offset 으로 원본 시각을 역산해 함께 준다
-    — 화면에서 자막 줄을 누르면 타임라인의 그 지점이 잡히게 하려면 둘 다 필요하다."""
+    — 화면에서 자막 줄을 누르면 타임라인의 그 지점이 잡히게 하려면 둘 다 필요하다.
+
+    🛑 title_segments(2026-09-01) — 종전엔 `top_title` 만 실어 보냈다. 그런데 AI 연출
+    (E15 style)이 만든 시간대별 제목 창은 edit_plan.layout.title_segments 에만 있고,
+    편집실이 승계하는 prev_title_segments 는 **사람이 이전에 편집실에서 보낸 창**
+    (job params.edit_overrides.title.segments)에서만 온다. 그래서 AI 창이 화면 전체를
+    덮고 있는데도 편집실은 '타임드 제목 미사용'이라고 말했고, 사람이 상단 제목을 고쳐
+    보내도 창이 그 시간을 다 덮어 화면에 한 글자도 안 나왔다(가왕쇼_9bca673b 실사고 —
+    창 하나가 0~67.4s 전체를 덮어 top_title 이 영구 무시됨).
+    좌표계는 편집실 E8 계약과 같은 **완성본(편집본) 초**라 그대로 실어 보낸다."""
     plan = edit_plan or {}
     layout = plan.get("layout") or {}
     clips, offset = [], 0.0
@@ -155,9 +164,33 @@ def timeline_from_plan(edit_plan: dict, segments: list | None = None,
     return {"schema": "editor_timeline/v1",
             "duration_sec": round(float(duration_sec or 0), 3),
             "top_title": layout.get("top_title") or "",
+            "title_segments": _title_segments(layout),
             "bottom_label": layout.get("bottom_label") or "",
             "total_clip_sec": round(offset, 3),
             "clips": clips, "subtitles": subs}
+
+
+def _title_segments(layout: dict) -> list:
+    """layout.title_segments → 편집실 E8 모양({text,start_sec,end_sec}). 순수.
+
+    문구 없는 창·역전 구간은 버린다 — 화면이 못 고치는 유령 행이 되고, 그대로
+    되보내면 엔진 E8 검증기(validate_title_segments)가 재렌더를 통째로 거절한다.
+    시각순 정렬은 화면 표시 순서 = 저장 순서를 맞추기 위한 것(자막과 같은 규약)."""
+    out = []
+    for sg in layout.get("title_segments") or []:
+        if not isinstance(sg, dict):
+            continue
+        text = str(sg.get("text") or "")
+        try:
+            st = float(sg.get("start_sec") or 0)
+            en = float(sg.get("end_sec") or 0)
+        except (TypeError, ValueError):
+            continue
+        if not text.strip() or en <= st:
+            continue
+        out.append({"text": text, "start_sec": round(st, 3), "end_sec": round(en, 3)})
+    out.sort(key=lambda x: (x["start_sec"], x["end_sec"]))
+    return out
 
 
 def tts_from_checkpoints(resources: dict | None, silence_cut: dict | None) -> list:
