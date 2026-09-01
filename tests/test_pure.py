@@ -5572,3 +5572,74 @@ def test_p8_vlp_frozen_guard():
     assert "PermanentError" in head                        # 재시도 없이 즉시
     sql = pathlib.Path("ves/control/migrations/0102_vlp_frozen.sql").read_text(encoding="utf-8")
     assert "'vlp_frozen', 'on'" in sql
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# 편집실 화면 ↔ 엔진 규칙 일치 (2026-09-01 실사고)
+# ══════════════════════════════════════════════════════════════════════════
+def _dash():
+    import pathlib
+    return pathlib.Path("dashboard/index.html").read_text(encoding="utf-8")
+
+
+def test_dashboard_dedup_matches_engine_min_keep_rule():
+    """복제한 엔진 규칙이 엔진과 같은 판정을 해야 한다.
+
+    엔진은 2026-08-25 에 `min_keep_sec` 판정 앞에 `trimmed and` 를 붙였다 — 이건
+    **겹침을 잘라내고 남은 부스러기**를 버리는 규칙이지, 짧게 잡은 구간을 버리는
+    규칙이 아니다(대사 한 줄 단위 편집 ≈1s 가 정상 사용법이다). 그런데 대시보드
+    복제본만 옛 규칙으로 남아, 겹침이 하나도 없는 짧은 구간까지 '제거됩니다'로
+    표시했다. 실사고: 30구간 중 **16개**가 그렇게 표시됐고 — 엔진은 실제로 하나도
+    안 지웠다 — 그것들이 구간 트랙에서 left:0 에 포개져 클릭도 삭제도 안 되는 바람에
+    사람이 지운 구간이 **다섯 라운드 연속 제출되지 않았다**."""
+    d = _dash()
+    dedup = d.split("function dedup(clips){", 1)[1].split("\n}", 1)[0]
+    assert "if (cut && ne - ns < 1.5)" in dedup      # 겹쳐서 잘린 경우에만 버린다
+    assert "if (ne - ns < 1.5)" not in dedup         # 옛 규칙이 되살아나면 안 된다
+    # 절삭 판정은 한 곳에서만 계산한다(두 번 적으면 언젠가 갈린다)
+    assert dedup.count("ns !== c.start || ne !== c.end") == 1
+
+
+def test_dashboard_dead_clips_are_individually_clickable():
+    """제거 예정 구간을 한 점에 포개면 사람이 그걸 지울 수 없다.
+
+    종전 `left: c.dead ? 0 : …` 은 dead 를 전부 타임라인 0초에 그렸다 — 여러 개면
+    맨 위 한 장만 클릭되고 나머지는 존재하지 않는 것과 같다. 사람은 원본 소재 줄에서만
+    지울 수 있었고, 두 줄이 어긋나 보이는 증상으로 드러났다."""
+    d = _dash()
+    assert "const left = c.dead ? 0 : c.out * px" not in d
+    assert "left = deadAt + deadN * (wpx + 2)" in d   # 있었을 자리에 나란히
+    # 클릭 대상 인덱스는 여전히 **원본 배열 인덱스**여야 한다(정렬된 순서가 아니다)
+    assert 'data-k="clip" data-i="${c.i}"' in d
+
+
+def test_editor_draft_save_is_wired_to_every_mutator():
+    """초안 저장이 일부 뮤테이터에만 걸려 있으면 그 편집만 조용히 증발한다.
+
+    실사고: 실험실의 30초 자동 저장은 `dirty` 를 보는데 그 값을 세우는 곳이
+    undo/redo 뿐이라 **한 번도 돌지 않았다**(화면은 "30초마다 자동 저장됩니다"라고
+    말하는 중에). 본 편집실도 같은 모양으로 edQueueSave 가 edMark 안에만 있어
+    edDelClip·edMove·edDelSub·edImgDel 계열이 초안에 안 남았다.
+    두 화면 다 **모든 편집이 반드시 부르는 undo 스냅샷**에 걸어 새는 함수를 없앤다."""
+    d = _dash()
+    lab = d.split("function snap(){", 1)[1].split("\n}", 1)[0]
+    assert "syncDirty();" in lab and "setTimeout(" in lab   # 판정은 변경 뒤(다음 tick)
+    assert "if (cur && cur.model)" in lab                   # run 전환 중이면 건너뛴다
+    ed = d.split("function edSnap(tag){", 1)[1].split("\n}", 1)[0]
+    assert "edQueueSave();" in ed
+    # 개별 함수에 일일이 거는 방식으로 되돌아가면 반드시 빠뜨린다 — 지점은 하나다
+    assert d.count("if (cur && cur.model) syncDirty();") == 1
+
+
+def test_dashboard_dedup_agrees_with_engine_source_when_available():
+    """엔진 소스가 옆에 있으면 조건문 자체를 대조한다(없으면 건너뛴다).
+
+    두 레포가 갈려 있어 import 대조는 못 한다 — 대신 규칙이 또 갈라지는 것을
+    개발 머신에서라도 잡는다."""
+    import pathlib
+    eng = pathlib.Path("../ai-video/app/pipeline.py")
+    if not eng.exists():
+        pytest.skip("ai-video 체크아웃이 옆에 없다")
+    src = eng.read_text(encoding="utf-8")
+    body = src.split("def _dedup_storyline_clips(", 1)[1].split("\ndef ", 1)[0]
+    assert "if trimmed and new_end - new_start < min_keep_sec:" in body
