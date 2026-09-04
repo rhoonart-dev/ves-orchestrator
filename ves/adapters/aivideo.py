@@ -56,8 +56,44 @@ def v3_enabled(cfg, params) -> bool:
     return bool((design or {}).get("pipeline_v3"))
 
 
-def build_argv_v3_pure(py: str, params: dict, source_path: str | None) -> list:
-    """v3 엔트리 argv. 순수 — 테스트 대상. build_argv_pure 와 대칭."""
+# v3 엔진(app.v3)이 받는 채널 design 키 — **이 목록만** 싣는다. 모르는 플래그는 v3
+# argparse 즉사라 화이트리스트다. 엔진 app/v3/cli.py CHANNEL_DESIGN_ARGS(+--no-reframe)
+# 와 1:1(ai-video tests/test_v3_channel_design 이 어휘를 대조).
+#   2026-09-04 ① 플랫폼 표기 — 가왕쇼 7화 v3 실런에서 '티빙' 누락(채널 design 에는
+#   있었는데 이 분기가 브랜딩 플래그를 통째로 안 실었다) ② 채널 프리셋 주입(사용자
+#   지시) — 밴드·색·크기·폰트·작품명 위치·face_tracking 까지 v1 과 같은 키로.
+# 안 싣는 키(v3 에 대응 동작이 없다): transcribe_backend(전사는 grid whisper 고정),
+# style_compose(Stage 4 가 연출), subtitles(어절 자막 상시), video_speed·title_rotate·
+# tts_rotate·title_box*·subtitle_style·subtitle_avoid_burned·title_highlight_color,
+# pipeline_v3(게이트 키).
+V3_DESIGN_KEYS = frozenset({
+    "title_y", "video_y", "video_width",
+    "title_font", "title_size", "title_size2", "title_color", "title_color2",
+    "subtitle_font", "subtitle_size", "subtitle_color", "subtitle_y_margin",
+    "tts_color", "tts_size", "tts_y_margin", "tts_width",
+    "work_title_y", "work_font_size", "work_color", "aspect_ratio",
+    "face_tracking",                                   # 스위치 → --no-reframe
+    "platform_image", "platform_text", "platform_x", "platform_y",
+    "platform_image_width", "platform_image_height",
+    "platform_font_size", "platform_color", "platform_align",
+    "subtitle_band_offset", "tts_band_offset",         # v3 전용 상대 앵커
+})
+
+
+def v3_design_flags(design, channel) -> list:
+    """채널 design → v3 가 아는 --design-* 만. 나머지 키는 **조용히 제외**(에러 아님 —
+    같은 채널 템플릿이 v1 전용 키를 들고 있는 것이 정상이다. 목록은 V3_DESIGN_KEYS 주석).
+    남긴 키의 값 검증·플래그 어휘·스위치(face_tracking → --no-reframe)는
+    channel_design_flags 그대로. 순수."""
+    picked = {k: v for k, v in (design or {}).items() if k in V3_DESIGN_KEYS}
+    return channel_design_flags(picked, channel, v3=True) if picked else []
+
+
+def build_argv_v3_pure(py: str, params: dict, source_path: str | None,
+                       design: dict | None = None) -> list:
+    """v3 엔트리 argv. 순수 — 테스트 대상. build_argv_pure 와 대칭.
+    design: 채널 design(관제 오버라이드 > channels.json) — v3_design_flags 로 걸러 싣는다.
+    None 이면 종전 argv 와 바이트 동일."""
     p = params
     cmd = [py, "-u", "-m", "app.v3",
            "--work-title", p["work_title"]]
@@ -71,6 +107,7 @@ def build_argv_v3_pure(py: str, params: dict, source_path: str | None) -> list:
     if p.get("no_research", True):
         cmd += ["--skip-research"]
     cmd += ["--outdir", p.get("outdir") or "outputs"]
+    cmd += v3_design_flags(design, p.get("channel_name"))
     return cmd
 
 
@@ -89,8 +126,9 @@ def pick_resume_step_v3(checkpoint_filenames) -> str | None:
 
 
 def _build_argv_v3(cfg, job):
-    """v3 분기 — fresh/resume 공통. 디자인·브랜딩 플래그는 싣지 않는다(v3 미지원 —
-    스타일은 엔진 Stage 4 가 정본, 채널 프리셋 주입은 M5 후속)."""
+    """v3 분기 — fresh/resume 공통. 디자인 플래그는 V3_DESIGN_KEYS(플랫폼 표기)만
+    싣는다 — 나머지 스타일은 엔진 Stage 4 가 정본, 채널 프리셋 주입은 M5 후속.
+    resume(--from-step render)에도 같은 값이 실려야 재렌더에서 표기가 안 빠진다."""
     p = job["params"] or {}
     rid = p.get("resume_run_id")
     if p.get("edit_overrides") and not rid:
@@ -99,7 +137,9 @@ def _build_argv_v3(cfg, job):
     src = cfgmod.source_cache_path(cfg, p["source_sha256"]) if p.get("source_sha256") else None
     if src and not pathlib.Path(src).exists():
         raise base.PermanentError(f"소스 캐시 없음: {src} — acquire 선행 확인")
-    argv = build_argv_v3_pure(cfgmod.engine_py(cfg, "ai_video"), p, src)
+    rec = _channel_record(cfg, p.get("channel_name"))
+    design = effective_design(p.get("design_override"), (rec or {}).get("design"))
+    argv = build_argv_v3_pure(cfgmod.engine_py(cfg, "ai_video"), p, src, design)
     if not rid:
         return argv
     outdir = p.get("outdir") or "outputs"
@@ -190,7 +230,14 @@ CHANNEL_DESIGN_FLAGS = {
     "platform_font_size": "--design-platform-font-size",
     "platform_color": "--design-platform-color",
     "platform_align": "--design-platform-align",   # left(기본)|right
+    # v3 전용(2026-09-04): 자막 블록 윗변을 '밴드 하단 + N px' 에 거는 상대 앵커. 절대 margin
+    # (subtitle_y_margin·tts_y_margin)은 화면비·video_y 마다 손으로 다시 잡아야 했다(가왕쇼
+    # 13:9·440 에 맞춘 tts 550 이 500 에서 겹친 실사고). **v1 CLI 엔 없다** — v1 잡에는 안
+    # 싣는다(V3_ONLY_DESIGN_KEYS · channel_design_flags 가 거른다).
+    "subtitle_band_offset": "--design-subtitle-band-offset",
+    "tts_band_offset": "--design-tts-band-offset",
 }
+V3_ONLY_DESIGN_KEYS = frozenset({"subtitle_band_offset", "tts_band_offset"})
 CHANNEL_DESIGN_SWITCHES = {
     "face_tracking": ("--no-reframe", False),   # false 면 얼굴 추종 크롭 끔
     # 대사 자막 끔(8/20 Sally) — false 면 소스에 자막이 있어도 이 채널은 안 그린다.
@@ -245,12 +292,16 @@ def _transcribe_value(channel, v) -> str:
     return sv
 
 
-def channel_design_flags(design, channel) -> list:
+def channel_design_flags(design, channel, *, v3: bool = False) -> list:
     """채널 'design' dict → CLI 플래그. '_' 키 무시, 모르는 키는 즉시 실패 —
-    조용히 무시하면 오타 난 템플릿이 기본값으로 발행되고 아무도 모른다(registry 원칙). 순수."""
+    조용히 무시하면 오타 난 템플릿이 기본값으로 발행되고 아무도 모른다(registry 원칙). 순수.
+    v3=False(v1 잡)면 V3_ONLY_DESIGN_KEYS 는 **조용히 건너뛴다** — v1 argparse 즉사 방지.
+    (에러가 아닌 이유: 같은 채널 템플릿이 v1·v3 를 오가며 쓰인다.)"""
     flags = []
     for k, v in (design or {}).items():
         if k.startswith("_"):
+            continue
+        if k in V3_ONLY_DESIGN_KEYS and not v3:
             continue
         if k in CHANNEL_DESIGN_SWITCHES:
             flag, on_value = CHANNEL_DESIGN_SWITCHES[k]
