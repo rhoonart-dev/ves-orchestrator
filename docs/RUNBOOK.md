@@ -127,3 +127,16 @@ UPDATE public.ops_config SET value='[]', updated_at=now() WHERE key='paused_chan
 
 재개 당일 바로 한 편 돌리려면 `planner_kick` 을 건드려 그날 계획을 다시 부른다
 (§8-2 · `ops_config.planner_kick` 값을 now()::text 로 갱신).
+
+
+## 11. 새 채널 토큰을 6대에 넣을 때 — `deploy/apply_channel_token.sh` (apply_loopy_token.sh 의 범용판, 2026-09-11):
+
+```bash
+bash deploy/apply_channel_token.sh --slug BUMEOKJJIKMEOK --expect-id UC… \
+     --from-env ~/rhoonart/ai-improvement-edit-video/.env   # 노트북 brain .env 에서 읽음(없으면 프롬프트)
+```
+
+- 노드마다 토큰이 `--expect-id` 채널에 바인딩된 것을 channels.list(mine=true) 로 확인한 뒤에만
+  `secrets/ves.env` 를 바꾼다(오채널 발행 방지). 확인은 그 채널 gcp_project 의 YouTube API 쿼터를
+  쓰므로 **쿼터 초과(quotaExceeded) 상태면 전 노드 중단** — 00:00 PT(=16:00 KST) 리셋 뒤 재실행.
+- 워커 재기동은 불필요 — 잡은 실행 때마다 env 파일을 다시 읽는다(`config.job_env`).
