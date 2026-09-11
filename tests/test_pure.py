@@ -5635,8 +5635,13 @@ def test_dashboard_dedup_agrees_with_engine_source_when_available():
     """엔진 소스가 옆에 있으면 조건문 자체를 대조한다(없으면 건너뛴다).
 
     두 레포가 갈려 있어 import 대조는 못 한다 — 대신 규칙이 또 갈라지는 것을
-    개발 머신에서라도 잡는다."""
+    개발 머신에서라도 잡는다.
+
+    ⚠ 이 파일은 pytest 를 모듈 수준에서 import 하지 않는다 — skip 분기가 실행되는
+    환경(노드: /opt/ves/orchestrator 옆에 ai-video 가 없다)에서 NameError 로 **실패**해
+    자동 갱신 스모크(-x)가 죽고 6대가 self-disabled 됐다(2026-09-01 ~ 09-11 실사고)."""
     import pathlib
+    import pytest
     eng = pathlib.Path("../ai-video/app/pipeline.py")
     if not eng.exists():
         pytest.skip("ai-video 체크아웃이 옆에 없다")
