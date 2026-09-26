@@ -260,7 +260,14 @@ def backfill_missing(conn, cfg) -> int:
                        comment_count=EXCLUDED.comment_count""",
                 (cid, views, likes, comments))
     print(f"[perf_sync] 직접 보완 {len(rows)}/{len(ids)}건(YouTube API)")
+    by_channel: dict = {}
+    if rows:
+        with conn.cursor() as c:
+            c.execute("SELECT content_id, channel_id FROM public.perf_video_map WHERE content_id = ANY(%s)",
+                      ([r[0] for r in rows],))
+            for r in c.fetchall():
+                by_channel[r["channel_id"]] = by_channel.get(r["channel_id"], 0) + 1
     yt_public.note_status(conn, "perf_backfill_status",
                           yt_public.backfill_reason(len(ids), len(rows), failed),
-                          len(ids), len(rows))
+                          len(ids), len(rows), channels=by_channel)
     return len(rows)

@@ -49,11 +49,26 @@ def backfill_reason(pending: int, filled: int, failed_calls: int) -> str:
     return "partial" if filled else "unavailable"
 
 
-def status_payload(reason: str, pending: int, filled: int, at: str) -> str:
+def status_payload(reason: str, pending: int, filled: int, at: str,
+                   channels: dict | None = None, date: str | None = None) -> str:
     """ops_config 에 남길 상태 JSON. 순수.
-    reason: ok | api_key_missing | api_error | partial | unavailable"""
-    return json.dumps({"reason": reason, "pending": int(pending), "filled": int(filled),
-                       "at": at}, ensure_ascii=False)
+    reason: ok | api_key_missing | api_error | partial | unavailable
+    channels: 그날(KST date) 유튜브에서 직접 채운 영상 수 {channel_id: 편수} — 대시보드가 채널별로 보여 준다."""
+    d = {"reason": reason, "pending": int(pending), "filled": int(filled), "at": at}
+    if date:
+        d["date"] = date
+    if channels is not None:
+        d["channels"] = {k: int(v) for k, v in channels.items() if v}
+    return json.dumps(d, ensure_ascii=False)
+
+
+def merge_day_counts(prev: dict | None, date: str, add: dict) -> dict:
+    """같은 날의 채널별 보완 편수를 이어 센다. 순수.
+    채운 영상은 오늘 스냅샷이 생겨 다음 회전의 보완 대상에서 빠지므로 매시간 기록을 덮어쓰면 '오늘 채운 수'가 사라진다."""
+    base = dict((prev or {}).get("channels") or {}) if (prev or {}).get("date") == date else {}
+    for k, v in (add or {}).items():
+        base[k] = int(base.get(k, 0)) + int(v)
+    return base
 
 
 
@@ -112,17 +127,28 @@ def api_key(cfg) -> str | None:
     return pick_key(os.environ, cfgmod.file_env(), brain)
 
 
-def note_status(conn, key: str, reason: str, pending: int, filled: int) -> None:
-    """보완의 성패를 관제가 보는 자리에 남긴다. 기록 실패가 본 작업을 죽이지는 않는다."""
+def note_status(conn, key: str, reason: str, pending: int, filled: int,
+                channels: dict | None = None) -> None:
+    """보완의 성패를 관제가 보는 자리에 남긴다. 기록 실패가 본 작업을 죽이지는 않는다.
+    channels(이번 회전에 채운 {channel_id: 편수})는 같은 날(KST) 기록에 더해 남긴다."""
     import datetime as dt
     try:
+        now = dt.datetime.now(dt.timezone.utc)
+        date = (now + dt.timedelta(hours=9)).date().isoformat()
         with conn.cursor() as c:
+            c.execute("SELECT value FROM public.ops_config WHERE key = %s", (key,))
+            row = c.fetchone()
+            try:
+                prev = json.loads((row["value"] if isinstance(row, dict) else row[0]) or "{}") if row else {}
+            except (TypeError, ValueError):
+                prev = {}
+            day = merge_day_counts(prev, date, channels or {})
             c.execute("""INSERT INTO public.ops_config(key, value, note)
                          VALUES (%s, %s, %s)
                          ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value,
                              note=EXCLUDED.note, updated_at=now()""",
-                      (key, status_payload(reason, pending, filled,
-                                           dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")),
+                      (key, status_payload(reason, pending, filled, now.isoformat(timespec="seconds"),
+                                           channels=day, date=date),
                        "YouTube 공개 API 보완 상태 — 대시보드가 읽는다(코드가 씀)"))
     except Exception as e:  # noqa: BLE001
         print(f"[yt_public] 상태 기록 실패(무시): {type(e).__name__} {e}")

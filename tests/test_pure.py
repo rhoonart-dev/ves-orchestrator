@@ -5643,3 +5643,15 @@ def test_dashboard_dedup_agrees_with_engine_source_when_available():
     src = eng.read_text(encoding="utf-8")
     body = src.split("def _dedup_storyline_clips(", 1)[1].split("\ndef ", 1)[0]
     assert "if trimmed and new_end - new_start < min_keep_sec:" in body
+
+
+def test_yt_backfill_day_counts():
+    """같은 날 보완 편수는 이어 세고, 날이 바뀌면 새로 센다 — 대시보드 '오늘 유튜브에서 직접 가져온 영상'."""
+    import json
+    from ves.scheduler.yt_public import merge_day_counts, status_payload
+    prev = {"date": "2026-09-26", "channels": {"UC1": 2}}
+    assert merge_day_counts(prev, "2026-09-26", {"UC1": 1, "UC2": 3}) == {"UC1": 3, "UC2": 3}
+    assert merge_day_counts(prev, "2026-09-27", {"UC2": 1}) == {"UC2": 1}
+    assert merge_day_counts(None, "2026-09-26", {}) == {}
+    d = json.loads(status_payload("partial", 3, 2, "t", channels={"UC1": 2, "UC9": 0}, date="2026-09-26"))
+    assert d["channels"] == {"UC1": 2} and d["date"] == "2026-09-26"
