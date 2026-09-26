@@ -85,3 +85,67 @@ def test_step_order_v3_matches_engine_vocabulary():
     assert STEP_ORDER_V3 == ["research", "probe", "proxy", "grid", "seq_analyze",
                              "chunk_split", "chunk_analyze", "story", "resources",
                              "draft_render", "style", "render", "validate"]
+
+
+# ── 플랫폼 표기 통과(2026-09-04, 가왕쇼 7화 '티빙' 누락 후속) ──
+
+def test_v3_design_flags_pick_supported_keys_only():
+    from ves.adapters.aivideo import V3_DESIGN_KEYS, v3_design_flags
+    # 한 입 주막 실물 design(2026-09-04 DB 실측)에 v1 전용 키를 섞은 입력
+    design = {"video_y": 440, "aspect_ratio": "13:9", "title_font": "여기어때 잘난체 고딕 TTF",
+              "face_tracking": False, "platform_text": "티빙", "platform_align": "right",
+              "transcribe_backend": "elevenlabs", "style_compose": True,
+              "subtitles": False, "video_speed": 1.2, "_note": "x"}
+    flags = v3_design_flags(design, "HANIPJUMAK")
+    # v1 전용 키(transcribe_backend·style_compose·subtitles·video_speed)는 에러가 아니라 제외
+    assert flags == ["--design-video-y", "440", "--design-aspect-ratio", "13:9",
+                     "--design-title-font", "여기어때 잘난체 고딕 TTF",
+                     "--no-reframe",
+                     "--design-platform-text", "티빙",
+                     "--design-platform-align", "right"]
+    assert v3_design_flags({"face_tracking": True}, "c") == []      # 켜짐 = 플래그 없음
+    assert v3_design_flags(None, "c") == [] and v3_design_flags({}, "c") == []
+    for banned in ("transcribe_backend", "style_compose", "subtitles", "video_speed",
+                   "pipeline_v3", "title_rotate"):
+        assert banned not in V3_DESIGN_KEYS
+
+
+def test_v3_argv_carries_platform_text_and_stays_identical_without_design():
+    p = {"work_title": "가왕쇼", "episode": 7, "no_research": True,
+         "outdir": "outputs", "channel_name": "HANIPJUMAK"}
+    base_argv = build_argv_v3_pure("/py", p, "/s.mp4")
+    assert build_argv_v3_pure("/py", p, "/s.mp4", None) == base_argv       # 회귀 0
+    argv = build_argv_v3_pure("/py", p, "/s.mp4",
+                              {"platform_text": "티빙", "title_size": 80,
+                               "transcribe_backend": "elevenlabs"})
+    assert argv[:len(base_argv)] == base_argv
+    assert argv[len(base_argv):] == ["--design-platform-text", "티빙",
+                                     "--design-title-size", "80"]
+    assert "--transcribe-backend" not in " ".join(argv)
+
+
+def test_v3_platform_flags_also_on_resume(monkeypatch, tmp_path):
+    import ves.adapters.aivideo as a
+    monkeypatch.setattr(a, "_channel_record",
+                        lambda cfg, name: {"design": {"pipeline_v3": True,
+                                                      "platform_text": "티빙"}})
+    monkeypatch.setattr(a.cfgmod, "engine_py", lambda cfg, k: "/py")
+    monkeypatch.setattr(a.cfgmod, "engine_dir", lambda cfg, k: str(tmp_path))
+    monkeypatch.setattr(a.cfgmod, "source_cache_path", lambda cfg, sha: str(tmp_path / "s.mp4"))
+    (tmp_path / "s.mp4").write_bytes(b"")
+    (tmp_path / "outputs" / "r1").mkdir(parents=True)
+    job = {"params": {"work_title": "가왕쇼", "channel_name": "c", "source_sha256": "x",
+                      "resume_run_id": "r1", "from_step": "render"}}
+    argv = a._build_argv_v3({}, job)
+    assert "--design-platform-text" in argv and "--from-step" in argv
+
+
+def test_band_offset_keys_go_to_v3_only():
+    from ves.adapters.aivideo import V3_ONLY_DESIGN_KEYS, channel_design_flags, v3_design_flags
+    design = {"video_y": 500, "subtitle_band_offset": 30, "tts_band_offset": 24}
+    assert v3_design_flags(design, "c") == ["--design-video-y", "500",
+                                            "--design-subtitle-band-offset", "30",
+                                            "--design-tts-band-offset", "24"]
+    # v1 잡(job_design_flags 경로)에는 실리지 않는다 — v1 argparse 즉사 방지, 에러도 아님
+    assert channel_design_flags(design, "c") == ["--design-video-y", "500"]
+    assert V3_ONLY_DESIGN_KEYS == {"subtitle_band_offset", "tts_band_offset"}

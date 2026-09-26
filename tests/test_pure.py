@@ -5648,3 +5648,24 @@ def test_dashboard_dedup_agrees_with_engine_source_when_available():
     src = eng.read_text(encoding="utf-8")
     body = src.split("def _dedup_storyline_clips(", 1)[1].split("\ndef ", 1)[0]
     assert "if trimmed and new_end - new_start < min_keep_sec:" in body
+
+
+def test_yt_backfill_day_counts():
+    """같은 날 보완 편수는 이어 세고, 날이 바뀌면 새로 센다 — 대시보드 '오늘 유튜브에서 직접 가져온 영상'."""
+    import json
+    from ves.scheduler.yt_public import merge_day_counts, status_payload
+    prev = {"date": "2026-09-26", "channels": {"UC1": 2}}
+    assert merge_day_counts(prev, "2026-09-26", {"UC1": 1, "UC2": 3}) == {"UC1": 3, "UC2": 3}
+    assert merge_day_counts(prev, "2026-09-27", {"UC2": 1}) == {"UC2": 1}
+    assert merge_day_counts(None, "2026-09-26", {}) == {}
+    d = json.loads(status_payload("partial", 3, 2, "t", channels={"UC1": 2, "UC9": 0}, date="2026-09-26"))
+    assert d["channels"] == {"UC1": 2} and d["date"] == "2026-09-26"
+
+
+def test_trend_report_exclusions():
+    """리포트에서 뺄 작품·채널 — ops_config.trend_report 의 exclude_works·exclude_channels."""
+    from ves.scheduler.trend_report import is_excluded, merge_config
+    conf = merge_config('{"enabled": true, "exclude_works": ["B급 스튜디오"], "exclude_channels": ["BGSUNSAK"]}')
+    assert is_excluded("B급 스튜디오", "X", conf) and is_excluded("가왕쇼", "BGSUNSAK", conf)
+    assert not is_excluded("가왕쇼", "HANIPJUMAK", conf)
+    assert not is_excluded("B급 스튜디오", "X", merge_config(None))
