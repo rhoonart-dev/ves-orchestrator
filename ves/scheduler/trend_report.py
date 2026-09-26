@@ -24,7 +24,9 @@ import re
 import statistics
 
 CONFIG_KEY = "trend_report"
-DEFAULTS = {"enabled": False, "model": "gemini-3.6-flash", "narrative": True}
+DEFAULTS = {"enabled": False, "model": "gemini-3.6-flash", "narrative": True,
+            # 리포트에서 뺄 작품(work_title)·채널(token_slug) — 사람이 ops_config.trend_report 에서 고친다(2026-09-26: B급 스튜디오)
+            "exclude_works": [], "exclude_channels": []}
 DEFAULT_K = {"sweet_spot_sec": [30, 45],
              "retention_min": {"lt30": 65.0, "30to60": 50.0},
              "impression_floor": 100, "ctr_floor": 2.0}
@@ -47,6 +49,12 @@ def merge_config(raw) -> dict:
     except ValueError:
         pass
     return conf
+
+
+def is_excluded(work, channel, conf) -> bool:
+    """리포트에서 뺄 작품·채널인가. 순수 — 테스트 대상."""
+    return (work or "") in set(conf.get("exclude_works") or []) or \
+        (channel or "") in set(conf.get("exclude_channels") or [])
 
 
 def merge_constants(raw) -> dict:
@@ -320,8 +328,9 @@ def _rows(conn, sql, args=()):
         return c.fetchall()
 
 
-def build_facts(conn, today: dt.date) -> dict:
-    """리포트 facts 전부 — 숫자는 여기서만 태어난다."""
+def build_facts(conn, today: dt.date, conf: dict | None = None) -> dict:
+    """리포트 facts 전부 — 숫자는 여기서만 태어난다. conf 의 exclude_works·exclude_channels 는 모든 절에서 뺀다."""
+    conf = conf or {}
     k = _constants(conn)
 
     ref = _rows(conn, "SELECT max(stat_date) AS d FROM public.perf_studio_daily")[0]["d"]
@@ -348,6 +357,7 @@ def build_facts(conn, today: dt.date) -> dict:
         v["ctr"] = round(float(v["ctr"]), 2) if v.get("ctr") is not None else None
         v["view_pct"] = round(float(v["view_pct"]), 1) if v.get("view_pct") is not None else None
         v.update(judge(v, k))
+    vids = [v for v in vids if not is_excluded(v["work"], v["channel"], conf)]
 
     works: dict = {}
     for v in vids:
@@ -387,6 +397,7 @@ def build_facts(conn, today: dt.date) -> dict:
     market = group_market(_rows(conn, """
         SELECT title, channel_title, view_count, raw FROM public.trend_snapshot
          WHERE collected_date=%s AND source='youtube_market'""", (tdate,))) if tdate else []
+    market = [m for m in market if not is_excluded(m.get("work"), None, conf)]
     outside = {"collected_date": tdate, "regions": cap_regions(trends), "market": market}
     catmix: dict = {}
     for t in trends:
@@ -415,6 +426,8 @@ def build_facts(conn, today: dt.date) -> dict:
           FROM public.perf_studio_daily d GROUP BY 1, 2""")
     for r in daily:
         r["channel"] = slug.get(r.pop("channel_id"), "?")
+    excluded_ch = {sl for sl in slug.values() if is_excluded(None, sl, conf)}
+    daily = [r for r in daily if r["channel"] not in excluded_ch]
     momentum = classify_momentum(daily, ref)[:6]
     ext_titles = [t["title"] for t in trends if t.get("title")] + [
         v["title"] for m in market for v in m["videos"] if v.get("title")]
@@ -463,7 +476,7 @@ def run(conn, cfg):
         return          # 스위치 off — 켜고 끄는 것은 사람이다(ops_config.trend_report)
     kst = dt.timezone(dt.timedelta(hours=9))
     today = dt.datetime.now(kst).date()
-    facts = build_facts(conn, today)
+    facts = build_facts(conn, today, conf)
 
     narrative, status, model = None, "facts_only", conf["model"]
     prompt = build_prompt(facts)

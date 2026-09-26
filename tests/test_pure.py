@@ -5655,3 +5655,12 @@ def test_yt_backfill_day_counts():
     assert merge_day_counts(None, "2026-09-26", {}) == {}
     d = json.loads(status_payload("partial", 3, 2, "t", channels={"UC1": 2, "UC9": 0}, date="2026-09-26"))
     assert d["channels"] == {"UC1": 2} and d["date"] == "2026-09-26"
+
+
+def test_trend_report_exclusions():
+    """리포트에서 뺄 작품·채널 — ops_config.trend_report 의 exclude_works·exclude_channels."""
+    from ves.scheduler.trend_report import is_excluded, merge_config
+    conf = merge_config('{"enabled": true, "exclude_works": ["B급 스튜디오"], "exclude_channels": ["BGSUNSAK"]}')
+    assert is_excluded("B급 스튜디오", "X", conf) and is_excluded("가왕쇼", "BGSUNSAK", conf)
+    assert not is_excluded("가왕쇼", "HANIPJUMAK", conf)
+    assert not is_excluded("B급 스튜디오", "X", merge_config(None))
