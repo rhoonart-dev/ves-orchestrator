@@ -28,8 +28,9 @@ CREATE POLICY source_channels_delete ON public.source_channels FOR DELETE TO aut
 ALTER TABLE public.work_release_schedule
  ADD COLUMN release_kind text NOT NULL DEFAULT 'main' CHECK (release_kind IN ('main','preview','recap','trailer','other')),
  ADD COLUMN source_location text CHECK (source_location IS NULL OR source_location IN ('drive','youtube','other')),
- ADD COLUMN source_channel_id uuid REFERENCES public.source_channels(id) ON DELETE SET NULL;
+ ADD COLUMN source_channel_ids uuid[] NOT NULL DEFAULT '{}' CHECK (cardinality(source_channel_ids) <= 10);
 COMMENT ON COLUMN public.work_release_schedule.release_kind IS '공개 종류 — main 본편 · preview 선공개 · recap 몰아보기 · trailer 예고편 · other 기타';
+COMMENT ON COLUMN public.work_release_schedule.source_channel_ids IS '원본 유튜브 채널(source_channels.id) — 여러 채널을 같이 쓸 수 있다. 목록에서 빠진 채널 id 는 화면이 무시한다';
 COMMENT ON COLUMN public.work_release_schedule.source_location IS '우리 쇼츠 원본을 받는 곳 — drive · youtube · other (공개 플랫폼과 따로)';
 
 INSERT INTO public.source_channels(name,url,handle,avatar_url,created_by) VALUES
