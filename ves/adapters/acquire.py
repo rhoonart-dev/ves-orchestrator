@@ -86,6 +86,7 @@ def post_success(cfg, conn, job, result):
         c.execute(
             """UPDATE public.job_queue
                   SET required_caps = required_caps || %s::text[], updated_at=now()
-                WHERE work_order_id=%s AND kind='generate' AND status='pending'
+                WHERE work_order_id=%s AND kind IN ('generate','tikitaka_generate')
+                  AND status='pending'
                   AND NOT required_caps @> %s::text[]""",
             (cap, job["work_order_id"], cap))
