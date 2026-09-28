@@ -21,7 +21,8 @@ CAFFEINATE = "/usr/bin/caffeinate"
 RESOURCE_RETRY_SEC = 120
 
 # 디스크 사전 점검(8/11 실측: mm-01 0.1GB 로 잡을 집어 전부 죽임 — 오염 워커 방지)
-HEAVY_KINDS = {"acquire", "generate", "sync_drive_folder", "localize", "zanmang_autopilot"}
+HEAVY_KINDS = {"acquire", "generate", "sync_drive_folder", "localize", "zanmang_autopilot",
+               "tikitaka_generate"}
 MIN_FREE_GB = 15
 DISK_RETRY_SEC = 900
 

@@ -299,3 +299,6 @@ def _load_all():
     register("editor_assets", editor_assets)           # 검수함 편집실 재료(8/16)
     from ves.adapters import publish_external
     register("publish_external", publish_external)     # 외부 완성본 발행(L-P5-발행)
+    from ves.adapters import tikitaka
+    register("tikitaka_generate", tikitaka.Generate)    # 새 방식 — 회차 1개로 N 편(0111)
+    register("tikitaka_upload", tikitaka.Upload)        # 편 번들 → ves-outputs + tikitaka_videos

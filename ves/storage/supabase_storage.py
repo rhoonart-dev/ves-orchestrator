@@ -67,14 +67,17 @@ class Store:
         self.base = url.rstrip("/") + "/storage/v1"
         self.headers = {"Authorization": f"Bearer {service_key}", "apikey": service_key}
 
-    def upload(self, bucket: str, key: str, path: str) -> None:
+    def upload(self, bucket: str, key: str, path: str,
+               content_type: str = "application/octet-stream") -> None:
+        """content_type: 브라우저가 바로 재생·표시할 파일(새 방식 편 번들 — 워크스페이스가 서명 URL 로 연다)만
+        넘긴다. 종전 호출은 기본값 그대로(바이트 동일)."""
         if use_tus(os.path.getsize(path)):
             return self._upload_tus(bucket, key, path)
         import requests
         with open(path, "rb") as f:
             r = requests.post(f"{self.base}/object/{bucket}/{key}",
                               headers={**self.headers, "x-upsert": "true",
-                                       "Content-Type": "application/octet-stream"},
+                                       "Content-Type": content_type},
                               data=f, timeout=600)
         if r.status_code not in (200, 201):
             raise RuntimeError(f"storage upload {r.status_code}: {r.text[:200]}")
