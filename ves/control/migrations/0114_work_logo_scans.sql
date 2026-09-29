@@ -43,10 +43,10 @@ BEGIN
   IF v_folder IS NOT NULL AND v_folder !~ '^https://drive\.google\.com/[A-Za-z0-9_/?=&.%-]+$' THEN
     RAISE EXCEPTION '구글 드라이브 폴더 링크를 넣어 주세요';
   END IF;
-  SELECT id INTO v_id FROM public.work_logo_scans
-   WHERE work_id = p_work_id AND status IN ('pending','running') AND folder_url IS NOT DISTINCT FROM v_folder
-     AND created_at > now() - interval '30 minutes'
-   ORDER BY created_at DESC LIMIT 1;
+  SELECT s.id INTO v_id FROM public.work_logo_scans s JOIN public.job_queue j ON j.id = s.job_id
+   WHERE s.work_id = p_work_id AND s.status IN ('pending','running') AND s.folder_url IS NOT DISTINCT FROM v_folder
+     AND s.created_at > now() - interval '30 minutes' AND j.status IN ('pending','running')   -- 잡이 먼저 죽은 줄은 다시 쓰지 않는다
+   ORDER BY s.created_at DESC LIMIT 1;
   IF v_id IS NOT NULL THEN RETURN jsonb_build_object('scan_id', v_id, 'reused', true); END IF;
   INSERT INTO public.work_logo_scans (work_id, folder_url, source, requested_by)
   VALUES (p_work_id, v_folder, CASE WHEN v_folder IS NULL THEN 'laeebly' ELSE 'manual' END, auth.uid())
