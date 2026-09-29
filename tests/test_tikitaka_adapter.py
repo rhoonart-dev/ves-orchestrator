@@ -6,7 +6,7 @@ import json
 import pytest
 
 from ves.adapters import base
-from ves.adapters.tikitaka import (build_argv_pure, classify_tail, engine_args, job_dir_name,
+from ves.adapters.tikitaka import (build_argv_pure, classify_tail, duration_of, engine_args, job_dir_name,
                                    list_bundles, object_key)
 
 
@@ -65,3 +65,10 @@ def test_classify_tail_ignores_early_log():
     early = "quota 설명 줄\n" + "x" * 5000
     assert classify_tail(early + "\nTraceback: boom", "") == "transient"
     assert classify_tail("... 429 RESOURCE_EXHAUSTED", "") == "quota"
+
+
+def test_duration_from_review_json():
+    assert duration_of({}, {"validation": {"duration_sec": 55.3}}) == 55.3
+    assert duration_of({"duration": 12}, None) == 12
+    assert duration_of({}, {"validation": {}}) is None
+    assert duration_of({}, {"validation": {"duration_sec": True}}) is None
