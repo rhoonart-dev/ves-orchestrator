@@ -7,7 +7,7 @@ import pytest
 
 from ves.adapters import base
 from ves.adapters.tikitaka import (build_argv_pure, classify_tail, duration_of, engine_args, job_dir_name, last_json_line, logo_flags,
-                                   list_bundles, object_key)
+                                   list_bundles, object_key, sprite_argv, make_sprites, apply_report)
 
 
 def test_argv_basic():
@@ -85,3 +85,24 @@ def test_logo_flags():
     assert logo_flags({"render_width": 960}, "/c/a.png") == ["--logo", "/c/a.png", "--logo-width", "960"]
     with pytest.raises(base.PermanentError):
         logo_flags({"render_width": 5000}, "/c/a.png")
+
+
+def test_sprite_argv_matches_workspace():
+    a = sprite_argv("/s/editor_scan.mp4", "/o/sprite_%03d.jpg")
+    assert a[:6] == ["ffmpeg", "-v", "error", "-y", "-skip_frame", "nokey"]
+    assert "fps=1/2,scale=160:90" in a[a.index("-vf") + 1] and "tile=10x10" in a[a.index("-vf") + 1]
+    assert a[-1] == "/o/sprite_%03d.jpg"
+
+
+def test_make_sprites_without_scan(tmp_path):
+    assert make_sprites(tmp_path) == []
+    assert not (tmp_path / "sprites").exists()
+
+
+def test_apply_report():
+    got = apply_report({"log": [{"kind": "dropped", "what": "zoom"}, "x"], "duration_sec": 58.2},
+                       "렌더 중\n  ⚠ 12.5~14s 인물 얼굴이 왼쪽 잘림 띠에 걸림 (확인)\n⚠ 12.5~14s 인물 얼굴이 왼쪽 잘림 띠에 걸림\n")
+    assert got["log"] == [{"kind": "dropped", "what": "zoom"}]
+    assert got["log_text"] == "⚠ 12.5~14s 인물 얼굴이 왼쪽 잘림 띠에 걸림"
+    assert got["duration_sec"] == 58.2
+    assert apply_report({}, "") == {"log": [], "log_text": ""}

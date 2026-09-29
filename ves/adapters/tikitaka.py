@@ -265,8 +265,58 @@ def _read_json(path: pathlib.Path):
         return None
 
 
+# 편집실 필름 스트립(장면 썸네일) — 워크스페이스 local_videos_api.sprite_sheets 와 같은 모양(2초 간격 · 160x90 · 10x10).
+# 편집실을 서버 없이 열려면 브라우저가 저장소에서 바로 받아야 해서, 번들을 올릴 때 여기서 같이 만든다.
+SPRITE_DIR, SPRITE_INTERVAL, SPRITE_GRID = "sprites", 2, 10
+
+
+def sprite_argv(scan: str, out_pattern: str, interval: int = SPRITE_INTERVAL, grid: int = SPRITE_GRID) -> list:
+    """필름 스트립 ffmpeg argv — 키프레임만 디코드해 긴 원본도 몇 초. 순수 — 테스트 대상."""
+    w, h = 160, 90
+    return ["ffmpeg", "-v", "error", "-y", "-skip_frame", "nokey", "-i", scan, "-an", "-vf",
+            f"fps=1/{interval},scale={w}:{h}:force_original_aspect_ratio=decrease,"
+            f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,tile={grid}x{grid}",
+            "-q:v", "5", "-start_number", "0", out_pattern]
+
+
+def make_sprites(d: pathlib.Path) -> list:
+    """편 번들 d 에 sprites/sprite_NNN.jpg 를 만든다(editor_scan.mp4 가 같으면 다시 안 만든다). 실패해도 업로드는 계속 —
+    필름 스트립이 없으면 편집실은 빈 칸으로 그린다."""
+    import shutil
+    import subprocess
+    scan = d / "editor_scan.mp4"
+    if not scan.is_file():
+        return []
+    out = d / SPRITE_DIR
+    st = scan.stat()
+    tag = f"{st.st_size}:{st.st_mtime_ns}"
+    done = _read_json(out / "done.json") or {}
+    if done.get("scan") == tag and all((out / n).is_file() for n in done.get("sheets") or [None]):
+        return done["sheets"]
+    tmp = d / f".{SPRITE_DIR}.tmp"
+    shutil.rmtree(tmp, ignore_errors=True)
+    tmp.mkdir()
+    try:
+        exe = shutil.which("ffmpeg") or "/opt/homebrew/bin/ffmpeg"
+        subprocess.run([exe, *sprite_argv(str(scan), str(tmp / "sprite_%03d.jpg"))[1:]],
+                       check=True, capture_output=True, timeout=600)
+        sheets = sorted(f.name for f in tmp.glob("sprite_*.jpg"))
+        if not sheets:
+            return []
+        (tmp / "done.json").write_text(json.dumps({"scan": tag, "interval": SPRITE_INTERVAL, "grid": SPRITE_GRID,
+                                                   "sheets": sheets}), encoding="utf-8")
+        shutil.rmtree(out, ignore_errors=True)
+        tmp.replace(out)
+        return sheets
+    except (subprocess.SubprocessError, OSError):
+        return []
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def upload_bundle(cfg, conn, store, job, wo, suffix: str, d: pathlib.Path, p: dict) -> None:
     """편 번들 하나를 ves-outputs 로 올리고 tikitaka_videos 한 줄을 넣거나 갱신한다(생성 뒤·편집실 재렌더 뒤 공통)."""
+    make_sprites(d)
     files, sent = {}, set()
     for f in sorted(x for x in d.rglob("*") if x.is_file()):
         rel = f.relative_to(d).as_posix()
@@ -334,6 +384,25 @@ def last_json_line(text: str) -> dict:
     return {}
 
 
+FACE_EDGE_RE = re.compile(r"⚠ \d+(?:\.\d+)?~\d+(?:\.\d+)?s 인물 얼굴이 (?:왼쪽|오른쪽) 잘림 띠에 걸림")
+
+
+def apply_report(result: dict, stderr: str) -> dict:
+    """다시 렌더 결과에서 편집실 '지난 수정에서 달라진 점'에 쓸 재료만 — 엔진 적용 기록(log[])과 얼굴 경고 줄.
+    문장으로 바꾸는 건 워크스페이스(local_videos_api.apply_notes)가 로컬 편과 같은 규칙으로 한다. 순수 — 테스트 대상."""
+    log = [x for x in (result or {}).get("log") or [] if isinstance(x, dict)][:200]
+    faces = []
+    for line in (stderr or "").splitlines():
+        m = FACE_EDGE_RE.search(line)
+        if m and m.group(0) not in faces:
+            faces.append(m.group(0))
+    out = {"log": log, "log_text": "\n".join(faces[:50])}
+    dur = (result or {}).get("duration_sec")
+    if isinstance(dur, (int, float)) and not isinstance(dur, bool):
+        out["duration_sec"] = dur
+    return out
+
+
 class ApplyEdit:
     @staticmethod
     def run(cfg, conn, job, deps):
@@ -369,4 +438,5 @@ class ApplyEdit:
             raise base.PermanentError(f"다시 렌더하지 못했어요: {tail}")
         store = Store(cfg.supabase_url, cfg.supabase_service_key)
         upload_bundle(cfg, conn, store, job, wo, suffix, job_dir / "videos" / suffix, p)
-        return {"suffix": suffix, "edit_id": out["edit_id"], "video_id": p.get("video_id")}
+        return {"suffix": suffix, "edit_id": out["edit_id"], "video_id": p.get("video_id"),
+                **apply_report(last_json_line(ap.stdout), ap.stderr)}
