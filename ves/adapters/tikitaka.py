@@ -110,6 +110,62 @@ def classify_tail(stderr: str, stdout: str = "") -> str:
     return base.classify_by_patterns((stderr or "")[-4000:], (stdout or "")[-2000:])
 
 
+# ───────── 작품 로고 (0112) — 채널이 고른 로고, 없으면 기본. 잡마다 고정(work_asset_pins)해 재시도가 새 로고를 줍지 않게 ─────────
+ASSET_BUCKET = "ves-work-assets"
+ASSET_KEY_RE = re.compile(r"^works/[a-f0-9-]{36}/[a-f0-9]{64}\.(png|jpg|webp)$")
+
+
+def logo_flags(asset: dict | None, path: str | None) -> list:
+    """고정한 로고 → 엔진 인자. 로고 상자 폭만 엔진이 받는다(높이 240 고정). 순수 — 테스트 대상."""
+    if not asset or not path:
+        return []
+    width = int(asset.get("render_width") or 600)
+    if not 16 <= width <= 1080:
+        raise base.PermanentError(f"로고 표시 폭이 이상해요: {width}")
+    return ["--logo", path, "--logo-width", str(width)]
+
+
+def pinned_logo(conn, job) -> dict | None:
+    """이 잡의 작품 로고 — 처음 부를 때 work_asset_for 로 골라 work_asset_pins 에 고정, 그 뒤엔 고정본."""
+    from psycopg.types.json import Jsonb
+    p = job.get("params") or {}
+    work, slug = p.get("work_title"), p.get("channel_slug")
+    if not work:
+        return None
+    with conn.cursor() as c:
+        c.execute("SELECT manifest FROM public.work_asset_pins WHERE job_id=%s", (job["id"],))
+        row = c.fetchone()
+        if not row:
+            c.execute("SELECT id, role, label, object_key, sha256, mime, render_width, render_height "
+                      "FROM public.work_asset_for(%s, %s, 'work_logo')", (slug, work))
+            assets = [{**r, "id": str(r["id"])} for r in c.fetchall()]
+            c.execute("INSERT INTO public.work_asset_pins(job_id, work_title, manifest) VALUES (%s,%s,%s) "
+                      "ON CONFLICT (job_id) DO NOTHING", (job["id"], work, Jsonb(assets)))
+            c.execute("SELECT manifest FROM public.work_asset_pins WHERE job_id=%s", (job["id"],))
+            row = c.fetchone()
+    return (row["manifest"] or [None])[0]
+
+
+def fetch_asset(cfg, asset: dict) -> str:
+    """고정한 로고 파일을 노드 캐시로(sha 확인). 경로를 돌려준다."""
+    import hashlib as _h
+    key, sha = str(asset.get("object_key") or ""), str(asset.get("sha256") or "")
+    if not ASSET_KEY_RE.match(key) or not key.split("/")[-1].startswith(sha):
+        raise base.PermanentError(f"로고 파일 경로가 이상해요: {key}")
+    d = pathlib.Path(cfg.home) / "cache" / "work-assets"
+    d.mkdir(parents=True, exist_ok=True)
+    dest = d / key.split("/")[-1]
+    if not (dest.is_file() and _h.sha256(dest.read_bytes()).hexdigest() == sha):
+        from ves.storage.supabase_storage import Store
+        tmp = dest.with_suffix(dest.suffix + ".part")
+        Store(cfg.supabase_url, cfg.supabase_service_key).download(ASSET_BUCKET, key, str(tmp))
+        if _h.sha256(tmp.read_bytes()).hexdigest() != sha:
+            tmp.unlink(missing_ok=True)
+            raise base.PermanentError("로고 파일이 기록과 달라요")
+        tmp.replace(dest)
+    return str(dest)
+
+
 # ───────── tikitaka_generate (subprocess형) ─────────
 class Generate:
     PIN_DEPENDENT_KINDS = PIN_DEPENDENT_KINDS
@@ -137,6 +193,12 @@ class Generate:
         return (job.get("params") or {}).get("resource")
 
     @staticmethod
+    def enrich_params(cfg, conn, job):
+        p = dict(job.get("params") or {})
+        p["logo_asset"] = pinned_logo(conn, job)   # 없으면 None — 엔진은 작품 가이드의 '로고:' 를 쓴다
+        return p
+
+    @staticmethod
     def build_argv(cfg, job):
         p = job.get("params") or {}
         sha = p.get("source_sha256")
@@ -145,7 +207,13 @@ class Generate:
         src = cfgmod.source_cache_path(cfg, sha)
         if not os.path.exists(src):
             raise base.PermanentError(f"원본 캐시가 이 노드에 없어요: {src} — acquire 가 다른 노드에서 돌았을 수 있어요")
-        return build_argv_pure(cfgmod.engine_py(cfg, "ai_video"), p, src, Generate._out_dir(cfg, job))
+        argv = build_argv_pure(cfgmod.engine_py(cfg, "ai_video"), p, src, Generate._out_dir(cfg, job))
+        asset = p.get("logo_asset")
+        if asset:
+            # 작업에 직접 준 엔진 인자(logo_width 등)가 이기도록 --out 바로 뒤, 엔진 선택 인자 앞에 넣는다
+            at = argv.index("--out") + 2
+            argv[at:at] = logo_flags(asset, fetch_asset(cfg, asset))
+        return argv
 
     @staticmethod
     def parse_result(cfg, job, stdout, stderr=""):
