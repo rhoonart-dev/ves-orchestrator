@@ -303,3 +303,5 @@ def _load_all():
     register("tikitaka_generate", tikitaka.Generate)    # 새 방식 — 회차 1개로 N 편(0111)
     register("tikitaka_upload", tikitaka.Upload)        # 편 번들 → ves-outputs + tikitaka_videos
     register("tikitaka_apply_edit", tikitaka.ApplyEdit)  # 워크스페이스 편집실 제출 → 그 편 다시 렌더·올리기
+    from ves.adapters import work_logos
+    register("scan_work_logos", work_logos)            # 작품 관리 '드라이브에서 가져오기' — 로고 후보 모으기(0114)
