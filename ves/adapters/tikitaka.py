@@ -175,12 +175,26 @@ def _sha256(path: pathlib.Path) -> str:
     return h.hexdigest()
 
 
-def _duration(bundle: dict):
+def duration_of(bundle: dict, review: dict | None):
+    """편 길이(초) — 엔진은 video.json 이 아니라 review.json 의 validation.duration_sec 에 적는다
+    (워크스페이스 로컬 목록 local_videos_api.summary 와 같은 곳). 순수 — 테스트 대상."""
+    v = ((review or {}).get("validation") or {}).get("duration_sec")
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        return v
     for k in ("duration", "duration_sec"):
-        v = bundle.get(k)
-        if isinstance(v, (int, float)):
+        v = (bundle or {}).get(k)
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
             return v
     return None
+
+
+def _read_json(path: pathlib.Path):
+    if not path.is_file():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except ValueError:
+        return None
 
 
 class Upload:
@@ -210,12 +224,8 @@ class Upload:
                     sent.add(key)
                 files[rel] = {"key": key, "bytes": f.stat().st_size, "sha256": sha}
             bundle = json.loads((d / "video.json").read_text(encoding="utf-8"))
-            publish = None
-            if (d / "publish.json").is_file():
-                try:
-                    publish = json.loads((d / "publish.json").read_text(encoding="utf-8"))
-                except ValueError:
-                    publish = None
+            publish = _read_json(d / "publish.json")
+            review = _read_json(d / "review.json")
             with conn.cursor() as c:
                 c.execute(
                     """INSERT INTO public.tikitaka_videos
@@ -230,7 +240,7 @@ class Upload:
                     (wo, job["id"], cfg.node_id, suffix, bundle.get("version"), bundle.get("tag") or None,
                      p.get("channel_slug"), p.get("work_title") or bundle.get("work"),
                      str(bundle.get("episode") or p.get("episode") or ""), bundle.get("title"),
-                     bundle.get("render_fingerprint"), _duration(bundle), bundle.get("review_items"),
+                     bundle.get("render_fingerprint"), duration_of(bundle, review), bundle.get("review_items"),
                      json.dumps(bundle, ensure_ascii=False), json.dumps(publish, ensure_ascii=False),
                      json.dumps(files, ensure_ascii=False)))
             done.append(suffix)
