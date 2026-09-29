@@ -6,7 +6,7 @@ import json
 import pytest
 
 from ves.adapters import base
-from ves.adapters.tikitaka import (build_argv_pure, classify_tail, duration_of, engine_args, job_dir_name, last_json_line,
+from ves.adapters.tikitaka import (build_argv_pure, classify_tail, duration_of, engine_args, job_dir_name, last_json_line, logo_flags,
                                    list_bundles, object_key)
 
 
@@ -78,3 +78,10 @@ def test_last_json_line():
     assert last_json_line('로그\n{"edit_id": "e1", "ok": true}\n') == {"edit_id": "e1", "ok": True}
     assert last_json_line('로그만') == {}
     assert last_json_line('{"a":1}\n{깨짐') == {}
+
+
+def test_logo_flags():
+    assert logo_flags(None, "/x.png") == [] and logo_flags({"render_width": 960}, None) == []
+    assert logo_flags({"render_width": 960}, "/c/a.png") == ["--logo", "/c/a.png", "--logo-width", "960"]
+    with pytest.raises(base.PermanentError):
+        logo_flags({"render_width": 5000}, "/c/a.png")
