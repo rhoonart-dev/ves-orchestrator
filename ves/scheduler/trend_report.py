@@ -296,10 +296,15 @@ def build_prompt(facts: dict) -> str:
     )
 
 
-def derive_actions(work_diag: list, overlaps: list) -> list:
-    """§5 진단 → 기계적 액션 후보. Gemini 가 아니라 규칙이 만든다(재현 가능). 순수."""
+def derive_actions(work_diag: list, overlaps: list, paused=frozenset()) -> list:
+    """§5 진단 → 기계적 액션 후보. Gemini 가 아니라 규칙이 만든다(재현 가능). 순수.
+    paused: 일시정지 채널(ops_config.paused_channels) — 작품을 올린 채널이 전부 멈춰 있으면 할 일로 올리지 않는다
+    (2026-09-29 사용자 지적: 멈춘 채널 작품의 '배포 안 됨'이 매일 '오늘 할 것'에 남았다. 새로 만들지 않으니 할 일이 아니다)."""
     acts = []
     for w in work_diag:
+        chs = set(w.get("channels") or [])
+        if chs and chs <= set(paused):
+            continue
         n = w.get("n_videos") or 0
         if n >= 3 and (w.get("n_blocked") or 0) >= n * 0.7:
             acts.append({"pri": 1, "text": f"「{w['work']}」 {w['n_blocked']}/{n}편 배포 안 됨"
@@ -314,6 +319,18 @@ def derive_actions(work_diag: list, overlaps: list) -> list:
 
 
 # ───────── facts 조립 (SQL) ─────────
+
+def _paused(conn) -> set:
+    """일시정지 채널 슬러그 — 조회 실패면 빈 집합(종전처럼 전부 할 일로)."""
+    try:
+        from ves.scheduler.planner import paused_slugs
+        with conn.cursor() as c:
+            c.execute("SELECT value FROM public.ops_config WHERE key='paused_channels'")
+            row = c.fetchone()
+        return paused_slugs((row or {}).get("value"))
+    except Exception:  # noqa: BLE001
+        return set()
+
 
 def _constants(conn) -> dict:
     with conn.cursor() as c:
@@ -454,7 +471,7 @@ def build_facts(conn, today: dt.date, conf: dict | None = None) -> dict:
                        for v in diag_vids[:60]]},
         "momentum": momentum,
         "success": success_axes(vids),
-        "actions": derive_actions(work_rows, overlaps),
+        "actions": derive_actions(work_rows, overlaps, _paused(conn)),
         "zanmang": {"source": "loopy_ledger(JP·잔망루피)",
                   "published": loopy[0]["published"], "total": loopy[0]["total"],
                   "recent": loopy_recent},
