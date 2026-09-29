@@ -296,14 +296,18 @@ def build_prompt(facts: dict) -> str:
     )
 
 
-def derive_actions(work_diag: list, overlaps: list, paused=frozenset()) -> list:
+STALE_DAYS = 14
+
+
+def derive_actions(work_diag: list, overlaps: list, today: dt.date | None = None) -> list:
     """§5 진단 → 기계적 액션 후보. Gemini 가 아니라 규칙이 만든다(재현 가능). 순수.
-    paused: 일시정지 채널(ops_config.paused_channels) — 작품을 올린 채널이 전부 멈춰 있으면 할 일로 올리지 않는다
-    (2026-09-29 사용자 지적: 멈춘 채널 작품의 '배포 안 됨'이 매일 '오늘 할 것'에 남았다. 새로 만들지 않으니 할 일이 아니다)."""
+    최근 STALE_DAYS 일 동안 새 영상이 없는 작품은 할 일로 올리지 않는다 — 더 만들지 않는 작품의 '배포 안 됨'이
+    매일 '오늘 할 것'에 남았다(2026-09-29 사용자 지적). 채널 일시정지로 거르지 않는 이유: 자동 생성만 멈추고
+    사람이 직접 올리는 채널(재미쇼츠 등)이 있다. last_pub 이 없는(옛 facts) 행은 종전대로."""
     acts = []
     for w in work_diag:
-        chs = set(w.get("channels") or [])
-        if chs and chs <= set(paused):
+        last = w.get("last_pub")
+        if today and last and (today - dt.date.fromisoformat(str(last)[:10])).days > STALE_DAYS:
             continue
         n = w.get("n_videos") or 0
         if n >= 3 and (w.get("n_blocked") or 0) >= n * 0.7:
@@ -319,17 +323,6 @@ def derive_actions(work_diag: list, overlaps: list, paused=frozenset()) -> list:
 
 
 # ───────── facts 조립 (SQL) ─────────
-
-def _paused(conn) -> set:
-    """일시정지 채널 슬러그 — 조회 실패면 빈 집합(종전처럼 전부 할 일로)."""
-    try:
-        from ves.scheduler.planner import paused_slugs
-        with conn.cursor() as c:
-            c.execute("SELECT value FROM public.ops_config WHERE key='paused_channels'")
-            row = c.fetchone()
-        return paused_slugs((row or {}).get("value"))
-    except Exception:  # noqa: BLE001
-        return set()
 
 
 def _constants(conn) -> dict:
@@ -381,7 +374,7 @@ def build_facts(conn, today: dt.date, conf: dict | None = None) -> dict:
         w = works.setdefault(v["work"] or "(미매핑)", {
             "work": v["work"] or "(미매핑)", "n_videos": 0, "impr": 0, "views": 0,
             "_ctr_n": 0.0, "_vp_n": 0.0, "_vp_d": 0,
-            "n_blocked": 0, "n_exit": 0, "n_noclick": 0, "n_hold": 0, "channels": set()})
+            "n_blocked": 0, "n_exit": 0, "n_noclick": 0, "n_hold": 0, "channels": set(), "_last": None})
         w["n_videos"] += 1
         w["impr"] += v["impr"] or 0
         w["views"] += v["views"] or 0
@@ -389,6 +382,10 @@ def build_facts(conn, today: dt.date, conf: dict | None = None) -> dict:
         w["_vp_n"] += (v["view_pct"] or 0) * (v["views"] or 0)
         w["_vp_d"] += (v["views"] or 0) if v["view_pct"] is not None else 0
         w["channels"].add(v["channel"])
+        pt = v.get("publish_time")
+        if pt:
+            d = (pt.astimezone(_KST) if pt.tzinfo else pt).date()
+            w["_last"] = max(w["_last"] or d, d)
         w["n_blocked"] += v["verdict"] == "배포 안 됨"
         w["n_exit"] += v["verdict"] == "이탈"
         w["n_noclick"] += v["verdict"] == "안 눌림"
@@ -401,6 +398,7 @@ def build_facts(conn, today: dt.date, conf: dict | None = None) -> dict:
             "ctr": round(w["_ctr_n"] / w["impr"], 2) if w["impr"] else None,
             "view_pct": round(w["_vp_n"] / w["_vp_d"], 1) if w["_vp_d"] else None,
             "channels": sorted(w["channels"]),
+            "last_pub": w["_last"].isoformat() if w["_last"] else None,
             "n_blocked": w["n_blocked"], "n_exit": w["n_exit"],
             "n_noclick": w["n_noclick"], "n_hold": w["n_hold"]})
 
@@ -471,7 +469,7 @@ def build_facts(conn, today: dt.date, conf: dict | None = None) -> dict:
                        for v in diag_vids[:60]]},
         "momentum": momentum,
         "success": success_axes(vids),
-        "actions": derive_actions(work_rows, overlaps, _paused(conn)),
+        "actions": derive_actions(work_rows, overlaps, today),
         "zanmang": {"source": "loopy_ledger(JP·잔망루피)",
                   "published": loopy[0]["published"], "total": loopy[0]["total"],
                   "recent": loopy_recent},

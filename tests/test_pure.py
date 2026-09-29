@@ -5671,11 +5671,12 @@ def test_trend_report_exclusions():
     assert not is_excluded("B급 스튜디오", "X", merge_config(None))
 
 
-def test_derive_actions_skips_works_on_paused_channels():
+def test_derive_actions_skips_stale_works():
+    import datetime as dt
     from ves.scheduler.trend_report import derive_actions
-    rows = [{"work": "멈춘 작품", "n_videos": 10, "n_blocked": 9, "channels": ["A", "B"]},
-            {"work": "반쯤 멈춘", "n_videos": 10, "n_blocked": 9, "channels": ["A", "C"]},
-            {"work": "채널 모름", "n_videos": 10, "n_blocked": 9, "channels": []}]
-    got = [a["text"].split("」")[0][1:] for a in derive_actions(rows, [], {"A", "B"})]
-    assert got == ["반쯤 멈춘", "채널 모름"]
+    rows = [{"work": "멈춘 작품", "n_videos": 10, "n_blocked": 9, "last_pub": "2026-09-01"},
+            {"work": "요즘 작품", "n_videos": 10, "n_blocked": 9, "last_pub": "2026-09-25"},
+            {"work": "기록 없음", "n_videos": 10, "n_blocked": 9}]
+    got = [a["text"].split("」")[0][1:] for a in derive_actions(rows, [], dt.date(2026, 9, 29))]
+    assert got == ["요즘 작품", "기록 없음"]
     assert len(derive_actions(rows, [])) == 3
