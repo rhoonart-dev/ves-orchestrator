@@ -6,7 +6,7 @@ import json
 import pytest
 
 from ves.adapters import base
-from ves.adapters.tikitaka import (build_argv_pure, classify_tail, duration_of, engine_args, job_dir_name,
+from ves.adapters.tikitaka import (build_argv_pure, classify_tail, duration_of, engine_args, job_dir_name, last_json_line,
                                    list_bundles, object_key)
 
 
@@ -72,3 +72,9 @@ def test_duration_from_review_json():
     assert duration_of({"duration": 12}, None) == 12
     assert duration_of({}, {"validation": {}}) is None
     assert duration_of({}, {"validation": {"duration_sec": True}}) is None
+
+
+def test_last_json_line():
+    assert last_json_line('로그\n{"edit_id": "e1", "ok": true}\n') == {"edit_id": "e1", "ok": True}
+    assert last_json_line('로그만') == {}
+    assert last_json_line('{"a":1}\n{깨짐') == {}

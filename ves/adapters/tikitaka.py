@@ -197,6 +197,40 @@ def _read_json(path: pathlib.Path):
         return None
 
 
+def upload_bundle(cfg, conn, store, job, wo, suffix: str, d: pathlib.Path, p: dict) -> None:
+    """편 번들 하나를 ves-outputs 로 올리고 tikitaka_videos 한 줄을 넣거나 갱신한다(생성 뒤·편집실 재렌더 뒤 공통)."""
+    files, sent = {}, set()
+    for f in sorted(x for x in d.rglob("*") if x.is_file()):
+        rel = f.relative_to(d).as_posix()
+        key = object_key(wo, suffix, rel)
+        sha = _sha256(f)
+        ctype = mimetypes.guess_type(f.name)[0] or "application/octet-stream"
+        if key not in sent:
+            store.upload("ves-outputs", key, str(f), content_type=ctype)
+            sent.add(key)
+        files[rel] = {"key": key, "bytes": f.stat().st_size, "sha256": sha}
+    bundle = json.loads((d / "video.json").read_text(encoding="utf-8"))
+    publish = _read_json(d / "publish.json")
+    review = _read_json(d / "review.json")
+    with conn.cursor() as c:
+        c.execute(
+            """INSERT INTO public.tikitaka_videos
+                   (work_order_id, job_id, node_id, suffix, version, tag, channel_slug, work_title,
+                    episode, title, render_fingerprint, duration_sec, review_items, bundle, publish, files)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s::jsonb)
+               ON CONFLICT (work_order_id, suffix) DO UPDATE SET
+                   job_id=EXCLUDED.job_id, node_id=EXCLUDED.node_id, title=EXCLUDED.title,
+                   render_fingerprint=EXCLUDED.render_fingerprint, duration_sec=EXCLUDED.duration_sec,
+                   review_items=EXCLUDED.review_items, bundle=EXCLUDED.bundle,
+                   publish=EXCLUDED.publish, files=EXCLUDED.files, updated_at=now()""",
+            (wo, job["id"], cfg.node_id, suffix, bundle.get("version"), bundle.get("tag") or None,
+             p.get("channel_slug"), p.get("work_title") or bundle.get("work"),
+             str(bundle.get("episode") or p.get("episode") or ""), bundle.get("title"),
+             bundle.get("render_fingerprint"), duration_of(bundle, review), bundle.get("review_items"),
+             json.dumps(bundle, ensure_ascii=False), json.dumps(publish, ensure_ascii=False),
+             json.dumps(files, ensure_ascii=False)))
+
+
 class Upload:
     @staticmethod
     def run(cfg, conn, job, deps):
@@ -211,37 +245,60 @@ class Upload:
         p = job.get("params") or {}
         wo = job["work_order_id"]
         store = Store(cfg.supabase_url, cfg.supabase_service_key)
-        done = []
         for suffix, d in bundles:
-            files, sent = {}, set()
-            for f in sorted(x for x in d.rglob("*") if x.is_file()):
-                rel = f.relative_to(d).as_posix()
-                key = object_key(wo, suffix, rel)
-                sha = _sha256(f)
-                ctype = mimetypes.guess_type(f.name)[0] or "application/octet-stream"
-                if key not in sent:
-                    store.upload("ves-outputs", key, str(f), content_type=ctype)
-                    sent.add(key)
-                files[rel] = {"key": key, "bytes": f.stat().st_size, "sha256": sha}
-            bundle = json.loads((d / "video.json").read_text(encoding="utf-8"))
-            publish = _read_json(d / "publish.json")
-            review = _read_json(d / "review.json")
-            with conn.cursor() as c:
-                c.execute(
-                    """INSERT INTO public.tikitaka_videos
-                           (work_order_id, job_id, node_id, suffix, version, tag, channel_slug, work_title,
-                            episode, title, render_fingerprint, duration_sec, review_items, bundle, publish, files)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s::jsonb)
-                       ON CONFLICT (work_order_id, suffix) DO UPDATE SET
-                           job_id=EXCLUDED.job_id, node_id=EXCLUDED.node_id, title=EXCLUDED.title,
-                           render_fingerprint=EXCLUDED.render_fingerprint, duration_sec=EXCLUDED.duration_sec,
-                           review_items=EXCLUDED.review_items, bundle=EXCLUDED.bundle,
-                           publish=EXCLUDED.publish, files=EXCLUDED.files, updated_at=now()""",
-                    (wo, job["id"], cfg.node_id, suffix, bundle.get("version"), bundle.get("tag") or None,
-                     p.get("channel_slug"), p.get("work_title") or bundle.get("work"),
-                     str(bundle.get("episode") or p.get("episode") or ""), bundle.get("title"),
-                     bundle.get("render_fingerprint"), duration_of(bundle, review), bundle.get("review_items"),
-                     json.dumps(bundle, ensure_ascii=False), json.dumps(publish, ensure_ascii=False),
-                     json.dumps(files, ensure_ascii=False)))
-            done.append(suffix)
-        return {"run_dir": run_dir, "videos": done}
+            upload_bundle(cfg, conn, store, job, wo, suffix, d, p)
+        return {"run_dir": run_dir, "videos": [s for s, _ in bundles]}
+
+
+# ───────── tikitaka_apply_edit (네이티브) — 워크스페이스 편집실 제출 → 그 편을 만든 노드에서 다시 렌더 ─────────
+# 잡 폴더(전사·대본·TTS 캐시·원본 캐시)는 편을 만든 노드에만 있다 — 워크스페이스가 required_caps 에 node:<그 노드> 를 박아 넣는다.
+# 로컬 편집실과 같은 두 단계: bundle record-edit(수정 기록, stdin=overrides) → apply_edit(렌더 + 묶음 교체) → 다시 올리기.
+def last_json_line(text: str) -> dict:
+    """엔진 CLI 는 마지막 줄에 JSON 한 줄을 낸다. 없거나 깨졌으면 빈 dict. 순수 — 테스트 대상."""
+    for line in reversed((text or "").strip().splitlines()):
+        line = line.strip()
+        if line.startswith("{"):
+            try:
+                out = json.loads(line)
+                return out if isinstance(out, dict) else {}
+            except ValueError:
+                return {}
+    return {}
+
+
+class ApplyEdit:
+    @staticmethod
+    def run(cfg, conn, job, deps):
+        import subprocess
+        from ves.storage.supabase_storage import Store
+        p = job.get("params") or {}
+        wo, suffix = job["work_order_id"], str(p.get("suffix") or "")
+        if not SUFFIX_RE.match(suffix):
+            raise base.PermanentError(f"편 이름이 이상해요: {suffix!r}")
+        overrides = p.get("overrides")
+        if not isinstance(overrides, dict) or not overrides:
+            raise base.PermanentError("고친 내용이 없어요")
+        engine = cfgmod.engine_dir(cfg, "ai_video")
+        job_dir = pathlib.Path(engine) / OUT_ROOT / job_dir_name(wo)
+        if not (job_dir / "videos" / suffix / "video.json").is_file():
+            raise base.PermanentError(f"이 노드에 잡 폴더가 없어요: {job_dir} — 편을 만든 노드가 아니거나 정리됐어요")
+        py, env = cfgmod.engine_py(cfg, "ai_video"), cfgmod.job_env(cfg)
+        rec = subprocess.run([py, "-m", "app.tikitaka.bundle", "record-edit", str(job_dir), suffix,
+                              "--by", str(p.get("by") or "workspace"), "--based-on", str(p.get("based_on") or ""),
+                              "--note", str(p.get("note") or "")[:500]],
+                             input=json.dumps(overrides, ensure_ascii=False), capture_output=True, text=True,
+                             cwd=engine, env=env, timeout=120)
+        out = last_json_line(rec.stdout)
+        if rec.returncode == 3:
+            raise base.PermanentError(out.get("error") or "최신 판이 아니에요 — 편집실을 새로 열어 주세요")
+        if rec.returncode != 0 or not out.get("edit_id"):
+            raise base.PermanentError(out.get("error") or f"수정 기록을 남기지 못했어요: {(rec.stderr or '')[-400:]}")
+        # 실패는 다시 시도하지 않는다 — 같은 제출이 기록을 두 번 남긴다. 사람이 편집실에서 다시 낸다.
+        ap = subprocess.run([py, "-m", "app.tikitaka.apply_edit", str(job_dir), suffix, "--edit", out["edit_id"]],
+                            capture_output=True, text=True, cwd=engine, env=env, timeout=3600)
+        if ap.returncode != 0:
+            tail = (ap.stderr or ap.stdout or "")[-600:]
+            raise base.PermanentError(f"다시 렌더하지 못했어요: {tail}")
+        store = Store(cfg.supabase_url, cfg.supabase_service_key)
+        upload_bundle(cfg, conn, store, job, wo, suffix, job_dir / "videos" / suffix, p)
+        return {"suffix": suffix, "edit_id": out["edit_id"], "video_id": p.get("video_id")}
