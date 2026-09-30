@@ -249,3 +249,24 @@
 .ws-toast.visible{opacity:1;visibility:visible;pointer-events:auto;transform:translate(-50%,0);transition:opacity .18s ease,transform .18s ease,visibility 0s}
 .ws-toast button{flex:none;font:inherit;font-size:12px;font-weight:700;border:0;border-radius:var(--button-radius);height:28px;padding:0 12px;background:var(--surface);color:var(--ink);cursor:pointer}
 @media(prefers-reduced-motion:reduce){.ws-toast,.ws-toast.visible{transition:none;transform:translate(-50%,0)}}
+/* 채널 관리 좁은 화면 — 작품 관리처럼: 돋보기 검색칸 + 프로필 타일 가로 줄, 숨긴 채널 관리는 줄 끝 타일 */
+.channels-layout .ch-search svg,.channels-layout .tc-hidden-tile{display:none}
+@media(max-width:760px){
+ .channels-layout .template-sidebar{max-height:none;padding:12px}
+ .channels-layout .ch-search{display:flex;align-items:center;gap:9px;background:var(--inset);border-radius:9px;height:38px;padding:0 12px;color:var(--muted)}
+ .channels-layout .ch-search svg{display:block;width:16px;height:16px;flex:none}
+ .channels-layout .ch-search-lab{display:none}
+ .channels-layout .template-sidebar .ch-search input{margin:0;height:auto;padding:0;background:transparent;border:0;outline:none;font-size:12px;color:var(--ink)}
+ .channels-layout .template-channels{display:flex;gap:6px;overflow-x:auto;margin-top:10px;scrollbar-width:none;-webkit-mask-image:linear-gradient(90deg,#000 88%,transparent);mask-image:linear-gradient(90deg,#000 88%,transparent)}
+ .channels-layout .template-channels::-webkit-scrollbar{display:none}
+ .channels-layout .template-channels button,.channels-layout .template-channels button.has-av{flex:none;width:78px;min-width:0;flex-direction:column;align-items:center;gap:6px;padding:10px 4px 8px;text-align:center}
+ .channels-layout .template-channels .tc-av{width:40px;height:40px;font-size:14px}
+ .channels-layout .template-channels .tc-txt{display:block;width:100%;font-size:11px;font-weight:600;line-height:1.35}
+ .channels-layout .template-channels .tc-txt small{display:block;margin-top:2px}
+ .channels-layout .template-channels .tc-txt,.channels-layout .template-channels .tc-txt small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+ .channels-layout .template-channels .tc-txt small{font-weight:400}
+ .channels-layout .tc-hidden-tile{display:flex}
+ .channels-layout .tc-hidden-tile .tc-av{background:var(--inset);color:var(--secondary);font-weight:700}
+ .channels-layout .tc-hidden-tile .tc-txt{color:var(--secondary)}
+ .channels-layout .ch-hidden-open{display:none}
+}

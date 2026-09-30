@@ -38,3 +38,24 @@ td.hist-err{margin:0}
 .hist-acts button:disabled{opacity:.5}
 .hist-empty{text-align:center;color:var(--muted);padding:24px 10px}
 @media(max-width:760px){.hist-card{padding:18px 16px}}
+/* 오류 보기 — 표를 밀지 않고 누른 자리에 말풍선 */
+.hist-why{border:0;background:none;padding:0;font:inherit;font-size:12px;color:var(--danger);cursor:pointer;border-bottom:1px dashed currentColor;line-height:1.3}
+.hist-why.is-cancel{color:var(--secondary)}
+.hist-why[aria-expanded="true"]{border-bottom-style:solid}
+.hist-pop{position:fixed;z-index:60;background:var(--surface);border-radius:14px;padding:12px;box-shadow:0 12px 34px #00000026}
+.hist-pop-text{margin:0 0 10px;max-height:40vh;overflow:auto;font-size:12px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere;color:color-mix(in srgb,var(--danger) 70%,var(--ink));background:color-mix(in srgb,var(--danger) 9%,var(--surface));border-radius:10px;padding:10px 12px}
+.hist-pop.is-cancel .hist-pop-text{color:var(--secondary);background:var(--inset)}
+.hist-pop-foot{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:11px;color:var(--muted)}
+.hist-pop-foot button{flex:none;font:inherit;font-size:var(--button-small-font);font-weight:600;height:var(--button-small-height);padding:0 var(--button-small-pad-x);border:0;border-radius:var(--button-radius);background:var(--inset);color:var(--ink);cursor:pointer}
+.hist-pop-tail{position:absolute;top:-6px;width:12px;height:12px;margin-left:-6px;background:var(--surface);transform:rotate(45deg);border-radius:2px}
+.hist-pop.up .hist-pop-tail{top:auto;bottom:-6px}
+/* 20개씩 쪽 */
+.hist-pager{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px;font-size:12px;color:var(--secondary)}
+.hist-pages{display:flex;align-items:center;gap:4px}
+.hist-pages button{min-width:30px;height:30px;padding:0 8px;border:0;border-radius:999px;background:transparent;color:var(--secondary);font:inherit;font-size:12px;font-weight:600;cursor:pointer}
+.hist-pages button:hover{background:var(--inset);color:var(--ink)}
+.hist-pages button[aria-current="page"]{background:var(--solid);color:var(--on-solid)}
+.hist-pages .hist-arrow{background:var(--inset);font-size:14px}
+.hist-pages .hist-arrow:disabled{opacity:.4;cursor:default}
+.hist-gap{color:var(--muted);padding:0 2px}
+.hist-why{white-space:nowrap}

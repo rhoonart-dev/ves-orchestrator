@@ -1,4 +1,5 @@
 import {esc} from './review-details.js';
+import {icon} from './icons.js';
 import {fetchWorkPolicies} from './rights-service.js';
 import {loadWorkAssets} from './work-assets-data.js?v=1';
 import {hiddenChannels,setChannelHidden,withWorkOverrides} from './channel-visibility.js';
@@ -8,9 +9,13 @@ import {policyForWork,permissionForWork} from './workflow-model.js';
 export function mountChannels(root,{client,role}={}){
  const canEdit=['operator','admin'].includes(role);
  let dead=false,all=[],hidden=new Set(),channels=[],policy={works:[],applications:[]},current=null,policyError='';
- root.innerHTML='<div class="template-layout"><aside class="template-sidebar"><label>채널 검색<input type="search" placeholder="채널 검색" aria-label="채널 검색"></label><div class="template-channels"></div><button type="button" class="ch-hidden-open" hidden></button></aside><dialog class="ch-hidden-dialog" aria-labelledby="ch-hidden-title"></dialog><section class="template-main"><p role="status">채널을 불러오는 중…</p></section></div>';
+ root.innerHTML='<div class="template-layout channels-layout"><aside class="template-sidebar"><label class="ch-search">'+icon('search')+'<span class="ch-search-lab">채널 검색</span><input type="search" placeholder="채널 검색" aria-label="채널 검색"></label><div class="template-channels"></div><button type="button" class="ch-hidden-open" hidden></button></aside><dialog class="ch-hidden-dialog" aria-labelledby="ch-hidden-title"></dialog><section class="template-main"><p role="status">채널을 불러오는 중…</p></section></div>';
  const main=root.querySelector('.template-main'),list=root.querySelector('.template-channels'),search=root.querySelector('input');
- function renderList(){list.innerHTML=channels.filter(c=>c.name.includes(search.value.trim())).map(c=>`<button type="button" data-slug="${esc(c.token_slug)}" class="has-av${current===c?' active':''}"><span class="tc-av">${c.avatar_url?`<img src="${esc(c.avatar_url)}" alt="" referrerpolicy="no-referrer">`:esc((c.name||'?').slice(0,1))}</span><span class="tc-txt">${esc(c.name)}<small>${c.works?.length||0}개 작품</small></span></button>`).join('');list.querySelectorAll('button').forEach(b=>b.onclick=()=>{current=channels.find(c=>c.token_slug===b.dataset.slug);render();});}
+ function renderList(){list.innerHTML=channels.filter(c=>c.name.includes(search.value.trim())).map(c=>`<button type="button" data-slug="${esc(c.token_slug)}" class="has-av${current===c?' active':''}"><span class="tc-av">${c.avatar_url?`<img src="${esc(c.avatar_url)}" alt="" referrerpolicy="no-referrer">`:esc((c.name||'?').slice(0,1))}</span><span class="tc-txt">${esc(c.name)}<small>${c.works?.length||0}개 작품</small></span></button>`).join('')
+  // 좁은 화면: 숨긴 채널 관리는 가로 채널 줄 맨 끝 타일(넓은 화면은 칸 아래 회색 버튼)
+  +`<button type="button" class="tc-hidden-tile" aria-label="숨긴 채널 관리"><span class="tc-av">${hidden.size||'·'}</span><span class="tc-txt">숨긴 채널<small>관리</small></span></button>`;
+  list.querySelectorAll('button[data-slug]').forEach(b=>b.onclick=()=>{current=channels.find(c=>c.token_slug===b.dataset.slug);render();});
+  list.querySelector('.tc-hidden-tile').onclick=()=>openBtn.click();}
  // 숨긴 채널 관리 — 왼쪽 채널 칸 맨 아래 회색 칸. 전체 채널에 보이기/숨기기 스위치(운영자·관리자만 바꿀 수 있다)
  const openBtn=root.querySelector('.ch-hidden-open'),dlg=root.querySelector('.ch-hidden-dialog');
  function drawOpen(){openBtn.hidden=false;openBtn.innerHTML=`숨긴 채널 관리${hidden.size?`<small>${hidden.size}</small>`:''}`;}
