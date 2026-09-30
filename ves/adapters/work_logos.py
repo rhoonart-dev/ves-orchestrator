@@ -171,7 +171,11 @@ def _scan(cfg, conn, scan, scan_id, store):
             warn = _copy(bin_, conf, remote, fid, tmp, "--drive-shared-with-me") or warn
         files = sorted(p for p in tmp.rglob("*") if p.is_file())
         with conn.cursor() as c:
-            c.execute("SELECT sha256 FROM public.work_asset_versions WHERE work_title = ANY(%s)",
+            # 지금 쓰는 로고의 그림만 뺀다 — 뺀 로고(retired)는 다시 찾아 넣을 수 있게
+            c.execute("""SELECT w.sha256 FROM public.work_asset_versions w
+                           JOIN public.work_asset_variants v ON v.work_title = w.work_title AND v.role = w.role
+                                AND v.label = w.label AND v.retired_at IS NULL
+                          WHERE w.work_title = ANY(%s)""",
                       ([work["title"]] + (["권리사:" + holder] if holder else []),))
             have = {r["sha256"] for r in c.fetchall()}
         cands, seen, skipped = [], set(), 0
