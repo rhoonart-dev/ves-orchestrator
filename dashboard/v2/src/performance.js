@@ -62,7 +62,7 @@ function perfBackfillNote(){
   const lines = counts.map(([id, n]) => `<p><b>${esc(dayLabel)}</b> ${id ? `<em>${esc(name(id))}</em> 채널의 ` : ""}영상 <em>${fmtN(n)}</em>편의 성과를 유튜브에서 직접 가져왔어요</p>`).join("");
   const stop = crit ? `<p class="pf-stop">${d.reason === "api_key_missing"
     ? `맥미니에 유튜브 API 키(YOUTUBE_API_KEY)가 없어서 영상 <em>${fmtN(d.pending)}</em>편을 채우지 못하고 있어요`
-    : `유튜브 API 호출이 실패해서 영상 <em>${fmtN(d.pending)}</em>편을 채우지 못했어요 — 키가 만료됐거나 하루 사용량을 넘겼을 수 있어요`}</p>` : "";
+    : `유튜브 API 호출이 실패해서 영상 <em>${fmtN(d.pending)}</em>편을 채우지 못했어요. 키가 만료됐거나 하루 사용량을 넘겼을 수 있어요`}</p>` : "";
   return `<section class="pf-notice${crit ? " crit" : ""}"><p>성과 데이터는 <b>레이블리</b>에서 매시간 가져와요</p>
     <p>레이블리에 아직 없는 기록은 <b>VES</b>가 유튜브에서 직접 받아 채워요</p>
     ${lines || stop ? `<blockquote>${lines}${stop}</blockquote>` : ""}</section>`;

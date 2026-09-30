@@ -50,9 +50,10 @@ body.applayout .tlwrap{height:var(--tlh,auto);max-height:calc(100vh - 260px)}
 .submit-dialog label small{font-weight:400;color:var(--muted);margin-left:4px}
 .submit-dialog textarea{border:0;border-radius:10px;background:var(--panel2);color:var(--text);padding:10px 12px;font:inherit;font-size:13px;resize:vertical}
 .submit-dialog footer{display:flex;justify-content:flex-end;gap:8px}
-.submit-dialog footer button{height:38px;padding:0 16px;border-radius:10px;border:0;font:inherit;font-size:13px;font-weight:600;background:var(--panel2);color:var(--text);cursor:pointer}
-.submit-dialog footer .primary{background:#2563eb;color:#fff}
-.submit-dialog footer .primary:hover{background:#1d4ed8}
+.submit-dialog footer button{height:38px;padding:0 18px;border-radius:999px!important;border:0;font:inherit;font-size:13px;font-weight:600;background:var(--panel2);color:var(--text);cursor:pointer}   /* 알약 토큰 — 주 버튼은 흰 알약(상단 제출 · 되돌리기 알림과 같게), 취소는 회색 */
+.submit-dialog footer button:hover{background:color-mix(in srgb,var(--panel2) 80%,#fff 8%)}
+.submit-dialog footer .primary{background:#f4f4f4;color:#181818;font-weight:700}
+.submit-dialog footer .primary:hover{background:#dedede}
 .submit-dialog section h3{margin:0 0 6px;font-size:13px;font-weight:700}
 .submit-dialog .submit-stop{padding:12px 14px;border-radius:12px;background:color-mix(in srgb,#e5484d 14%,transparent)}
 .submit-dialog .submit-stop h3{color:#e5484d}
@@ -403,3 +404,7 @@ body.editing #tlRoot #inner .blk.t.sel .phd{top:4px;bottom:4px}
 #undoToast.on{opacity:1;transform:translate(-50%,0);pointer-events:auto}
 #undoToast button{border:0;border-radius:999px!important;height:30px;padding:0 14px;background:#f4f4f4;color:#181818;font-weight:700;cursor:pointer}
 #undoToast button:hover{background:#dedede}
+/* 편집실 알림(edToast) — 제출 거절·안내 한 줄. 되돌리기 알림과 같은 알약, 5초 */
+#edToast{position:fixed;left:50%;bottom:28px;transform:translate(-50%,12px);z-index:410;max-width:calc(100vw - 32px);padding:11px 20px;border-radius:999px;
+  background:#2c2c2c;color:var(--text);font-size:13px;line-height:1.4;box-shadow:0 10px 30px #00000080;opacity:0;pointer-events:none;transition:opacity .18s ease,transform .18s ease;text-align:center}
+#edToast.on{opacity:1;transform:translate(-50%,0)}

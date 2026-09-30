@@ -52,7 +52,7 @@ function renderTrends(){
   if (!trends){ loadTrends();
     root.innerHTML = '<div class="trx"><div class="trx-empty">리포트 불러오는 중…</div></div>'; return; }
   if (trends.error){
-    root.innerHTML = `<div class="trx"><div class="trx-empty">리포트 조회 실패 — ${esc(trends.error)}
+    root.innerHTML = `<div class="trx"><div class="trx-empty">리포트를 불러오지 못했어요. ${esc(trends.error)}
       <button class="mini" onclick="__trends.trendsReload()">다시 시도</button></div></div>`; return; }
   const canOp = ["operator","admin"].includes(role);
   const noticeHtml = trends.notice ? `
@@ -66,7 +66,7 @@ function renderTrends(){
     root.innerHTML = `<div class="trx"><header class="trx-mast">
       <div class="trx-kicker"><span>일일 트렌드 리포트</span></div>
       <h1 class="trx-h1">아직 리포트가 없다</h1>
-      <p class="trx-stand">매일 05:00 KST 에 만들어진다 — ops_config.trend_report 가 스위치다.</p>
+      <p class="trx-stand">매일 오전 5시에 만들어요.</p>
       </header>${noticeHtml}</div>`; return; }
 
   const r = trends.report, f = r.facts || {}, nr = r.narrative || {};
@@ -135,16 +135,16 @@ function renderTrends(){
     ${noticeHtml}
     <div class="trx-tiles">
       <div class="trx-tile good"><div class="lab">정상</div><div class="num">${tvN(cnt["정상"])}</div><div class="sub">깔때기 전 구간 통과</div></div>
-      <div class="trx-tile alarm"><div class="lab">배포 안 됨</div><div class="num">${tvN(cnt["배포 안 됨"])}</div><div class="sub">노출 &lt; ${cur.impression_floor??100} — 콘텐츠 수정 금지</div></div>
-      <div class="trx-tile alarm"><div class="lab">이탈</div><div class="num">${tvN(cnt["이탈"])}</div><div class="sub">완주율 미달 — 훅 3초</div></div>
-      <div class="trx-tile"><div class="lab">안 눌림</div><div class="num">${tvN(cnt["안 눌림"])}</div><div class="sub">CTR &lt; ${cur.ctr_floor??2}% — 제목·썸네일</div></div>
+      <div class="trx-tile alarm"><div class="lab">배포 안 됨</div><div class="num">${tvN(cnt["배포 안 됨"])}</div><div class="sub">노출 &lt; ${cur.impression_floor??100} · 콘텐츠는 고치지 않아요</div></div>
+      <div class="trx-tile alarm"><div class="lab">이탈</div><div class="num">${tvN(cnt["이탈"])}</div><div class="sub">완주율 미달 · 첫 3초를 고쳐요</div></div>
+      <div class="trx-tile"><div class="lab">안 눌림</div><div class="num">${tvN(cnt["안 눌림"])}</div><div class="sub">CTR &lt; ${cur.ctr_floor??2}% · 제목·썸네일을 고쳐요</div></div>
       <div class="trx-tile"><div class="lab">판정 보류</div><div class="num">${tvN(cnt["판정 보류"])}</div><div class="sub">표본 부족</div></div>
     </div>
     ${(f.actions||[]).length ? tvSect("actions", "오늘 할 것", nr.actions && !Array.isArray(nr.actions) ? nr.actions : null, `
       <div class="trx-ledger">${(f.actions||[]).map(a => `
         <div class="trx-lrow act"><span class="trx-v ${a.pri===1?"crit":"warn"}">P${a.pri}</span>
           <span class="trx-lname">${esc(a.text)}</span></div>`).join("")}</div>`) : ""}
-    ${((f.momentum||[]).length) ? tvSect("turning point", "전환점 — 급증·급락", nr.momentum, `
+    ${((f.momentum||[]).length) ? tvSect("turning point", "전환점 · 급증·급락", nr.momentum, `
       <div class="trx-cols">${(f.momentum||[]).map(m => `
         <div class="trx-panel"><div class="trx-clab"><span class="trx-v ${m.dir==="surge"?"ok":"crit"}">${m.dir==="surge"?"급증":"급락"}</span>
           ${esc(m.channel)} <span class="trx-mkmed">최근 7일 ${tvN(m.recent)} · 이전 7일 ${tvN(m.prev)}</span></div>
@@ -153,41 +153,41 @@ function renderTrends(){
               <div class="trx-tsub">${esc(dv.published||"")}${(dv.matches||[]).length ? " · 외부 겹침: " + esc(dv.matches.map(x=>(x.tokens||[]).join("·")).join(" / ")) : ""}</div></span>
               <span class="trx-mknum">${tvN(dv.views)}</span></div>`).join("")
             || '<div class="trx-empty">주도 영상 없음</div>'}</div></div>`).join("")}</div>
-      <div class="trx-figsub">기준: 최근 7일 vs 이전 7일 (급증 ≥3배·급락 ≤0.4배) · '외부 겹침'은 그 무렵 트렌드·시장 제목과 겹친 고유명사 — 인과가 아니라 검증할 단서다</div>`) : ""}
-    ${ov.length ? tvSect("crossover", "밖 ↔ 안 — 트렌드에 등장한 작품", null,
+      <div class="trx-figsub">기준: 최근 7일 vs 이전 7일 (급증 ≥3배·급락 ≤0.4배) · '외부 겹침'은 그 무렵 트렌드·시장 제목과 겹친 고유명사예요. 원인이 아니라 확인해 볼 단서예요</div>`) : ""}
+    ${ov.length ? tvSect("crossover", "밖 ↔ 안 · 트렌드에 나온 작품", null,
       `<div class="trx-xover">${ov.map(h => `<span class="trx-v ok">「${esc(h.work)}」 ← ${esc(h.region||"")} "${esc(h.trend)}"</span>`).join("")}</div>`) : ""}
-    ${tvSect("market", "밖 — 우리 작품의 시장", nr.outside, `
+    ${tvSect("market", "밖 · 우리 작품의 시장", nr.outside, `
       ${(out.market||[]).length ? `<div class="trx-cols">${(out.market||[]).map(m => `
         <div class="trx-panel"><div class="trx-clab">${esc(m.work)} <span class="trx-mkmed">외부 중앙 ${tvN(m.market_median)}회</span></div>
           <div class="trx-ledger">${(m.videos||[]).map(v => `
             <div class="trx-lrow"><span class="trx-lname">${esc((v.title||"").slice(0,34))}
               <div class="trx-tsub">${esc(v.channel||"")}</div></span>
               <span class="trx-mknum">${tvN(v.views)}</span></div>`).join("")}</div></div>`).join("")}</div>
-        <div class="trx-figsub">최근 7일 · 같은 작품을 다루는 외부 상위 영상(순위 상위 편향 — 중앙값은 실제보다 높게 잡힌다) · 방영 중(prefer_latest) 작품만</div>`
-      : '<div class="trx-empty">시장 스냅샷 없음 — 다음 03:00 수집부터(방영 중 작품 대상)</div>'}
+        <div class="trx-figsub">최근 7일 · 같은 작품을 다루는 외부 상위 영상(순위가 높은 영상 위주라 중앙값이 실제보다 높게 나와요) · 방영 중(prefer_latest) 작품만</div>`
+      : '<div class="trx-empty">시장 자료가 아직 없어요. 오전 3시에 방영 중인 작품부터 모아요.</div>'}
       <details class="trx-details"><summary>검색·차트 트렌드 (참고)</summary>
         <div class="trx-cols">${regionCols || '<div class="trx-empty">오늘 수집 없음</div>'}</div></details>
       <div class="trx-figsub">수집 ${esc(String(out.collected_date||""))}</div>`)}
-    ${tvSect("inside", "안 — 작품별 깔때기", nr.inside, `
+    ${tvSect("inside", "안 · 작품별 깔때기", nr.inside, `
       <div class="trx-tablewrap"><table class="trx-table">
       <tr><th>작품 · 채널</th><th class="num">편수</th><th class="num">노출</th><th class="num">CTR%</th>
           <th class="num">완주%</th><th class="num">조회</th><th>판정 분포</th></tr>${workRows}</table></div>`)}
-    ${tvSect("diagnosis", "진단 — 콘텐츠로 고칠 수 있는 영상", nr.diagnosis, `
+    ${tvSect("diagnosis", "진단 · 콘텐츠로 고칠 수 있는 영상", nr.diagnosis, `
       <div class="trx-tablewrap"><table class="trx-table">
       <tr><th>판정</th><th>영상</th><th class="num">노출</th><th class="num">CTR%</th>
           <th class="num">완주%</th><th class="num">길이s</th><th>처방</th></tr>${diagRows}</table></div>
-      <div class="trx-figsub">이탈·안 눌림만 — '배포 안 됨' ${tvN(cnt["배포 안 됨"])}건은 집계로만 본다(처방은 회차·태그, 상단 공지)</div>`)}
-    ${sc.axes ? tvSect("success", `왜 되나 — 상위 ${sc.top_n}편(조회 ${tvN(sc.top_views_min)}+) vs 나머지`, nr.success, `
+      <div class="trx-figsub">이탈·안 눌림만 보여요. '배포 안 됨' ${tvN(cnt["배포 안 됨"])}건은 집계로만 본다(처방은 회차·태그, 상단 공지)</div>`)}
+    ${sc.axes ? tvSect("success", `왜 되나 · 상위 ${sc.top_n}편(조회 ${tvN(sc.top_views_min)}+) vs 나머지`, nr.success, `
       <div class="trx-pairs">${axesHtml}</div>
       <div class="trx-legend"><span class="sw ours"></span>상위 10% 중앙값 <span class="sw mkt"></span>나머지 중앙값</div>
       ${topVids ? `<div class="trx-topvids">${topVids}</div>` : ""}`) : ""}
-    ${zan ? tvSect("잔망루피 · 일본", "잔망루피 — 별도 원장", null, `
+    ${zan ? tvSect("잔망루피 · 일본", "잔망루피 · 별도 원장", null, `
       <div class="trx-tablewrap"><table class="trx-table">
       <tr><th>제목</th><th class="num">조회</th><th>발행</th></tr>${
       (zan.recent||[]).map(v => `<tr><td class="trx-tname">${esc((v.title||"").slice(0,40))}</td>
         <td class="num">${tvN(v.view_count)}</td><td>${esc(String(v.publish_at||"").slice(0,10))}</td></tr>`).join("")
       || '<tr><td colspan="3" class="trx-empty">발행 없음</td></tr>'}</table></div>
-      <div class="trx-figsub">발행 ${tvN(zan.published)} / 전체 ${tvN(zan.total)} — ${esc(zan.source||"")} (laeebly 밖)</div>`) : ""}
+      <div class="trx-figsub">발행 ${tvN(zan.published)} / 전체 ${tvN(zan.total)} · ${esc(zan.source||"")} (laeebly 밖)</div>`) : ""}
     ${badge}
     <div class="trx-figsub trx-foot">생성 ${esc(String(r.generated_at||"").slice(0,16))} · ${esc(r.model||"facts only")} ·
       임계값 노출≥${cur.impression_floor??"?"} · CTR≥${cur.ctr_floor??"?"}% · 완주 &lt;30s ${(cur.retention_min||{}).lt30??"?"}% / ≥30s ${(cur.retention_min||{})["30to60"]??"?"}%</div>

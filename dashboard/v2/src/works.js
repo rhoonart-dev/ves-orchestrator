@@ -4,7 +4,7 @@ import {loadSources,workSummary,videoRows,epUsable,epUsed,epTries,epLeft,epRemai
 import {workPosters} from './work-posters.js';
 import {icon} from './icons.js';
 import {enhanceDropdowns} from './dropdowns.js';
-import {guideFragment} from './workbench.js?v=tip-1';
+import {guideFragment} from './workbench.js?v=tip-2';
 import {GuideDetails} from './guide-details.js';
 import {esc} from './review-details.js';
 const sampleWorks=[['lotto','로또 1등도 출근합니다','드라마'],['jigeum','지금 불륜이 문제가 아닙니다(c)','드라마'],['gawang','가왕쇼','예능'],['sinbyeong','신병','드라마'],['jjijji','종합광고대행사 찌찌: 광고의 온도편','드라마'],['karlovy','카를로비바리','영화']].map(([id,name,type])=>({id,name,type}));
@@ -69,7 +69,7 @@ export function mountWorks(root,{client,role}={}){
   $('.works-toolbar').hidden=false;
   $('.works-kinds').innerHTML=kinds.filter(k=>k==='전체'||rows.some(r=>r.w.type===k)).map(k=>`<button type="button" data-kind="${k}" class="${state.kind===k?'active':''}" aria-pressed="${state.kind===k}">${k}<small>${k==='전체'?rows.length:rows.filter(r=>r.w.type===k).length}</small></button>`).join('');
   $('.works-kinds').querySelectorAll('button').forEach(b=>b.onclick=()=>{state.kind=b.dataset.kind;render();});
-  out.innerHTML=`${src.byChannelMissing?'<p class="src-warn">채널별 소진 기록을 읽지 못했어요 — 채널 숫자가 0으로 보일 수 있어요.</p>':''}
+  out.innerHTML=`${src.byChannelMissing?'<p class="src-warn">채널별 소진 기록을 읽지 못했어요. 채널 숫자가 0으로 보일 수 있어요.</p>':''}
    <div class="src-works">${shown.map(({w,sum})=>`<button type="button" class="src-work" data-work="${esc(w.id)}">
     ${poster(w)?`<img class="src-poster" src="${esc(poster(w))}" alt="" referrerpolicy="no-referrer">`:`<span class="src-poster">${icon('library')}</span>`}
     <span class="src-work-copy"><strong>${esc(w.name)}</strong><small>${sum.eps.length}회차 · ${sum.chs.length?esc(sum.chs.map(c=>c.name).join(', ')):'배정 채널 없음'}</small></span>
@@ -81,7 +81,7 @@ export function mountWorks(root,{client,role}={}){
   const out=$('.works-results'),t=srcTitle(work);
   if(!t){out.innerHTML='<div class="src-none"><h3>아직 등록된 원본이 없어요</h3><p>소스 창고에는 VES가 쇼츠를 만들 때 쓰는 원본 영상(회차)이 모여요.</p><ul><li><b>유튜브에 있는 원본</b>은 VES가 알아서 등록해요.</li><li><b>드라이브 같은 파일 원본</b>은 관리자가 한 번 등록해 줘야 해요. <small>(<code>deploy/register_source.py</code>)</small></li></ul><p class="src-muted">작업 컴퓨터에서 바로 만든 작품은 원본 파일을 그 컴퓨터에 두고 쓰기 때문에 여기에는 안 보여요.</p></div>';return;}
   const sum=workSummary(src,t);
-  out.innerHTML=`<div class="src-summary">${chip(sum)}<span>${sum.eps.length}회차</span>${sum.chs.length?sum.chs.map(c=>`<span class="src-ch-tag">${avatar(c)}${esc(c.name)}</span>`).join(''):'<span class="src-muted">배정된 채널이 없어 소진되지 않아요 — 채널 목록에서 작품을 배정하세요</span>'}</div>
+  out.innerHTML=`<div class="src-summary">${chip(sum)}<span>${sum.eps.length}회차</span>${sum.chs.length?sum.chs.map(c=>`<span class="src-ch-tag">${avatar(c)}${esc(c.name)}</span>`).join(''):'<span class="src-muted">배정된 채널이 없어 소진되지 않아요. 채널 목록에서 작품을 배정하세요</span>'}</div>
    <p class="src-help"><b>한도</b>는 그 회차로 만들 수 있는 편수예요(길이로 자동: 10분 미만 1 · 10~30분 2 · 30분 이상 3). 채널마다 따로 세고, <b>발행된 편수</b>만 한도를 깎아요. 반려·취소된 시도는 <b>시도</b>로만 잡혀요.${canEdit?' 숫자를 고치면 바로 저장돼요.':''}</p>
    <p class="src-msg" role="status"></p>
    <div class="src-eps">${sum.eps.map(e=>epBlock(e,sum)).join('')}</div>`;
@@ -98,7 +98,7 @@ export function mountWorks(root,{client,role}={}){
  function epBlock(e,sum){
   const key=e.work+'|'+(e.ep??'-'),open=openVideos.has(key);
   const each=e.limits.length?Math.max(...e.limits):0,mixed=new Set(e.limits).size>1;
-  const facts=[e.dur?Math.floor(e.dur/60)+'분':'',e.files>1?`영상 ${e.files}개${e.usable<e.files?` · 쓸 수 있는 것 ${e.usable}개`:''}`:'',!epUsable(e)?(!e.active?'비활성':'3분 이하 — 안 써요'):''].filter(Boolean).join(' · ');
+  const facts=[e.dur?Math.floor(e.dur/60)+'분':'',e.files>1?`영상 ${e.files}개${e.usable<e.files?` · 쓸 수 있는 것 ${e.usable}개`:''}`:'',!epUsable(e)?(!e.active?'비활성':'3분 이하 · 안 써요'):''].filter(Boolean).join(' · ');
   const lim=canEdit?`<label class="src-num" title="${e.files>1?'영상마다 같은 한도가 걸려요':'이 영상으로 만들 편수 상한'}">${e.files>1?'영상당 한도':'한도'}<input type="number" min="0" max="20" value="${each}" data-limit="${esc(e.ids.join(','))}"></label>${e.files>1?`<small class="src-muted">합계 ${e.limit}${mixed?' · 영상별로 다름':''}</small>`:''}`
    :`<small class="src-muted">한도 ${e.limit}${e.files>1?` (영상 ${e.files}개 합)`:''}</small>`;
   const rows=sum.chs.map(c=>{const s=c.token_slug,u=e.ch[s]||{},used=epUsed(e,s),remain=epRemain(e,s),tries=epTries(e,s),left=epLeft(e,s);

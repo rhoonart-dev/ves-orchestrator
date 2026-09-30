@@ -2778,8 +2778,14 @@ function undoToast(msg){
   el.classList.add("on"); arm();
 }
 window.undoToast = undoToast;
-function toast(msg){ $("#saveMsg").textContent = msg;
-  setTimeout(() => { if ($("#saveMsg").textContent === msg) paintSaveMsg(); }, 3500); }
+// 알림 — 화면 아래 가운데 알약(되돌리기 알림과 같은 모양). 예전에는 저장 상태 한 줄 글자만 3.5초 바꿔서
+// 제출이 거절돼도('같은 수정을 이미 제출했어요' 등) 못 보고 지나갔다(2026-09-30)
+function toast(msg){
+  let el = document.getElementById("edToast");
+  if (!el){ el = document.createElement("div"); el.id = "edToast"; el.setAttribute("role", "status"); el.setAttribute("aria-live", "polite"); document.body.append(el); }
+  el.textContent = msg; el.classList.add("on");
+  clearTimeout(toast.t); toast.t = setTimeout(() => el.classList.remove("on"), 5000);
+}
 
 // ── 초안 저장 — 바뀐 섹션만, 기존 초안(디자인·이미지 등) 위에 얹어서 ──
 // 바뀐 섹션만 모은다 — 안 보낸 키는 서버가 이전 라운드를 승계한다(0053).

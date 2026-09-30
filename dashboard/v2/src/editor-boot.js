@@ -90,7 +90,7 @@ async function boot(){
  if(!roles.data.some(r=>['reviewer','operator','admin'].includes(r.role)))throw new Error('편집하려면 검수자나 관리자 권한이 필요해요.');
  const payload=await bootLocal(client);
  step(3);
- await import('./ves-editor.js?v=render-123');
+ await import('./ves-editor.js?v=rf-1');
  const root=document.getElementById('tlRoot');root.style.display='flex';root.style.flexDirection='column';
  const notes=showLocalNotes(payload);setupScrollbars();
  mountAccount(client,data.user,roles.data.map(r=>r.role));

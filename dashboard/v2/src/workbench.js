@@ -2,7 +2,7 @@ import {mountWorkflowControls} from './workflow-controls.js';
 import {openPremiereExport} from './premiere-export.js?v=4';
 import {loadCatalog,loadGuide} from './work-catalog.js';
 
-import {openThumbnails} from './thumbnail-tool.js?v=9';
+import {openThumbnails} from './thumbnail-tool.js?v=10';
 import {workflowCardHtml,timelineHtml,reviewEvents} from './workflow-card.js';
 import {score,reviewLabels} from './review-service.js';
 import {icon} from './icons.js';
@@ -85,11 +85,11 @@ export function mountWorkbench(root,job,{service=null,role=null,refresh=null}={}
  function localHistory(){
   const b=items.find(i=>i.id===selectedId)?.bundle;if(!b)return '';
   const rows=[b.exported_at&&{at:b.exported_at,label:'영상 묶음 생성',note:b.render_recorded?'':'렌더 기록 없이 수동으로 묶음'},
-   b.draft&&{at:b.draft.saved_at,label:'편집 초안 저장',note:[b.draft.saved_by,b.draft.stale?'이전 판 기준 — 이어서 할 수 없음':''].filter(Boolean).join(' · ')}].filter(Boolean);
+   b.draft&&{at:b.draft.saved_at,label:'편집 초안 저장',note:[b.draft.saved_by,b.draft.stale?'이전 판 기준이라 이어서 할 수 없어요':''].filter(Boolean).join(' · ')}].filter(Boolean);
   const a=b.apply;
   if(a?.started_at)rows.push({at:a.started_at,label:'편집실 수정 다시 렌더 시작'});
-  if(a?.finished_at)rows.push({at:a.finished_at,label:a.state==='done'?'다시 렌더 완료 — 새 판으로 교체':'다시 렌더 실패',note:a.state==='done'?'':a.error});
-  return timelineHtml(rows)+(rendering(b)?'<p class="workbench-note">다시 렌더 중이에요 — 끝나면 이 화면이 새 판으로 바뀌어요.</p>':b.pending_edits?`<p class="workbench-note">반영 안 된 수정 ${b.pending_edits}건</p>`:'');
+  if(a?.finished_at)rows.push({at:a.finished_at,label:a.state==='done'?'다시 렌더 완료 · 새 영상으로 바뀜':'다시 렌더 실패',note:a.state==='done'?'':a.error});
+  return timelineHtml(rows)+(rendering(b)?'<p class="workbench-note">다시 렌더하고 있어요. 끝나면 새 영상으로 바뀌어요.</p>':b.pending_edits?`<p class="workbench-note">반영 안 된 수정 ${b.pending_edits}건</p>`:'');
  }
  async function loadHistory(item){
   const ticket=++historyVersion;historyRows=[];drawHistory();
@@ -163,7 +163,7 @@ export function mountWorkbench(root,job,{service=null,role=null,refresh=null}={}
     // 프리미어로 내보내기 — 서버 없이 브라우저가 만든다(웹 주소에서도 된다)
     const [,wo,suffix]=String(b.key||'').match(/^remote-([^/]+)\/(.+)$/)||[];
     if(wo&&canExport&&service?.client){premiere.hidden=false;premiere.onclick=()=>{video.pause();openPremiereExport(service.client,{wo,suffix});};}
-    if(rendering(b)){note.textContent='다시 렌더 중이에요 — 끝나면 새 판에서 편집할 수 있어요';return;}
+    if(rendering(b)){note.textContent='다시 렌더하고 있어요. 끝나면 편집할 수 있어요.';return;}
     failureNote(note,b,[]);
     link.href=`editor.html?local=1&run=${encodeURIComponent(item.id)}&back=${encodeURIComponent(job.id)}`;link.setAttribute('aria-disabled','false');renderTip(link);
     return;
@@ -171,7 +171,7 @@ export function mountWorkbench(root,job,{service=null,role=null,refresh=null}={}
    if(!canReview){note.textContent='편집에는 검수자 권한이 필요합니다';return;}
    if(b.status!=='ready'){note.textContent='전사 수정으로 낡은 영상이에요. 다시 렌더된 뒤 편집할 수 있어요.';return;}
    if(!b.source_ok){note.textContent='원본 영상을 찾을 수 없어 편집할 수 없어요.';return;}
-   if(rendering(b)){note.textContent='다시 렌더 중이에요 — 끝나면 새 판에서 편집할 수 있어요';return;}
+   if(rendering(b)){note.textContent='다시 렌더하고 있어요. 끝나면 편집할 수 있어요.';return;}
    // 썸네일 — 편집실 열기와 같은 조건(묶음 ready·원본 있음·렌더 중 아님)에서만. 결과가 있으면 '썸네일 보기'.
    const th=b.thumbs||{};thumbs.hidden=false;
    thumbs.querySelector('span').textContent=th.state==='running'?'썸네일 만드는 중':th.has_result?'썸네일 보기':'썸네일 생성';
