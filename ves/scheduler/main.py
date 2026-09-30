@@ -112,6 +112,8 @@ def main():
                     ("channels_sync", lambda: channels_sync.run(conn, cfg), _due_daily(last.get("channels_sync"), now, 8)),
                     # 레이블리 작품 정보 사본(0116) — 워크스페이스 작품 관리를 웹에서. 10분이면 사람이 고친 게 곧 보인다
                     ("laeebly_sync",  lambda: laeebly_sync.run(conn, cfg),  _due_interval(last.get("laeebly_sync"), now, 10)),
+                    # 권리사 검수 사본(0117) — 검수 결과를 곧 보게 2분
+                    ("laeebly_inspect", lambda: laeebly_sync.run_inspections(conn, cfg), _due_interval(last.get("laeebly_inspect"), now, 2)),
                     ("perf_sync",     lambda: perf_sync.run(conn, cfg),     _due_interval(last.get("perf_sync"), now, 60)),
                     ("zanmang_daily", lambda: zanmang_daily.run(conn, cfg), _due_daily(last.get("zanmang_daily"), now, 10)),
                     # 외부 쇼츠 아카이브(L-P3) — 03:00 KST. 전량 재나열이 46유닛(무료
