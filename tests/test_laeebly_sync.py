@@ -17,3 +17,10 @@ def test_plan_writes_changed_and_deletes_missing():
 
 def test_plan_empty():
     assert plan([], {}) == ([], [])
+
+
+def test_plan_other_table_without_title():
+    from ves.scheduler.laeebly_sync import APP_COLS
+    src = [{k: None for k in APP_COLS} | {"id": "x", "status": True}]
+    writes, deletes = plan(src, {"old": {"id": "old"}}, APP_COLS)
+    assert [w["id"] for w in writes] == ["x"] and deletes == ["old"]

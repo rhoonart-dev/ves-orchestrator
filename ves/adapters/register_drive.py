@@ -443,7 +443,7 @@ def run(cfg, conn, job, deps):
     capped = bool(getattr(client, "capped", False))
     more = bool(remaining) or capped
     if more and (done or refreshed):
-        _queue_continuation(conn, job, remaining)     # 진전이 있을 때만 — 헛도는 이어받기 방지
+        _queue_continuation(conn, job, remaining, cfg)     # 진전이 있을 때만 — 헛도는 이어받기 방지
     if via == "rclone" and done and not errors and not more:
         # 다 받았다 → 남은 캐시 반환(8/11 실측: 11개 폴더 캐시 누적으로 mm-01 디스크 0)
         try:
@@ -459,10 +459,22 @@ def run(cfg, conn, job, deps):
             "top_folders": top_folders(files)[:40]}
 
 
-def _queue_continuation(conn, job, remaining: int) -> None:
+def _queue_continuation(conn, job, remaining: int, cfg=None) -> None:
     """남은 파일이 있으면 '이어받기' 잡을 건다 — 같은 폴더·같은 노드, 10분 뒤.
-    멱등키에 회차 번호를 넣어 매번 새 잡이 되지만, 진전이 있을 때만(done>0) 건다."""
+    멱등키에 회차 번호를 넣어 매번 새 잡이 되지만, 진전이 있을 때만(done>0) 건다.
+    그사이 채널을 멈췄으면 잇지 않는다(drive_watch.active_works 와 같은 기준 — 2026-09-30 사용자 요청)."""
     p = dict(job["params"] or {})
+    if cfg is not None:
+        try:
+            from ves.scheduler.drive_watch import active_works
+            from ves.scheduler.planner import _load_channels, _load_paused
+            live, any_live = active_works(_load_channels(cfg), _load_paused(conn))
+            work = p.get("work_title")
+            if (work and work not in live) or (not work and not any_live):
+                print(f"[sync_drive_folder] 이어받기 안 함 — 멈춘 채널의 작품: {work or '외부 폴더'}")
+                return
+        except Exception as e:  # noqa: BLE001 — 확인이 실패하면 예전처럼 잇는다
+            print(f"[sync_drive_folder] 멈춤 확인 실패(이어받음): {e}")
     seq = int(p.get("batch_seq") or 1) + 1
     p["batch_seq"] = seq
     key = f"{job['idempotency_key']}#b{seq}"
