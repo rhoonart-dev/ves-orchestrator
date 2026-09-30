@@ -1,4 +1,5 @@
 import {icon} from './icons.js';
+import {loadCatalog} from './work-catalog.js';
 import {askConfirm} from './confirm-dialog.js';
 import {esc} from './review-details.js';
 import {assetRequest} from './work-assets.js';
@@ -123,7 +124,7 @@ export function mountSchedule(root,{params=new URLSearchParams(),client=null,rol
  let editing=null,picked=null,mode='single',kind='main',srcLoc=null,srcChans=[],card=null,cardTicket=0;
  async function loadWorks(){
   if(works)return works;
-  const body=await assetRequest(client,'/api/work-catalog');
+  const body=await loadCatalog(client);   // 레이블리 작품 정보 사본(웹에서도 된다)
   works=(body.works||[]).map(w=>({id:String(w.id),title:w.title,type:w.video_type||'',holder:w.copyrights_holder_name||''}));
   return works;
  }

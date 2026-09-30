@@ -1,10 +1,10 @@
-import {mountWorkAssets,assetRequest} from './work-assets.js?v=web-1';
-import {ON_WORK_PC,localOnlyEmpty} from './local-only.js';
+import {mountWorkAssets,assetRequest} from './work-assets.js?v=web-2';
+import {loadCatalog,loadGuide} from './work-catalog.js';
 import {loadSources,workSummary,videoRows,epUsable,epUsed,epTries,epLeft,epRemain,setLimit,setUsed} from './sources.js';
 import {workPosters} from './work-posters.js';
 import {icon} from './icons.js';
 import {enhanceDropdowns} from './dropdowns.js';
-import {guideFragment} from './workbench.js?v=web-1';
+import {guideFragment} from './workbench.js?v=web-2';
 import {GuideDetails} from './guide-details.js';
 import {esc} from './review-details.js';
 const sampleWorks=[['lotto','로또 1등도 출근합니다','드라마'],['jigeum','지금 불륜이 문제가 아닙니다(c)','드라마'],['gawang','가왕쇼','예능'],['sinbyeong','신병','드라마'],['jjijji','종합광고대행사 찌찌: 광고의 온도편','드라마'],['karlovy','카를로비바리','영화']].map(([id,name,type])=>({id,name,type}));
@@ -14,16 +14,12 @@ const norm=t=>String(t||'').replace(/\s/g,'');
 const mmss=d=>d==null?'–':Math.floor(d/60)+':'+String(Math.round(d%60)).padStart(2,'0');
 const date=value=>new Date(value).toLocaleDateString('ko-KR',{year:'numeric',month:'2-digit',day:'2-digit',timeZone:'Asia/Seoul'});
 export function mountWorks(root,{client,role}={}){
- if(!ON_WORK_PC){   // 작품 목록을 레이블리에서 읽는 일이 아직 작업 컴퓨터(로컬 서버)를 거친다
-  root.innerHTML=localOnlyEmpty('작품 관리는 작업 컴퓨터에서만 볼 수 있어요','작품 목록과 로고를 아직 작업 컴퓨터에서 읽어 와요. 웹에서도 볼 수 있게 옮기는 중이에요.');
-  return()=>{};
- }
  let works=sampleWorks.map(w=>({...w})),releaseAssets=()=>{},liveGuides={};
  root.parentElement.classList.add('works-page');
  let catalogByTitle=new Map(),disposed=false,src=null,srcError='',openVideos=new Set(),guideData=null,guideError=false,releaseDropdown=()=>{},copyNoticeTimer;
  root.innerHTML=`<div class="works-layout"><aside class="works-sidebar" aria-label="작품 목록"><label class="works-search">${icon('search')}<input type="search" placeholder="작품 검색" aria-label="작품 검색" value="${esc(state.workQuery)}"></label><div class="works-options"></div></aside><section class="works-main"><div class="works-heading"></div><div class="works-toolbar"><div class="works-kinds" aria-label="작품 유형"></div></div><div class="works-results" aria-live="polite"></div></section></div><dialog class="works-guide" aria-labelledby="works-guide-title"><header><div><p class="works-guide-kicker"></p><h2 id="works-guide-title"></h2><p class="works-guide-meta"></p></div><button type="button" class="works-close" aria-label="안내 닫기">×</button></header><div class="works-guide-body"></div><footer></footer><div role="status" aria-live="polite" aria-atomic="true" class="works-copy-status"></div></dialog>`;
  const $=s=>root.querySelector(s),guideDialog=$('.works-guide'),canEdit=EDIT_ROLES.includes(role);
- function hideCopyNotice(){clearTimeout(copyNoticeTimer);$('.works-copy-status').classList.remove('visible');}
+ function hideCopyNotice(){clearTimeout(copyNoticeTimer);$('.works-copy-status')?.classList.remove('visible');}   // 화면을 떠나며 창을 닫을 때는 이미 없다
  function showCopyNotice(message,duration=1800){
   const notice=$('.works-copy-status');clearTimeout(copyNoticeTimer);
   notice.textContent=message;notice.classList.add('visible');
@@ -124,7 +120,11 @@ export function mountWorks(root,{client,role}={}){
   body.replaceChildren();
   if(mode==='assets'){releaseAssets=mountWorkAssets(body,{client,role,work});}
   else if(!record)body.textContent=guideError?'정보를 불러오지 못했습니다. 새로고침 후 다시 확인해 주세요.':guideData?'등록된 정보가 없습니다.':'정보를 불러오는 중…';
-  else if(mode==='guide'){if(record.guide)body.append(guideFragment(record.guide));else body.textContent='등록된 가이드가 없습니다.';}
+  else if(mode==='guide'){
+   if(record.guide===undefined&&record.id&&client){   // 목록에는 가이드 원문이 없다 — 열 때 읽는다
+    body.textContent='가이드를 불러오는 중…';
+    loadGuide(client,record.id).then(g=>{record.guide=g;if(!disposed&&guideDialog.open&&guideMode==='guide')showGuide('guide');}).catch(()=>{if(!disposed)body.textContent='가이드를 불러오지 못했어요. 새로고침 후 다시 확인해 주세요.';});
+   }else if(record.guide)body.append(guideFragment(record.guide));else body.textContent='등록된 가이드가 없습니다.';}
   else{
    const derived=GuideDetails.derive(record);
    const rawCode=String(record.identification_code||'').trim().replace(/^#+/,'').trim();
@@ -142,7 +142,7 @@ window.addEventListener('resize',fadeEdge);
  releaseDropdown=enhanceDropdowns(root);render();
  if(client)loadSources(client).then(data=>{if(disposed)return;src=data;render();}).catch(e=>{if(disposed)return;srcError=e.message||'';render();});
  fetch('assets/local-guides.json').then(r=>{if(!r.ok)throw Error();return r.json();}).then(data=>{if(disposed)return;guideData=data;if(guideDialog.open&&guideMode!=='assets')showGuide(guideMode);}).catch(()=>{if(disposed)return;guideError=true;if(guideDialog.open&&guideMode!=='assets')showGuide(guideMode);});
- if(client)assetRequest(client,'/api/work-catalog').then(data=>{
+ if(client)loadCatalog(client).then(data=>{   // 레이블리 작품 정보 사본(웹에서도 된다)
   if(disposed)return;
   const linked=new Set(data.pipeline_titles||[]);
   catalogByTitle=new Map(data.works.map(r=>[norm(r.title),r]));

@@ -1,4 +1,5 @@
 import {mountWorkflowControls} from './workflow-controls.js';
+import {loadCatalog,loadGuide} from './work-catalog.js';
 import {ON_WORK_PC,localChip} from './local-only.js';
 import {openThumbnails} from './thumbnail-tool.js?v=8';
 import {workflowCardHtml,timelineHtml,reviewEvents} from './workflow-card.js';
@@ -6,8 +7,6 @@ import {score,reviewLabels} from './review-service.js';
 import {icon} from './icons.js';
 import {loadLocalMedia,timeLabel} from './media-catalog.js';
 import {bundleItem} from './local-jobs.js?v=mv-4';
-import {assetRequest} from './work-assets.js';
-let catalogCache=null;   // 레이블리 작품 목록 — 탭을 옮겨도 한 번만 받는다
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const remembered=new Map();
 export function guideFragment(html){
@@ -187,10 +186,11 @@ export function mountWorkbench(root,job,{service=null,role=null,refresh=null}={}
    const client=service?.client;
    if(client){
     try{
-     const data=await (catalogCache||(catalogCache=assetRequest(client,'/api/work-catalog').catch(e=>{catalogCache=null;throw e;})));if(disposed)return;
+     const data=await loadCatalog(client);if(disposed)return;
      const recs=data.works.filter(r=>r.title===job.work);
-     if(recs.length===1&&recs[0].guide){
-      const r=recs[0];content.replaceChildren(note(`레이블리 작품 DB 원문${r.identification_code?` · 식별코드 ${r.identification_code}`:''}`),guideFragment(r.guide));return;
+     const guide=recs.length===1?await loadGuide(client,recs[0].id):'';if(disposed)return;
+     if(guide){
+      const r=recs[0];content.replaceChildren(note(`레이블리 작품 DB 원문${r.identification_code?` · 식별코드 ${r.identification_code}`:''}`),guideFragment(guide));return;
      }
     }catch{}
    }
