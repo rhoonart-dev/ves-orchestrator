@@ -314,9 +314,42 @@ def make_sprites(d: pathlib.Path) -> list:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+LOGO_EXTS = (".png", ".jpg", ".jpeg", ".webp")
+
+
+def logo_copies(design: dict) -> list:
+    """이 편을 렌더한 디자인의 로고 파일 → 번들에 담을 (원본 경로, 번들 안 이름). 순수 — 테스트 대상.
+    워크스페이스 '프리미어로 내보내기'가 로고를 같은 그림으로 얹으려면 번들에 있어야 한다(엔진 폴더는 맥미니에만 있다)."""
+    out = []
+    d = design or {}
+    for key, name, need in (("work_value", "logo_work", "image"), ("platform_image", "logo_platform", None)):
+        v = d.get(key)
+        if not isinstance(v, str) or not v.startswith("/") or (need and d.get("work_type") != need):
+            continue
+        ext = pathlib.PurePath(v).suffix.lower()
+        if ext in LOGO_EXTS:
+            out.append((v, f"assets/{name}{'.jpg' if ext == '.jpeg' else ext}"))
+    return out
+
+
+def copy_logos(d: pathlib.Path) -> None:
+    """번들 video.json 의 렌더 디자인에서 로고 파일을 assets/ 로 복사한다(있는 것만, 실패해도 업로드는 계속)."""
+    import shutil
+    video = _read_json(d / "video.json") or {}
+    design = ((video.get("provenance") or {}).get("render") or {}).get("design") or {}
+    for src, rel in logo_copies(design):
+        try:
+            if pathlib.Path(src).is_file():
+                (d / rel).parent.mkdir(exist_ok=True)
+                shutil.copyfile(src, d / rel)
+        except OSError:
+            pass
+
+
 def upload_bundle(cfg, conn, store, job, wo, suffix: str, d: pathlib.Path, p: dict) -> None:
     """편 번들 하나를 ves-outputs 로 올리고 tikitaka_videos 한 줄을 넣거나 갱신한다(생성 뒤·편집실 재렌더 뒤 공통)."""
     make_sprites(d)
+    copy_logos(d)
     files, sent = {}, set()
     for f in sorted(x for x in d.rglob("*") if x.is_file()):
         rel = f.relative_to(d).as_posix()

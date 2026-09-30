@@ -106,3 +106,12 @@ def test_apply_report():
     assert got["log_text"] == "⚠ 12.5~14s 인물 얼굴이 왼쪽 잘림 띠에 걸림"
     assert got["duration_sec"] == 58.2
     assert apply_report({}, "") == {"log": [], "log_text": ""}
+
+
+def test_logo_copies():
+    from ves.adapters.tikitaka import logo_copies
+    d = {"work_type": "image", "work_value": "/e/logos/jigeum.PNG", "platform_image": "/e/logos/tving.jpeg"}
+    assert logo_copies(d) == [("/e/logos/jigeum.PNG", "assets/logo_work.png"), ("/e/logos/tving.jpeg", "assets/logo_platform.jpg")]
+    assert logo_copies({"work_type": "text", "work_value": "지금 불륜이"}) == []
+    assert logo_copies({"work_type": "image", "work_value": "relative.png"}) == []
+    assert logo_copies(None) == []
