@@ -265,7 +265,9 @@ body.applayout header button{height:32px;padding:0 14px;background:var(--panel2)
 #saveDraftBtn.primary{background:var(--panel2);color:var(--text)}          /* 저장은 보조 */
 #editToggle.on{background:var(--accent);color:var(--accent-ink)}
 /* 왼쪽 레일 */
-#rail{width:56px;background:var(--rail)}
+#rail{width:56px;background:var(--rail);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:none}   /* 화면이 낮으면 메뉴가 아래 막대를 덮지 않고 레일 안에서 스크롤 */
+#rail::-webkit-scrollbar{display:none}
+#rail button{flex:none}
 body.applayout #railPanel{left:56px}
 #rail button{width:48px;height:52px;border-radius:10px;color:var(--muted)}
 #rail button svg{width:20px;height:20px;flex:none}
