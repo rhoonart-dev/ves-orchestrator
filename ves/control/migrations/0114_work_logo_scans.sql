@@ -51,10 +51,11 @@ BEGIN
   INSERT INTO public.work_logo_scans (work_id, folder_url, source, requested_by)
   VALUES (p_work_id, v_folder, CASE WHEN v_folder IS NULL THEN 'laeebly' ELSE 'manual' END, auth.uid())
   RETURNING id INTO v_id;
-  -- 레이블리 연결과 드라이브 인증이 둘 다 있는 노드(스케줄러 노드 = 드라이브 동기화 담당)
+  -- 레이블리 연결과 드라이브 인증은 6대 모두에 있다(2026-09-30 mm-03 으로 확인). 스케줄러 노드로 묶으면
+  -- 몇 시간짜리 드라이브 소스 받기 뒤에서 기다리게 된다 — 아무 노드나
   INSERT INTO public.job_queue (kind, params, idempotency_key, required_caps, lease_ttl_sec, priority, max_attempts)
   VALUES ('scan_work_logos', jsonb_build_object('scan_id', v_id::text), 'logo-scan:' || v_id::text,
-          ARRAY['network','scheduler'], 300, 250, 1)
+          ARRAY['network'], 300, 250, 1)
   RETURNING id INTO v_job;
   UPDATE public.work_logo_scans SET job_id = v_job WHERE id = v_id;
   PERFORM public._audit('request_work_logo_scan', 'work_logo_scans', v_id::text,
