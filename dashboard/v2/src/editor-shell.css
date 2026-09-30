@@ -393,3 +393,10 @@ body.editing #tlRoot #inner .blk.sel::before,body.editing #tlRoot #inner .blk.se
 #inner .outph{z-index:30}
 #tlRoot #inner .blk.t .phd{width:1px;margin-left:0}
 body.editing #tlRoot #inner .blk.t.sel .phd{top:4px;bottom:4px}
+/* 되돌리기 알림(undoToast) — 지우면 바로 지우고 화면 아래 가운데에 8초(마우스를 올리면 기다린다) */
+#undoToast{position:fixed;left:50%;bottom:28px;transform:translate(-50%,12px);z-index:400;display:flex;align-items:center;gap:14px;
+  padding:8px 8px 8px 18px;border-radius:999px;background:#2c2c2c;color:var(--text);font-size:13px;opacity:0;pointer-events:none;
+  transition:opacity .18s ease,transform .18s ease;white-space:nowrap}
+#undoToast.on{opacity:1;transform:translate(-50%,0);pointer-events:auto}
+#undoToast button{border:0;border-radius:999px!important;height:30px;padding:0 14px;background:#f4f4f4;color:#181818;font-weight:700;cursor:pointer}
+#undoToast button:hover{background:#dedede}

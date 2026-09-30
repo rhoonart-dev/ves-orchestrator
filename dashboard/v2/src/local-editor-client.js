@@ -1,4 +1,5 @@
 import {needWorkPc} from './local-only.js';
+import {isRemoteKey,remoteEditorPayload,remoteLogos,remoteSaveDraft,remoteSubmit,remoteCheck} from './remote-editor-data.js?v=2';
 // Local bundle mode for the ported editor: auth stays on the real VES client; every data call the
 // editor makes is answered from /api/local-videos (ai-video videos/<suffix>/ bundles). Nothing is
 // written to VES tables; the only VES reads are the voice settings (ops_config) and voice preview. Submissions are recorded as edits and re-render the video in the background — see scripts/local_videos_api.py.
@@ -12,7 +13,8 @@ async function api(client,path,body){
  if(!res.ok)throw new Error(payload.error||'작업 컴퓨터에 요청하지 못했어요.');
  return payload;
 }
-export const loadLocalVideo=(client,key)=>api(client,`/api/local-videos/editor?key=${encodeURIComponent(key)}`);
+// 맥미니 영상(remote-<작업지시>/<편>)은 로컬 서버 없이 브라우저가 저장소에서 바로 연다(remote-editor-data.js) — 웹 주소에서도 된다
+export const loadLocalVideo=(client,key)=>isRemoteKey(key)?remoteEditorPayload(client,key):api(client,`/api/local-videos/editor?key=${encodeURIComponent(key)}`);
 
 // Minimal PostgREST-shaped query: the editor only awaits {data,error} from select/eq/in/order/limit/maybeSingle chains.
 function query(table,answer){
@@ -20,6 +22,40 @@ function query(table,answer){
  const chain={select:()=>chain,eq:(k,v)=>{q.filters[k]=v;return chain},in:()=>chain,order:()=>chain,limit:()=>chain,
   maybeSingle:()=>chain,single:()=>chain,then:(ok,fail)=>Promise.resolve().then(()=>answer(q)).then(ok,fail)};
  return chain;
+}
+
+// 맥미니 영상 — 같은 모양의 local·sb 를 Supabase 로(초안·제출은 0113 RPC, 로고는 작품 관리 표)
+function remoteClient(client,payload,answer){
+ const key=payload.meta.key,basedOn=payload.meta.render_fingerprint;
+ let role=null;
+ const myRole=async()=>{if(role)return role;const {data:{user}}=await client.auth.getUser();const {data}=await client.from('user_roles').select('role').eq('user_id',user?.id||'').limit(1);return role=data?.[0]?.role||null;};
+ const local={
+  key,basedOn,
+  submit:async(overrides,note)=>{try{return await remoteSubmit(client,payload,overrides,note)}catch(e){return {error:e.message}}},
+  dryRun:null,measure:null,   // 제출 전 미리 검사·내레이션 길이 재기는 잡 폴더가 맥미니에 있어 여기선 못 한다(예상 길이로 검사)
+  logos:async()=>remoteLogos(client,payload,await myRole()),
+  uploadLogo:async(workId,roleKey,file,label,box)=>{
+   const {uploadWorkAsset}=await import('./work-assets-data.js?v=1');
+   return uploadWorkAsset(client,workId,{role:roleKey,target:roleKey==='platform_logo'?'holder':'work',file,renderWidth:box[0],renderHeight:box[1],label});
+  },
+  check:()=>remoteCheck(client,payload),
+ };
+ const sb={
+  auth:client.auth,
+  from:table=>query(table,answer),
+  rpc:async(name,args)=>{
+   if(name!=='save_editor_draft')return {data:null,error:{message:'여기서는 쓸 수 없는 기능이에요.'}};
+   try{await remoteSaveDraft(client,payload,args.p_draft);return {data:null,error:null}}
+   catch(e){return {data:null,error:{message:e.message}}}
+  },
+  storage:{from:()=>({
+   createSignedUrl:async k=>({data:{signedUrl:k},error:null}),
+   createSignedUrls:async keys=>({data:keys.map(k=>({path:k,signedUrl:k,error:null})),error:null}),
+  })},
+  functions:{invoke:(name,opts)=>name==='tts-preview'?client.functions.invoke(name,opts)
+   :Promise.resolve({data:null,error:{message:'여기서는 쓸 수 없는 기능이에요.'}})},
+ };
+ return {sb,local};
 }
 
 export function createLocalEditorClient(client,payload){
@@ -38,6 +74,7 @@ export function createLocalEditorClient(client,payload){
   if(q.table==='channel_design_overrides')return {data:{design:payload.meta.render_design||{}},error:null};
   return {data:null,error:null};
  };
+ if(payload.meta.serverless)return remoteClient(client,payload,answer);
  const local={
   key,basedOn,
   submit:async(overrides,note)=>{
