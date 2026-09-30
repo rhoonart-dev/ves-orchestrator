@@ -95,12 +95,12 @@ body.applayout .tlwrap{height:var(--tlh,auto);max-height:calc(100vh - 260px)}
 .fx-check input{width:auto;margin:0}
 #insp .fx-check{justify-content:flex-start;white-space:nowrap}
 #insp .fx-check input{flex:none;width:16px;height:16px;padding:0}
-/* 엔진 폰트(ai-video assets/fonts, serve.py /engine-fonts) — 새 파이프라인 대사 자막 미리보기를 렌더와 같은 글꼴로 */
-@font-face{font-family:EngineNotoBlack;src:url('/engine-fonts/NotoSansCJKkr-Black.otf') format('opentype');font-display:swap}
-@font-face{font-family:EngineJalnan;src:url('/engine-fonts/Jalnan.ttf') format('truetype');font-display:swap}
-@font-face{font-family:EngineJalnanGothic;src:url('/engine-fonts/JalnanGothic.ttf') format('truetype');font-display:swap}
-@font-face{font-family:EngineMulmaru;src:url('/engine-fonts/mulmaru.ttf') format('truetype');font-display:swap}
-@font-face{font-family:EngineGriun;src:url('/engine-fonts/Griun.ttf') format('truetype');font-display:swap}
+/* 엔진 폰트(ai-video assets/fonts, 웹에서는 assets/fonts/engine, 사용권은 NOTICE.txt) — 새 파이프라인 대사 자막 미리보기를 렌더와 같은 글꼴로 */
+@font-face{font-family:EngineNotoBlack;src:url('../assets/fonts/engine/NotoSansCJKkr-Black.woff2') format('woff2');font-display:swap}
+@font-face{font-family:EngineJalnan;src:url('../assets/fonts/engine/Jalnan.ttf') format('truetype');font-display:swap}
+@font-face{font-family:EngineJalnanGothic;src:url('../assets/fonts/engine/JalnanGothic.ttf') format('truetype');font-display:swap}
+@font-face{font-family:EngineMulmaru;src:url('../assets/fonts/engine/Mulmaru.woff2') format('woff2');font-display:swap}
+@font-face{font-family:EngineGriun;src:url('../assets/fonts/engine/Griun.ttf') format('truetype');font-display:swap}
 /* 텍스트 색 견본(편집 폼) */
 .swrow{display:flex;gap:6px;margin:-2px 0 6px}
 #tlRoot .swrow .sw{width:22px;height:22px;min-width:0;padding:0;border-radius:6px;border:1px solid var(--line2);cursor:pointer}

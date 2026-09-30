@@ -1,0 +1,16 @@
+엔진 글꼴 — 편집실·채널 템플릿 미리보기를 실제 렌더와 같은 글꼴로 보여 주려고 함께 둔다.
+원본은 ai-video app/assets/fonts. 2026-09-30 배포처 사용권 확인.
+
+여기어때 잘난체 (Jalnan.ttf) · 여기어때 잘난체 고딕 (JalnanGothic.ttf)
+  Copyright © GC COMPANY All rights reserved. Font Designed by Sandoll Inc.
+  이 상품에는 ㈜여기어때컴퍼니가 제공한 여기어때 잘난체·잘난체 고딕이 적용되어 있습니다.
+  사용권: https://www.sandollcloud.com/free-font/772/get-started (웹사이트·서버 탑재 허용, 폰트 파일 판매 금지)
+  원본 파일 그대로 둔다.
+
+그리운 공정체 (Griun.ttf, Griun PolFairness Rg)
+  Copyright © TypeE. Corp. & Go Han bi, All rights reserved.
+  사용권: https://www.griun.co.kr/license (웹사이트 및 프로그램 서버 내 폰트 탑재 사용가능, 파일 수정·배포·판매 불가)
+  수정 금지라 형식 변환 없이 원본 파일 그대로 둔다.
+
+본고딕 Noto Sans CJK KR Black (NotoSansCJKkr-Black.woff2) · 물마루 Mulmaru (Mulmaru.woff2)
+  SIL Open Font License 1.1 — OFL.txt
