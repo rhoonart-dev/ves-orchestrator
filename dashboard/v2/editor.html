@@ -1,0 +1,112 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>VES Studio · VES Workspace</title><link rel="stylesheet" href="src/tokens.css"><link rel="stylesheet" href="src/ves-editor.css?v=render-119"><link rel="stylesheet" href="src/editor-shell.css?v=render-119"><script defer src="vendor/supabase-2.112.2.js"></script><script type="module" src="src/editor-boot.js?v=render-119"></script></head><body><section id="editor-gate" role="status"><h1><span class="studio-mark"></span>VES Studio</h1><p>편집 자료를 확인하는 중…</p><a href="index.html#review">작업 목록으로</a></section><div id="tlRoot" style="display:none;position:fixed;inset:0;z-index:200;background:var(--bg)">
+
+<div class="wrap">
+  <header>
+    <h1><span class="studio-mark"></span>VES Studio</h1>
+    <span class="rochip" id="rochip">보기만 하는 중이에요. 편집 잠금을 풀면 고칠 수 있어요.</span>
+    <div class="grow"></div>
+    <span id="who" class="small muted"></span>
+    <button id="logout" style="display:none" onclick="window.__sbMain.auth.signOut().then(()=>location.reload())">로그아웃</button>
+  </header>
+
+  <div id="tlLogin" class="card" style="display:none">
+    <b>Workspace 계정으로 로그인</b>
+    <input id="em" type="email" placeholder="이메일" autocomplete="username">
+    <input id="tlPw" type="password" placeholder="비밀번호" autocomplete="current-password">
+    <button onclick="doLogin()">로그인</button>
+    <div id="err"></div>
+  </div>
+
+  <div id="tlApp" style="display:none">
+    <div class="runs" id="runs"></div>
+    <div id="stage" style="display:none">
+      <div class="top">
+        <div class="player">
+          <div id="pvRow">
+            <div id="srcPane" title="원본 줄을 끌면 여기가 따라와요">
+              <video id="vidSrc" preload="metadata" playsinline controls></video>
+              <span id="srcTc" class="tc">원본 –</span>
+            </div>
+            <div id="shortsWrap">
+              <div class="shorts">
+                <div class="ovtitle ovel" id="ovTitle"></div>
+                <div class="vslot" id="vslot"><div id="vzoom"><video id="vid" preload="metadata" playsinline></video></div></div>
+                <span class="outtc tc" id="outTc">0:00.0</span>
+                <div class="ovtxt ovel" id="ovTxt"></div>
+                <div class="ovsub ovel" id="ovSub"></div>
+                <div class="ovtts ovel" id="ovTts"></div>
+                <div class="ovwork" id="ovWork"></div>
+              <div class="ovplat" id="ovPlat"></div>
+                <div class="pbar" id="pbar"><div class="pline"></div><div class="pfill" id="pfill"></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="card" id="insp"><span class="muted">타임라인에서 블록을 눌러 보세요.</span></div>
+      </div>
+
+      <div class="tlwrap">
+        <div class="tltools">
+          <b id="runname"></b>
+          <span id="draftchip" class="small"></span>
+          <span id="saveMsg" class="small faint"></span>
+          <span class="grow"></span>
+          <span class="grp" id="editBtns">
+            <button onclick="doUndo()" title="실행 취소 (⌘Z)"><i data-ico="undo"></i></button>
+            <button onclick="doRedo()" title="다시 실행 (⇧⌘Z)"><i data-ico="redo"></i></button>
+            <button onclick="splitSelClip()" title="고른 구간을 재생 헤드에서 나누기 (S)"><i data-ico="cut"></i></button>
+            <button onclick="startHere()" title="여기부터 (Q): 고른 블록의 시작을 재생 헤드 자리로 옮겨요"><i data-ico="starth"></i></button>
+            <button id="sndBtn" class="on" onclick="seqSndToggle()"
+              title="미리보기 중 내레이션 소리 켜기/끄기"><i data-ico="snd"></i></button>
+            <button onclick="endHere()" title="여기까지 (E): 고른 블록의 끝을 재생 헤드 자리로 옮겨요"><i data-ico="endh"></i></button>
+            <button id="trashBtn" class="danger" onclick="delSelected()" disabled
+              title="고른 블록 지우기 (Delete). ⇧클릭으로 여러 개 고르면 한꺼번에 지워요"><i data-ico="trash"></i></button>
+          </span>
+          <button id="editToggle" class="ico" onclick="toggleEdit()"
+            title="편집 잠금 (잠그면 보기만 해요)"><i data-ico="lock"></i></button>
+          <button id="saveDraftBtn" class="primary" onclick="saveDraft()" disabled
+            title="지금까지 고친 내용 저장"><i data-ico="save"></i><span>저장</span></button>
+          <button id="renderBtn" class="primary" onclick="submitRender()"
+            title="고친 내용을 제출하고 다시 렌더해요"><i data-ico="bolt"></i><span>렌더</span></button>
+          <span class="sep"></span>
+          <span class="zoomgrp" id="zoomGrp">
+            <button type="button" class="zbtn" onclick="outZoomStep(-1)" title="축소 (−, ⌥ 스크롤, 핀치)" aria-label="타임라인 축소"><svg class="ei" viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button>
+            <input type="range" id="zoomRange" min="0" max="100" step="1" value="0" oninput="outZoomSlide(this.value)" aria-label="타임라인 확대">
+            <button type="button" class="zbtn" onclick="outZoomStep(1)" title="확대 (=, ⌥ 스크롤, 핀치)" aria-label="타임라인 확대"><svg class="ei" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+            <button type="button" class="zfit" id="zoomFit" onclick="outZoomFit()" title="전체 보기 (⇧Z)">전체 보기</button>
+          </span>
+
+        </div>
+        <div class="tlbody">
+          <div class="lab"><div class="srcl">원본 소재<br>
+            <span class="small" style="font-size:10px">휠로 확대</span></div></div>
+          <div class="scroll" id="srcScroll">
+            <div class="inner" id="innerSrc"></div>
+          </div>
+        </div>
+        <div class="tlbody">
+          <div class="lab">
+            <div class="rl">완성본</div>
+            <div id="lclips">구간</div>
+            <div id="lttl">제목</div>
+            <div id="lsubs">자막</div>
+            <div id="ltts">내레이션</div>
+            <div id="ltxt">텍스트</div>
+          </div>
+          <div class="scroll">
+            <div class="inner" id="inner"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="warns"></div>
+    </div>
+    <div id="empty" class="muted" style="margin-top:20px">영상을 열면 여기에 보여요.</div>
+  </div>
+
+  
+</div>
+
+
+</div>
+</body></html>

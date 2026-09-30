@@ -1,0 +1,223 @@
+/* 발행 일정 (src/schedule.js): calendar left + selected-day list right on wide screens, stacked below 1100px. */
+.schedule{display:grid;grid-template-columns:minmax(0,1fr) minmax(300px,360px);gap:var(--layout-gap);
+ /* page head = top padding + 32px title + gap; keep the bottom gutter */
+ height:calc(100dvh - var(--page-header-top) - 32px - var(--page-header-gap) - var(--page-gutter));min-height:560px}
+.schedule-main{display:flex;flex-direction:column;gap:14px;min-width:0;min-height:0}
+.schedule-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex:none}
+.schedule-title{margin:0;font-size:20px;font-weight:700;letter-spacing:-.6px}
+.schedule-nav{display:flex;align-items:center;gap:6px}
+.schedule-nav button{border:0;border-radius:8px;background:var(--surface);color:var(--secondary);height:34px;min-width:34px;padding:0 12px;font-size:12px;display:grid;place-items:center}
+.schedule-nav button:hover:not(:disabled){background:var(--hover);color:var(--ink)}
+.schedule-nav button:disabled{opacity:.45;cursor:default}
+.schedule-step{padding:0!important}
+.schedule-step svg{width:16px;height:16px}
+.schedule-step[data-step="-1"] svg{transform:scaleX(-1)}
+.schedule-calendar{flex:1;min-height:0;display:flex;flex-direction:column;background:var(--surface);border-radius:var(--layout-panel-radius);overflow:hidden}
+.schedule-weekdays,.schedule-week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr))}
+.schedule-weekdays{flex:none;border-bottom:1px solid var(--hover)}
+.schedule-weekdays span{padding:12px 14px;font-size:11px;font-weight:600;color:var(--muted)}
+.schedule-days{flex:1;min-height:0;display:grid;grid-template-rows:repeat(6,minmax(0,1fr))}
+.schedule-week+.schedule-week{border-top:1px solid var(--hover)}
+.schedule-day{position:relative;min-width:0;min-height:0;padding:10px 12px;display:flex;flex-direction:column;gap:6px;overflow:hidden;cursor:pointer;outline:none}
+.schedule-day+.schedule-day{border-left:1px solid var(--hover)}
+.schedule-day:hover{background:var(--hover)}
+.schedule-day.is-selected{background:var(--filter-selected,var(--hover))}
+.schedule-day:focus-visible{box-shadow:inset 0 0 0 2px var(--focus)}
+.schedule-date{align-self:flex-start;min-width:26px;height:26px;padding:0 6px;border-radius:13px;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;font-size:13px;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.schedule-month{font-size:inherit;font-weight:inherit;margin-right:2px}
+.schedule-marks{flex:1;min-height:0;overflow:hidden}
+/* weekends: Sunday red, Saturday blue */
+.schedule-weekdays [data-dow="0"],.schedule-day[data-dow="0"] .schedule-date{color:var(--weekend-sun)}
+.schedule-weekdays [data-dow="6"],.schedule-day[data-dow="6"] .schedule-date{color:var(--weekend-sat)}
+.schedule-day.is-outside:not(.is-selected){background:var(--inset)}
+.schedule-day.is-outside .schedule-date{opacity:.4;font-weight:500}
+.schedule-day.is-today .schedule-date{background:var(--solid);color:var(--on-solid)!important;opacity:1}
+/* list panel */
+.schedule-panel{display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--surface);border-radius:var(--layout-panel-radius);overflow:hidden}
+.schedule-panel-head{flex:none;padding:20px 20px 14px;border-bottom:1px solid var(--hover)}
+.schedule-panel-kicker{margin:0 0 4px;font-size:11px;color:var(--muted)}
+.schedule-panel-title{margin:0;font-size:17px;font-weight:700;letter-spacing:-.4px}
+.schedule-list{flex:1;min-height:0;overflow:auto;padding:12px}
+.schedule-empty{height:100%;min-height:180px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;text-align:center;color:var(--muted);padding:24px}
+.schedule-empty svg{width:22px;height:22px;margin-bottom:6px}
+.schedule-empty p{margin:0;font-size:13px;color:var(--secondary)}
+.schedule-empty small{font-size:11px}
+/* narrow: calendar on top, list below; the page scrolls */
+@media(max-width:1100px){
+ .schedule{grid-template-columns:minmax(0,1fr);height:auto;min-height:0}
+ .schedule-calendar{flex:none}
+ .schedule-days{grid-template-rows:repeat(6,minmax(76px,auto))}
+ .schedule-panel{min-height:240px}
+}
+@media(max-width:760px){
+ .schedule-title{font-size:17px}
+ .schedule-weekdays span{padding:10px 4px;text-align:center}
+ .schedule-days{grid-template-rows:repeat(6,minmax(56px,auto))}
+ .schedule-day{padding:6px 4px;align-items:center}
+ .schedule-date{font-size:12px;min-width:24px;height:24px}
+ .schedule-month{display:none}
+ .schedule-panel-head{padding:16px 16px 12px}
+}
+/* ── 작품(원작) 공개 일정 ── */
+.schedule-add{gap:6px}  /* 모양·색은 roles.css 버튼 층(primary) */
+.schedule-add svg{width:14px;height:14px}
+.schedule-panel-sub{margin:6px 0 0;font-size:11px;color:var(--muted)}
+.schedule-marks{display:flex;flex-direction:column;align-items:flex-start;gap:5px;padding-left:2px}
+.mk-work,.mk-video{display:flex;align-items:center;gap:5px}
+.mk-work small,.mk-video small{font-size:11px;font-weight:600;line-height:1;color:var(--secondary);font-variant-numeric:tabular-nums}
+/* 작품 공개 = round dots (status color) · 우리 영상 = small squares (ink) */
+.mk-video b,.lg-video{display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--ink)}
+.lg-work{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--status-info)}
+.schedule-heading{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;min-width:0}
+.schedule-legend{display:flex;gap:12px;font-size:11px;color:var(--muted)}
+.schedule-legend span{display:inline-flex;align-items:center;gap:5px}
+.schedule-marks i{width:7px;height:7px;border-radius:50%;background:var(--status-info)}
+[data-status="released"]{--rs:var(--status-ok)}[data-status="scheduled"]{--rs:var(--status-info)}[data-status="delayed"]{--rs:var(--status-warn)}[data-status="cancelled"]{--rs:var(--status-neutral)}[data-status="overdue"]{--rs:var(--status-error)}
+.schedule-marks i[data-status]{background:var(--rs)}
+.rs-item{display:flex;flex-direction:column;gap:6px;padding:4px 0}
+.rs-item+.rs-item{border-top:1px solid var(--hover)}
+.rs-open{display:grid;grid-template-columns:44px minmax(0,1fr) auto;gap:10px;align-items:start;width:100%;border:0;background:transparent;color:inherit;text-align:left;padding:10px 8px;border-radius:10px}
+.rs-open:not(:disabled):hover{background:var(--hover)}
+.rs-open:disabled{cursor:default;opacity:1}
+.rs-time{font-size:13px;font-weight:650;font-variant-numeric:tabular-nums;padding-top:1px}
+.rs-copy{min-width:0}
+.rs-copy strong{display:block;font-size:13px;font-weight:620;line-height:1.5;overflow-wrap:anywhere}
+.rs-copy em{font-style:normal;font-weight:500;color:var(--secondary);margin-left:4px}
+.rs-copy small{display:block;margin-top:2px;font-size:11px;color:var(--muted);overflow-wrap:anywhere}
+.rs-status{font-size:10px;line-height:1;padding:5px 7px;border-radius:999px;white-space:nowrap;color:var(--rs,var(--status-info));background:color-mix(in srgb,var(--rs,var(--status-info)) 13%,transparent)}
+.rs-status.overdue{--rs:var(--status-error)}
+.rs-mark{align-self:flex-end;margin:0 8px 6px;border:0;border-radius:7px;padding:7px 10px;font-size:11px;background:var(--inset);color:var(--secondary)}
+.rs-mark:hover{color:var(--ink)}
+/* dialog */
+.schedule-dialog{width:min(520px,calc(100vw - 32px));max-height:calc(100dvh - 32px);padding:0;overflow:auto}
+.rs-form{display:flex;flex-direction:column;gap:14px;padding:24px}
+.rs-head{display:flex;align-items:center;justify-content:space-between}
+.rs-head h2{margin:0;font-size:18px}
+.rs-close{border:0;background:transparent;color:var(--muted);font-size:22px;width:32px;height:32px}
+.rs-field{display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--secondary);min-width:0;margin:0}
+.rs-field>span,.rs-days legend{font-size:12px;color:var(--secondary)}
+.rs-form input:not([type=checkbox]),.rs-form select,.rs-form textarea{border:0;border-radius:8px;height:40px;padding:0 12px;background:var(--inset);color:var(--ink);font:inherit;font-size:13px;min-width:0;width:100%}
+.rs-form textarea{height:auto;padding:10px 12px;resize:vertical}
+.rs-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.rs-row-3{grid-template-columns:1fr 1fr 1fr}
+.rs-row-4{grid-template-columns:1fr 1fr 1fr 1fr}
+.rs-row:has(> :only-child){grid-template-columns:1fr}
+.rs-single,.rs-weekly{display:flex;flex-direction:column;gap:14px}
+.rs-single[hidden],.rs-weekly[hidden]{display:none}
+.rs-modes{display:flex;gap:3px;background:var(--inset);padding:4px;border-radius:9px}
+.rs-modes button{flex:1;border:0;border-radius:6px;padding:8px;font-size:12px;background:transparent;color:var(--muted)}
+.rs-modes button[aria-checked="true"]{background:var(--surface);color:var(--ink);font-weight:600}
+.rs-days{border:0;padding:0;flex-direction:row;flex-wrap:wrap;gap:5px}
+.rs-days legend{margin-bottom:6px;padding:0}
+.rs-days label{display:inline-flex}
+.rs-days input{position:absolute;opacity:0;pointer-events:none}
+.rs-days span{display:grid;place-items:center;width:36px;height:34px;border-radius:8px;background:var(--inset);color:var(--secondary);font-size:12px;cursor:pointer}
+.rs-days input:checked+span{background:var(--solid);color:var(--on-solid);font-weight:600}
+.rs-days input:focus-visible+span{outline:2px solid var(--focus);outline-offset:2px}
+.rs-preview,.rs-hint{margin:0;font-size:12px;color:var(--muted);line-height:1.6}
+.rs-work-slot{position:relative}
+/* autocomplete: floats over the fields below instead of pushing them down */
+.rs-work-results{position:absolute;left:0;right:0;top:calc(100% + 6px);z-index:5;display:flex;flex-direction:column;gap:2px;max-height:280px;overflow:auto;padding:6px;border-radius:10px;background:var(--surface);box-shadow:var(--shadow-pop),0 0 0 1px color-mix(in srgb,var(--ink) 6%,transparent)}
+.rs-work-results[hidden]{display:none}
+.rs-work-results .rs-hint{padding:8px 10px}
+.rs-work{border:0;background:transparent;text-align:left;padding:8px 10px;border-radius:8px;color:var(--ink)}
+.rs-work:hover,.rs-work.is-active{background:var(--hover)}
+.rs-work strong,.rs-picked strong{display:block;font-size:13px;font-weight:600}
+.rs-work small,.rs-picked small{display:block;font-size:11px;color:var(--muted);margin-top:2px}
+.rs-picked{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border-radius:8px;background:var(--inset);color:var(--ink)}
+.rs-unpick{border:0;background:transparent;color:var(--secondary);font-size:12px;text-decoration:underline}
+.rs-check{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--secondary)}
+.rs-error{margin:0;min-height:18px;font-size:12px;color:var(--danger)}
+.rs-actions{display:flex;align-items:center;gap:8px}
+.rs-actions span{flex:1}
+.rs-actions button{border:0;border-radius:8px;padding:10px 14px;font-size:12px;background:var(--inset);color:var(--secondary)}
+.rs-actions .primary{width:auto;background:var(--solid);color:var(--on-solid);font-weight:600}
+.rs-delete,.rs-delete-following{color:var(--danger)!important}
+@media(max-width:560px){.rs-row,.rs-row-3{grid-template-columns:1fr}.rs-row-4{grid-template-columns:1fr 1fr}.rs-actions{flex-wrap:wrap}.rs-actions span{display:none}}
+.rs-form :is(input,select,textarea):focus-visible{outline:2px solid var(--focus);outline-offset:1px}
+
+/* list: two sections that never mix */
+.rs-section+.rs-section{margin-top:14px;padding-top:12px;border-top:1px solid var(--hover)}
+.rs-section h3{display:flex;align-items:center;gap:6px;margin:4px 8px 6px;font-size:12px;font-weight:650;color:var(--secondary)}
+.rs-section h3 small{font-weight:500;color:var(--muted)}
+.rs-section-note{margin:4px 8px 8px;font-size:12px;color:var(--muted);line-height:1.6}
+.rs-sync-note{margin:8px 8px 2px;font-size:10px;color:var(--muted)}
+.rs-video-link{display:grid;grid-template-columns:44px 40px minmax(0,1fr);gap:10px;align-items:center;padding:8px;border-radius:10px;color:inherit;text-decoration:none}
+.rs-video-link:hover{background:var(--hover)}
+.rs-thumb{width:40px;aspect-ratio:9/16;object-fit:cover;border-radius:6px;background:var(--inset);display:block}
+.rs-channel{display:block;margin-bottom:2px;font-size:11px;font-weight:700;color:var(--secondary)}
+
+/* 공개 종류·소스 위치(0109) — 테두리 없는 칩, 고르면 검은 칸 */
+.rs-field>span small{color:var(--muted);margin-left:4px}
+.rs-chips{display:flex;flex-wrap:wrap;gap:6px}
+.rs-chip{display:inline-flex;align-items:center;gap:6px;border:0;border-radius:var(--radius-pill);padding:8px 13px;font:inherit;font-size:12px;background:var(--inset);color:var(--secondary);cursor:pointer}
+.rs-chip:hover{background:var(--hover);color:var(--ink)}
+.rs-chip[aria-checked="true"]{background:var(--solid);color:var(--on-solid);font-weight:600}
+.rs-chip svg{width:15px;height:15px}
+/* 원본 채널 고르기 */
+.rs-src-yt{display:flex;flex-direction:column;gap:8px;margin-top:4px}
+.rs-src-yt[hidden]{display:none}
+.rs-chans{display:flex;flex-direction:column;gap:4px}
+.rs-chan{display:flex;align-items:center;gap:10px;border:0;border-radius:10px;padding:8px 10px;background:var(--inset);color:var(--ink);text-align:left;font:inherit;cursor:pointer}
+.rs-chan:hover{background:var(--hover)}
+.rs-chan[aria-pressed="true"]{background:var(--solid);color:var(--on-solid)}
+.rs-chan[aria-pressed="true"] small{color:color-mix(in srgb,var(--on-solid) 65%,transparent)}
+.rs-chan strong{display:block;font-size:13px;font-weight:600}
+.rs-chan small{display:block;font-size:11px;color:var(--muted);margin-top:1px}
+.rs-chan>svg{margin-left:auto;width:16px;height:16px}
+.rs-chan-add{justify-content:center;gap:6px;color:var(--secondary);font-size:12px}
+.rs-chan-add svg{width:15px;height:15px}
+.rs-chan-av{width:28px;height:28px;border-radius:50%;object-fit:cover;flex:none;background:var(--hover);display:inline-grid;place-items:center;font-size:12px;color:var(--secondary)}
+.rs-link{margin:0;font-size:12px;color:var(--secondary)}
+.rs-link code{font-family:var(--font-mono);font-size:11px;background:var(--inset);padding:3px 7px;border-radius:6px;color:var(--ink);margin-left:4px}
+.rs-link-work .rs-check{align-items:flex-start;color:var(--ink);line-height:1.55}
+.rs-link-work .rs-check small{display:block;color:var(--secondary)}
+/* 목록 — 본편만 포인트 색, 선공개·몰아보기·예고편은 회색 */
+.rs-kind{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:var(--radius-pill);font-size:11px;font-weight:600;background:var(--hover);color:var(--secondary);vertical-align:1px}
+.rs-kind.is-main{background:var(--accent-soft);color:var(--accent)}
+.rs-src{display:inline-flex;align-items:center;gap:3px}
+.rs-src svg{width:12px;height:12px}
+/* 원본 채널 관리 창 */
+.rs-chan-dialog{width:min(480px,calc(100vw - 32px));max-height:calc(100dvh - 32px);padding:0;overflow:auto}
+.rs-chan-body{display:flex;flex-direction:column;gap:12px;padding:24px}
+.rs-chan-list{display:flex;flex-direction:column;gap:4px}
+.rs-chan-row{display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;background:var(--inset)}
+.rs-chan-copy{flex:1;min-width:0}
+.rs-chan-copy strong{display:block;font-size:13px}
+.rs-chan-copy>small{display:block;font-size:11px;color:var(--muted)}
+.rs-chan-works{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.rs-chan-works em{font-style:normal;font-size:11px;padding:2px 7px;border-radius:var(--radius-pill);background:var(--surface);color:var(--secondary)}
+.rs-chan-works small{font-size:11px;color:var(--muted)}
+.rs-chan-del{border:0;background:transparent;color:var(--muted);font:inherit;font-size:12px;padding:6px 8px;border-radius:7px;cursor:pointer}
+.rs-chan-del:hover{background:var(--hover);color:var(--danger)}
+.rs-chan-input{display:flex;gap:6px}
+.rs-chan-input input{flex:1;min-width:0}
+.rs-chan-find,.rs-chan-save{border:0;border-radius:8px;padding:0 14px;font:inherit;font-size:12px;background:var(--inset);color:var(--ink);cursor:pointer;white-space:nowrap}
+.rs-chan-save{background:var(--solid);color:var(--on-solid);font-weight:600;padding:8px 14px}
+.rs-chan-row.is-preview{background:var(--accent-soft)}
+.rs-link-work .rs-check input{width:16px;height:16px;min-width:16px;flex:none;margin:2px 0 0;padding:0;accent-color:var(--solid)}
+.rs-chan-input input{height:40px;border:1px solid var(--input-border);border-radius:8px;background:var(--inset);color:var(--ink);padding:0 12px;font:inherit;font-size:13px}.rs-chan-input input:focus{outline:2px solid var(--focus);outline-offset:1px}
+.rs-chan-row .rs-chan-save{width:auto;flex:none;margin:0}
+.rs-chan-new{display:flex;flex-direction:column;gap:10px}.rs-chan-new .rs-error{margin:0}.rs-chan-new .rs-error:empty{display:none}
+.rs-link code+code{margin-left:6px}
+.rs-link{display:flex;flex-wrap:wrap;align-items:center;gap:6px}.rs-link code,.rs-link code+code{margin-left:0}
+/* 체크 상자 줄(이후 회차에도 같은 시간 · 작품 원본으로 저장) — 회색 칸 안에 체크 + 글, 입력칸 기본 모양(높이 42·테두리)을 받지 않게 */
+.rs-form .rs-check{display:flex;flex-direction:row;align-items:flex-start;gap:10px;margin:0;padding:11px 12px;border-radius:10px;background:var(--inset);font-size:13px;color:var(--ink);line-height:1.5;cursor:pointer}
+.rs-form .rs-check input[type=checkbox]{width:16px;height:16px;min-width:16px;flex:none;margin:2px 0 0;padding:0;border:0;border-radius:4px;box-shadow:none;accent-color:var(--solid);cursor:pointer}
+.rs-form .rs-check>span{flex:1;min-width:0}
+.rs-form .rs-check small{display:block;font-size:11px;color:var(--secondary);margin-top:2px}
+/* 체크 상자 — 테두리 없이: 회색 칸 위 흰 네모, 켜면 검은 네모 + 흰 체크 */
+.rs-form .rs-check input[type=checkbox]{appearance:none;-webkit-appearance:none;width:18px;height:18px;min-width:18px;margin:1px 0 0;border:0;border-radius:5px;background:var(--surface);display:grid;place-items:center;transition:background .12s}
+.rs-form .rs-check input[type=checkbox]:checked{background:var(--solid) no-repeat center/12px url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 12 5 5 9-10'/%3E%3C/svg%3E")}
+:root[data-theme="dark"] .rs-form .rs-check input[type=checkbox]:checked{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23181818' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 12 5 5 9-10'/%3E%3C/svg%3E")}
+.rs-form .rs-check input[type=checkbox]:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.rs-actions{justify-content:flex-end}   /* 좁은 화면에서 가운데 빈칸(span)이 빠져도 버튼은 오른쪽에 모인다 */
+.rs-series[hidden]{display:none}
+.rs-series-tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}.rs-series-tags em{font-style:normal;font-size:11px;padding:2px 8px;border-radius:var(--radius-pill);background:var(--surface);color:var(--secondary)}
+/* 작품 공개 목록 — 제목 줄(작품·회차·공개 종류 꼬리표)과 아랫줄(플랫폼·원본 아이콘)을 가운데로 맞춘다 */
+.rs-item .rs-copy strong{display:flex;align-items:center;flex-wrap:wrap;column-gap:6px}
+.rs-item .rs-copy strong em{margin-left:0}
+.rs-item .rs-copy strong .rs-kind{margin-left:0;vertical-align:0;line-height:1.5}
+.rs-item .rs-copy small{display:flex;align-items:center;flex-wrap:wrap;column-gap:4px}
+.rs-src{line-height:1}
+.rs-src svg{display:block}

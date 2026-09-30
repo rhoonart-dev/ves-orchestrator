@@ -1,0 +1,82 @@
+/* Rounded thumbs without a visible rail, shared by menus and content panels. */
+@property --scrollbar-ink{syntax:'<color>';inherits:true;initial-value:transparent}
+*{--scrollbar-ink:transparent;scrollbar-width:thin;scrollbar-color:var(--scrollbar-ink) transparent;transition:--scrollbar-ink .35s ease-out}
+[data-scrolling]{--scrollbar-ink:var(--scroll-thumb)}
+@media(hover:hover){*:hover{--scrollbar-ink:var(--scroll-thumb)}}
+@media(prefers-reduced-motion:reduce){*{transition-duration:0s}}
+/* Native scrollbar properties otherwise override the WebKit styling. */
+@supports selector(::-webkit-scrollbar){
+  :root *{scrollbar-width:auto;scrollbar-color:auto}
+  ::-webkit-scrollbar{width:8px;height:8px;background:transparent}
+  ::-webkit-scrollbar-track{background:transparent;border:0;box-shadow:none;margin:5px}
+  ::-webkit-scrollbar-thumb{background:var(--scrollbar-ink);border:2px solid transparent;background-clip:padding-box;border-radius:999px;min-height:36px}
+  ::-webkit-scrollbar-corner{background:transparent}
+  ::-webkit-scrollbar-button{display:none;width:0;height:0}
+}
+@media(forced-colors:active){:root *{scrollbar-color:auto;scrollbar-width:auto}}
+/* Shared palette for every page, dialog and native form control. */
+@font-face{font-family:Pretendard;src:url('../assets/fonts/PretendardVariable.woff2') format('woff2');font-weight:100 900;font-display:swap}*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden}body{font-family:Pretendard,-apple-system,sans-serif;background:var(--page);color:var(--ink);font-size:13px;letter-spacing:-.025em}button,input{font:inherit}button,a{ -webkit-tap-highlight-color:transparent}button{cursor:pointer}button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(--focus);outline-offset:3px}svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}.workspace{height:100dvh;display:grid;grid-template-columns:222px minmax(0,1fr)}.rail{background:var(--surface);padding:30px 16px 20px;display:flex;flex-direction:column;min-height:0}.brand{display:flex;gap:10px;align-items:center;text-decoration:none;color:inherit;margin:0 7px 26px;flex:none}.brand>span:first-child{display:grid;place-items:center;background:var(--solid);color:var(--on-solid);width:32px;height:32px;border-radius:9px}.brand strong{font-size:18px;letter-spacing:-.7px;font-weight:750;white-space:nowrap}.brand small{display:block;font-size:7px;color:var(--muted);letter-spacing:1.2px;margin-top:5px}nav{flex:1;min-height:0;overflow:auto}nav section{margin-bottom:12px}nav h2{font-size:10px;font-weight:450;letter-spacing:.025em;color:var(--muted);margin:0 0 4px;padding:0 15px;line-height:1.5}nav a{height:30px;width:calc(100% - 8px);margin:1px 4px;padding:0 11px;display:flex;align-items:center;gap:10px;border-radius:8px;text-decoration:none;color:var(--secondary);font-size:12px;font-weight:500}nav a svg{width:16px;height:16px}nav a:hover{background:var(--hover);color:var(--ink)}nav a.active{background:var(--solid);color:var(--on-solid);font-weight:600}.rail-foot{margin:14px 12px 0;font-size:10px;color:var(--muted);flex:none}main{min-width:0;overflow:auto}.page-head{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:33px 32px 24px}.page-head h1{font-size:26px;margin:0;font-weight:700;letter-spacing:-.9px}.account{display:flex;align-items:center;gap:12px}.account>span{font-size:10px;color:var(--muted);max-width:290px;overflow-wrap:anywhere}.account button{border:0;border-radius:7px;background:var(--surface);font-size:11px;padding:9px 12px;color:var(--secondary)}.content{padding:0 32px 32px}.foundation{background:var(--surface);border-radius:14px;padding:27px}.eyebrow{font-size:10px;color:var(--muted)}.foundation>h2{font-size:18px;margin:10px 0 28px}.foundation-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}.foundation-grid article{background:var(--inset);border-radius:10px;padding:20px}.foundation-grid article>span{display:block;color:var(--muted);font-size:11px}.foundation-grid strong{display:block;font-size:14px;margin-top:15px;font-weight:600}.foundation-grid p{color:var(--muted);font-size:11px;line-height:1.8;margin:8px 0 0}.empty-state{background:var(--surface);border-radius:14px;min-height:330px;display:flex;align-items:center;justify-content:center;flex-direction:column;padding:35px;text-align:center}.empty-state>svg{height:28px;width:28px;color:var(--muted)}.empty-state h2{font-size:16px;margin:20px 0 9px;font-weight:600}.empty-state p{font-size:12px;color:var(--muted);margin:0;line-height:1.9}.auth-notice{color:var(--danger);background:var(--danger-bg);padding:15px;border-radius:9px;font-size:12px}dialog{border:0;border-radius:16px;width:min(390px,calc(100vw - 40px));padding:27px;box-shadow:var(--shadow-dialog)}dialog::backdrop{background:var(--overlay)}.login-heading{display:flex;align-items:center;justify-content:space-between}.login-heading h2{font-size:20px;margin:0}.login-heading button{border:0;background:var(--inset);border-radius:6px;font-size:20px;width:29px;height:29px;color:var(--secondary)}form>p{font-size:12px;color:var(--muted);line-height:1.6}form label{display:flex;flex-direction:column;gap:8px;margin-top:20px;font-size:12px;color:var(--secondary)}form input{border:1px solid var(--input-border);border-radius:8px;height:42px;padding:0 12px;min-width:0}.primary{border:0;border-radius:8px;background:var(--solid);color:var(--on-solid);padding:12px;width:100%;font-weight:600}#login-error{color:var(--danger);min-height:20px}button:disabled{opacity:.55;cursor:wait}@media(max-width:1000px){.workspace{grid-template-columns:195px 1fr}.brand{margin-left:0;gap:7px}.brand strong{font-size:16px}.page-head{padding:27px 23px}.content{padding:0 23px 25px}.foundation-grid{grid-template-columns:1fr}.account{flex-wrap:wrap;justify-content:end}.account>span{max-width:160px}}@media(max-width:650px){.workspace{grid-template-columns:160px 1fr}.rail{padding:24px 9px 16px}.brand strong{font-size:13px}.brand small{font-size:6px;letter-spacing:.7px}.brand>span:first-child{width:26px;height:26px}.page-head{padding:25px 18px;align-items:flex-start;flex-wrap:wrap}.page-head h1{font-size:22px}.content{padding:0 18px 20px}.foundation{padding:21px}nav a{font-size:11px;padding:0 9px}.empty-state{padding:23px}}
+
+/* The theme switch stays outside the scrollable menu. */
+.theme-toggle{display:flex;align-items:center;gap:10px;width:100%;padding:9px 0;border:0;background:transparent;color:var(--secondary);font-size:11px;text-align:left;border-radius:6px}
+.theme-toggle:hover{color:var(--ink)}.theme-toggle svg{width:16px;height:16px}.theme-toggle .theme-sun{display:none}
+[data-theme="dark"] .theme-toggle .theme-sun{display:block}[data-theme="dark"] .theme-toggle .theme-moon{display:none}
+.rail-foot>span{display:block;margin-top:9px}
+dialog{background:var(--surface);color:var(--ink)}form input{background:var(--inset);color:var(--ink)}
+.page-heading{display:flex;align-items:center;gap:10px;min-width:0}#open-mobile-menu,.mobile-menu-close{display:none}.mobile-menu-dialog{inset:0 auto 0 0;margin:0;padding:0;border:0;border-radius:0 18px 18px 0;width:min(300px,86vw);max-width:none;height:100dvh;max-height:none;overflow:hidden;background:var(--surface)}.mobile-menu-dialog[open]{animation:mobile-menu-enter .23s cubic-bezier(.2,.8,.2,1)}.mobile-menu-dialog .rail{height:100%;position:relative;padding:25px 18px max(18px,env(safe-area-inset-bottom))}.mobile-menu-dialog .brand{margin:0 24px 25px 0}.mobile-menu-dialog .brand strong{font-size:18px}.mobile-menu-dialog .brand small{font-size:7px}.mobile-menu-dialog .brand>span:first-child{width:32px;height:32px}.mobile-menu-dialog .mobile-menu-close{display:grid;place-items:center;position:absolute;top:18px;right:12px;border:0;background:transparent;color:var(--secondary);width:36px;height:36px;font-size:23px;border-radius:8px}.mobile-menu-dialog nav a{height:42px;font-size:13px}.mobile-menu-dialog nav h2{font-size:11px}.mobile-menu-dialog .theme-toggle{min-height:44px;font-size:12px}.mobile-menu-dialog nav section{margin-bottom:15px}
+@keyframes mobile-menu-enter{from{transform:translateX(-100%)}to{transform:translateX(0)}}
+@media(max-width:760px){.workspace{display:block}.workspace>main{height:100dvh;overflow:auto}.page-head{padding:14px 16px;gap:8px;flex-wrap:nowrap;align-items:center}.page-heading h1{font-size:20px}.account{flex-wrap:nowrap;gap:0}.account>span{display:none}.account button{min-height:40px;font-size:11px}.content{padding:7px 16px max(24px,env(safe-area-inset-bottom))}#open-mobile-menu{display:grid;place-items:center;width:40px;height:40px;flex:none;border:0;border-radius:9px;color:var(--ink);background:transparent;padding:9px}.page-heading{gap:5px}.foundation-grid{grid-template-columns:1fr}.foundation{padding:23px}.review-toolbar{margin-top:4px}.review-segments{max-width:264px}.review-segments button{min-height:36px}.review-layout.has-filter{grid-template-columns:150px minmax(0,1fr);gap:12px}.review-layout .filter-slot{position:static;width:auto}.review-filter{width:150px}.filter-option{min-height:44px}}
+@media(prefers-reduced-motion:reduce){.mobile-menu-dialog[open]{animation:none}}
+
+/* Icon-only close controls retain their full click target. */
+.login-heading button,.mobile-menu-dialog .mobile-menu-close,.video-picker-close,.filter-close{background:transparent;border:0;box-shadow:none;color:var(--muted)}
+.login-heading button:hover,.mobile-menu-dialog .mobile-menu-close:hover,.video-picker-close:hover,.filter-close:hover{background:transparent;color:var(--secondary)}
+
+/* Shared height for page toolbar inputs and controls. */
+/* Login gate: the workspace stays hidden until sign-in and role check succeed. */
+.login-screen{display:none;height:100dvh;overflow:auto;place-items:center;padding:24px 16px;background:var(--page)}body:not(.signed-in) .workspace{display:none}body:not(.signed-in) .login-screen{display:grid}.login-screen form{width:min(380px,100%);background:var(--surface);border-radius:16px;padding:32px 28px 28px}.login-brand{display:flex;gap:10px;align-items:center;margin-bottom:28px}.login-brand>span:first-child{display:grid;place-items:center;background:var(--solid);color:var(--on-solid);width:32px;height:32px;border-radius:9px}.login-brand strong{font-size:18px;letter-spacing:-.7px;font-weight:750}.login-brand small{display:block;font-size:7px;color:var(--muted);letter-spacing:1.2px;margin-top:5px}.login-screen h2{font-size:20px;margin:0;font-weight:700}.login-screen .primary{margin-top:4px}body.auth-loading .login-screen form{visibility:hidden}
+
+/* 로고 — 검은 상자 대신 집 모양 자체가 검정(창문 셋은 예전 로고의 네모 배치). 다크 모드에선 --solid 가 밝아진다 */
+.brand>span:first-child,.login-brand>span:first-child{background:none;color:var(--solid)}
+.brand>span:first-child svg,.login-brand>span:first-child svg{width:100%;height:100%}
+/* 'AI VIDEO OPERATIONS' — 굵은 'VES' 의 V 는 글자 안쪽 여백이 있어 작은 글씨가 더 왼쪽으로 보인다. 시작선을 맞춘다 */
+.brand small,.login-brand small{padding-left:1.5px}
+/* 계정 — 오른쪽 위 동그란 로봇 하나. 누르면 이메일·권한·로그아웃 창(2026-09-29) */
+.account{position:relative}
+.account .account-avatar{width:var(--button-height);height:var(--button-height);min-height:0;line-height:0;border:0;border-radius:50%;padding:0;background:var(--surface);display:grid;place-items:center;cursor:pointer;flex:none}
+.account .account-avatar:hover{background:var(--hover)}
+.account .account-avatar[aria-expanded="true"]{box-shadow:0 0 0 2px var(--accent);outline:none}
+.avatar-robot{width:24px;height:24px;display:block}
+.ar1{fill:var(--ink-soft)}.ar2{fill:var(--secondary)}.ar3{fill:var(--muted)}.arg{fill:var(--accent)}.arw{fill:#fff}
+/* 다크 모드: 몸을 흰색보다 살짝 어두운 회색으로 — 흰 눈이 묻히지 않게 */
+:root[data-theme="dark"] .ar1{fill:color-mix(in srgb,var(--ink) 72%,var(--page))}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .ar1{fill:color-mix(in srgb,var(--ink) 72%,var(--page))}}
+.account-pop{position:absolute;top:calc(100% + 8px);right:0;z-index:30;width:260px;background:var(--surface);border-radius:var(--radius-panel);padding:16px;box-shadow:var(--shadow-dialog,0 8px 28px #0000001f);display:flex;flex-direction:column;gap:12px}
+.account-pop[hidden]{display:none}
+.account-who{display:flex;align-items:center;gap:12px;min-width:0}
+.account-pop-av{width:44px;height:44px;border-radius:50%;background:var(--inset);display:grid;place-items:center;flex:none}
+.account-pop-av .avatar-robot{width:30px;height:30px}
+.account-who>div{display:flex;flex-direction:column;gap:3px;min-width:0}
+.account-who strong{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.account-who small{font-size:11px;color:var(--muted)}
+.account-pop>p{margin:0;font-size:11px;color:var(--danger)}
+.account-pop>p:empty{display:none}
+.account .account-pop>button{width:100%}
+#account-button{background:var(--inset);color:var(--secondary)}   /* 흰 창 안이라 연회색(quiet) */
+#account-button:hover{background:var(--hover);color:var(--ink)}
+.account-robots{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.account .account-robots button{height:48px;border:0;border-radius:var(--radius-lg);padding:0;background:var(--inset);display:grid;place-items:center;cursor:pointer}
+.account .account-robots button:hover{background:var(--hover)}
+.account .account-robots button[aria-checked="true"]{box-shadow:inset 0 0 0 2px var(--accent);background:var(--surface)}
+.account-robots .avatar-robot{width:28px;height:28px}
+/* 확인 창(confirm-dialog.js) — 되돌릴 수 없는 일에만. 브라우저 기본 알림창 대신 */
+.ask-confirm{border:0;border-radius:18px;padding:24px 24px 20px;width:min(400px,calc(100vw - 32px));background:var(--surface);color:var(--ink);box-shadow:0 24px 60px #0000002e}
+.ask-confirm::backdrop{background:#0000004d}
+.ask-confirm h2{margin:0 0 8px;font-size:16px;font-weight:700;letter-spacing:-.3px;line-height:1.45}
+.ask-confirm p{margin:0;font-size:13px;line-height:1.6;color:var(--secondary)}
+.ask-confirm-acts{display:flex;justify-content:flex-end;gap:6px;margin-top:20px}
+.ask-confirm-acts button{font:inherit;height:var(--button-height);padding:0 var(--button-pad-x);border:0;border-radius:var(--button-radius);font-size:var(--button-font);font-weight:var(--button-weight);cursor:pointer}
+.ask-confirm .ask-cancel{background:var(--inset);color:var(--secondary)}
+.ask-confirm .ask-cancel:hover{background:var(--hover);color:var(--ink)}
+.ask-confirm .ask-ok{background:var(--solid);color:var(--on-solid)}
+.ask-confirm .ask-ok.is-danger{background:var(--danger);color:#fff}

@@ -1,0 +1,135 @@
+/* 트렌드 (src/trends.js) — 예전 VES 트렌드 탭의 .trx 규칙을 가져오고, 색·글꼴 변수를 워크스페이스 토큰에 잇는다.
+   예전의 페이퍼 시트·세리프 표제 대신 워크스페이스 카드와 Pretendard. */
+.trx{--tsf:var(--surface);--tsf2:var(--inset);--trl:var(--track);--trls:var(--inset);
+  --ti:var(--ink);--ti2:var(--secondary);--ti3:var(--muted);--tours:var(--accent);--tmkt:var(--status-warn);
+  --tok:var(--status-ok);--tcrit:var(--status-error);
+  --tfd:var(--font-sans);--tfb:var(--font-sans);--tfm:var(--font-sans);
+  color:var(--ti);font-family:var(--tfb);font-size:13px;line-height:1.7;word-break:keep-all}
+.trx .trx-mast{padding:1rem 0 1.6rem}
+.trx .trx-kicker{font-family:var(--tfm);font-size:.7rem;font-weight:500;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--ti3);display:flex;gap:.8rem;align-items:center;flex-wrap:wrap}
+.trx .trx-kicker .dot{width:4px;height:4px;border-radius:50%;background:var(--trl)}
+.trx .trx-kicker .crit{color:var(--tcrit)}
+.trx .trx-datesel{font-family:var(--tfm);font-size:.72rem;background:var(--tsf);color:var(--ti);
+  border:1px solid var(--trl);border-radius:6px;padding:2px 6px}
+.trx .trx-h1{font-family:var(--tfd);font-weight:700;font-size:clamp(1.7rem,4.5vw,2.6rem);
+  line-height:1.18;letter-spacing:-.02em;margin:.9rem 0 0;text-wrap:balance}
+.trx .trx-stand{font-size:1.02rem;color:var(--ti2);margin:1rem 0 0;max-width:40rem;font-weight:300}
+.trx .trx-corr{border:1px solid var(--tcrit);border-radius:10px;background:var(--tsf);
+  padding:1rem 1.2rem;margin:1.2rem 0}
+.trx .trx-corr-t{font-family:var(--tfm);font-size:.78rem;font-weight:600;letter-spacing:.08em;
+  color:var(--tcrit);margin-bottom:.5rem;display:flex;gap:.8rem;align-items:center}
+.trx .trx-corr p{margin:.45rem 0;font-size:.92rem;color:var(--ti2)}
+.trx .trx-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+  gap:.7rem;margin:1.4rem 0}
+.trx .trx-tile{background:var(--tsf);border:1px solid var(--trl);border-radius:10px;padding:.85rem 1rem}
+.trx .trx-tile .lab{font-family:var(--tfm);font-size:.66rem;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--ti3)}
+.trx .trx-tile .num{font-family:var(--tfm);font-weight:600;font-size:1.9rem;line-height:1.25;margin-top:.15rem}
+.trx .trx-tile .sub{font-size:.76rem;color:var(--ti3);margin-top:.1rem}
+.trx .trx-tile.alarm .num{color:var(--tcrit)} .trx .trx-tile.good .num{color:var(--tok)}
+.trx .trx-sec{margin:2.6rem 0 0;border-top:1px solid var(--trls);padding-top:1.5rem}
+.trx .trx-eyebrow{font-family:var(--tfm);font-size:.68rem;font-weight:500;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--tours)}
+.trx .trx-h2{font-family:var(--tfd);font-weight:600;font-size:1.35rem;letter-spacing:-.01em;
+  margin:.4rem 0 .6rem;line-height:1.3}
+.trx .trx-prose{color:var(--ti2);font-size:.95rem;max-width:44rem;margin:.2rem 0 1rem}
+.trx .trx-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:.8rem}
+.trx .trx-panel{background:var(--tsf);border:1px solid var(--trl);border-radius:10px;padding:.8rem 1rem}
+.trx .trx-clab{font-family:var(--tfm);font-size:.7rem;font-weight:600;letter-spacing:.1em;
+  color:var(--ti3);text-transform:uppercase;margin-bottom:.5rem}
+.trx .trx-ledger{display:flex;flex-direction:column}
+.trx .trx-lrow{display:flex;gap:.6rem;align-items:baseline;padding:.32rem 0;
+  border-bottom:1px solid var(--trls);font-size:.88rem}
+.trx .trx-lrow:last-child{border-bottom:0}
+.trx .trx-lrow.act{font-size:.92rem}
+.trx .trx-rank{font-family:var(--tfm);font-size:.72rem;color:var(--ti3);min-width:1.2rem;text-align:right}
+.trx .trx-lname{flex:1;min-width:0}
+.trx .trx-lsrc{font-family:var(--tfm);font-size:.66rem;color:var(--ti3)}
+.trx .trx-tablewrap{overflow-x:auto;background:var(--tsf);border:1px solid var(--trl);border-radius:10px}
+.trx table.trx-table{width:100%;border-collapse:collapse;font-size:.86rem}
+.trx .trx-table th{font-family:var(--tfm);font-size:.64rem;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--ti3);text-align:left;padding:.6rem .8rem;border-bottom:1px solid var(--trl);white-space:nowrap}
+.trx .trx-table td{padding:.55rem .8rem;border-bottom:1px solid var(--trls);vertical-align:top}
+.trx .trx-table tr:last-child td{border-bottom:0}
+.trx .trx-table td.num,.trx .trx-table th.num{text-align:right;font-family:var(--tfm);
+  font-variant-numeric:tabular-nums;white-space:nowrap}
+.trx .trx-table td.num.strong{font-weight:600}
+.trx .trx-tname{font-weight:500} .trx .trx-tsub{font-size:.72rem;color:var(--ti3);margin-top:.1rem}
+.trx .trx-hint{font-size:.78rem;color:var(--ti2)}
+.trx .trx-v{display:inline-block;font-family:var(--tfm);font-size:.68rem;font-weight:600;
+  padding:.1rem .45rem;border-radius:5px;border:1px solid var(--trl);white-space:nowrap}
+.trx .trx-v.ok{color:var(--tok);border-color:var(--tok)}
+.trx .trx-v.crit{color:var(--tcrit);border-color:var(--tcrit)}
+.trx .trx-v.warn{color:var(--tmkt);border-color:var(--tmkt)}
+.trx .trx-v.mut{color:var(--ti3)}
+.trx .trx-pairs{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:1rem}
+.trx .trx-pair{background:var(--tsf);border:1px solid var(--trl);border-radius:10px;padding:.8rem 1rem}
+.trx .trx-bar{position:relative;height:1.35rem;background:var(--tsf2);border-radius:5px;
+  margin:.3rem 0;overflow:hidden}
+.trx .trx-bar span{position:absolute;right:.5rem;top:0;line-height:1.35rem;
+  font-family:var(--tfm);font-size:.7rem;color:var(--ti)}
+.trx .trx-fill{height:100%;border-radius:5px}
+.trx .trx-fill.ours{background:var(--tours)} .trx .trx-fill.mkt{background:var(--tmkt);opacity:.75}
+.trx .trx-legend{font-size:.74rem;color:var(--ti3);margin-top:.7rem;display:flex;gap:1rem;align-items:center}
+.trx .trx-legend .sw{width:.8rem;height:.5rem;border-radius:3px;display:inline-block;margin-right:.3rem}
+.trx .trx-legend .sw.ours{background:var(--tours)} .trx .trx-legend .sw.mkt{background:var(--tmkt);opacity:.75}
+.trx .trx-topvids{margin-top:.8rem;display:flex;gap:.4rem;flex-wrap:wrap}
+.trx .trx-figsub{font-family:var(--tfm);font-size:.68rem;color:var(--ti3);margin-top:.6rem}
+.trx .trx-foot{border-top:1px solid var(--trls);margin-top:2.5rem;padding-top:1rem}
+.trx .trx-note{border:1px solid var(--tmkt);border-radius:10px;background:var(--tsf);
+  padding:.8rem 1rem;margin:1.5rem 0 0;font-size:.85rem;color:var(--ti2)}
+.trx .trx-empty{color:var(--ti3);font-size:.9rem;padding:1rem}
+.trx .trx-mkmed{font-family:var(--tfm);font-size:.66rem;color:var(--ti3);font-weight:400;
+  text-transform:none;letter-spacing:0;margin-left:.4rem}
+.trx .trx-mknum{font-family:var(--tfm);font-size:.78rem;font-variant-numeric:tabular-nums;color:var(--ti2)}
+.trx .trx-details summary{font-family:var(--tfm);font-size:.7rem;color:var(--ti3);cursor:pointer;
+  margin:1rem 0 .6rem;letter-spacing:.08em;text-transform:uppercase}
+.trx .mini{font-family:var(--tfb)}
+
+
+/* 워크스페이스 모양 — 머리말은 화면 제목, 섹션은 카드 */
+.trx .trx-mast{padding:0 0 4px}
+.trx .trx-kicker{letter-spacing:0;text-transform:none;font-size:12px}
+.trx .trx-h1{font:var(--type-screen-title);letter-spacing:var(--track-screen-title);margin:10px 0 0}
+.trx .trx-stand{font:var(--type-body);color:var(--secondary);margin:6px 0 0}
+.trx .trx-tiles{grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin:20px 0 0}
+.trx .trx-tile{border:0;border-radius:15px;padding:18px 18px 16px}
+.trx .trx-tile .lab{letter-spacing:0;text-transform:none;font-size:12px;color:var(--secondary)}
+.trx .trx-tile .num{font-weight:700;font-size:30px;letter-spacing:-1px}
+.trx .trx-sec{background:var(--surface);border:0;border-radius:var(--layout-panel-radius);padding:22px 24px;margin:var(--layout-gap) 0 0}
+.trx .trx-eyebrow{letter-spacing:.04em;font-size:11px}
+.trx .trx-h2{font:var(--type-panel-title);letter-spacing:var(--track-panel-title);margin:4px 0 10px}
+.trx .trx-panel,.trx .trx-pair,.trx .trx-tablewrap{background:var(--inset);border:0}
+.trx .trx-clab,.trx .trx-table th,.trx .trx-details summary{letter-spacing:0;text-transform:none}
+.trx .trx-corr,.trx .trx-note{border:0;background:var(--danger-bg)}
+.trx .trx-note{background:var(--dot-warn-bg);color:var(--dot-warn-text)}
+.trx .trx-empty{text-align:center}
+.trx .trx-datesel{height:28px}
+.trx .mini{border:0;border-radius:9px;height:30px;padding:0 12px;background:var(--surface);color:var(--secondary);font-size:12px;cursor:pointer}
+/* 제목 앞 인베이더 로봇 · 요약 줄은 인용(왼쪽 막대) — 흑백 컨셉: 몸은 회색 명도 토큰, 안경만 포인트 색 */
+.trx .trx-h1{display:flex;align-items:center;gap:10px}
+.trx .trx-bot{width:48px;height:34px;flex:none;margin-left:-6px}
+/* 팟칭! — 십자 반짝이: 팔 네 칸과 가운데가 연한 회색↔검정을 엇갈려 반복(다크는 토큰이 알아서 어두운 회색↔흰색) */
+.trx .trx-spark rect{fill:var(--folder-fill);animation:trx-spark 1s steps(1,end) infinite}
+.trx .trx-spark .sp-c{animation-delay:-.5s}
+@keyframes trx-spark{0%{fill:var(--folder-fill)}50%{fill:var(--ink)}}
+@media(prefers-reduced-motion:reduce){.trx .trx-spark rect{animation:none;fill:var(--ink)}}
+.trx .trx-bot .b1{fill:var(--ink)}
+.trx .trx-bot .b2{fill:var(--secondary)}
+.trx .trx-bot .b3{fill:var(--muted)}
+.trx .trx-bot .bg{fill:var(--accent)}
+.trx .trx-bot .bw{fill:#fff}
+.trx blockquote.trx-stand{margin:10px 0 0;padding:2px 0 2px 12px;border-left:3px solid var(--accent);max-width:44rem}
+/* 밖 ↔ 안 — 트렌드 제목이 길어 한 줄이면 카드 밖으로 잘린다. 줄마다 하나씩, 길면 줄바꿈 */
+.trx .trx-xover{display:flex;flex-direction:column;align-items:flex-start;gap:6px}
+.trx .trx-xover .trx-v{white-space:normal;overflow-wrap:anywhere;max-width:100%;line-height:1.5}
+.trx .trx-kicker>.mini{margin-left:auto}  /* 새로고침은 다른 탭처럼 맨 오른쪽 */
+/* 공지 칸 — 빨간 테두리 대신 회색 칸 + 작은 '공지' 꼬리표. 공지 내리기는 칸 오른쪽 위 */
+.trx .trx-corr{border:0;background:var(--toast-bg);border-radius:var(--radius-lg);padding:18px 20px}
+.trx .trx-corr-t{color:var(--ink);letter-spacing:0;font-size:.9rem;align-items:center}
+.trx .trx-notice-tag{flex:none;font-size:11px;font-weight:700;color:var(--status-error);background:color-mix(in srgb,var(--status-error) 12%,transparent);padding:3px 9px;border-radius:var(--radius-pill);letter-spacing:0}
+.trx .trx-notice-title{font-weight:700}
+.trx .trx-corr-t>.mini{margin-left:auto}
+.trx .trx-corr p{color:var(--secondary)}
+.trx .trx-corr p{color:var(--toast-ink)}

@@ -1,0 +1,88 @@
+/* Role layer — the same job looks the same on every tab (values in tokens.css). Loaded after route styles,
+   so a route never re-sizes a role. Add a new screen's elements to the matching list instead of styling them locally. */
+
+/* Screen head: the first row of the content — screen title (+ count) on the left, actions on the right. */
+.home-toolbar,.review-toolbar,.rights-head,.schedule-toolbar,.nodes-toolbar,.works-heading,.template-main>header,.lv-head,.acc-head{
+ display:flex;align-items:center;justify-content:space-between;gap:10px 16px;flex-wrap:wrap;
+ min-height:var(--toolbar-control-height);margin:0 0 var(--screen-header-gap);padding:0}
+.works-heading,.template-main>header,.nodes-toolbar,.lv-head,.acc-head{align-items:flex-start}
+/* title + description heads: the title sits where a one-line head centres it (6px into the 40px row) */
+:is(.works-heading,.template-main>header,.nodes-toolbar,.lv-head,.acc-head)>:first-child{padding-top:calc((var(--toolbar-control-height) - 28px) / 2)}
+
+/* page title */
+.page-head h1{font:var(--type-page-title);letter-spacing:var(--track-page-title)}
+/* screen title */
+.home-toolbar h2,.folder-context h2,.rights-head h2,.lv-head h2,.template-main>header h2,.works-heading h2,.schedule-title,.nodes-toolbar h2,.acc-head h2{
+ font:var(--type-screen-title);letter-spacing:var(--track-screen-title);color:var(--ink);margin:0}
+/* the text right under a screen title */
+.works-heading p,.template-main>header p,.lv-head p,.nodes-toolbar p,.acc-head p{font:var(--type-meta);color:var(--muted);margin:4px 0 0}
+/* panel title */
+.home-panel h2,.schedule-panel-title,.nodes-section h2,.empty-state h2{font:var(--type-panel-title);letter-spacing:var(--track-panel-title)}
+/* subtitle (a group inside a panel) */
+.home-rights-content h3,.rs-section h3,.channel-works h3,.template-form h3,.asset-slot h3{font:var(--type-subtitle);color:var(--secondary)}
+/* card title (repeated items) */
+.job-folder h3,.works-folder h3,.nodes-card h3,.lv-row h3{font:var(--type-card-title);letter-spacing:0}
+/* filter label (left filter panels) */
+.filter-heading h2,.rights-filters h3{font:var(--type-filter-label);color:var(--muted);letter-spacing:.02em}
+/* counts beside a screen title */
+.folder-count,.rights-result-count{font:var(--type-meta);color:var(--muted)}
+
+/* Two-column screens (sidebar + main): the main column starts with the screen head, not inside a card. */
+.template-main{background:none;padding:0;border-radius:0}
+.template-main>:not(header){background:var(--surface);border-radius:var(--layout-panel-radius);padding:24px}
+.template-main>:not(header)+:not(header){margin-top:var(--layout-gap)}
+/* 편집실(이어서 할 편집): the heading row sits on the page, the note stays below it. */
+.lv-intro{background:none;padding:0;border-radius:0;margin-bottom:var(--layout-gap)}
+
+/* ── Buttons — one shape for the whole app (tokens.css --button-*). 세 모양: primary(검정 · 화면의 주 행동) ·
+   secondary(흰색 · 회색 바탕 위) · quiet(연회색 · 흰 카드 안). 두 크기: 보통 · 작은(카드·행 안).
+   새 화면의 버튼은 아래 목록에 더한다. 세그먼트·필터 칩·아이콘 닫기·행 카드는 여기 넣지 않는다(자기 모양 유지).
+   목록 끝의 btn-guard-* 는 없는 클래스 — 뒤 목록이 앞 목록을 이기도록 명시도만 올린다. */
+:is(.works-button.solid,.asset-uploader .works-button,.asset-slot .asset-uploader .works-button,.asset-logo-acts button.is-save,.nodes-page .nodes-confirm,.rs-actions .primary,.rs-actions .rs-save,.rs-chan-save,.schedule-toolbar .schedule-add,.schedule-add,.inspector-bottom button,.workbench-actions .open-editor,.workflow-next,.workflow-card-actions .primary,.lv-edit,.arc-page button.primary,.acc-panel .acc-save,.thumb-dialog button.primary,.thumb-empty button.primary,.works-button,.nodes-page .nodes-refresh,.nodes-page .nodes-actions button,.schedule-nav .schedule-today,.schedule-nav .schedule-step,.rights-refresh,.review-toolbar .review-refresh,.workbench-guide,.workflow-editor-actions button,.workflow-editor-actions .open-editor,.home-refresh,.arc-main .arc-reload,.arc-acts button,.acc-page .acc-reload,.account-pop>button,.works-player .works-button,.asset-cancel,.asset-logo-acts button,.asset-uploader .asset-file-label,.src-vids-btn,.nodes-page .nodes-dialog-cancel,.nodes-page .nodes-danger,.rs-actions button,.rs-chan-find,.rights-related,.empty-preview,.media-error button,.media-retry,.reject-video,.workflow-controls button,.workflow-refresh,.open-thumbs,.hist-acts button,.lv-folder,.arc-main button:not([aria-pressed]):not(.primary):not(.arc-reload),.arc-dialog button:not(.primary),.acc-page button:not(.acc-save):not(.acc-reload),.thumb-dl,.thumb-row button,.thumb-pick-acts button){display:inline-flex;align-items:center;justify-content:center;gap:7px;border:0;border-radius:var(--button-radius);
+ height:var(--button-height);min-height:0;width:auto;padding:0 var(--button-pad-x);margin:0;font-size:var(--button-font);font-weight:var(--button-weight);
+ line-height:1;letter-spacing:-.01em;white-space:nowrap;text-decoration:none;cursor:pointer;box-shadow:none}
+:is(.works-button.solid,.asset-uploader .works-button,.asset-slot .asset-uploader .works-button,.asset-logo-acts button.is-save,.nodes-page .nodes-confirm,.rs-actions .primary,.rs-actions .rs-save,.rs-chan-save,.schedule-toolbar .schedule-add,.schedule-add,.inspector-bottom button,.workbench-actions .open-editor,.workflow-next,.workflow-card-actions .primary,.lv-edit,.arc-page button.primary,.acc-panel .acc-save,.thumb-dialog button.primary,.thumb-empty button.primary,.works-button,.nodes-page .nodes-refresh,.nodes-page .nodes-actions button,.schedule-nav .schedule-today,.schedule-nav .schedule-step,.rights-refresh,.review-toolbar .review-refresh,.workbench-guide,.workflow-editor-actions button,.workflow-editor-actions .open-editor,.home-refresh,.arc-main .arc-reload,.arc-acts button,.acc-page .acc-reload,.account-pop>button,.works-player .works-button,.asset-cancel,.asset-logo-acts button,.asset-uploader .asset-file-label,.src-vids-btn,.nodes-page .nodes-dialog-cancel,.nodes-page .nodes-danger,.rs-actions button,.rs-chan-find,.rights-related,.empty-preview,.media-error button,.media-retry,.reject-video,.workflow-controls button,.workflow-refresh,.open-thumbs,.hist-acts button,.lv-folder,.arc-main button:not([aria-pressed]):not(.primary):not(.arc-reload),.arc-dialog button:not(.primary),.acc-page button:not(.acc-save):not(.acc-reload),.thumb-dl,.thumb-row button,.thumb-pick-acts button):disabled,:is(.works-button.solid,.asset-uploader .works-button,.asset-slot .asset-uploader .works-button,.asset-logo-acts button.is-save,.nodes-page .nodes-confirm,.rs-actions .primary,.rs-actions .rs-save,.rs-chan-save,.schedule-toolbar .schedule-add,.schedule-add,.inspector-bottom button,.workbench-actions .open-editor,.workflow-next,.workflow-card-actions .primary,.lv-edit,.arc-page button.primary,.acc-panel .acc-save,.thumb-dialog button.primary,.thumb-empty button.primary,.works-button,.nodes-page .nodes-refresh,.nodes-page .nodes-actions button,.schedule-nav .schedule-today,.schedule-nav .schedule-step,.rights-refresh,.review-toolbar .review-refresh,.workbench-guide,.workflow-editor-actions button,.workflow-editor-actions .open-editor,.home-refresh,.arc-main .arc-reload,.arc-acts button,.acc-page .acc-reload,.account-pop>button,.works-player .works-button,.asset-cancel,.asset-logo-acts button,.asset-uploader .asset-file-label,.src-vids-btn,.nodes-page .nodes-dialog-cancel,.nodes-page .nodes-danger,.rs-actions button,.rs-chan-find,.rights-related,.empty-preview,.media-error button,.media-retry,.reject-video,.workflow-controls button,.workflow-refresh,.open-thumbs,.hist-acts button,.lv-folder,.arc-main button:not([aria-pressed]):not(.primary):not(.arc-reload),.arc-dialog button:not(.primary),.acc-page button:not(.acc-save):not(.acc-reload),.thumb-dl,.thumb-row button,.thumb-pick-acts button)[aria-disabled="true"]{opacity:.45;cursor:default}
+:is(.works-player .works-button,.asset-cancel,.asset-logo-acts button,.asset-uploader .asset-file-label,.src-vids-btn,
+ .nodes-page .nodes-dialog-cancel,.nodes-page .nodes-danger,.rs-actions button,.rs-chan-find,.rights-related,.empty-preview,
+ .media-error button,.media-retry,.reject-video,.workflow-controls button,.workflow-refresh,.open-thumbs,.hist-acts button,
+ .lv-folder,.arc-main button:not([aria-pressed]):not(.primary):not(.arc-reload),.arc-dialog button:not(.primary),
+ .acc-page button:not(.acc-save):not(.acc-reload),.thumb-dl,.thumb-row button,.thumb-pick-acts button,.btn-guard-q.btn-guard-q.btn-guard-q){background:var(--inset);color:var(--secondary);font-weight:500}
+:is(.works-player .works-button,.asset-cancel,.asset-logo-acts button,.asset-uploader .asset-file-label,.src-vids-btn,
+ .nodes-page .nodes-dialog-cancel,.nodes-page .nodes-danger,.rs-actions button,.rs-chan-find,.rights-related,.empty-preview,
+ .media-error button,.media-retry,.reject-video,.workflow-controls button,.workflow-refresh,.open-thumbs,.hist-acts button,
+ .lv-folder,.arc-main button:not([aria-pressed]):not(.primary):not(.arc-reload),.arc-dialog button:not(.primary),
+ .acc-page button:not(.acc-save):not(.acc-reload),.thumb-dl,.thumb-row button,.thumb-pick-acts button,.btn-guard-q.btn-guard-q.btn-guard-q):hover:not(:disabled){background:var(--hover);color:var(--ink)}
+:is(.works-button,.nodes-page .nodes-refresh,.nodes-page .nodes-actions button,.schedule-nav .schedule-today,.schedule-nav .schedule-step,
+ .rights-refresh,.review-toolbar .review-refresh,.workbench-guide,.workflow-editor-actions button,.workflow-editor-actions .open-editor,
+ .home-refresh,.arc-main .arc-reload,.arc-acts button,.acc-page .acc-reload,.account-pop>button,.btn-guard-s.btn-guard-s.btn-guard-s.btn-guard-s){background:var(--surface);color:var(--ink)}
+:is(.works-button,.nodes-page .nodes-refresh,.nodes-page .nodes-actions button,.schedule-nav .schedule-today,.schedule-nav .schedule-step,
+ .rights-refresh,.review-toolbar .review-refresh,.workbench-guide,.workflow-editor-actions button,.workflow-editor-actions .open-editor,
+ .home-refresh,.arc-main .arc-reload,.arc-acts button,.acc-page .acc-reload,.account-pop>button,.btn-guard-s.btn-guard-s.btn-guard-s.btn-guard-s):hover:not(:disabled){background:var(--hover)}
+:is(.works-button.solid,.asset-uploader .works-button,.asset-slot .asset-uploader .works-button,.asset-logo-acts button.is-save,
+ .nodes-page .nodes-confirm,.rs-actions .primary,.rs-actions .rs-save,.rs-chan-save,.schedule-toolbar .schedule-add,.schedule-add,
+ .inspector-bottom button,.workbench-actions .open-editor,.workflow-next,.workflow-card-actions .primary,
+ .lv-edit,.arc-page button.primary,.acc-panel .acc-save,.thumb-dialog button.primary,.thumb-empty button.primary,.btn-guard-p.btn-guard-p.btn-guard-p.btn-guard-p.btn-guard-p){background:var(--solid);color:var(--on-solid)}
+:is(.works-button.solid,.asset-uploader .works-button,.asset-slot .asset-uploader .works-button,.asset-logo-acts button.is-save,
+ .nodes-page .nodes-confirm,.rs-actions .primary,.rs-actions .rs-save,.rs-chan-save,.schedule-toolbar .schedule-add,.schedule-add,
+ .inspector-bottom button,.workbench-actions .open-editor,.workflow-next,.workflow-card-actions .primary,
+ .lv-edit,.arc-page button.primary,.acc-panel .acc-save,.thumb-dialog button.primary,.thumb-empty button.primary,.btn-guard-p.btn-guard-p.btn-guard-p.btn-guard-p.btn-guard-p):hover:not(:disabled){background:var(--solid-hover);color:var(--on-solid)}
+:is(.works-player .works-button,.asset-logo-acts button,.asset-logo-acts button.is-save,.src-vids-btn,.hist-acts button,.lv-folder,.lv-edit,
+ .arc-acts button,.acc-panel .acc-save,.thumb-dl,.thumb-row button,.thumb-pick-acts button,.rights-related,.media-error button,.media-retry,
+ .nodes-page .nodes-actions button,.workflow-editor-actions button,.workflow-editor-actions .open-editor,.btn-guard-z.btn-guard-z.btn-guard-z.btn-guard-z.btn-guard-z.btn-guard-z){height:var(--button-small-height);padding:0 var(--button-small-pad-x);font-size:var(--button-small-font)}
+/* 아이콘만 있는 달 넘기기 — 같은 높이의 동그라미 */
+.schedule-nav .schedule-step.schedule-step.schedule-step.schedule-step{width:var(--button-height);padding:0}
+/* 위험한 행동은 빨간 글씨만 */
+.hist-acts button.danger.danger.danger.danger,.rs-actions .rs-delete.rs-delete.rs-delete.rs-delete{color:var(--status-error)}
+/* 머리의 켜고 끄는 토글(작업 목록 '로컬 영상') — 색은 자기 것, 모양·크기만 버튼과 같게 */
+.review-toolbar .preview-toggle[aria-pressed]{height:var(--button-height);padding:0 var(--button-pad-x);border-radius:var(--button-radius);font-size:var(--button-font);font-weight:var(--button-weight)}
+/* 성과·트렌드 — 작은 버튼(.mini)과 켜고 끄는 칩(.mini.on)도 같은 알약. 칩은 켜지면 검정(자기 색 유지) */
+.perf-page button.mini.mini,.trx .mini.mini{height:var(--button-height);padding:0 var(--button-pad-x);border-radius:var(--button-radius);font-size:var(--button-font);font-weight:var(--button-weight);display:inline-flex;align-items:center;justify-content:center;gap:6px}
+.perf-page button.mini.mini:not(.on),.trx .mini.mini{background:var(--surface);color:var(--ink)}
+.perf-page .filters button.mini.mini:not(.on){background:var(--inset);color:var(--secondary);font-weight:500}
+.perf-page button.mini.mini:not(.on):hover,.trx .mini.mini:hover{background:var(--hover);color:var(--ink)}
+.perf-page .pf-pager button.mini.mini{width:var(--button-height);padding:0;font-size:16px}
+/* 기간 고르기(7일·14일·28일…) — 알약 틀 안의 알약 */
+.perf-page .pf-seg.pf-seg{border-radius:var(--button-radius);padding:3px}
+.perf-page .pf-seg.pf-seg button{height:calc(var(--button-height) - 6px);padding:0 14px;border-radius:var(--button-radius);font-size:var(--button-font);font-weight:var(--button-weight)}
+.perf-page .pf-dates.pf-dates{height:var(--button-height);border-radius:var(--button-radius);padding:0 5px}
+.perf-page .pf-dates.pf-dates input{border-radius:var(--button-radius);padding:4px 10px}

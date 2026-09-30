@@ -1,0 +1,64 @@
+.workflow-inspector{background:transparent;border-radius:0;overflow:auto;display:flex;flex-direction:column;gap:14px;padding-bottom:2px}
+.workflow-inspector>*{flex:none;min-width:0}
+.workflow-card{background:var(--surface);border-radius:20px;padding:26px 24px}
+.workflow-card-top{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:11px;color:var(--muted)}
+.workflow-card-top>span:first-child{background:var(--inset);border-radius:6px;padding:6px 9px}
+.workflow-card h3{font-size:21px;font-weight:700;line-height:1.55;margin:18px 0 8px;overflow-wrap:anywhere;letter-spacing:-.5px}
+.workflow-card-policy{font-size:12px;color:var(--secondary);line-height:1.8;margin:0}
+.workflow-steps{display:flex;flex-wrap:wrap;gap:6px;list-style:none;padding:0;margin:22px 0}
+.workflow-steps li{font-size:11px;padding:7px 10px;color:var(--muted);background:var(--inset);border-radius:20px;white-space:nowrap}
+.workflow-steps li[aria-current=step]{background:var(--solid);color:var(--on-solid)}
+.workflow-status{background:var(--inset);padding:18px;border-radius:12px;line-height:1.8}
+.workflow-status strong{display:flex;align-items:flex-start;gap:9px;font-size:15px}
+.workflow-status p{font-size:12px;color:var(--secondary);padding-left:30px;margin:6px 0 0;white-space:pre-wrap;overflow-wrap:anywhere}
+.workflow-status .status-icon{width:21px;height:21px;flex:0 0 21px;margin-top:3px;fill:none;stroke:currentColor;stroke-width:1.65;stroke-linecap:round;stroke-linejoin:round}
+.workflow-status[data-stage=pending] strong{color:var(--status-info)}
+.workflow-status[data-stage=revision] strong{color:var(--status-warn)}
+.workflow-status[data-stage=approved] strong,.workflow-status[data-stage=scheduled] strong{color:var(--status-ok)}
+.workflow-status[data-stage=error] strong,.workflow-status[data-stage=error] p,.workflow-status[data-stage=rejected] .status-icon{color:var(--status-error)}
+.workflow-status[data-stage=uploading] .status-icon,.workflow-status[data-stage=attaching] .status-icon{color:var(--status-busy)}
+.workflow-status[data-stage=scheduled] .status-ring{stroke-dasharray:1;transform:rotate(-90deg);transform-origin:12px 12px;animation:flow-draw .42s cubic-bezier(.22,.7,.25,1) both}
+.workflow-status[data-stage=scheduled] .status-check{stroke-dasharray:1;animation:flow-draw .34s .24s cubic-bezier(.22,.7,.25,1) both}
+@keyframes flow-draw{from{stroke-dashoffset:1}to{stroke-dashoffset:0}}
+.workflow-connections{display:grid;gap:9px;margin:20px 0 0;font-size:12px;color:var(--secondary)}
+.workflow-connections>div{display:flex;justify-content:space-between;gap:12px;line-height:1.6}
+.workflow-connections span{color:var(--muted)}.workflow-connections a{color:var(--secondary);font-weight:600;text-decoration:none}
+.workflow-schedule,.workflow-notice{font-size:12px;line-height:1.8;color:var(--secondary);margin:16px 0 0;overflow-wrap:anywhere}
+.workflow-card-actions{display:flex;flex-wrap:wrap;gap:10px}.workflow-card-actions:not(:empty){margin-top:22px}
+.workflow-card-actions .primary{background:var(--solid);color:var(--on-solid);min-height:44px;margin:0}
+.workflow-card-actions .reject-video{border:0;border-radius:10px;padding:12px 18px;background:var(--inset);color:var(--secondary);font:inherit;font-size:12px}
+.workflow-card-actions .workbench-note{margin:0;padding:0}
+.workflow-card .judge-values{margin:18px 0}.workflow-card .judge-card h4{font-size:14px}
+.workflow-editor-actions{display:flex;flex-direction:column;align-items:flex-end;gap:7px;padding:0 3px}
+.workflow-editor-actions[hidden]{display:none}
+.workflow-editor-actions .open-editor,.workflow-editor-actions button{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:34px;padding:7px 12px;border:0;border-radius:8px;text-decoration:none;background:var(--surface);color:var(--ink);font-size:12px}
+.workflow-editor-actions .open-editor svg{width:14px;height:14px}
+.workflow-editor-actions .open-editor[aria-disabled=true]{opacity:.5;cursor:default}
+.workflow-editor-actions small{font-size:10px;color:var(--muted);line-height:1.6;text-align:right}
+.workflow-history{background:var(--surface);border-radius:16px;padding:19px 22px}
+.workflow-history summary{display:flex;align-items:center;gap:8px;list-style:none;cursor:pointer;font-size:13px;font-weight:600;min-height:24px}
+.workflow-history summary::-webkit-details-marker{display:none}
+.workflow-history summary::after{content:'⌄';margin-left:auto;color:var(--muted);transform:rotate(0deg);transition:transform .2s}
+.workflow-history[open] summary::after{transform:rotate(180deg)}
+.workflow-history summary small{font-weight:400;font-size:10px;color:var(--muted)}
+.workflow-timeline{list-style:none;padding:0;margin:20px 0 0;display:grid;gap:18px}
+.workflow-timeline li{position:relative;display:grid;gap:5px;padding-left:16px;font-size:12px;line-height:1.7;color:var(--secondary)}
+.workflow-timeline li::before{content:'';position:absolute;left:0;top:7px;width:5px;height:5px;background:var(--muted);border-radius:50%}
+.workflow-timeline time{font-size:10px;color:var(--muted);font-variant-numeric:tabular-nums}
+.workflow-timeline p{margin:2px 0 0;font-size:11px;color:var(--secondary);white-space:pre-wrap;overflow-wrap:anywhere}
+.workflow-history .workflow-timeline{max-height:340px;overflow:auto}
+.workflow-dialog,.workflow-dialog input,.workflow-dialog select,.workflow-dialog textarea,.reject-dialog,.reject-dialog textarea{color:var(--ink)}
+@media(max-width:1250px){.workflow-inspector{overflow:visible;width:min(100%,580px)}}
+@media(max-width:760px){.workflow-card{padding:24px 22px}.workflow-card h3{font-size:20px}.workflow-inspector{width:100%}}
+@media(prefers-reduced-motion:reduce){.workflow-status[data-stage=scheduled] .status-ring,.workflow-status[data-stage=scheduled] .status-check{animation:none}.workflow-history summary::after{transition:none}}
+/* Editor entry sits above the review card, level with the adjacent player. */
+.workflow-inspector>.workflow-editor-actions{padding-top:0}
+@media(min-width:1251px){.video-column>.video-stage{align-items:flex-start}}
+
+.video-column{min-width:0;min-height:0;height:100%}
+.video-column>.workflow-editor-actions{margin:0 auto 14px;padding:0}
+.video-column>.workflow-editor-actions[hidden]{display:none;margin:0}
+@media(max-width:1250px){.video-column{height:auto;grid-column:2}}
+@media(max-width:760px){.video-column{width:100%}}
+/* 숨긴 편집실 버튼(VES 검수 카드 영상 — src/workbench.js prepareActions) */
+.open-editor[hidden]{display:none!important}

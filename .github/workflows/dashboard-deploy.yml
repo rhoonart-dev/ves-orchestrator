@@ -1,12 +1,15 @@
 name: 대시보드 배포
 
 # main 에 dashboard/index.html 이 올라가면 S3 업로드 + CloudFront 무효화까지 자동으로 한다.
+# dashboard/v2/ 는 새 워크스페이스(rhoonart-da/ves-workspace 의 화면 파일, scripts/publish_v2.py 로 복사) —
+# 같은 주소의 /v2/ 로 올린다(2026-09-30). 옛 대시보드는 주소 맨 앞자리에 그대로 둔다.
 # 수동 실행(workflow_dispatch)은 배포가 밀렸거나 버킷만 다시 맞출 때 쓴다.
 on:
   push:
     branches: [main]
     paths:
       - dashboard/index.html
+      - dashboard/v2/**
       - deploy/check_dashboard.py
       - .github/workflows/dashboard-deploy.yml
   workflow_dispatch:
@@ -36,6 +39,15 @@ jobs:
       - name: 스크립트 문법 검사
         run: python3 deploy/check_dashboard.py dashboard/index.html
 
+      # v2 는 모듈 여러 개 — 하나라도 문법이 깨지면 화면이 백지가 된다
+      - name: v2 스크립트 문법 검사
+        run: |
+          echo '{"type":"module"}' > dashboard/v2/package.json
+          fail=0
+          for f in dashboard/v2/src/*.js; do node --check "$f" || fail=1; done
+          rm dashboard/v2/package.json
+          exit $fail
+
       - name: AWS 인증 — OIDC 역할
         if: vars.AWS_ROLE_ARN != ''
         uses: aws-actions/configure-aws-credentials@v4
@@ -64,6 +76,13 @@ jobs:
             --content-encoding gzip \
             --cache-control "no-cache, must-revalidate"
 
+      # v2: 파일 여러 개라 그대로 올린다(확장자로 형식 판단). 지운 파일은 버킷에서도 지운다(v2/ 안에서만)
+      - name: S3 업로드 — v2
+        run: |
+          aws s3 sync dashboard/v2 "s3://$BUCKET/v2/" --delete \
+            --cache-control "no-cache, must-revalidate" --exclude "*.DS_Store"
+          echo "v2: $(cat dashboard/v2/VERSION)"
+
       - name: CloudFront 무효화
         run: |
           id=$(aws cloudfront create-invalidation \
@@ -74,4 +93,6 @@ jobs:
       - name: 요약
         run: |
           echo "대시보드 배포 완료 — [$DASHBOARD_URL]($DASHBOARD_URL) (\`${GITHUB_SHA:0:7}\`)" \
+            >> "$GITHUB_STEP_SUMMARY"
+          echo "새 워크스페이스(v2) — [$DASHBOARD_URL/v2/index.html]($DASHBOARD_URL/v2/index.html) ($(cat dashboard/v2/VERSION))" \
             >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,40 @@
+/* 작업 이력 (src/history.js) — 테두리 없는 카드·표, 상태는 작은 꼬리표 */
+.hist-page{display:flex;flex-direction:column;gap:var(--layout-gap)}
+.hist-note{color:var(--muted);font-size:13px}
+.hist-card{background:var(--surface);border-radius:var(--layout-panel-radius);padding:22px 24px;min-width:0}
+.hist-head{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px}
+.hist-head h2{margin:0;font:var(--type-panel-title)}
+.hist-idx{font-size:11px;font-weight:500;color:var(--muted);margin-left:6px}
+.hist-selects{display:flex;gap:8px}
+.hist-selects select{font:inherit;font-size:12px;color:var(--secondary);background:var(--inset);border:0;border-radius:8px;padding:8px 10px}
+.hist-chips{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;margin-bottom:10px}
+.hist-chips::-webkit-scrollbar{display:none}
+.hist-chips button{flex:none;display:inline-flex;align-items:center;gap:6px;border:0;border-radius:var(--radius-pill);padding:7px 12px;font:inherit;font-size:12px;background:var(--inset);color:var(--secondary);cursor:pointer}
+.hist-chips button small{font-size:10px;color:var(--muted)}
+.hist-chips button[aria-pressed="true"]{background:var(--solid);color:var(--on-solid);font-weight:600}
+.hist-chips button[aria-pressed="true"] small{color:inherit;opacity:.7}
+.hist-msg{font-size:12px;color:var(--accent);margin:0 0 6px;min-height:0}
+.hist-msg:empty{display:none}
+.hist-error{font-size:12px;color:var(--danger)}
+.hist-table{overflow-x:auto}
+.hist-table table{width:100%;border-collapse:collapse;font-size:12px}
+.hist-table th{font-weight:500;color:var(--muted);font-size:11px;text-align:left;padding:0 10px 10px;white-space:nowrap}
+.hist-table td{padding:10px;border-top:1px solid var(--inset);vertical-align:top}
+.hist-table .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.hist-table .mono{font-family:var(--font-mono);font-size:11px;white-space:nowrap}
+.hist-table td small{color:var(--muted);font-size:11px}
+.hist-ch{display:block;margin-top:2px}
+.hist-st{display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:var(--radius-pill);white-space:nowrap;background:var(--hover);color:var(--secondary)}
+.hist-st.info{background:var(--accent-soft);color:var(--accent)}
+.hist-st.good{background:var(--dot-ok-bg);color:var(--dot-ok-text)}
+.hist-st.warn{background:var(--dot-warn-bg);color:var(--dot-warn-text)}
+.hist-st.crit{background:var(--danger-bg);color:var(--danger)}
+.hist-table details summary{cursor:pointer;color:var(--danger);font-size:11px}
+.hist-err{margin:6px 0 0;font-size:11px;color:var(--secondary);white-space:pre-wrap;overflow-wrap:anywhere;max-width:420px}
+td.hist-err{margin:0}
+.hist-acts{white-space:nowrap}
+.hist-acts button{border:0;border-radius:7px;padding:5px 9px;font:inherit;font-size:11px;background:var(--inset);color:var(--secondary);cursor:pointer;margin-left:4px}
+.hist-acts button.danger{background:var(--danger-bg);color:var(--danger)}
+.hist-acts button:disabled{opacity:.5}
+.hist-empty{text-align:center;color:var(--muted);padding:24px 10px}
+@media(max-width:760px){.hist-card{padding:18px 16px}}
