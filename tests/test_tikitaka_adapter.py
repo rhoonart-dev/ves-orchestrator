@@ -115,3 +115,13 @@ def test_logo_copies():
     assert logo_copies({"work_type": "text", "work_value": "지금 불륜이"}) == []
     assert logo_copies({"work_type": "image", "work_value": "relative.png"}) == []
     assert logo_copies(None) == []
+
+
+def test_cached_source_sha():
+    from ves.adapters.tikitaka import cached_source_sha
+    sha = "7610400acfa537a58a08bde98bd7669cde07791acbb17692cf2c14bcb9a4b2f9"
+    assert cached_source_sha(f"/opt/ves/cache/sources/{sha}", "/opt/ves/cache/sources") == sha
+    assert cached_source_sha(f"/opt/ves/cache/sources/{sha}", "/opt/ves/cache/sources/") == sha
+    assert cached_source_sha("/Users/x/Movies/ep1.mp4", "/opt/ves/cache/sources") is None
+    assert cached_source_sha(f"/tmp/{sha}", "/opt/ves/cache/sources") is None
+    assert cached_source_sha("", "/opt/ves/cache/sources") is None

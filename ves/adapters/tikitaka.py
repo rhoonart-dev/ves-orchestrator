@@ -265,6 +265,35 @@ def _read_json(path: pathlib.Path):
         return None
 
 
+SHA_NAME_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+def cached_source_sha(path: str, cache_dir: str):
+    """번들이 기억하는 원본 경로가 이 노드의 원본 캐시(cache/sources/<sha>) 자리면 그 sha. 아니면 None. 순수 — 테스트 대상."""
+    p = pathlib.PurePosixPath(path or "")
+    return p.name if str(p.parent) == str(pathlib.PurePosixPath(cache_dir)) and SHA_NAME_RE.match(p.name) else None
+
+
+def ensure_source(cfg, conn, video_json: pathlib.Path) -> None:
+    """다시 렌더에 쓸 원본이 캐시에서 치워졌으면(diskgc · 디스크 부족) 소스 창고에서 다시 받는다.
+    내용은 sha 로 확인하고, 수정 시각은 번들이 기억하는 값으로 돌려 둔다 — 엔진이 '원본이 바뀌었다'고 보지 않게."""
+    src = (_read_json(video_json) or {}).get("source") or {}
+    path = src.get("path") or ""
+    if not path or os.path.isfile(path):
+        return
+    sha = cached_source_sha(path, os.path.dirname(cfgmod.source_cache_path(cfg, "x")))
+    if not sha:
+        raise base.PermanentError(f"원본 영상이 이 노드에 없어요: {path}")
+    from ves.adapters import acquire
+    acquire.run(cfg, conn, {"params": {"source_sha256": sha, "work_title": "", "episode": None}}, {})
+    try:
+        if str(os.path.getsize(path)) == str(src.get("size")) and src.get("mtime_ns"):
+            ns = int(src["mtime_ns"])
+            os.utime(path, ns=(ns, ns))
+    except (OSError, ValueError):
+        pass
+
+
 # 편집실 필름 스트립(장면 썸네일) — 워크스페이스 local_videos_api.sprite_sheets 와 같은 모양(2초 간격 · 160x90 · 10x10).
 # 편집실을 서버 없이 열려면 브라우저가 저장소에서 바로 받아야 해서, 번들을 올릴 때 여기서 같이 만든다.
 SPRITE_DIR, SPRITE_INTERVAL, SPRITE_GRID = "sprites", 2, 10
@@ -452,6 +481,7 @@ class ApplyEdit:
         job_dir = pathlib.Path(engine) / OUT_ROOT / job_dir_name(wo)
         if not (job_dir / "videos" / suffix / "video.json").is_file():
             raise base.PermanentError(f"이 노드에 잡 폴더가 없어요: {job_dir} — 편을 만든 노드가 아니거나 정리됐어요")
+        ensure_source(cfg, conn, job_dir / "videos" / suffix / "video.json")
         py, env = cfgmod.engine_py(cfg, "ai_video"), cfgmod.job_env(cfg)
         rec = subprocess.run([py, "-m", "app.tikitaka.bundle", "record-edit", str(job_dir), suffix,
                               "--by", str(p.get("by") or "workspace"), "--based-on", str(p.get("based_on") or ""),
