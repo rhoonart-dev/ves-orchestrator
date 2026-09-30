@@ -1,4 +1,5 @@
 import {esc} from './review-details.js';
+import {loadWorkAssets} from './work-assets-data.js?v=1';
 import {hiddenChannels,setChannelHidden,withWorkOverrides} from './channel-visibility.js';
 import {readAll} from './review-service.js';
 import {assetRequest} from './work-assets.js';
@@ -40,7 +41,7 @@ export function mountChannels(root,{client,role}={}){
   const {data:picks}=await client.from('channel_work_assets').select('work_title,label').eq('token_slug',ch.token_slug).eq('role','work_logo');
   const chosen=new Map((picks||[]).map(p=>[p.work_title,p.label]));
   await Promise.all(rows.map(async art=>{
-   let logos=[];try{logos=(await assetRequest(client,'/api/work-assets/'+encodeURIComponent(art.dataset.logoId))).logos?.work_logo||[];}catch{return;}
+   let logos=[];try{logos=(await loadWorkAssets(client,art.dataset.logoId)).logos?.work_logo||[];}catch{return;}
    if(dead||ticket!==logoTicket||!logos.length)return;
    const title=art.dataset.logoWork,pick=chosen.get(title)&&logos.some(l=>l.label===chosen.get(title))?chosen.get(title):null;
    const box=document.createElement('div');box.className='ch-logo-pick';

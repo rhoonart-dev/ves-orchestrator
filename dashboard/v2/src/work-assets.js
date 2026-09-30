@@ -2,6 +2,7 @@ import {esc} from './review-details.js';
 import {needWorkPc} from './local-only.js';
 import {mountLogoDrive} from './work-logo-drive.js?v=5';
 import {showToast} from './toast.js?v=1';
+import {loadWorkAssets,uploadWorkAsset,logoVariant,setPlatformSource} from './work-assets-data.js?v=1';
 export async function assetRequest(client,path,options={}){
  if(String(path).startsWith('/api/'))needWorkPc();   // 웹 주소에서는 로컬 서버가 없다
  if(!client)throw Error('로그인하면 VES 에셋을 관리할 수 있어요.');
@@ -14,7 +15,7 @@ export async function assetRequest(client,path,options={}){
 export function mountWorkAssets(root,{client,role,work}){
  let dead=false,data=null,form=null,drive=null,releaseDrive=()=>{},picking=false;const canWrite=['operator','admin'].includes(role);   // form: {role, label(교체·새 로고면 null)} · drive: 열린 '드라이브에서 가져오기' 칸(다시 그려도 같은 칸을 옮겨 붙여 고른 것이 안 날아가게) · picking: '다른 권리사'를 누르고 아직 안 고름
  const roles={work_logo:['작품 로고','영상 하단의 작품명 자리에 들어가요.',620,300],platform_logo:['플랫폼 로고','채널 템플릿의 플랫폼 표기 위치에 들어가요.',180,80]};
- const base='/api/work-assets/'+encodeURIComponent(work?.licensedId||'');
+ const wid=String(work?.licensedId||'');   // 로고 읽기·쓰기는 Supabase 로 바로(work-assets-data.js) — 웹 주소에서도 된다
  const uses=l=>l.channels.length?`채널 ${l.channels.length}곳`:'안 씀';
  const pf=()=>data.platform||{mode:'work',holders:[],holder_logos:[]};
  const onHolder=()=>['holder','other'].includes(pf().mode);                 // 플랫폼 로고를 권리사 열쇠에서 읽는가
@@ -86,8 +87,7 @@ export function mountWorkAssets(root,{client,role,work}){
   f.onsubmit=async e=>{e.preventDefault();const file=f.elements.file.files[0],status=f.querySelector('[role=status]');
    try{if(!file||file.size>6*1024*1024)throw Error('6MB 이하 파일을 선택해 주세요.');f.querySelector('fieldset').disabled=true;status.textContent='VES에 올리는 중…';
     const label=form.label||f.elements.label?.value.trim()||'';
-    const q=new URLSearchParams({role:form.role,filename:file.name,width:f.elements.width.value,height:f.elements.height.value,label,default:f.elements.default?.checked?'1':'',target:target(form.role)});
-    await assetRequest(client,base+'?'+q,{method:'POST',body:file,headers:{'Content-Type':'application/octet-stream'}});
+    await uploadWorkAsset(client,wid,{role:form.role,target:target(form.role),file,renderWidth:f.elements.width.value,renderHeight:f.elements.height.value,label,makeDefault:!!f.elements.default?.checked});
     form=null;await load(`'${label||'기본'}' 로고를 저장했어요.`);}
    catch(err){if(!dead){status.textContent=err.message;status.classList.add('asset-error');f.querySelector('fieldset').disabled=false;}}};
  }
@@ -113,7 +113,7 @@ export function mountWorkAssets(root,{client,role,work}){
   }catch{}
  }
  async function setPlatform(body,ok){
-  try{await assetRequest(client,base+'/platform',{method:'POST',body:JSON.stringify(body),headers:{'Content-Type':'application/json'}});form=null;await load(ok);}
+  try{await setPlatformSource(client,wid,body);form=null;await load(ok);}
   catch(e){draw(e.message);}
  }
  async function act(roleKey,label,action,btn){
@@ -135,13 +135,13 @@ export function mountWorkAssets(root,{client,role,work}){
   if(await send({role:roleKey,label,action,target:target(roleKey)}))load(`'${label}'을(를) 기본 로고로 정했어요.`);
  }
  async function send(body,ok){   // ok 를 주면 다시 불러오고 토스트. 돌려주는 값: 서버 답(실패면 null)
-  try{const r=await assetRequest(client,base+'/variant',{method:'POST',body:JSON.stringify(body),headers:{'Content-Type':'application/json'}});if(ok)await load(ok);return r;}
+  try{const r=await logoVariant(client,wid,body);if(ok)await load(ok);return r;}
   catch(e){draw(e.message);return null;}
  }
  async function load(msg=''){
   try{
    if(!work?.licensedId)throw Error('권리사 작품 정보를 연결한 뒤 에셋을 등록할 수 있어요.');
-   data=await assetRequest(client,base);if(dead)return;draw();showToast(root,msg);   // 완료 안내는 토스트로
+   data=await loadWorkAssets(client,wid);if(dead)return;draw();showToast(root,msg);   // 완료 안내는 토스트로
   }catch(e){if(!dead){root.replaceChildren();const p=document.createElement('p');p.className='asset-error';p.setAttribute('role','alert');p.textContent=e.message;root.append(p);}}
  }
  load().then(resumeDrive);return()=>{dead=true;releaseDrive();};
