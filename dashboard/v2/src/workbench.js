@@ -2,12 +2,13 @@ import {mountWorkflowControls} from './workflow-controls.js';
 import {openPremiereExport} from './premiere-export.js?v=4';
 import {loadCatalog,loadGuide} from './work-catalog.js';
 
-import {openThumbnails} from './thumbnail-tool.js?v=8';
+import {openThumbnails} from './thumbnail-tool.js?v=9';
 import {workflowCardHtml,timelineHtml,reviewEvents} from './workflow-card.js';
 import {score,reviewLabels} from './review-service.js';
 import {icon} from './icons.js';
 import {loadLocalMedia,timeLabel} from './media-catalog.js';
-import {bundleItem} from './local-jobs.js?v=mv-4';
+import {bundleItem} from './local-jobs.js?v=rf-1';
+import {failureInfo,lineHtml,openFailurePop,injectStyle as failureStyle} from './render-failure.js?v=7';
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const remembered=new Map();
 export function guideFragment(html){
@@ -132,8 +133,25 @@ export function mountWorkbench(root,job,{service=null,role=null,refresh=null}={}
   box.append(tip);
   const place=()=>{if(!tip.isConnected)return;const b=link.getBoundingClientRect(),o=box.getBoundingClientRect();
    const row=link.closest('.editor-buttons')?.getBoundingClientRect()||b;   // 버튼이 두 줄로 접혀도 다른 버튼을 가리지 않게 버튼 묶음 위에
-   tip.style.right=Math.max(0,o.right-b.right)+'px';tip.style.bottom=(o.bottom-row.top+10)+'px';tip.querySelector('i').style.right=Math.max(10,b.width/2-6)+'px';};
+   // 말풍선 가운데를 편집실 열기 버튼 가운데에. 화면(넓은 화면은 오른쪽 스크롤 칸) 끝에 닿으면 안쪽으로 밀되,
+   // 꼬리는 늘 버튼 가운데를 가리키고 알약의 둥근 끝이 아니라 평평한 부분에 붙는다
+   const clip=box.closest('.workflow-inspector'),c=clip?.getBoundingClientRect(),w=tip.offsetWidth,r=tip.offsetHeight/2,mid=b.left+b.width/2;
+   const lo=c?c.left:8,hi=(c?c.right:document.documentElement.clientWidth-8)-w;
+   let left=Math.min(Math.max(mid-w/2,lo),hi);left=Math.min(Math.max(left,mid-(w-r-6)),mid-(r+6));
+   // 위에 자리가 없으면(넓은 화면 오른쪽 칸은 스크롤 칸이라 위로 삐져나간 부분이 잘려 그림자만 비친다) 버튼 아래로
+   const below=row.top-(c?c.top:-Infinity)<tip.offsetHeight+12;
+   tip.classList.toggle('below',below);tip.style.right='auto';tip.style.left=(left-o.left)+'px';
+   if(below){tip.style.bottom='auto';tip.style.top=(row.bottom-o.top+10)+'px';}else{tip.style.top='auto';tip.style.bottom=(o.bottom-row.top+10)+'px';}
+   tip.querySelector('i').style.left=(mid-left-6)+'px';};
   requestAnimationFrame(place);
+  const ro=new ResizeObserver(()=>{if(!tip.isConnected)return ro.disconnect();place();setTimeout(place,450);});ro.observe(box);ro.observe(document.documentElement);   // 폭이 바뀌어 버튼 자리가 옮겨진 뒤에 다시 맞춘다
+ }
+ // 버튼 아래 한 줄 — 다시 렌더 실패는 이유 + [자세히](말풍선: 할 일 · 렌더한 맥미니 로봇의 말), 나머지는 글자 그대로
+ function failureNote(note,b,rest){
+  const a=b.apply,parts=rest.filter(Boolean).map(esc);
+  if(a?.state==='failed'){failureStyle();const info=failureInfo(a.error,{node:a.node||(b.remote?b.node:null),at:a.finished_at,restorable:a.restorable});
+   note.innerHTML=[lineHtml(info),...parts].join(' · ');note.querySelector('.rf-why').onclick=e=>{const href=$('.open-editor').getAttribute('href');openFailurePop(e.currentTarget,info,{action:href?{href,label:'편집실 열기'}:null});};}
+  else note.textContent=rest.filter(Boolean).join(' · ');
  }
  async function prepareActions(item,ticket){
   const link=$('.open-editor'),note=$('.editor-readiness'),thumbs=$('.open-thumbs'),premiere=$('.open-premiere');
@@ -146,7 +164,7 @@ export function mountWorkbench(root,job,{service=null,role=null,refresh=null}={}
     const [,wo,suffix]=String(b.key||'').match(/^remote-([^/]+)\/(.+)$/)||[];
     if(wo&&canExport&&service?.client){premiere.hidden=false;premiere.onclick=()=>{video.pause();openPremiereExport(service.client,{wo,suffix});};}
     if(rendering(b)){note.textContent='다시 렌더 중이에요 — 끝나면 새 판에서 편집할 수 있어요';return;}
-    note.textContent=[b.apply?.state==='failed'?`다시 렌더 실패: ${b.apply.error||''}`:''].filter(Boolean).join(' · ');
+    failureNote(note,b,[]);
     link.href=`editor.html?local=1&run=${encodeURIComponent(item.id)}&back=${encodeURIComponent(job.id)}`;link.setAttribute('aria-disabled','false');renderTip(link);
     return;
    }
@@ -160,7 +178,7 @@ export function mountWorkbench(root,job,{service=null,role=null,refresh=null}={}
    thumbs.onclick=()=>{video.pause();openThumbnails({client:service?.client,video:b,onChange:async()=>{
     if(!refresh)return;try{const next=(await refresh()).find(j=>j.id===job.id);if(disposed||!next)return;
      job.bundles=next.bundles;const nb=next.bundles.find(x=>x.key===b.key);if(nb){item.bundle=nb;if(selectedId===item.id)prepareActions(item,ticket);}}catch{}}})};
-   note.textContent=[b.apply?.state==='failed'?`다시 렌더 실패: ${b.apply.error||''}`:'',b.apply?.state==='done'&&b.apply.notes?.length?`지난 수정에서 달라진 점: ${b.apply.notes.map(n=>n.text).join(' ')}`:'',b.draft&&!b.draft.stale?'이어서 할 초안 있음':''].filter(Boolean).join(' · ');
+   failureNote(note,b,[b.apply?.state==='done'&&b.apply.notes?.length?`지난 수정에서 달라진 점: ${b.apply.notes.map(n=>n.text).join(' ')}`:'',b.draft&&!b.draft.stale?'이어서 할 초안 있음':'']);
    link.href=`editor.html?local=1&run=${encodeURIComponent(item.id)}&back=${encodeURIComponent(job.id)}`;link.setAttribute('aria-disabled','false');renderTip(link);
    return;
   }

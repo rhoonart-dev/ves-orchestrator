@@ -159,6 +159,7 @@ body.applayout .tlwrap{height:var(--tlh,auto);max-height:calc(100vh - 260px)}
 #notePop .np-sub{color:var(--muted);font-size:12px;margin-top:4px}
 #notePop .np-fail{padding:12px;border-radius:12px;background:color-mix(in srgb,#e5484d 14%,transparent)}
 #notePop .np-fail h3{color:#e5484d}
+#notePop .np-fail .rf-title{color:var(--text);margin-top:6px}   /* 실패 말풍선 내용(src/render-failure.js) — 이유는 흰 글씨, 빨강은 제목 한 줄만 */
 #notePop #warns{display:flex;flex-direction:column;gap:6px}
 /* 창 안의 목록은 모두 같은 면 상자에(테두리 없이) */
 #notePop .alert,#notePop .np-box{border:none!important;border-radius:10px;padding:10px 12px;background:var(--panel2);color:var(--text)}
@@ -279,7 +280,7 @@ body.applayout #railPanel{left:56px}
 input,select,textarea,.dfld input,.dfld select{background:var(--panel2);border-radius:8px}
 .blk{border-radius:4px}
 .blk.sel,body.editing .blk.sel{box-shadow:0 0 0 2px var(--accent)}
-#notePop{background:var(--panel2)}
+#notePop{background:#2c2c2e;box-shadow:0 18px 48px #000000b3,0 2px 8px #00000066}   /* 뒤 화면과 한 단계 더 밝게 + 깊은 그림자 — 테두리 없이 창 영역이 보이게 */
 /* 글자 옆 작은 선 아이콘(EI) */
 .ei{width:1.15em;height:1.15em;flex:none;vertical-align:-.2em;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
 button:has(> .ei){display:inline-flex;align-items:center;justify-content:center;gap:5px}

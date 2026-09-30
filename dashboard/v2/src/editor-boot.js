@@ -1,11 +1,11 @@
 import {config} from './config.js';
 import {setupScrollbars} from './scrollbars.js';
-import {createLocalEditorClient,loadLocalVideo} from './local-editor-client.js?v=remote-1';
+import {createLocalEditorClient,loadLocalVideo} from './local-editor-client.js?v=rf-1';
 import {confirmSubmit} from './editor-submit-dialog.js?v=render-123';
 import './editor-checks.js?v=render-123';   // window.__edChecks — 제출 전 검사(ves-editor.js 가 부른다)
 import './editor-fx.js?v=render-123';
 import './editor-frame.js?v=render-123';   // window.__edFrame — 구간 화면 위치(미리보기 자르기·끌기)       // window.__edFx — 강조·줌 편집
-import {mountNotes} from './editor-notes.js?v=render-123';   // 상단바 종 버튼(알림 창)
+import {mountNotes} from './editor-notes.js?v=rf-2';   // 상단바 종 버튼(알림 창)
 import {mountSafeArea} from './editor-safe.js?v=render-123';   // 미리보기 옆 쇼츠 안전 영역 버튼
 import {mountAccount} from './editor-account.js?v=render-123';   // 오른쪽 위 계정 로봇(이메일·로그아웃)
 import {icon} from './icons.js';
@@ -29,8 +29,8 @@ function paint(){const v=Math.round(pos);bar.firstChild.style.width=pos+'%';bar.
  root.setProperty('--gate-bg',getComputedStyle(document.body).backgroundColor);
  gate.style.background=cs.backgroundColor;gate.style.color=cs.color;
  bar.style.background=getComputedStyle(bar).backgroundColor;stepNote.style.color=getComputedStyle(stepNote).color;}
-function done(){clearInterval(tick);pos=100;paint();
- setTimeout(()=>{gate.classList.add('leaving');setTimeout(()=>{gate.hidden=true;},260);},200);}
+function done(after){clearInterval(tick);pos=100;paint();
+ setTimeout(()=>{gate.classList.add('leaving');setTimeout(()=>{gate.hidden=true;after?.();},260);},200);}
 function failed(text){clearInterval(tick);gate.classList.add('failed');message.textContent=text;stepNote.textContent='';}
 document.querySelectorAll('.studio-mark').forEach(el=>{el.innerHTML=icon('studio');});
 const params=new URLSearchParams(location.search),rid=params.get('rid');
@@ -51,8 +51,8 @@ async function bootLocal(client){
  const {sb,local}=createLocalEditorClient(client,payload);
  window.__workspaceLocal=local;window.__workspaceEditorCheck=local.check;
  // 도구 줄 이름표 — 작업 컴퓨터 영상은 파일 이름(작업 폴더/vN), 맥미니 영상은 이 컴퓨터에 파일이 없으니 작품·회차·판
- {const m=payload.meta,node=m.remote_node,n=String(node||'').match(/^mm-0*(\d+)$/);
-  window.__edRunLabel=node?{pill:n?'맥미니 '+n[1]:String(node),name:[m.work,m.episode,String(m.key||'').split('/').pop()].filter(Boolean).join(' · ')}
+ {const m=payload.meta,node=m.remote_node;   // 맥미니 이름은 mm-02 그대로(실패 말풍선의 로봇 이름표와 같게)
+  window.__edRunLabel=node?{pill:String(node),name:[m.work,m.episode,String(m.key||'').split('/').pop()].filter(Boolean).join(' · ')}
    :{pill:'작업 컴퓨터',name:String(m.key||'')};}
  window.__edLogos=payload.meta.logos||{};window.__edWorkName=payload.meta.work||'';   // 미리보기 로고 그림·작품명
  // 작품 관리 로고 목록(로고 탭·미리보기 그림 주소) — 느려도 편집실은 먼저 연다
@@ -73,8 +73,9 @@ async function bootLocal(client){
 function showLocalNotes(payload){
  const btn=document.querySelector('#renderBtn span');if(btn)btn.textContent='제출';
  // 예전의 위 띠(영상 안내·지난 수정 결과)는 없앴다 — 상단바 종 버튼 창으로 모은다(src/editor-notes.js)
- mountNotes(payload.meta);
+ const notes=mountNotes(payload.meta);
  mountSafeArea();
+ return notes;
 }
 async function boot(){
  // 편집실은 작업 컴퓨터 영상(?local=1&run=<작업>/<vN>)만 연다 — 예전 VES 검수 카드(?rid=) 편집은 2026-09-29 뺐다
@@ -91,9 +92,9 @@ async function boot(){
  step(3);
  await import('./ves-editor.js?v=render-123');
  const root=document.getElementById('tlRoot');root.style.display='flex';root.style.flexDirection='column';
- showLocalNotes(payload);setupScrollbars();
+ const notes=showLocalNotes(payload);setupScrollbars();
  mountAccount(client,data.user,roles.data.map(r=>r.role));
  await window.__tlEnter({});
- done();
+ done(()=>notes?.openIfFailed());   // 실패 알림 창은 막이 걷힌 뒤에
 }
 boot().catch(error=>{failed(error.message||'편집실 연결을 확인해 주세요.');});

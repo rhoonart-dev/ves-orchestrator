@@ -31,7 +31,7 @@
 .workflow-card .judge-values{margin:18px 0}.workflow-card .judge-card h4{font-size:14px}
 .workflow-editor-actions{display:flex;flex-direction:column;align-items:flex-end;gap:7px;padding:0 3px}
 .workflow-editor-actions[hidden]{display:none}
-.workflow-editor-actions .open-editor,.workflow-editor-actions button{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:34px;padding:7px 12px;border:0;border-radius:8px;text-decoration:none;background:var(--surface);color:var(--ink);font-size:12px}
+.workflow-editor-actions .open-editor,.workflow-editor-actions .editor-buttons>button{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:34px;padding:7px 12px;border:0;border-radius:8px;text-decoration:none;background:var(--surface);color:var(--ink);font-size:12px}
 .workflow-editor-actions .open-editor svg{width:14px;height:14px}
 .workflow-editor-actions .open-editor[aria-disabled=true]{opacity:.5;cursor:default}
 .workflow-editor-actions small{font-size:10px;color:var(--muted);line-height:1.6;text-align:right}

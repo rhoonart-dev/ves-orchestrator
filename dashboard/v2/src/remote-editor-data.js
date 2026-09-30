@@ -98,10 +98,11 @@ export function applyNotes(log,logText=''){
 
 // 가장 최근 다시 렌더(tikitaka_apply_edit 잡) — remote_videos_api.apply_state 와 같은 모양
 export async function applyState(client,videoId){
- const [j]=await rows(client.from('job_queue').select('id,status,error,result,created_at,started_at,finished_at,node_id').eq('kind','tikitaka_apply_edit').eq('params->>video_id',videoId).order('created_at',{ascending:false}).limit(1));
+ const [j]=await rows(client.from('job_queue').select('id,status,error,result,created_at,started_at,finished_at,updated_at,node_id,required_caps').eq('kind','tikitaka_apply_edit').eq('params->>video_id',videoId).order('created_at',{ascending:false}).limit(1));
  if(!j)return null;
  const state={pending:'queued',running:'running',succeeded:'done'}[j.status]||'failed';
- const out={edit_id:j.id,state,started_at:j.started_at||j.created_at,finished_at:j.finished_at,error:state==='failed'?String(j.error||'').slice(-300):null,node:j.node_id};
+ const out={edit_id:j.id,state,started_at:j.started_at||j.created_at,finished_at:j.finished_at||(state==='failed'?j.updated_at:null),error:state==='failed'?String(j.error||'').slice(-300):null,
+  node:j.node_id||(j.required_caps||[]).find(c=>String(c).startsWith('node:'))?.slice(5)||null};   // 실패하면 node_id 가 비어 required_caps 로
  if(state==='done'){const r=j.result||{};out.notes=applyNotes(r.log,r.log_text||'');if(r.duration_sec!=null)out.duration_sec=r.duration_sec;}
  return out;
 }

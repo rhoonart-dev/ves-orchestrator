@@ -19,9 +19,9 @@ async function loadRemoteJobs(client,names){
  // 편집실 제출 → 그 맥미니에서 다시 렌더(tikitaka_apply_edit 잡) — 편마다 가장 최근 것의 상태
  const applies=new Map();
  if(rows.length){
-  const {data:jobs}=await client.from('job_queue').select('id,status,error,params,created_at').eq('kind','tikitaka_apply_edit')
+  const {data:jobs}=await client.from('job_queue').select('id,status,error,params,created_at,finished_at,updated_at,node_id,required_caps').eq('kind','tikitaka_apply_edit')
    .in('work_order_id',[...new Set(rows.map(r=>r.work_order_id))]).order('created_at',{ascending:false}).limit(200);
-  for(const j of jobs||[]){const vid=j.params?.video_id;if(vid&&!applies.has(vid))applies.set(vid,{edit_id:j.id,state:{pending:'queued',running:'running',succeeded:'done'}[j.status]||'failed',error:j.status==='failed'||j.status==='dead'?String(j.error||'').slice(-200):null});}
+  for(const j of jobs||[]){const vid=j.params?.video_id;if(vid&&!applies.has(vid))applies.set(vid,{edit_id:j.id,state:{pending:'queued',running:'running',succeeded:'done'}[j.status]||'failed',error:j.status==='failed'||j.status==='dead'?String(j.error||'').slice(-300):null,node:jobNode(j),finished_at:j.finished_at||j.updated_at});}
  }
  const byWo=new Map();
  for(const r of rows){if(!byWo.has(r.work_order_id))byWo.set(r.work_order_id,[]);byWo.get(r.work_order_id).push(r);}
@@ -34,6 +34,8 @@ async function loadRemoteJobs(client,names){
     review_items:x.review_items,labels:0,duration:Number(x.duration_sec)||0,remote:true,node:x.node_id,src:signed.get(x.files?.['shorts.mp4']?.key)||''}))};
  });
 }
+// 잡을 맡았던 맥미니 — 실패하면 node_id 가 비어서, 편을 만든 노드로 박아 둔 required_caps(node:mm-02)로
+export const jobNode=j=>j.node_id||(j.required_caps||[]).find(c=>String(c).startsWith('node:'))?.slice(5)||null;
 // 작업 컴퓨터 영상과 맥미니 영상을 함께 — 한쪽을 못 읽어도(다른 컴퓨터에서 열었을 때 등) 다른 쪽은 보인다. 둘 다 실패면 첫 오류.
 export async function loadLocalJobs(client){
  const ch=await client.from('channels_mirror').select('token_slug,name,channel_id,avatar_url').then(r=>r,()=>({data:[]}));
