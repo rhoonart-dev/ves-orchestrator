@@ -92,3 +92,42 @@ dialog{background:var(--surface);color:var(--ink)}form input{background:var(--in
 .local-only-empty h3{margin:0 0 6px;font-size:15px;color:var(--ink)}
 .local-only-empty p{margin:0;font-size:12px;line-height:1.7;color:var(--secondary)}
 .source-seg button.is-local-only{opacity:.45}
+/* 쪽 넘기기(pager.js) — 모든 탭 같은 모양 ‹ 2/8 ›(권리사 검수 탭 .rights-pagination 과 같다) */
+.ws-pager{display:flex;align-items:center;justify-content:center;gap:12px;padding:17px 0 4px;color:var(--secondary)}
+.ws-pager button{display:grid;place-items:center;width:34px;height:34px;border:0;border-radius:8px;background:transparent;color:var(--secondary);padding:8px;cursor:pointer}
+.ws-pager button:hover:not(:disabled){background:var(--inset);color:var(--ink)}
+.ws-pager button:disabled{opacity:.3;cursor:default}
+.ws-pager button svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}   /* 성과 화면의 그래프용 .perf-page svg{stroke:none} 보다 세게 */
+.ws-page-pos{font-size:12px;min-width:36px;text-align:center;font-variant-numeric:tabular-nums;letter-spacing:.03em}
+@media(max-width:760px){.ws-pager{padding:10px 0 8px}.ws-pager button{width:40px;height:40px}}
+/* 프리미어로 내보내기 창(premiere-export.js) */
+.pr-export{border:0;border-radius:18px;padding:22px;width:min(460px,calc(100vw - 32px));background:var(--surface);color:var(--ink);box-shadow:0 24px 60px #0000002e}
+.pr-export::backdrop{background:#0000004d}
+.pr-export header{display:flex;justify-content:space-between;align-items:center}
+.pr-export h2{margin:0;font-size:16px;font-weight:700}
+.pr-export .pr-x{border:0;background:none;font-size:20px;color:var(--muted);width:30px;height:30px;border-radius:50%;cursor:pointer}
+.pr-export .pr-x:hover{background:var(--inset);color:var(--ink)}
+.pr-lead{margin:8px 0 14px;font-size:13px;line-height:1.6;color:var(--secondary)}
+.pr-steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px;counter-reset:pr}
+.pr-steps li{display:flex;align-items:center;gap:12px;background:var(--inset);border-radius:12px;padding:12px 14px;counter-increment:pr}
+.pr-steps li::before{content:counter(pr);flex:none;width:22px;height:22px;border-radius:50%;background:var(--surface);display:grid;place-items:center;font-size:11px;font-weight:700;color:var(--secondary)}
+.pr-steps li>div{flex:1;min-width:0}
+.pr-steps b{display:block;font-size:13px}
+.pr-steps small{display:block;margin-top:3px;font-size:11px;color:var(--muted);overflow-wrap:anywhere}
+.pr-steps button,.pr-steps a{flex:none;display:inline-flex;align-items:center;gap:6px;height:var(--button-small-height);padding:0 var(--button-small-pad-x);border:0;border-radius:var(--button-radius);background:var(--solid);color:var(--on-solid);font:inherit;font-size:var(--button-small-font);font-weight:600;text-decoration:none;cursor:pointer}
+.pr-steps a{background:var(--surface);color:var(--ink)}
+.pr-steps svg{width:14px;height:14px}
+.pr-steps button:disabled,.pr-steps a[aria-disabled="true"]{opacity:.45;pointer-events:none}
+.pr-note{margin:12px 0 0;font-size:12px;line-height:1.6;color:var(--secondary)}
+.pr-msg{margin:8px 0 0;font-size:12px;color:var(--secondary)}.pr-msg:empty{display:none}
+.pr-msg.pr-err{color:var(--danger)}
+.pr-how{margin-top:16px;padding-top:14px;border-top:1px solid var(--inset)}
+.pr-how h3{margin:0 0 8px;font-size:13px;font-weight:700}
+.pr-how ol,.pr-how ul{margin:0;padding-left:18px;font-size:12px;line-height:1.7;color:var(--secondary)}
+.pr-how b{color:var(--ink);font-weight:600;overflow-wrap:anywhere}
+.pr-how details{margin-top:10px}
+.pr-how summary{cursor:pointer;font-size:12px;font-weight:600;color:var(--ink)}
+.pr-how ul{margin-top:6px}
+.pr-limit{margin-top:12px;background:var(--inset);border-radius:10px;padding:10px 12px}
+.pr-limit b{display:block;font-size:12px;margin-bottom:3px}
+.pr-limit p{margin:0;font-size:12px;line-height:1.6;color:var(--secondary)}

@@ -1,4 +1,5 @@
 import {askConfirm} from "./confirm-dialog.js";
+import {pagerHtml} from "./pager.js";
 // 소재 아카이브 — 예전 VES '소재 아카이브'(renderArchive, L-P3b)를 옮겼다. 잔망루피 원 채널 전량(약 1,100편)에서 오늘 올릴 편을 고르는 선반.
 // 매일 03:00 원 채널 지표를 다시 세고 04:00 선별기(ops_config.loopy_picker)가 점수를 매긴다. 규칙은 RPC 에 있고 화면은 보여 주고 부르기만 한다.
 //   list_external_shorts(채널, 쇼츠/롱폼, 거르기, 정렬, 개수, 건너뛰기) · set_external_short_allow(되살리기/빼기) · select_external_short(작업 걸기)
@@ -116,7 +117,7 @@ export function mountArchive(root, {client = null, role = null} = {}){
       : state === "error" ? `<p class="arc-note arc-err">목록을 불러오지 못했어요. ${esc(err)}</p>`
       : !rows.length ? `<p class="arc-note">${st.filter === "recommended" ? (on ? "아직 추천이 없어요. 새벽 4시에 새로 나와요." : "자동 추천이 꺼져 있어요.") : "영상이 없어요."}</p>`
       : `<div class="arc-grid">${rows.map(card).join("")}</div>
-        ${pages > 1 ? `<div class="arc-pager"><button type="button" data-page="${st.page - 1}" ${st.page ? "" : "disabled"}>‹ 이전</button><span>${st.page + 1} / ${pages} · 총 ${num(total)}편</span><button type="button" data-page="${st.page + 1}" ${st.page + 1 < pages ? "" : "disabled"}>다음 ›</button></div>` : ""}`;
+        ${pagerHtml({cur: st.page, pages, label: "소재 목록 페이지", prev: `data-page="${st.page - 1}"`, next: `data-page="${st.page + 1}"`})}`;
     const chan = chans?.find(c => c.slug === st.channel), src = chan?.source;
     if (!root.querySelector(".arc-page")) shell();
     drawSide();

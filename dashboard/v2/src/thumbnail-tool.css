@@ -63,3 +63,19 @@
 .thumb-pick-acts button{font-size:12px;border:1px solid var(--input-border);background:var(--surface);color:var(--ink);border-radius:8px;padding:5px 10px;cursor:pointer}
 .thumb-pick-acts .thumb-chosen{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:600}
 .thumb-dialog:focus,.thumb-dialog:focus-visible{outline:none}   /* 창 자체에 파란 초점 테두리를 두르지 않는다 — 초점은 안쪽 버튼에 */
+.workflow-editor-actions .open-premiere[hidden]{display:none}
+.workflow-editor-actions .open-premiere svg{width:14px;height:14px}
+/* '제출하면 다시 렌더해요' 한 번만 뜨는 말풍선 — 편집실 열기 버튼 위 */
+.workflow-editor-actions{position:relative}
+.rerender-tip{position:absolute;z-index:5;display:flex;align-items:center;gap:10px;background:var(--solid);color:var(--on-solid);border-radius:12px;padding:8px 8px 8px 14px;box-shadow:0 8px 24px #00000026;white-space:nowrap}
+.rerender-tip p{margin:0;font-size:12px;font-weight:600}
+.rerender-tip button{border:0;border-radius:var(--button-radius);height:26px;padding:0 11px;font:inherit;font-size:11px;font-weight:700;background:color-mix(in srgb,var(--on-solid) 18%,transparent);color:var(--on-solid);cursor:pointer}
+.rerender-tip button:hover{background:color-mix(in srgb,var(--on-solid) 28%,transparent)}
+.rerender-tip i{position:absolute;bottom:-5px;width:12px;height:12px;background:var(--solid);transform:rotate(45deg);border-radius:2px}
+/* 좁은 화면 — 세 버튼(썸네일 생성 · 프리미어로 내보내기 · 편집실 열기)을 한 줄 가운데로. 모자라면 아이콘을 뺀다 */
+@media(max-width:760px){
+ .workflow-editor-actions{align-items:center}   /* 버튼 묶음이 영상 폭보다 넓으면 오른쪽 끝 기준이라 왼쪽으로 밀렸다 — 가운데 기준으로 */
+ .workflow-editor-actions .editor-buttons{justify-content:center;flex-wrap:nowrap;gap:5px;align-self:center}
+ .workflow-editor-actions .editor-buttons>:is(button,a).workflow-editor-actions,.workflow-editor-actions .editor-buttons>:is(button,a){flex:0 1 auto;min-width:0;padding-left:10px;padding-right:10px;gap:5px}
+}
+@media(max-width:420px){.workflow-editor-actions .editor-buttons svg{display:none}}

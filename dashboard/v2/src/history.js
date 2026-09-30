@@ -1,4 +1,5 @@
 import {esc} from './review-details.js';
+import {pagerHtml} from './pager.js';
 import {askConfirm} from './confirm-dialog.js';
 import {hiddenChannels} from './channel-visibility.js';
 import {enhanceDropdowns} from './dropdowns.js';
@@ -67,25 +68,25 @@ export function mountHistory(root,{client=null,role=null,params=new URLSearchPar
       <select data-f="chan" aria-label="채널별 보기"><option value="all">채널 전체</option>${data.chans.map(c=>`<option value="${esc(c.token_slug)}" ${st.chan===c.token_slug?'selected':''}>${esc(c.name||c.token_slug)}</option>`).join('')}</select></div></header>
     <div class="hist-chips hscroll">${Object.entries(STATUS).map(([k,l])=>`<button type="button" data-s="${k}" aria-pressed="${st.status===k}">${l}<small>${count(k)}</small></button>`).join('')}</div>
     ${error?`<p class="hist-error">${esc(error)}</p>`:''}<p class="hist-msg" role="status"></p>
-    <div class="hist-table"><table><thead><tr><th>단계</th><th>상태</th><th class="num">시도</th><th>맥</th><th>작품 · 채널</th><th class="num">경과</th><th>비고</th>${canEdit?'<th></th>':''}</tr></thead><tbody>${
+    <div class="hist-table"><table class="hist-jobs"><colgroup><col class="c-kind"><col class="c-st"><col class="c-try"><col class="c-node"><col><col class="c-ago"><col class="c-note">${canEdit?'<col class="c-acts">':''}</colgroup><thead><tr><th>단계</th><th>상태</th><th>시도</th><th>맥</th><th>작품 · 채널</th><th>경과</th><th>비고</th>${canEdit?'<th></th>':''}</tr></thead><tbody>${
      shown.map(j=>{const wo=data.wo.get(j.work_order_id)||{},pin=(j.required_caps||[]).find(c=>c.startsWith('node:'));
       const ep=wo.episode??j.params?.episode;const work=wo.work_title||j.params?.work_title||j.params?.folder_name||'';
       const acts=canEdit?[['failed','dead','cancelled'].includes(j.status)?`<button type="button" data-act="retry" data-id="${j.id}">재시도</button>`:'',
        ['pending','running','blocked'].includes(j.status)?`<button type="button" class="danger" data-act="cancel" data-id="${j.id}">취소</button>`:'',
        j.work_order_id&&wo.status&&wo.status!=='cancelled'?`<button type="button" class="danger" data-act="cancel-wo" data-id="${j.work_order_id}" title="이 잡이 속한 작업지시를 통째로 취소해요 — 남은 잡과 검수 대기 카드가 같이 닫히고, 소스 소진에서도 빠져요">작업지시 취소</button>`:''].join(''):'';
       return `<tr><td>${esc(kindKo(j.kind))}</td><td><span class="hist-st ${TONE[j.status]||'mut'}">${STATUS[j.status]||esc(j.status)}</span></td>
-       <td class="num">${j.attempt??0}/${j.max_attempts??3}</td>
+       <td class="tnum">${j.attempt??0}/${j.max_attempts??3}</td>
        <td class="mono">${esc(j.node_id||'')}${pin?` <small title="이 맥에서만 돌아요">${esc(pin.replace('node:',''))} 고정</small>`:''}</td>
        <td>${esc(work)}${ep!=null?` <small>· ${esc(ep)}회차</small>`:''}${wo.channel_slug?`<small class="hist-ch">${esc(chName(wo.channel_slug))}</small>`:''}</td>
-       <td class="num" title="${esc(kst(j.updated_at))}">${ago(j.updated_at)}</td>
-       <td>${j.error?`<button type="button" class="hist-why${j.status==='cancelled'?' is-cancel':''}" data-err="${j.id}">${j.status==='cancelled'?'취소 이유':'오류 보기'}</button>`:''}</td>
-       ${canEdit?`<td class="hist-acts">${acts}</td>`:''}</tr>`;}).join('')||`<tr><td colspan="8" class="hist-empty">해당하는 작업이 없어요</td></tr>`}</tbody></table></div>
-    ${rows.length>PAGE?pager(rows.length,pages):''}
+       <td class="tnum" title="${esc(kst(j.updated_at))}">${ago(j.updated_at)}</td>
+       <td>${j.error?`<button type="button" class="hist-why${j.status==='cancelled'?' is-cancel':''}" data-err="${j.id}">${j.status==='cancelled'?'취소 이유':'오류 보기'}<svg viewBox="0 0 12 12" aria-hidden="true"><path d="m4 5 2 2 2-2"/></svg></button>`:''}</td>
+       ${canEdit?`<td class="hist-acts"><div class="hist-acts-in">${acts}</div></td>`:''}</tr>`;}).join('')||`<tr><td colspan="8" class="hist-empty">해당하는 작업이 없어요</td></tr>`}</tbody></table></div>
+    ${pagerHtml({cur:st.page,pages,label:'작업 이력 페이지',prev:`data-page="${st.page-1}"`,next:`data-page="${st.page+1}"`})}
    </section>
    <section class="hist-card"><header class="hist-head"><h2>최근 상태 변화 <small class="hist-idx">40건</small></h2></header>
-    <div class="hist-table"><table><thead><tr><th class="num">시각</th><th>단계</th><th>맥</th><th>변화</th><th>비고</th></tr></thead><tbody>${
+    <div class="hist-table"><table><thead><tr><th>시각</th><th>단계</th><th>맥</th><th>변화</th><th>비고</th></tr></thead><tbody>${
      data.events.map(e=>{const j=data.byId.get(e.job_id);const note=String(e.detail?.error||e.detail?.note||'').slice(0,140);
-      return `<tr><td class="num" title="${esc(kst(e.at))}">${ago(e.at)}</td><td>${esc(j?kindKo(j.kind):(e.job_id||'').slice(0,8))}</td><td class="mono">${esc(e.node_id||'')}</td>
+      return `<tr><td class="tnum" title="${esc(kst(e.at))}">${ago(e.at)}</td><td>${esc(j?kindKo(j.kind):(e.job_id||'').slice(0,8))}</td><td class="mono">${esc(e.node_id||'')}</td>
        <td>${STATUS[e.from_status]||esc(e.from_status||'')} → ${STATUS[e.to_status]||esc(e.to_status||'')}</td><td class="hist-err">${esc(note)}</td></tr>`;}).join('')||'<tr><td colspan="5" class="hist-empty">상태 변화가 없어요</td></tr>'}</tbody></table></div></section>
   </div>`;
   root.querySelectorAll('[data-page]').forEach(b=>b.onclick=()=>{st.page=+b.dataset.page;render();root.querySelector('.hist-table')?.scrollIntoView({block:'nearest'});});
@@ -94,14 +95,6 @@ export function mountHistory(root,{client=null,role=null,params=new URLSearchPar
   root.querySelectorAll('select[data-f]').forEach(s=>s.onchange=()=>{st[s.dataset.f]=s.value;st.page=0;render();});
   root.querySelectorAll('[data-act]').forEach(b=>b.onclick=()=>act(b));
   releaseDrop=enhanceDropdowns(root);
- }
- // 20개씩 쪽 — 쪽이 많으면 처음·끝·지금 근처만 번호로
- function pager(n,pages){
-  const cur=st.page,from=cur*PAGE+1,to=Math.min(n,from+PAGE-1);
-  const nums=[...new Set([0,pages-1,cur-1,cur,cur+1].filter(i=>i>=0&&i<pages))].sort((a,b)=>a-b);
-  let prev=-1,btns='';
-  for(const i of nums){if(i-prev>1)btns+='<span class="hist-gap">…</span>';btns+=`<button type="button" data-page="${i}" aria-current="${i===cur?'page':'false'}">${i+1}</button>`;prev=i;}
-  return `<nav class="hist-pager" aria-label="쪽 넘기기"><span>${from}–${to} / ${n}개</span><div class="hist-pages"><button type="button" class="hist-arrow" data-page="${Math.max(0,cur-1)}" ${cur===0?'disabled':''} aria-label="이전 쪽">‹</button>${btns}<button type="button" class="hist-arrow" data-page="${Math.min(pages-1,cur+1)}" ${cur===pages-1?'disabled':''} aria-label="다음 쪽">›</button></div></nav>`;
  }
  // 오류 말풍선 — 누른 글자 바로 아래(자리가 없으면 위)에 붙고, 화면 가장자리를 넘지 않게 좌우를 맞춘다. 꼬리는 누른 글자 가운데
  function openPop(anchor,j){

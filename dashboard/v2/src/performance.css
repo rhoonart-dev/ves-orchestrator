@@ -146,7 +146,7 @@
 .perf-page .pf-pager small{color:var(--muted)}
 .perf-page .pf-pager button.mini{width:34px;padding:0;background:var(--inset);font-size:16px}
 .perf-page .pf-pager button:disabled{opacity:.35;cursor:default}
-.perf-page .pf-vfoot{display:flex;justify-content:flex-end;margin-top:12px}
+.perf-page .pf-vfoot{display:flex;justify-content:center;margin-top:4px}
 /* 채널별 영상 개수 범례 · 안내 띠 — 참고 안내는 차분한 회색, 문제일 때만 빨강 */
 .perf-page .pf-cardhead{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:0 0 14px}
 .perf-page .pf-cardhead h2{margin:0;font:var(--type-panel-title);letter-spacing:var(--track-panel-title)}
@@ -191,3 +191,12 @@
 .perf-page .pf-vc-new{margin-left:auto;font-size:11px;font-weight:600;color:var(--accent)}
 .perf-page .pf-vc-d{margin-left:auto;font-size:11px;color:var(--muted)}
 .perf-page .pf-vc-detail{background:var(--surface-2,var(--inset));border-radius:12px;padding:12px;margin:4px 0 8px}
+/* 영상 표 칸 폭 고정 — 쪽을 넘겨도 칸이 옆으로 움직이지 않게 */
+.perf-page .pf-vtable{table-layout:fixed;width:100%;min-width:640px}
+.perf-page .pf-vtable .c-work{width:18%}.perf-page .pf-vtable .c-ch{width:11%}.perf-page .pf-vtable .c-n{width:78px}.perf-page .pf-vtable .c-pub{width:128px}
+.perf-page .pf-vtable td{overflow:hidden;text-overflow:ellipsis}
+.perf-page .pf-vtable td.vdcell{overflow:visible}
+/* 게시일 — 날짜는 늘 같은 자리(오른쪽 끝), '신규'는 날짜 앞 고정 칸에(없으면 빈칸) */
+.perf-page .pf-vtable td.pf-pub{white-space:nowrap;font-variant-numeric:tabular-nums}
+.perf-page .pf-new{display:inline-block;width:30px;margin-right:8px;text-align:center;font-size:10px;font-weight:700;padding:2px 0;border-radius:999px;background:color-mix(in srgb,var(--status-ok) 14%,transparent);color:var(--status-ok);vertical-align:1px}
+.perf-page .pf-new.off{visibility:hidden}
