@@ -93,7 +93,7 @@ def _laeebly(cfg, work_id):
     lae = connect(cfg.laeebly_url)
     try:
         with lae.cursor() as c:
-            c.execute("SELECT id::text AS id, title, download_link FROM licensed_video WHERE id::text=%s", (work_id,))
+            c.execute("SELECT id::text AS id, title, download_link, company FROM licensed_video WHERE id::text=%s", (work_id,))
             rows = c.fetchall()
             if len(rows) != 1:
                 raise base.PermanentError("레이블리에서 작품을 찾지 못했어요")
@@ -151,7 +151,8 @@ def _scan(cfg, conn, scan, scan_id, store):
     work = _laeebly(cfg, scan["work_id"])
     url = scan["folder_url"] or work["download_link"]
     kind, fid = parse_drive_link(url)
-    _set(conn, scan_id, work_title=work["title"], used_url=(url or "")[:500])
+    holder = (work.get("company") or "").strip() or None   # 플랫폼 로고를 권리사에 넣을 때(0115)
+    _set(conn, scan_id, work_title=work["title"], used_url=(url or "")[:500], holder=holder)
     if kind in (None, "file"):
         _set(conn, scan_id, status="need_folder", reason=need_folder_reason(kind, False), finished_at=NOW)
         return {"scan_id": scan_id, "status": "need_folder"}
@@ -170,7 +171,8 @@ def _scan(cfg, conn, scan, scan_id, store):
             warn = _copy(bin_, conf, remote, fid, tmp, "--drive-shared-with-me") or warn
         files = sorted(p for p in tmp.rglob("*") if p.is_file())
         with conn.cursor() as c:
-            c.execute("SELECT sha256 FROM public.work_asset_versions WHERE work_title=%s", (work["title"],))
+            c.execute("SELECT sha256 FROM public.work_asset_versions WHERE work_title = ANY(%s)",
+                      ([work["title"]] + (["권리사:" + holder] if holder else []),))
             have = {r["sha256"] for r in c.fetchall()}
         cands, seen, skipped = [], set(), 0
         for f in files:
