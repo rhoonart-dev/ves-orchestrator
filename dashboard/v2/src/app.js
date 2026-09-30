@@ -17,7 +17,7 @@ import {setupMobileNavigation} from './mobile-navigation.js';
 import {setupScrollbars} from './scrollbars.js';
 import {setupWheelScroll} from './wheel-scroll.js';
 import {setupLayoutMotion} from './layout-motion.js';
-import {mountWorkbench} from './workbench.js?v=ed-1';
+import {mountWorkbench} from './workbench.js?v=row-1';
 import {sampleJobs} from './review-model.js';
 import {loadLocalJobs} from './local-jobs.js?v=mv-4';
 import {mountReview} from './review.js?v=web-2';
