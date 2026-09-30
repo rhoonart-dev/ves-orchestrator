@@ -80,7 +80,7 @@ export function openThumbnails({client,video,onChange=()=>{}}){
   dlg.innerHTML=`<div class="thumb-head"><div>${heading}
     ${doc?`<p>${running?'다시 만드는 중이에요':`${esc(HOW[doc.how]||doc.how)} · ${esc(when(st.updated_at))}`}</p>`:''}</div>
     <button class="thumb-close" aria-label="닫기">✕</button></div>
-   ${st.stale?'<p class="thumb-warn">영상이 다시 렌더됐어요 — 화면이 달라졌을 수 있으니 다시 만들어 주세요.</p>':''}
+   ${st.stale?'<p class="thumb-warn">영상이 다시 렌더됐어요. 화면이 달라졌을 수 있으니 다시 만들어 주세요.</p>':''}
    ${st.state==='failed'?`<p class="thumb-warn">${esc(st.error||'썸네일을 만들지 못했어요.')}</p>`:''}
    <p class="thumb-msg" role="status"></p>
    ${!doc?`<div class="thumb-empty"><h3>${running?'썸네일을 만드는 중이에요':'아직 만든 썸네일이 없어요'}</h3>
@@ -90,7 +90,7 @@ export function openThumbnails({client,video,onChange=()=>{}}){
      ${st.manual?`<button data-act="reset" ${running?'disabled':''}>처음 추천으로 되돌리기</button>`:''}
      <button data-act="run" ${running?'disabled':''}>다시 만들기</button></div></div>
     <div class="thumb-picks">${picks.map(p=>`<figure><img src="${esc(media(p.file))}" alt="썸네일 ${p.rank}">
-     <figcaption><b>${esc(p.label||'라벨 없음')}</b>${p.why?`<small>${esc(p.why)}</small>`:''}${doc.how==='flash'&&p.label?'<small class="thumb-check">라벨 확인 필요 — 다른 인물의 대사일 수 있어요</small>':''}
+     <figcaption><b>${esc(p.label||'라벨 없음')}</b>${p.why?`<small>${esc(p.why)}</small>`:''}${doc.how==='flash'&&p.label?'<small class="thumb-check">라벨을 확인해 주세요. 다른 인물의 대사일 수 있어요</small>':''}
      <span class="thumb-pick-acts">${chosen===p.rank?`<button class="thumb-chosen" data-choose="" title="누르면 고른 것을 취소해요">✓ 발행용</button>`:`<button data-choose="${p.rank}">발행용으로 고르기</button>`}
      <a class="thumb-dl" href="${esc(media(p.file))}" download="${esc(ver)}_썸네일_${p.rank}.png">내려받기</a></span></figcaption></figure>`).join('')}</div>
     <p class="thumb-hint">발행용으로 고른 썸네일은 대시보드에서 발행할 때 같이 올라가고, 발행 일정 달력에도 이 그림으로 보여요.</p></section>
