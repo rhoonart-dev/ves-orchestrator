@@ -16,7 +16,7 @@ import traceback
 from ves import config as cfgmod
 from ves import db
 from ves.config import get_config
-from ves.scheduler import (algo_watch, channels_sync, drive_balance, drive_watch,
+from ves.scheduler import (algo_watch, channels_sync, drive_balance, drive_watch, laeebly_sync,
                            editor_uploads_gc, loopy_drive, loopy_picker, loopy_scout,
                            perf_sync, planner, reaper, reconcile, source_watch,
                            trend_report, trend_scout,
@@ -110,6 +110,8 @@ def main():
                     ("source_watch",  lambda: source_watch.run(conn, cfg),  _due_interval(last.get("source_watch"), now, 60)),
                     ("planner",       lambda: planner.run(conn, cfg),       _due_daily(last.get("planner"), now, 9)),
                     ("channels_sync", lambda: channels_sync.run(conn, cfg), _due_daily(last.get("channels_sync"), now, 8)),
+                    # 레이블리 작품 정보 사본(0116) — 워크스페이스 작품 관리를 웹에서. 10분이면 사람이 고친 게 곧 보인다
+                    ("laeebly_sync",  lambda: laeebly_sync.run(conn, cfg),  _due_interval(last.get("laeebly_sync"), now, 10)),
                     ("perf_sync",     lambda: perf_sync.run(conn, cfg),     _due_interval(last.get("perf_sync"), now, 60)),
                     ("zanmang_daily", lambda: zanmang_daily.run(conn, cfg), _due_daily(last.get("zanmang_daily"), now, 10)),
                     # 외부 쇼츠 아카이브(L-P3) — 03:00 KST. 전량 재나열이 46유닛(무료
