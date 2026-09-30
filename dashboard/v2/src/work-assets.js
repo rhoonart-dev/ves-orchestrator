@@ -1,7 +1,9 @@
 import {esc} from './review-details.js';
+import {needWorkPc} from './local-only.js';
 import {mountLogoDrive} from './work-logo-drive.js?v=5';
 import {showToast} from './toast.js?v=1';
 export async function assetRequest(client,path,options={}){
+ if(String(path).startsWith('/api/'))needWorkPc();   // 웹 주소에서는 로컬 서버가 없다
  if(!client)throw Error('로그인하면 VES 에셋을 관리할 수 있어요.');
  const {data,error}=await client.auth.getSession();if(error||!data.session)throw Error('로그인이 필요합니다.');
  const r=await fetch(path,{...options,headers:{...options.headers,Authorization:'Bearer '+data.session.access_token}});

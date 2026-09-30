@@ -1,4 +1,6 @@
 import {enhanceDropdowns} from './dropdowns.js';
+import {ON_WORK_PC} from './local-only.js';
+import {showToast} from './toast.js?v=1';
 import {loadLocalMedia} from './media-catalog.js';
 import {icon} from './icons.js';
 import {filterOptions,visibleJobs} from './review-model.js';
@@ -10,16 +12,16 @@ const posterByTitle=new Map(Object.values(workPosters).map(p=>[norm(p.title),p.u
 const pic=o=>o.avatar||posterByTitle.get(norm(o.name))||'';
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const modes=[['all','전체','grid'],['channel','채널','video'],['work','작품','library']];
-let preview=false;try{preview=sessionStorage.getItem('ves-workspace-review-preview')==='true'}catch{}
+let preview=false;try{preview=ON_WORK_PC&&sessionStorage.getItem('ves-workspace-review-preview')==='true'}catch{}   // 웹 주소에선 작업 컴퓨터 목록이 없다
 const state={mode:'all',selected:null,query:'',listQuery:'',sort:'newest',preview};
 const flatFolder='<svg class="flat-folder" viewBox="0 0 64 50" aria-hidden="true"><path d="M0 8a7 7 0 0 1 7-7h18l8 8h24a7 7 0 0 1 7 7v27a7 7 0 0 1-7 7H7a7 7 0 0 1-7-7Z"/></svg>';
 // Data enters at this boundary. Preview rows are never saved or sent to VES.
 export function mountReview(root,{jobs=[],connected=false,service=null,source=null,client=null}={}){
  if(source==='live'){state.preview=false;state.mode='all';state.selected=null;state.query='';state.listQuery='';}
- if(source==='local'){state.preview=true;state.mode='all';state.selected=null;state.query='';state.listQuery='';try{sessionStorage.setItem('ves-workspace-review-preview','true')}catch{}}
+ if(source==='local'&&ON_WORK_PC){state.preview=true;state.mode='all';state.selected=null;state.query='';state.listQuery='';try{sessionStorage.setItem('ves-workspace-review-preview','true')}catch{}}
  let disposed=false,catalog=null,refreshing=false,lastAttempt=0,localJobs=[],localState='idle',liveSync='',localSync='';
  const showSync=()=>{root.querySelector('.review-sync').textContent=state.preview?localSync:liveSync;};
- root.innerHTML=`<section class="review-page" aria-label="작업 폴더"><div class="review-toolbar"><div class="folder-context"><h2></h2><span class="folder-count"></span><span class="sample-badge" hidden>작업 컴퓨터에서 만든 영상</span></div><div class="review-toolbar-actions"><span class="review-sync" role="status"></span><button class="review-refresh preview-toggle" type="button">새로고침</button></div></div><div class="review-controls"><div class="review-controls-left"><div class="source-seg" role="radiogroup" aria-label="보는 목록"><button type="button" role="radio" data-src="live" aria-checked="${!state.preview}">${icon('server')}<span>맥미니</span></button><button type="button" role="radio" data-src="local" aria-checked="${state.preview}">${icon('laptop')}<span>작업 컴퓨터</span></button></div><div class="review-segments" role="radiogroup" aria-label="작업 분류"><span class="segment-highlight" aria-hidden="true"></span>${modes.map(([id,name,glyph])=>`<button type="button" role="radio" data-mode="${id}" aria-checked="false">${icon(glyph)}<span>${name}</span></button>`).join('')}</div></div><div class="folder-tools"><label class="folder-search">${icon('search')}<input type="search" aria-label="작업 검색" placeholder="작업 검색" value="${esc(state.query)}"></label><select aria-label="작업 정렬"><option value="newest">최신순</option><option value="oldest">오래된 순</option></select></div></div><div class="review-layout"><div class="filter-slot"><aside class="review-filter" aria-label="작업 필터"><div class="filter-heading"><h2></h2><button class="filter-close" type="button" aria-label="필터 닫기">${icon('close')}</button></div><label class="filter-search">${icon('search')}<input type="search" aria-label="필터 목록 검색" placeholder="검색"></label><div class="filter-options"></div></aside></div><section class="folder-area" aria-label="작업 목록"><div class="folder-results" aria-live="polite"></div></section></div></section>`;
+ root.innerHTML=`<section class="review-page" aria-label="작업 폴더"><div class="review-toolbar"><div class="folder-context"><h2></h2><span class="folder-count"></span><span class="sample-badge" hidden>작업 컴퓨터에서 만든 영상</span></div><div class="review-toolbar-actions"><span class="review-sync" role="status"></span><button class="review-refresh preview-toggle" type="button">새로고침</button></div></div><div class="review-controls"><div class="review-controls-left"><div class="source-seg" role="radiogroup" aria-label="보는 목록"><button type="button" role="radio" data-src="live" aria-checked="${!state.preview}">${icon('server')}<span>맥미니</span></button><button type="button" role="radio" data-src="local" aria-checked="${state.preview}"${ON_WORK_PC?'':' class="is-local-only" title="작업 컴퓨터에서 워크스페이스를 켰을 때만 볼 수 있어요"'}>${icon('laptop')}<span>작업 컴퓨터</span></button></div><div class="review-segments" role="radiogroup" aria-label="작업 분류"><span class="segment-highlight" aria-hidden="true"></span>${modes.map(([id,name,glyph])=>`<button type="button" role="radio" data-mode="${id}" aria-checked="false">${icon(glyph)}<span>${name}</span></button>`).join('')}</div></div><div class="folder-tools"><label class="folder-search">${icon('search')}<input type="search" aria-label="작업 검색" placeholder="작업 검색" value="${esc(state.query)}"></label><select aria-label="작업 정렬"><option value="newest">최신순</option><option value="oldest">오래된 순</option></select></div></div><div class="review-layout"><div class="filter-slot"><aside class="review-filter" aria-label="작업 필터"><div class="filter-heading"><h2></h2><button class="filter-close" type="button" aria-label="필터 닫기">${icon('close')}</button></div><label class="filter-search">${icon('search')}<input type="search" aria-label="필터 목록 검색" placeholder="검색"></label><div class="filter-options"></div></aside></div><section class="folder-area" aria-label="작업 목록"><div class="folder-results" aria-live="polite"></div></section></div></section>`;
  const $=s=>root.querySelector(s);
   // 맥미니(VES 작업 + 맥미니 새 방식 영상) | 작업 컴퓨터(이 컴퓨터에서 만든 영상만) — 만든 기계로 나눈다
  const data=()=>state.preview?localJobs.filter(j=>!j.remote):[...jobs,...localJobs.filter(j=>j.remote)];
@@ -88,7 +90,9 @@ export function mountReview(root,{jobs=[],connected=false,service=null,source=nu
  $('.folder-tools select').value=state.sort;
  $('.folder-tools select').onchange=e=>{state.sort=e.target.value;renderCards();};
  // 보는 목록 고르기(맥미니 | 작업 컴퓨터) — 지금 보는 쪽이 검정으로 채워진다
- root.querySelectorAll('.source-seg [data-src]').forEach(b=>b.onclick=()=>{if((b.dataset.src==='local')!==state.preview)togglePreview();});
+ root.querySelectorAll('.source-seg [data-src]').forEach(b=>b.onclick=()=>{
+  if(b.dataset.src==='local'&&!ON_WORK_PC){showToast(root,'작업 컴퓨터 목록은 작업 컴퓨터에서 워크스페이스를 켰을 때만 볼 수 있어요.');return;}
+  if((b.dataset.src==='local')!==state.preview)togglePreview();});
 
 
  loadLocal();

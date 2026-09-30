@@ -1,4 +1,5 @@
 import {mountWorkflowControls} from './workflow-controls.js';
+import {ON_WORK_PC,localChip} from './local-only.js';
 import {openThumbnails} from './thumbnail-tool.js?v=8';
 import {workflowCardHtml,timelineHtml,reviewEvents} from './workflow-card.js';
 import {score,reviewLabels} from './review-service.js';
@@ -128,6 +129,7 @@ export function mountWorkbench(root,job,{service=null,role=null,refresh=null}={}
    if(b.remote){                               // 맥미니 영상: 편집실은 여기서 열고, 제출하면 그 맥미니가 다시 렌더한다(썸네일은 아직 작업 컴퓨터 영상만)
     if(!canReview){note.textContent='편집에는 검수자 권한이 필요합니다';return;}
     if(rendering(b)){note.textContent='다시 렌더 중이에요 — 끝나면 새 판에서 편집할 수 있어요';return;}
+    if(!ON_WORK_PC){note.innerHTML=localChip()+' 편집실은 지금은 작업 컴퓨터에서 열 수 있어요. 웹 편집실은 준비 중이에요.';return;}
     note.textContent=[b.apply?.state==='failed'?`다시 렌더 실패: ${b.apply.error||''}`:'','제출하면 다시 렌더해요'].filter(Boolean).join(' · ');
     link.href=`editor.html?local=1&run=${encodeURIComponent(item.id)}&back=${encodeURIComponent(job.id)}`;link.setAttribute('aria-disabled','false');
     return;

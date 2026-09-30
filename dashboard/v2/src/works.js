@@ -1,9 +1,10 @@
-import {mountWorkAssets,assetRequest} from './work-assets.js?v=resume-1';
+import {mountWorkAssets,assetRequest} from './work-assets.js?v=web-1';
+import {ON_WORK_PC,localOnlyEmpty} from './local-only.js';
 import {loadSources,workSummary,videoRows,epUsable,epUsed,epTries,epLeft,epRemain,setLimit,setUsed} from './sources.js';
 import {workPosters} from './work-posters.js';
 import {icon} from './icons.js';
 import {enhanceDropdowns} from './dropdowns.js';
-import {guideFragment} from './workbench.js?v=edit-4';
+import {guideFragment} from './workbench.js?v=web-1';
 import {GuideDetails} from './guide-details.js';
 import {esc} from './review-details.js';
 const sampleWorks=[['lotto','로또 1등도 출근합니다','드라마'],['jigeum','지금 불륜이 문제가 아닙니다(c)','드라마'],['gawang','가왕쇼','예능'],['sinbyeong','신병','드라마'],['jjijji','종합광고대행사 찌찌: 광고의 온도편','드라마'],['karlovy','카를로비바리','영화']].map(([id,name,type])=>({id,name,type}));
@@ -13,6 +14,10 @@ const norm=t=>String(t||'').replace(/\s/g,'');
 const mmss=d=>d==null?'–':Math.floor(d/60)+':'+String(Math.round(d%60)).padStart(2,'0');
 const date=value=>new Date(value).toLocaleDateString('ko-KR',{year:'numeric',month:'2-digit',day:'2-digit',timeZone:'Asia/Seoul'});
 export function mountWorks(root,{client,role}={}){
+ if(!ON_WORK_PC){   // 작품 목록을 레이블리에서 읽는 일이 아직 작업 컴퓨터(로컬 서버)를 거친다
+  root.innerHTML=localOnlyEmpty('작품 관리는 작업 컴퓨터에서만 볼 수 있어요','작품 목록과 로고를 아직 작업 컴퓨터에서 읽어 와요. 웹에서도 볼 수 있게 옮기는 중이에요.');
+  return()=>{};
+ }
  let works=sampleWorks.map(w=>({...w})),releaseAssets=()=>{},liveGuides={};
  root.parentElement.classList.add('works-page');
  let catalogByTitle=new Map(),disposed=false,src=null,srcError='',openVideos=new Set(),guideData=null,guideError=false,releaseDropdown=()=>{},copyNoticeTimer;

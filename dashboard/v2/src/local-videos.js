@@ -1,4 +1,5 @@
 import {esc} from './review-details.js';
+import {ON_WORK_PC,localChip} from './local-only.js';
 import {assetRequest} from './work-assets.js';
 import {localMedia} from './local-jobs.js?v=mv-4';
 // 편집실 메뉴 — 다시 렌더 중인 영상, 이어서 할 초안, 최근 제출(7일)을 나눠 보여 준다. 새 편집은 작업 목록의 영상에서 시작한다.
@@ -18,7 +19,7 @@ function kind(v){
 }
 function row(job,v,k,canEdit){
  const editable=canEdit&&v.status==='ready'&&v.source_ok;
- const edit=label=>editable?`<a class="lv-edit" href="editor.html?local=1&run=${encodeURIComponent(v.key)}&back=${encodeURIComponent(job.id)}&from=editor">${label}</a>`:'';
+ const edit=label=>!ON_WORK_PC?(editable?localChip('편집은 작업 컴퓨터에서'):''):editable?`<a class="lv-edit" href="editor.html?local=1&run=${encodeURIComponent(v.key)}&back=${encodeURIComponent(job.id)}&from=editor">${label}</a>`:'';
  const [badge,line,action]={
   busy:()=>['<span class="lv-badge busy">렌더 중</span>',`${when(v.apply.started_at)} 제출${v.apply.by?' · '+v.apply.by:''} · 끝나면 새 판으로 바뀌어요`,''],
   draft:()=>['<span class="lv-badge">초안</span>',`${when(v.draft.saved_at)} 저장${v.draft.saved_by?' · '+v.draft.saved_by:''}`,edit('이어서 편집')],
@@ -83,7 +84,7 @@ export function mountLocalVideos(root,{client,role}={}){
    root.innerHTML=`<section class="lv-intro"><header class="lv-head"><div><h2>편집 중인 영상</h2><div class="lv-scope" role="radiogroup" aria-label="누구의 편집"><button type="button" role="radio" data-scope="mine" aria-checked="${scope==='mine'}">내 편집</button><button type="button" role="radio" data-scope="all" aria-checked="${scope==='all'}">모두</button></div><p>제출하면 편집한 그대로 다시 렌더해서 같은 번호의 새 판으로 바꿔요. 새 편집은 <a href="#review?source=local">작업 목록</a>에서 영상을 고른 뒤 <b>편집실</b> 버튼으로 시작해요.</p></div></header></section>`+
     (sections||`<section class="empty-state"><h2>편집 중인 영상이 없어요</h2><p>작업 목록에서 영상의 <b>편집실</b> 버튼으로 여세요.</p><p><a href="#review?source=local">작업 목록으로</a></p></section>`);
    root.querySelectorAll('[data-scope]').forEach(b=>b.onclick=()=>{if(scope===b.dataset.scope)return;scope=b.dataset.scope;try{localStorage.setItem('lv-scope',scope)}catch{}render();});
-   if(!localOk)root.querySelector('.lv-intro').insertAdjacentHTML('beforeend','<p class="lv-local-off">작업 컴퓨터 영상은 작업 컴퓨터에서 워크스페이스를 켰을 때만 보여요.</p>');
+   if(!localOk)root.querySelector('.lv-intro').insertAdjacentHTML('beforeend',`<p class="lv-local-off">${ON_WORK_PC?'작업 컴퓨터 영상은 작업 컴퓨터에서 워크스페이스를 켰을 때만 보여요.':'작업 컴퓨터 영상과 편집실은 작업 컴퓨터에서만 쓸 수 있어요. 맥미니 영상은 여기서 볼 수 있어요.'}</p>`);
    if(rows.some(r=>r.k==='busy'))timer=setTimeout(render,15000);
   }catch(e){if(dead)return;root.replaceChildren();const p=document.createElement('p');p.className='auth-notice';p.setAttribute('role','alert');p.textContent=e.message;root.append(p);}
  }

@@ -1,4 +1,6 @@
+import {needWorkPc} from './local-only.js';
 export async function fetchRights(client,signal){
+ needWorkPc();
  const {data,error}=await client.auth.getSession();
  if(error||!data.session)throw new Error('로그인이 필요합니다.');
  if(signal?.aborted)throw new DOMException('Aborted','AbortError');
@@ -8,6 +10,7 @@ export async function fetchRights(client,signal){
 }
 
 export async function fetchWorkPolicies(client,signal){
+ needWorkPc();
  const {data,error}=await client.auth.getSession();
  if(error||!data.session)throw new Error('로그인이 필요합니다.');
  const response=await fetch('/api/work-policies',{headers:{Authorization:`Bearer ${data.session.access_token}`},cache:'no-store',signal});
