@@ -23,11 +23,11 @@
 .works-guide-body .asset-footnote{margin:24px 0 0;font-size:11px;font-weight:400;line-height:1.9;color:color-mix(in srgb,var(--muted) 80%,var(--surface))}
 .works-guide-body .asset-footnote p{margin:0;color:inherit;font-size:inherit}
 /* 채널 템플릿: 미리보기 | 설정 (src/template-preview.js). The preview keeps the 9:16 shorts ratio. */
-@font-face{font-family:EngineJalnan;src:url('/engine-fonts/Jalnan.ttf') format('truetype');font-display:swap}
-@font-face{font-family:EngineJalnanGothic;src:url('/engine-fonts/JalnanGothic.ttf') format('truetype');font-display:swap}
-@font-face{font-family:EngineMulmaru;src:url('/engine-fonts/mulmaru.ttf') format('truetype');font-display:swap}
-@font-face{font-family:EngineGriun;src:url('/engine-fonts/Griun.ttf') format('truetype');font-display:swap}
-@font-face{font-family:EngineNotoBlack;src:url('/engine-fonts/NotoSansCJKkr-Black.otf') format('opentype');font-display:swap}
+@font-face{font-family:EngineJalnan;src:url('../assets/fonts/engine/Jalnan.ttf') format('truetype');font-display:swap}
+@font-face{font-family:EngineJalnanGothic;src:url('../assets/fonts/engine/JalnanGothic.ttf') format('truetype');font-display:swap}
+@font-face{font-family:EngineMulmaru;src:url('../assets/fonts/engine/Mulmaru.woff2') format('woff2');font-display:swap}
+@font-face{font-family:EngineGriun;src:url('../assets/fonts/engine/Griun.ttf') format('truetype');font-display:swap}
+@font-face{font-family:EngineNotoBlack;src:url('../assets/fonts/engine/NotoSansCJKkr-Black.woff2') format('woff2');font-display:swap}
 .template-main>.template-split{background:none;padding:0;border-radius:0;overflow:visible;display:grid;grid-template-columns:auto minmax(0,1fr);gap:var(--layout-gap);align-items:start}
 .template-split>.template-form{background:var(--surface);border-radius:var(--layout-panel-radius);padding:24px;min-width:0}
 .template-preview{background:var(--surface);border-radius:var(--layout-panel-radius);padding:20px;display:flex;flex-direction:column;align-items:center;gap:10px;min-height:0}
