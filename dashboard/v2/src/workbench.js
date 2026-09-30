@@ -53,7 +53,7 @@ export function mountWorkbench(root,job,{service=null,role=null,refresh=null}={}
  picker.addEventListener('click',event=>{if(event.target!==picker)return;const rect=picker.getBoundingClientRect();if(event.clientY<rect.top||event.clientY>rect.bottom||event.clientX<rect.left||event.clientX>rect.right)picker.close();});
 
  video=$('video');const stage=$('.video-stage'),frame=$('.video-frame');
- const compact=matchMedia('(max-width:1250px)'),editorActions=$('.workflow-editor-actions');
+ const compact=matchMedia('(max-width:760px)'),editorActions=$('.workflow-editor-actions');
  function syncEditorPlacement(){
   if(compact.matches)$('.video-column').prepend(editorActions);
   else $('.workflow-inspector').prepend(editorActions);

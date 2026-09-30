@@ -1,5 +1,6 @@
 /* 작업 폴더: [썸네일 생성][편집실 열기] 한 줄 — 썸네일이 왼쪽 */
-.workflow-editor-actions .editor-buttons{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap}
+.workflow-editor-actions .editor-buttons{display:flex;gap:6px;justify-content:flex-end;flex-wrap:nowrap}   /* 세 버튼은 늘 한 줄 */
+.workflow-editor-actions .editor-buttons>:is(button,a){white-space:nowrap}
 .workflow-editor-actions .open-thumbs[hidden]{display:none}
 .workflow-editor-actions .open-thumbs svg{width:14px;height:14px}
 /* 썸네일 창 (src/thumbnail-tool.js) */
@@ -79,3 +80,6 @@
  .workflow-editor-actions .editor-buttons>:is(button,a).workflow-editor-actions,.workflow-editor-actions .editor-buttons>:is(button,a){flex:0 1 auto;min-width:0;padding-left:10px;padding-right:10px;gap:5px}
 }
 @media(max-width:420px){.workflow-editor-actions .editor-buttons svg{display:none}}
+/* 넓은 화면 — 세 버튼은 검수 카드 위(오른쪽 칸)에 한 줄로. 칸이 세 버튼(약 356px)보다 좁으면 아이콘을 뺀다 */
+.workflow-inspector{container-type:inline-size}
+@container (max-width:365px){.workflow-inspector>.workflow-editor-actions .editor-buttons svg{display:none}}
