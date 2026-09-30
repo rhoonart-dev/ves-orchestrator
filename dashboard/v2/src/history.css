@@ -33,15 +33,13 @@
 .hist-err{margin:6px 0 0;font-size:11px;color:var(--secondary);white-space:pre-wrap;overflow-wrap:anywhere;max-width:420px}
 td.hist-err{margin:0}
 .hist-acts{white-space:nowrap}
-.hist-acts button{border:0;border-radius:7px;padding:5px 9px;font:inherit;font-size:11px;background:var(--inset);color:var(--secondary);cursor:pointer;margin-left:4px}
+.hist-acts-in{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px}   /* 버튼 사이 띄우기(붙어 보이던 것) · 칸이 좁으면 줄 바꿈 */
+.hist-acts button{border:0;border-radius:7px;padding:5px 9px;font:inherit;font-size:11px;background:var(--inset);color:var(--secondary);cursor:pointer;margin:0}
 .hist-acts button.danger{background:var(--danger-bg);color:var(--danger)}
 .hist-acts button:disabled{opacity:.5}
 .hist-empty{text-align:center;color:var(--muted);padding:24px 10px}
 @media(max-width:760px){.hist-card{padding:18px 16px}}
 /* 오류 보기 — 표를 밀지 않고 누른 자리에 말풍선 */
-.hist-why{border:0;background:none;padding:0;font:inherit;font-size:12px;color:var(--danger);cursor:pointer;border-bottom:1px dashed currentColor;line-height:1.3}
-.hist-why.is-cancel{color:var(--secondary)}
-.hist-why[aria-expanded="true"]{border-bottom-style:solid}
 .hist-pop{position:fixed;z-index:60;background:var(--surface);border-radius:14px;padding:12px;box-shadow:0 12px 34px #00000026}
 .hist-pop-text{margin:0 0 10px;max-height:40vh;overflow:auto;font-size:12px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere;color:color-mix(in srgb,var(--danger) 70%,var(--ink));background:color-mix(in srgb,var(--danger) 9%,var(--surface));border-radius:10px;padding:10px 12px}
 .hist-pop.is-cancel .hist-pop-text{color:var(--secondary);background:var(--inset)}
@@ -49,13 +47,19 @@ td.hist-err{margin:0}
 .hist-pop-foot button{flex:none;font:inherit;font-size:var(--button-small-font);font-weight:600;height:var(--button-small-height);padding:0 var(--button-small-pad-x);border:0;border-radius:var(--button-radius);background:var(--inset);color:var(--ink);cursor:pointer}
 .hist-pop-tail{position:absolute;top:-6px;width:12px;height:12px;margin-left:-6px;background:var(--surface);transform:rotate(45deg);border-radius:2px}
 .hist-pop.up .hist-pop-tail{top:auto;bottom:-6px}
-/* 20개씩 쪽 */
-.hist-pager{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px;font-size:12px;color:var(--secondary)}
-.hist-pages{display:flex;align-items:center;gap:4px}
-.hist-pages button{min-width:30px;height:30px;padding:0 8px;border:0;border-radius:999px;background:transparent;color:var(--secondary);font:inherit;font-size:12px;font-weight:600;cursor:pointer}
-.hist-pages button:hover{background:var(--inset);color:var(--ink)}
-.hist-pages button[aria-current="page"]{background:var(--solid);color:var(--on-solid)}
-.hist-pages .hist-arrow{background:var(--inset);font-size:14px}
-.hist-pages .hist-arrow:disabled{opacity:.4;cursor:default}
-.hist-gap{color:var(--muted);padding:0 2px}
-.hist-why{white-space:nowrap}
+/* 칸 폭 고정 — 쪽을 넘겨도 칸이 옆으로 움직이지 않게(자동 폭은 그 쪽 글자 길이에 맞춰 매번 달라진다) */
+.hist-jobs{table-layout:fixed;width:100%;min-width:880px}
+.hist-jobs .c-kind{width:12%}.hist-jobs .c-st{width:8%}.hist-jobs .c-try{width:6%}.hist-jobs .c-node{width:15%}
+.hist-jobs .c-ago{width:9%}.hist-jobs .c-note{width:12%}.hist-jobs .c-acts{width:196px}
+.hist-jobs td{overflow-wrap:anywhere}
+/* 모든 칸 왼쪽 정렬(숫자는 폭만 고르게) · 줄 가운데 맞춤 */
+.hist-table .tnum{font-variant-numeric:tabular-nums;white-space:nowrap}
+.hist-jobs td{vertical-align:middle}
+/* '오류 보기' · '취소 이유' — 상태 배지와 같은 계열의 연한 알약(누를 수 있게 조금 크고 진하게) */
+.hist-why{display:inline-flex;align-items:center;gap:3px;height:26px;padding:0 9px 0 10px;border:0;border-radius:999px;font:inherit;font-size:12px;font-weight:600;white-space:nowrap;cursor:pointer;
+ background:color-mix(in srgb,var(--danger) 11%,var(--surface));color:var(--danger)}
+.hist-why:hover,.hist-why[aria-expanded="true"]{background:color-mix(in srgb,var(--danger) 18%,var(--surface))}
+.hist-why.is-cancel{background:var(--inset);color:var(--secondary)}
+.hist-why.is-cancel:hover,.hist-why.is-cancel[aria-expanded="true"]{background:var(--hover);color:var(--ink)}
+.hist-why svg{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;transition:transform .15s}
+.hist-why[aria-expanded="true"] svg{transform:rotate(180deg)}

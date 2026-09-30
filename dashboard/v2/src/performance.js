@@ -1,4 +1,5 @@
 import {hiddenChannels} from './channel-visibility.js';
+import {pagerHtml} from "./pager.js";
 // 성과 — 예전 VES 대시보드 성과 탭(ves-orchestrator/dashboard/index.html renderPerf, v3.3)을 옮겼다.
 // 계산(스냅샷 보간 → 일별 증가 · 수집률 · 전기 대비)과 인라인 SVG 차트는 원본 그대로, 화면 모양만 워크스페이스에 맞췄다.
 // 데이터: perf_video_snapshot · perf_video_map · perf_channel_snapshot(perf_sync 가 매시간 레이블리에서 복사) — 읽기만.
@@ -544,9 +545,7 @@ function renderPerf(){
   const pages = Math.max(1, Math.ceil(vrows.length / PERF_PAGE));
   if (perfPage >= pages) perfPage = pages - 1;
   const pageAt = perfPage * PERF_PAGE;
-  const pager = vrows.length > PERF_PAGE ? `<div class="pf-pager"><button class="mini" ${perfPage ? "" : "disabled"} onclick="__perf.perfPageBy(-1)" aria-label="이전 10편">‹</button>
-    <span>${pageAt + 1}–${Math.min(pageAt + PERF_PAGE, vrows.length)} <small>/ ${vrows.length}편</small></span>
-    <button class="mini" ${perfPage < pages - 1 ? "" : "disabled"} onclick="__perf.perfPageBy(1)" aria-label="다음 10편">›</button></div>` : "";
+  const pager = pagerHtml({cur: perfPage, pages, label: "영상 표 페이지", prev: 'onclick="__perf.perfPageBy(-1)"', next: 'onclick="__perf.perfPageBy(1)"'});
   root.innerHTML = `
     <div class="pf-ctl">
       <span class="pf-seg">${PERF_RANGES.map(([d, l]) =>
@@ -625,8 +624,8 @@ function renderPerf(){
       <td>${pfTrend(r.series, V.dates)}</td></tr>`).join("")
     || '<tr><td colspan="9" class="empty">채널 없음</td></tr>'}</table></div></section>
 
-    <section class="card"><div class="pf-vhead"><h2>영상별 성과 <small class="pf-idx">행을 누르면 상세</small></h2>${pager}</div>
-    <div class="tblwrap"><table><tr>${COLS.map(([k, l], i) =>
+    <section class="card"><div class="pf-vhead"><h2>영상별 성과 <small class="pf-idx">행을 누르면 상세</small></h2></div>
+    <div class="tblwrap"><table class="pf-vtable"><colgroup><col><col class="c-work"><col class="c-ch"><col class="c-n"><col class="c-n"><col class="c-n"><col class="c-pub"></colgroup><tr>${COLS.map(([k, l], i) =>
       `<th class="sortable${i >= 3 ? " num" : ""}" onclick="__perf.perfSortBy('${k}')">${l}${perfSort.col === k ? (dir > 0 ? " ▲" : " ▼") : ""}</th>`).join("")}</tr>${
     vrows.slice(pageAt, pageAt + PERF_PAGE).map(r => `<tr class="${perfVid === r.cid ? "selrow" : ""}" style="cursor:pointer"
       title="누르면 자세히 봐요" onclick="__perf.perfOpenVid('${esc(r.cid)}')">
@@ -634,7 +633,7 @@ function renderPerf(){
       <td>${esc(r.work)}</td><td class="nowrap">${esc(r.ch)}</td>
       <td class="num">${fmtN(r.dper)}</td><td class="num">${fmtN(r.views)}</td>
       <td class="num">${fmtN(r.likes)}</td>
-      <td class="num">${esc(r.pub)}${r.isNew ? ' <span class="sub" title="이 기간에 올린 영상">신규</span>' : ""}</td></tr>${
+      <td class="num pf-pub"><span class="pf-new${r.isNew ? "" : " off"}" title="이 기간에 올린 영상">신규</span>${esc(r.pub)}</td></tr>${
       perfVid === r.cid ? `<tr><td colspan="7" class="vdcell">${pfVidDetail(V, r.cid)}</td></tr>` : ""}`).join("")
     || `<tr><td colspan="7" class="empty">${perfChSet && perfChSet.size === 0
         ? "고른 채널이 없어요. 채널 필터에서 켜 주세요" : "영상 데이터가 없어요"}</td></tr>`}</table></div>

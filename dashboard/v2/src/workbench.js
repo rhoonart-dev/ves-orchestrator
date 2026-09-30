@@ -1,4 +1,5 @@
 import {mountWorkflowControls} from './workflow-controls.js';
+import {openPremiereExport} from './premiere-export.js?v=4';
 import {loadCatalog,loadGuide} from './work-catalog.js';
 import {ON_WORK_PC,localChip} from './local-only.js';
 import {openThumbnails} from './thumbnail-tool.js?v=8';
@@ -30,7 +31,7 @@ export function mountWorkbench(root,job,{service=null,role=null,refresh=null}={}
  const live=job.source==='supabase',local=job.source==='local-bundle';
  const canReview=['reviewer','operator','admin'].includes(role);
  let releaseWorkflow=()=>{};
- root.innerHTML=`<section class="video-workspace"><div class="workbench-top"><div><a class="workbench-back" href="#review${local?'?source=local':''}">‹ 작업 목록</a><h2>${esc(job.work)}</h2><p>${esc(job.episode)} · 작업 ID ${esc(job.id)} <span>${live?'Supabase 검수 기록':job.remote?'':local?'작업 컴퓨터의 로컬 영상':'로컬 예시'}</span></p></div><button class="workbench-guide" type="button">${icon('file')}권리사 가이드</button></div><div class="mobile-video-controls"><button class="video-previous" type="button" aria-label="이전 영상">‹</button><button class="video-picker-open" type="button" aria-haspopup="dialog" aria-controls="video-picker-dialog"><span class="video-picker-label">영상 선택</span><strong class="mobile-current-title">불러오는 중…</strong></button><button class="video-next" type="button" aria-label="다음 영상">›</button></div><div class="workbench-body"><aside class="video-rail" aria-label="완성 영상 목록"><header><h3>완성 영상 <span class="video-total"></span></h3></header><div class="video-rail-list"><p class="workbench-note">영상을 불러오는 중…</p></div></aside><div class="video-column"><div class="video-stage" aria-label="영상 재생"><div class="video-frame"><video controls playsinline preload="metadata" controlslist="nofullscreen" aria-label="선택한 완성 영상"></video><button class="video-expand" type="button" aria-label="영상 전체화면"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/></svg></button></div><div class="media-error" role="alert" hidden><p>영상을 불러오지 못했습니다.</p><button type="button">다시 시도</button></div><p class="player-message" role="status"></p></div></div><aside class="video-inspector workflow-inspector" aria-label="선택한 영상 검수"><div class="workflow-editor-actions" hidden><div class="editor-buttons"><button type="button" class="open-thumbs" hidden>${icon('image')}<span>썸네일 생성</span></button><a class="open-editor" aria-disabled="true">${icon('pencil')}편집실 열기</a></div><small class="editor-readiness"></small></div><div class="workflow-operations"></div><details class="workflow-history"><summary>작업 이력 <small>한국 시간</small></summary><div class="workbench-history-content"></div></details></aside></div></section><dialog class="reject-dialog" aria-labelledby="reject-title"><form><div class="login-heading"><h2 id="reject-title">영상 반려</h2><button type="button" class="reject-close" aria-label="닫기">×</button></div><p>반려 사유를 작업 이력에 남깁니다. 자동으로 새 영상을 생성하지 않습니다.</p><label>반려 사유<textarea name="note" required maxlength="2000" rows="4"></textarea></label><p class="reject-error" role="alert"></p><button class="primary" type="submit">반려하기</button></form></dialog><dialog class="workbench-guide-dialog" aria-labelledby="workbench-guide-title"><div class="login-heading"><h2 id="workbench-guide-title">권리사 가이드</h2><button type="button" aria-label="가이드 닫기">×</button></div><div class="workbench-guide-content"></div></dialog><dialog id="video-picker-dialog" class="video-picker-dialog" aria-label="영상 선택"><button class="video-picker-close" type="button" aria-label="영상 목록 닫기">×</button></dialog>`;
+ root.innerHTML=`<section class="video-workspace"><div class="workbench-top"><div><a class="workbench-back" href="#review${local?'?source=local':''}">‹ 작업 목록</a><h2>${esc(job.work)}</h2><p>${esc(job.episode)} · 작업 ID ${esc(job.id)} <span>${live?'Supabase 검수 기록':job.remote?'':local?'작업 컴퓨터의 로컬 영상':'로컬 예시'}</span></p></div><button class="workbench-guide" type="button">${icon('file')}권리사 가이드</button></div><div class="mobile-video-controls"><button class="video-previous" type="button" aria-label="이전 영상">‹</button><button class="video-picker-open" type="button" aria-haspopup="dialog" aria-controls="video-picker-dialog"><span class="video-picker-label">영상 선택</span><strong class="mobile-current-title">불러오는 중…</strong></button><button class="video-next" type="button" aria-label="다음 영상">›</button></div><div class="workbench-body"><aside class="video-rail" aria-label="완성 영상 목록"><header><h3>완성 영상 <span class="video-total"></span></h3></header><div class="video-rail-list"><p class="workbench-note">영상을 불러오는 중…</p></div></aside><div class="video-column"><div class="video-stage" aria-label="영상 재생"><div class="video-frame"><video controls playsinline preload="metadata" controlslist="nofullscreen" aria-label="선택한 완성 영상"></video><button class="video-expand" type="button" aria-label="영상 전체화면"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/></svg></button></div><div class="media-error" role="alert" hidden><p>영상을 불러오지 못했습니다.</p><button type="button">다시 시도</button></div><p class="player-message" role="status"></p></div></div><aside class="video-inspector workflow-inspector" aria-label="선택한 영상 검수"><div class="workflow-editor-actions" hidden><div class="editor-buttons"><button type="button" class="open-thumbs" hidden>${icon('image')}<span>썸네일 생성</span></button><button type="button" class="open-premiere" hidden>${icon('download')}<span>프리미어로 내보내기</span></button><a class="open-editor" aria-disabled="true">${icon('pencil')}편집실 열기</a></div><small class="editor-readiness"></small></div><div class="workflow-operations"></div><details class="workflow-history"><summary>작업 이력 <small>한국 시간</small></summary><div class="workbench-history-content"></div></details></aside></div></section><dialog class="reject-dialog" aria-labelledby="reject-title"><form><div class="login-heading"><h2 id="reject-title">영상 반려</h2><button type="button" class="reject-close" aria-label="닫기">×</button></div><p>반려 사유를 작업 이력에 남깁니다. 자동으로 새 영상을 생성하지 않습니다.</p><label>반려 사유<textarea name="note" required maxlength="2000" rows="4"></textarea></label><p class="reject-error" role="alert"></p><button class="primary" type="submit">반려하기</button></form></dialog><dialog class="workbench-guide-dialog" aria-labelledby="workbench-guide-title"><div class="login-heading"><h2 id="workbench-guide-title">권리사 가이드</h2><button type="button" aria-label="가이드 닫기">×</button></div><div class="workbench-guide-content"></div></dialog><dialog id="video-picker-dialog" class="video-picker-dialog" aria-label="영상 선택"><button class="video-picker-close" type="button" aria-label="영상 목록 닫기">×</button></dialog>`;
  const $=s=>root.querySelector(s);
  const mobile=matchMedia('(max-width: 760px)');
  const rail=$('.video-rail'),railHome=document.createComment('video list');rail.before(railHome);
@@ -120,17 +121,33 @@ export function mountWorkbench(root,job,{service=null,role=null,refresh=null}={}
   prepareActions(item,ticket);fit();
   if(live){try{const src=await service.preview(item);if(disposed||ticket!==selectionVersion)return;video.src=src;video.load();}catch(error){if(disposed||ticket!==selectionVersion)return;$('.media-error p').textContent=error.message;$('.media-error').hidden=false;}}
  }
+ // '제출하면 다시 렌더해요' — 편집실 열기 버튼 위에 한 번만 뜨는 말풍선. '확인'을 누르면 다시 안 뜬다(이 브라우저 기준)
+ function renderTip(link){
+  const KEY='ws-tip-editor-rerender';try{if(localStorage.getItem(KEY))return;}catch{}
+  const box=link.closest('.workflow-editor-actions');if(!box||box.querySelector('.rerender-tip'))return;
+  const tip=document.createElement('div');tip.className='rerender-tip';tip.setAttribute('role','note');
+  tip.innerHTML='<p>제출하면 다시 렌더해요</p><button type="button">확인</button><i aria-hidden="true"></i>';
+  tip.querySelector('button').onclick=()=>{try{localStorage.setItem(KEY,'1');}catch{}tip.remove();};
+  box.append(tip);
+  const place=()=>{if(!tip.isConnected)return;const b=link.getBoundingClientRect(),o=box.getBoundingClientRect();
+   const row=link.closest('.editor-buttons')?.getBoundingClientRect()||b;   // 버튼이 두 줄로 접혀도 다른 버튼을 가리지 않게 버튼 묶음 위에
+   tip.style.right=Math.max(0,o.right-b.right)+'px';tip.style.bottom=(o.bottom-row.top+10)+'px';tip.querySelector('i').style.right=Math.max(10,b.width/2-6)+'px';};
+  requestAnimationFrame(place);
+ }
  async function prepareActions(item,ticket){
-  const link=$('.open-editor'),note=$('.editor-readiness'),thumbs=$('.open-thumbs');
-  link.removeAttribute('href');link.setAttribute('aria-disabled','true');thumbs.hidden=true;link.hidden=false;
+  const link=$('.open-editor'),note=$('.editor-readiness'),thumbs=$('.open-thumbs'),premiere=$('.open-premiere');
+  link.removeAttribute('href');link.setAttribute('aria-disabled','true');thumbs.hidden=true;link.hidden=false;premiere.hidden=true;
   if(local){                                   // local bundle: open the local editor (edits are recorded, not rendered)
    const b=item.bundle;note.hidden=false;
    if(b.remote){                               // 맥미니 영상: 편집실은 여기서 열고, 제출하면 그 맥미니가 다시 렌더한다(썸네일은 아직 작업 컴퓨터 영상만)
     if(!canReview){note.textContent='편집에는 검수자 권한이 필요합니다';return;}
+    // 프리미어로 내보내기 — 서버 없이 브라우저가 만든다(웹 주소에서도 된다)
+    const [,wo,suffix]=String(b.key||'').match(/^remote-([^/]+)\/(.+)$/)||[];
+    if(wo&&service?.client){premiere.hidden=false;premiere.onclick=()=>{video.pause();openPremiereExport(service.client,{wo,suffix});};}
     if(rendering(b)){note.textContent='다시 렌더 중이에요 — 끝나면 새 판에서 편집할 수 있어요';return;}
     if(!ON_WORK_PC){note.innerHTML=localChip()+' 편집실은 지금은 작업 컴퓨터에서 열 수 있어요. 웹 편집실은 준비 중이에요.';return;}
-    note.textContent=[b.apply?.state==='failed'?`다시 렌더 실패: ${b.apply.error||''}`:'','제출하면 다시 렌더해요'].filter(Boolean).join(' · ');
-    link.href=`editor.html?local=1&run=${encodeURIComponent(item.id)}&back=${encodeURIComponent(job.id)}`;link.setAttribute('aria-disabled','false');
+    note.textContent=[b.apply?.state==='failed'?`다시 렌더 실패: ${b.apply.error||''}`:''].filter(Boolean).join(' · ');
+    link.href=`editor.html?local=1&run=${encodeURIComponent(item.id)}&back=${encodeURIComponent(job.id)}`;link.setAttribute('aria-disabled','false');renderTip(link);
     return;
    }
    if(!canReview){note.textContent='편집에는 검수자 권한이 필요합니다';return;}
@@ -143,8 +160,8 @@ export function mountWorkbench(root,job,{service=null,role=null,refresh=null}={}
    thumbs.onclick=()=>{video.pause();openThumbnails({client:service?.client,video:b,onChange:async()=>{
     if(!refresh)return;try{const next=(await refresh()).find(j=>j.id===job.id);if(disposed||!next)return;
      job.bundles=next.bundles;const nb=next.bundles.find(x=>x.key===b.key);if(nb){item.bundle=nb;if(selectedId===item.id)prepareActions(item,ticket);}}catch{}}})};
-   note.textContent=[b.apply?.state==='failed'?`다시 렌더 실패: ${b.apply.error||''}`:'',b.apply?.state==='done'&&b.apply.notes?.length?`지난 수정에서 달라진 점: ${b.apply.notes.map(n=>n.text).join(' ')}`:'',b.draft&&!b.draft.stale?'이어서 할 초안 있음':'','제출하면 다시 렌더해요'].filter(Boolean).join(' · ');
-   link.href=`editor.html?local=1&run=${encodeURIComponent(item.id)}&back=${encodeURIComponent(job.id)}`;link.setAttribute('aria-disabled','false');
+   note.textContent=[b.apply?.state==='failed'?`다시 렌더 실패: ${b.apply.error||''}`:'',b.apply?.state==='done'&&b.apply.notes?.length?`지난 수정에서 달라진 점: ${b.apply.notes.map(n=>n.text).join(' ')}`:'',b.draft&&!b.draft.stale?'이어서 할 초안 있음':''].filter(Boolean).join(' · ');
+   link.href=`editor.html?local=1&run=${encodeURIComponent(item.id)}&back=${encodeURIComponent(job.id)}`;link.setAttribute('aria-disabled','false');renderTip(link);
    return;
   }
   // VES 검수 카드 영상은 Workspace 편집실에서 열지 않는다(2026-09-29 — 예전 방식 영상은 예전 대시보드 편집실에서). 버튼을 숨긴다.
