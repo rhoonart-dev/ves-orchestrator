@@ -1,4 +1,5 @@
 import {esc} from './review-details.js';
+import {fetchWorkPolicies} from './rights-service.js';
 import {loadWorkAssets} from './work-assets-data.js?v=1';
 import {hiddenChannels,setChannelHidden,withWorkOverrides} from './channel-visibility.js';
 import {readAll} from './review-service.js';
@@ -58,6 +59,6 @@ export function mountChannels(root,{client,role}={}){
  }
  search.oninput=renderList;
  if(!client)main.innerHTML='<p>로그인하면 채널과 작품 사용 상태를 확인할 수 있어요.</p>';
- else Promise.all([readAll(()=>client.from('channels_mirror').select('token_slug,name,channel_id,works,avatar_url').order('name')).then(c=>withWorkOverrides(client,c)),hiddenChannels(client),assetRequest(client,'/api/work-policies').catch(e=>{policyError=e.message;return {works:[],applications:[]};})]).then(([c,h,p])=>{if(dead)return;all=c;hidden=h;policy=p;applyHidden();current=channels[0]||null;if(current)render();else{renderList();main.textContent='보이는 채널이 없어요.';}}).catch(e=>{if(!dead)main.textContent='채널을 불러오지 못했어요. '+e.message;});
+ else Promise.all([readAll(()=>client.from('channels_mirror').select('token_slug,name,channel_id,works,avatar_url').order('name')).then(c=>withWorkOverrides(client,c)),hiddenChannels(client),fetchWorkPolicies(client).catch(e=>{policyError=e.message;return {works:[],applications:[]};})]).then(([c,h,p])=>{if(dead)return;all=c;hidden=h;policy=p;applyHidden();current=channels[0]||null;if(current)render();else{renderList();main.textContent='보이는 채널이 없어요.';}}).catch(e=>{if(!dead)main.textContent='채널을 불러오지 못했어요. '+e.message;});
  return()=>{dead=true;if(dlg.open)dlg.close();};
 }
