@@ -1,0 +1,85 @@
+/* Shared Workspace geometry (values in tokens.css). Route styles own content, this file owns alignment. */
+.workspace>main{scrollbar-gutter:stable}
+.page-head{padding:var(--page-header-top) var(--page-gutter) var(--page-header-gap);align-items:center}
+.page-head h1{line-height:32px}
+.content{padding:0 var(--page-gutter) var(--page-gutter)}
+
+/* Match the left edge and column width across filtering / browsing pages. */
+@media(min-width:761px){
+ .works-layout,.review-layout.has-filter{grid-template-columns:var(--layout-sidebar-width) minmax(0,1fr);gap:var(--layout-gap)}
+ .works-sidebar,.review-filter{width:100%;padding:var(--layout-panel-padding);border-radius:var(--layout-panel-radius)}
+ .workbench-body{gap:var(--layout-gap)}
+ .workbench-body>.video-rail{padding:var(--layout-panel-padding);border-radius:var(--layout-panel-radius)}
+ .review-filter{min-width:0}
+ .home-main-grid,.home-upcoming{gap:var(--layout-gap)}
+}
+@media(min-width:1251px){
+ .rights-layout{grid-template-columns:var(--layout-sidebar-width) minmax(0,1fr);gap:var(--layout-gap)}
+ .rights-filters{padding:var(--layout-panel-padding);border-radius:var(--layout-panel-radius)}
+ /* 작업 폴더: the video list takes the room the 9:16 player leaves, never narrower than a filter panel */
+ .workbench-body{grid-template-columns:minmax(var(--layout-sidebar-width),.9fr) minmax(230px,1.15fr) minmax(280px,1fr)}
+}
+@media(min-width:1700px){
+ .workbench-body{grid-template-columns:minmax(var(--layout-sidebar-width),340px) minmax(0,1fr) 370px}
+}
+@media(max-width:1250px){
+}
+@media(min-width:761px) and (max-width:1250px){
+ .workbench-body{grid-template-columns:var(--layout-sidebar-width) minmax(0,1fr)}
+}
+@media(max-width:1000px){
+}
+@media(max-width:760px){
+ .page-head h1{line-height:28px}
+ .works-layout,.workbench-body{gap:var(--layout-gap)}
+}
+/* Full-height filter/table pages share the same bottom gutter as Works. */
+@media(min-width:1251px){
+ .workspace>main:has(>.content>.rights-page){display:flex;flex-direction:column;overflow:hidden}
+ main:has(>.content>.rights-page)>.page-head{flex:none}
+ main:has(>.content>.rights-page)>.content{flex:1;min-height:0}
+ .rights-page{height:100%;display:flex;flex-direction:column;min-height:0}
+ .rights-toolbar,.rights-sync{flex:none}
+ .rights-layout{flex:1;min-height:0;align-items:stretch}
+ .rights-filters{height:100%;max-height:none;min-height:0}
+ .rights-results{display:flex;flex-direction:column;min-height:0}
+ .rights-results-head,.rights-pagination{flex:none}
+ .rights-list{flex:1;min-height:0;max-height:none}
+}
+/* 채널 목록·채널 템플릿: same full-height frame as 권리사 검수 — list and editor scroll inside their own panels. */
+@media(min-width:1251px){
+ .workspace>main:has(>.content>.template-layout){display:flex;flex-direction:column;overflow:hidden}
+ main:has(>.content>.template-layout)>.page-head{flex:none}
+ main:has(>.content>.template-layout)>.content{flex:1;min-height:0}
+ .template-layout{height:100%;align-items:stretch;grid-template-rows:minmax(0,1fr)}
+ .template-sidebar{position:static;top:auto;max-height:none;height:100%;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+ .template-sidebar>label{flex:none}
+ .template-channels{flex:1;min-height:0;overflow:auto}
+ .template-main{display:flex;flex-direction:column;height:100%;min-height:0}
+ .template-main>header{flex:none}
+ .template-main>:not(header){flex:1 1 auto;min-height:0;overflow:auto}
+}
+.home-toolbar,.nodes-toolbar,.review-toolbar{margin-top:0;margin-bottom:var(--layout-gap)}
+.home-main-grid,.home-metrics,.home-channels{margin-bottom:var(--layout-gap)}
+.nodes-section{margin-bottom:var(--layout-gap)}
+
+
+/* 가로로 넘기는 줄(좁은 화면의 작품 포스터 줄·작업 목록 칩 줄) — 마우스 화면에서는 가는 가로 스크롤바를 늘 보여 '옆으로 더 있음'을 알린다. 터치는 손으로 밀면 되니 숨긴다 */
+@media(hover:hover) and (pointer:fine) and (max-width:760px){
+ .works-options{padding-bottom:12px;scrollbar-width:auto;scrollbar-color:auto}   /* 표준 속성이 걸려 있으면 크롬이 아래 둥근 스타일을 무시한다 */
+ .works-options::-webkit-scrollbar{display:block;height:6px}
+ .works-options::-webkit-scrollbar-track{background:var(--inset);border-radius:999px}
+ .works-options::-webkit-scrollbar-thumb{background:var(--scroll-thumb);border:0;border-radius:999px}
+ .works-options::-webkit-scrollbar-thumb:hover{background:var(--scroll-thumb-hover)}
+ /* 흐림은 포스터에만 — 아래 스크롤바 띠(12px)는 흐리지 않는다 */
+ .works-options.more-right{-webkit-mask-image:linear-gradient(to right,#000 calc(100% - 44px),transparent),linear-gradient(#000,#000);-webkit-mask-size:100% calc(100% - 12px),100% 12px;-webkit-mask-position:top,bottom;-webkit-mask-repeat:no-repeat;mask-image:linear-gradient(to right,#000 calc(100% - 44px),transparent),linear-gradient(#000,#000);mask-size:100% calc(100% - 12px),100% 12px;mask-position:top,bottom;mask-repeat:no-repeat}
+}
+@supports not selector(::-webkit-scrollbar){@media(hover:hover) and (pointer:fine) and (max-width:760px){.works-options{scrollbar-width:thin;scrollbar-color:var(--scroll-thumb) var(--inset)}}}
+@media(hover:hover) and (pointer:fine) and (max-width:550px){
+ .filter-options{padding-bottom:10px;scrollbar-width:auto;scrollbar-color:auto}
+ .filter-options::-webkit-scrollbar{display:block;height:6px}
+ .filter-options::-webkit-scrollbar-track{background:var(--inset);border-radius:999px}
+ .filter-options::-webkit-scrollbar-thumb{background:var(--scroll-thumb);border:0;border-radius:999px}
+}
+@supports not selector(::-webkit-scrollbar){@media(hover:hover) and (pointer:fine) and (max-width:550px){.filter-options{scrollbar-width:thin;scrollbar-color:var(--scroll-thumb) var(--inset)}}}
+

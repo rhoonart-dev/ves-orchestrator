@@ -1,0 +1,24 @@
+/* 권한 관리 (src/access.js) — 테두리 없는 표, 회색 칸 입력 */
+.acc-panel{background:var(--surface);border-radius:var(--layout-panel-radius);padding:22px 24px;min-width:0}
+.acc-page button{white-space:nowrap;font:inherit;font-size:12px;border:0;border-radius:var(--radius-pill);padding:7px 12px;background:var(--inset);color:var(--secondary);cursor:pointer;flex:none}
+.acc-page button:hover:not(:disabled){background:var(--hover);color:var(--ink)}
+.acc-panel .acc-save{background:var(--solid);color:var(--on-solid);font-weight:600}
+.acc-panel .acc-save:hover:not(:disabled){background:var(--solid-hover);color:var(--on-solid)}
+.acc-panel .acc-save:disabled{background:var(--inset);color:var(--muted);font-weight:500;cursor:default}
+.acc-msg{font-size:12px;color:var(--accent);margin:0 0 12px}
+.acc-page .acc-reload{background:var(--surface);color:var(--ink);border-radius:var(--radius-md);padding:9px 13px}
+.acc-msg:empty{display:none}
+.acc-note{font-size:13px;color:var(--muted);margin:0}
+.acc-err{color:var(--status-error)}
+.acc-table{overflow-x:auto}
+.acc-table table{width:100%;border-collapse:collapse;font-size:12px}
+.acc-table th{text-align:left;font-weight:500;color:var(--muted);padding:0 8px 8px;white-space:nowrap}
+.acc-table td{padding:6px 8px;border-top:1px solid var(--inset);vertical-align:middle}
+.acc-table td:last-child{text-align:right;width:1%}
+.acc-mail{white-space:nowrap}
+.acc-mail>span{display:inline-block;vertical-align:middle;line-height:20px}
+.acc-mail small{display:inline-grid;place-items:center;width:20px;height:20px;margin-left:6px;border-radius:50%;background:var(--accent-soft);color:var(--accent);font-size:10px;font-weight:700;line-height:1;vertical-align:middle}
+.acc-table select,.acc-table input{font:inherit;font-size:12px;border:0;border-radius:var(--radius-md);background:var(--inset);color:var(--ink);padding:8px 10px;min-width:0}
+.acc-table input{width:100%;min-width:140px}
+.acc-table select:disabled,.acc-table input:disabled{color:var(--muted)}
+@media(max-width:760px){.acc-panel{padding:18px 16px}}

@@ -1,0 +1,75 @@
+/* VES Workspace design tokens — the one place for color, status, radius, type roles and layout geometry.
+   Route stylesheets use these names; they do not define their own palette. Load this file first.
+   Accent: --accent (코발트 블루) — charts, links, highlights. Primary buttons and selected states stay --solid (black).
+   Type roles: every tab uses the same role for the same job, whatever the content.
+     page title    맨 위 페이지 이름 (발행 일정, 작품)
+     screen title  본문 첫 줄의 대상 이름 (전체 작업, 검수 목록, 채널 이름, 2026년 9월) + 오른쪽 버튼 줄
+     panel title   카드형 패널의 머리 (확인할 작업, 맥 현황, 선택한 날짜)
+     subtitle      패널 안 묶음 이름 (작품 공개, 사용 작품, 최근 변경)
+     card title    반복 항목의 제목 (폴더 카드, 맥 카드, 목록 항목)
+     filter label  왼쪽 필터 묶음 이름 (상태, 채널, 작품)
+     body / meta / caption  본문 13 · 보조 12 · 캡션 11 */
+:root{
+ color-scheme:light;
+ /* surfaces and text */
+ --page:#f4f4f5;--surface:#fff;--inset:#f7f7f8;--hover:#f2f2f3;
+ --ink:#191a1d;--secondary:#707177;--muted:#929299;
+ --solid:#17181c;--on-solid:#fff;--input-border:#e9e9ed;--focus:#777;
+ /* 빨강 — 라이트는 맑은 빨강(#E5484D), 다크는 산호 빨강(#FF8A8E). 코발트와 한 세트 (2026-09-28) */
+ --danger:#E5484D;--danger-bg:#FDECEC;
+ --scroll-thumb:#cdcdcf;--scroll-thumb-hover:#ababaf;
+ --track:#ebebed;--track-selected:#fff;--folder-fill:#dcdce0;--filter-selected:#eeeef0;
+ --ink-soft:#48484c;--raised:#fff;--raised-selected:var(--inset);--raised-active:var(--hover);--solid-hover:#303136;
+ --toast-bg:#e8e8eb;--toast-ink:#54545b;
+ --overlay:#0004;--shadow-pop:0 12px 32px #0000002e;--shadow-menu:0 8px 30px #00000016,0 2px 8px #00000008;--shadow-dialog:0 20px 60px #0002;
+ --video-bg:#080808;--video-scrim:#000a;--on-video:#fff;
+ /* accent — VES 포인트 색(코발트 블루, 2026-09-26). 검정은 주 버튼·선택 상태, 포인트 색은 데이터·링크·강조 표시에만 */
+ --accent:#2456E8;--accent-soft:color-mix(in srgb,var(--accent) 12%,transparent);--on-accent:#fff;
+ /* status — strong (text, badges, flow steps) · 정보(info)는 포인트 색과 같은 파랑으로 맞춘다 */
+ --status-error:#E5484D;--status-info:var(--accent);--status-warn:#b65f0c;--status-ok:#26784e;--status-busy:#dfb526;--status-neutral:#9a9aa2;
+ /* status — soft dots and their readable text */
+ --dot-ok:#71a58e;--dot-warn:#c09b56;--dot-error:#EE8B8E;
+ --dot-ok-text:#53806b;--dot-warn-text:#98753d;--dot-ok-bg:#edf4f0;--dot-warn-bg:#fbf3e4;
+ /* calendar weekends */
+ --weekend-sun:#E5484D;--weekend-sat:#3d6fd9;
+ /* radius */
+ --radius-sm:6px;--radius-md:8px;--radius-lg:12px;--radius-panel:16px;--radius-pill:999px;
+ /* type */
+ --font-sans:Pretendard,-apple-system,sans-serif;
+ --font-mono:ui-monospace,"SF Mono",Menlo,monospace;
+ --type-page-title:700 26px/32px var(--font-sans);--track-page-title:-.9px;
+ --type-screen-title:700 20px/28px var(--font-sans);--track-screen-title:-.6px;
+ --type-panel-title:650 15px/22px var(--font-sans);--track-panel-title:-.3px;
+ --type-subtitle:650 12px/18px var(--font-sans);
+ --type-card-title:600 13px/20px var(--font-sans);
+ --type-filter-label:500 11px/16px var(--font-sans);
+ --type-body:400 13px/1.6 var(--font-sans);
+ --type-meta:400 12px/1.6 var(--font-sans);
+ --type-caption:400 11px/1.5 var(--font-sans);
+ /* layout geometry (route styles own content, layout.css owns alignment) */
+ --page-gutter:32px;--page-header-top:40px;--page-header-gap:24px;
+ --layout-sidebar-width:224px;--layout-gap:24px;
+ --layout-panel-padding:16px;--layout-panel-radius:var(--radius-panel);
+ --toolbar-control-height:40px;--screen-header-gap:16px;
+ /* 버튼(roles.css 버튼 층) — 알약 모양 · 두 크기(보통 38 · 작은 30) · 굵은 글씨 */
+ --button-radius:var(--radius-pill);--button-height:38px;--button-pad-x:18px;--button-font:13px;--button-weight:600;
+ --button-small-height:30px;--button-small-pad-x:13px;--button-small-font:12px;
+}
+:root[data-theme="dark"]{
+ color-scheme:dark;
+ --page:#242424;--surface:#191919;--inset:#242424;--hover:#2c2c2c;
+ --ink:#f2f2f2;--secondary:#c3c3c3;--muted:#a0a0a0;
+ --solid:#f4f4f4;--on-solid:#181818;--input-border:#414141;--focus:#bdbdbd;
+ --danger:#FF8A8E;--danger-bg:#3D2527;--dot-error:#E27D81;
+ --scroll-thumb:#505052;--scroll-thumb-hover:#707074;
+ --ink-soft:#c3c3c3;--raised:#292929;--raised-selected:#353535;--raised-active:#3b3b3b;--solid-hover:#dedede;
+ --toast-bg:#383838;--toast-ink:#dedede;--shadow-menu:0 10px 32px #0005;
+ --track:#1b1b1b;--track-selected:#393939;--folder-fill:#5a5a5a;--filter-selected:#303030;
+ --accent:#7FA2FF;--on-accent:#0d1530;
+ --status-error:#FF8A8E;--status-info:var(--accent);--status-warn:#ffb46d;--status-ok:#7ed6a4;--status-busy:#f2cb42;--status-neutral:#8c8c94;
+ --dot-warn-text:#d2b178;--dot-ok-text:#95bba5;--dot-ok-bg:#25362d;--dot-warn-bg:#393125;
+ --weekend-sun:#FF8A8E;--weekend-sat:#83a8ff;
+}
+@media(max-width:1250px){:root{--page-header-top:32px;--layout-sidebar-width:200px;--layout-gap:20px}}
+@media(max-width:1000px){:root{--page-gutter:24px;--layout-sidebar-width:184px}}
+@media(max-width:760px){:root{--page-gutter:16px;--page-header-top:28px;--layout-gap:16px}}

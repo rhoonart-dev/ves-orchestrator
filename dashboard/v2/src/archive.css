@@ -1,0 +1,64 @@
+/* 소재 아카이브 (src/archive.js) — 예전 VES .arcgrid 를 워크스페이스 카드·칩으로. 테두리 없이 회색 칸 */
+/* 틀은 채널 관리 탭(.template-layout)을 그대로 — 왼쪽 채널 칸은 화면 높이만큼, 오른쪽만 스크롤 */
+.arc-main{height:100%;min-height:0;overflow:auto;min-width:0}
+.arc-page .template-channels .arc-note{margin:4px 12px}
+.arc-panel{background:var(--surface);border-radius:var(--layout-panel-radius);padding:22px 24px;min-width:0}
+.arc-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px}
+.arc-head h2{margin:0;font:var(--type-panel-title)}
+.arc-head p{margin:4px 0 0;font-size:12px;color:var(--secondary);line-height:1.6}
+.arc-main button,.arc-dialog button{font:inherit;font-size:12px;border:0;border-radius:var(--radius-pill);padding:7px 12px;background:var(--inset);color:var(--secondary);cursor:pointer;flex:none}
+.arc-main button:hover:not(:disabled),.arc-dialog button:hover:not(:disabled){background:var(--hover);color:var(--ink)}
+.arc-main button:disabled,.arc-dialog button:disabled{opacity:.45;cursor:default}
+.arc-page button.primary{width:auto;padding:7px 12px;border-radius:var(--radius-pill);background:var(--solid);color:var(--on-solid);font-weight:600}
+.arc-page button.primary:hover:not(:disabled){background:var(--solid-hover);color:var(--on-solid)}
+.arc-off{margin:0 0 12px;padding:10px 14px;border-radius:var(--radius-lg);background:var(--inset);font-size:12px;color:var(--secondary)}
+.arc-bars{display:flex;align-items:center;flex-wrap:wrap;gap:8px 14px;margin-bottom:10px}
+.arc-seg{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;max-width:100%}
+.arc-seg::-webkit-scrollbar{display:none}
+.arc-seg button[aria-pressed="true"]{background:var(--solid);color:var(--on-solid);font-weight:600}
+.arc-count{margin-left:auto;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.arc-msg{font-size:12px;color:var(--accent);margin:0 0 8px}
+.arc-msg:empty{display:none}
+.arc-note{font-size:13px;color:var(--muted);margin:14px 0}
+.arc-err{color:var(--status-error)}
+.arc-err:empty{display:none}
+.arc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px}
+.arc-card{background:var(--inset);border-radius:var(--radius-lg);overflow:hidden;display:flex;flex-direction:column;min-width:0}
+.arc-card.dim .arc-th{opacity:.45}
+.arc-th{position:relative;display:block;aspect-ratio:16/9;background:var(--hover) center/cover no-repeat}
+.arc-dur{position:absolute;right:6px;bottom:6px;font-size:10px;font-weight:600;color:#fff;background:#000000b3;padding:1px 6px;border-radius:4px;font-variant-numeric:tabular-nums}
+.arc-bd{padding:10px 12px 12px;display:flex;flex-direction:column;gap:6px;flex:1}
+.arc-t{font-size:13px;font-weight:600;line-height:1.45;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:keep-all}
+.arc-m{display:flex;align-items:center;flex-wrap:wrap;gap:4px 10px;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+.arc-tag{font-size:10px;font-weight:600;padding:2px 7px;border-radius:var(--radius-pill);background:var(--surface);color:var(--secondary)}
+.arc-tag.pub{color:var(--accent)}
+.arc-tag.no{color:var(--status-error)}
+.arc-tag.wait{color:var(--ink)}
+.arc-score{font-size:11px;font-weight:700;color:var(--accent)}
+.arc-why{font-size:11px;color:var(--secondary);line-height:1.5}
+.arc-sigs{display:flex;flex-direction:column;gap:3px}
+.arc-sig{display:grid;grid-template-columns:52px 1fr 30px;align-items:center;gap:6px;font-size:10px;color:var(--muted);font-variant-numeric:tabular-nums}
+.arc-sig span:last-child{text-align:right}
+.arc-bar{height:4px;border-radius:2px;background:var(--surface);overflow:hidden}
+.arc-bar i{display:block;height:100%;background:var(--accent);border-radius:2px}
+.arc-acts{display:flex;flex-wrap:wrap;gap:6px;margin-top:auto;padding-top:4px}
+.arc-acts button{background:var(--surface)}
+.arc-pager{display:flex;align-items:center;justify-content:center;gap:12px;margin-top:16px;font-size:12px;color:var(--secondary)}
+.arc-foot{margin:18px 0 0;font-size:11px;color:var(--muted);line-height:1.6}
+.arc-page .arc-dialog{border:0;border-radius:var(--radius-panel);padding:0;background:var(--surface);color:var(--ink);width:min(420px,calc(100vw - 32px))}
+.arc-dialog::backdrop{background:#0006}
+.arc-dlg{padding:20px 22px;display:flex;flex-direction:column;gap:10px}
+.arc-dlg h2{margin:0;font-size:16px}
+.arc-dlg-t{margin:0;font-size:12px;color:var(--secondary);line-height:1.5}
+.arc-routes{display:flex;flex-direction:column;gap:4px}
+.arc-dlg .arc-routes label{display:flex;flex-direction:row;margin:0;color:var(--ink);align-items:center;gap:10px;padding:9px 12px;border-radius:var(--radius-md);background:var(--inset);font-size:13px;cursor:pointer}
+.arc-dlg .arc-routes label:has(input:checked){background:var(--accent-soft)}
+.arc-dlg .arc-routes input{accent-color:var(--accent);margin:0;width:auto;height:auto;border:0;padding:0}
+.arc-routes b{display:inline-block;min-width:22px}
+.arc-routes small{margin-left:6px;font-size:11px;color:var(--muted)}
+.arc-dlg .arc-note{margin:0}
+.arc-dlg footer{display:flex;justify-content:flex-end;gap:6px;margin-top:4px}
+@media(max-width:760px){.arc-panel{padding:18px 16px}.arc-head{flex-direction:column}.arc-count{margin-left:0}.arc-grid{grid-template-columns:repeat(auto-fill,minmax(160px,1fr))}}
+.arc-chan a{display:inline-flex;align-items:center;gap:8px;color:inherit;text-decoration:none}
+.arc-chan a:hover span{text-decoration:underline}
+.arc-chan img{width:22px;height:22px;border-radius:50%;object-fit:cover;flex:none}

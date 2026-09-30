@@ -1,0 +1,395 @@
+/* Same typeface as VES Workspace (styles.css). ves-editor.css is generated and lists Pretendard after the system font without loading it. */
+@font-face{font-family:Pretendard;src:url('../assets/fonts/PretendardVariable.woff2') format('woff2');font-weight:100 900;font-display:swap}
+body{font-family:Pretendard,-apple-system,"Apple SD Gothic Neo",sans-serif;letter-spacing:-.01em}
+:where(button,input,select,textarea){font-family:inherit}   /* 0 specificity: var(--mono) fields keep their monospace */
+/* 여는 중 화면: 화면 정중앙, 편집 화면이 다 열릴 때까지 위에 떠 있다(src/editor-boot.js 가 단계별 진행 표시를 채운다) */
+#editor-gate{position:fixed;inset:0;margin:auto;z-index:300;box-sizing:border-box;width:min(420px,calc(100vw - 32px));height:fit-content;padding:32px;font:14px/1.8 Pretendard,system-ui,sans-serif;color:var(--text);background:var(--panel);border-radius:20px}
+#editor-gate h1{margin:0 0 4px}
+#editor-gate p{margin:0}
+.gate-progress{height:6px;margin:14px 0 6px;border-radius:99px;background:var(--panel2);overflow:hidden}
+.gate-progress i{display:block;height:100%;width:0;border-radius:inherit;background:#2563eb;transition:width .3s ease}
+.gate-step{display:block;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+#editor-gate a{display:inline-block;margin-top:10px;text-decoration:none}
+#editor-gate a:hover{opacity:.75}
+#editor-gate.failed .gate-progress i{background:#e5484d}
+/* 카드 뒤 전체 화면 막: 편집 화면이 뒤에서 그려지는 동안 가린다. 다 열리면 카드와 함께 사라진다 */
+#editor-gate{box-shadow:0 0 0 100vmax var(--gate-bg,#1f1f1f)}   /* 카드 바깥만 칠한다(가짜 요소로 깔면 카드 바탕까지 덮는다) */
+#editor-gate{transition:opacity .25s ease}
+#editor-gate.leaving{opacity:0;pointer-events:none}
+#editor-gate.failed p{color:#e5484d}
+#editor-gate[hidden]{display:none}#editor-gate a{color:inherit}
+#tlRoot header h1{font-size:16px}#tlRoot button{border-radius:9px}#tlRoot .note{display:none}
+@property --scroll-thumb{syntax:'<color>';inherits:false;initial-value:transparent}
+*{--scroll-thumb:transparent;scrollbar-color:var(--scroll-thumb) transparent;scrollbar-width:thin;transition:--scroll-thumb .35s ease}
+*:hover,*[data-scrolling]{--scroll-thumb:#a5a5ad80}
+*::-webkit-scrollbar{width:6px;height:6px}*::-webkit-scrollbar-track{background:transparent}*::-webkit-scrollbar-thumb{background:var(--scroll-thumb);border-radius:10px;border:0}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+/* Local bundle mode banner (src/editor-boot.js): what was loaded and that submit only records. */
+.local-editor-note{margin:0;padding:8px 16px;font-size:12px;line-height:1.5;color:var(--ink,#222);background:color-mix(in srgb,#f5b400 16%,transparent);flex:none}
+/* 왼쪽 서랍(원본·제목·자막…)은 영상 위에 뜬다 — 열고 닫아도 가운데 영역 폭이 그대로라 영상이 흔들리지 않는다.
+   서랍에 닿는 좁은 창에서만 centerShorts 가 닿지 않을 만큼 영상을 비킨다(ves-editor.js centerShorts). */
+body.applayout .top{position:relative}
+body.applayout #railPanel{position:absolute;left:48px;top:0;bottom:0;z-index:20}
+body.applayout #ddiv{position:absolute;top:0;bottom:0;left:calc(48px + var(--drawerw,300px));z-index:21}
+/* 타임라인 트랙이 아래 영역 끝까지 — 트랙이 짧아도 아래에 빈 띠가 남지 않게 마지막 줄(구간·자막…)을 늘린다. */
+body.applayout #tlScrollY{display:flex;flex-direction:column}
+body.applayout #tlScrollY>.tlbody:last-child{flex:1 0 auto}
+/* 아래 타임라인은 기본 높이가 트랙 내용만큼 — 마지막 줄(AI 연출)이 창 아래에 붙고 남는 높이는 위 미리보기가 쓴다.
+   경계(#hdiv)를 끌면 그 높이(--tlh)를 쓰고, 트랙이 많으면 위쪽 최소 공간을 남기고 안에서 스크롤한다. */
+body.applayout .tlwrap{height:var(--tlh,auto);max-height:calc(100vh - 260px)}
+/* 로컬 제출 확인 창(src/editor-submit-dialog.js) */
+.submit-dialog{border:0;border-radius:18px;padding:0;width:min(440px,calc(100vw - 32px));background:var(--panel);color:var(--text);box-shadow:none}
+.submit-dialog::backdrop{background:#0006}
+.submit-dialog form{padding:24px;display:flex;flex-direction:column;gap:16px}
+.submit-dialog h2{margin:0;font-size:18px;font-weight:700;letter-spacing:-.02em}
+.submit-chips{display:flex;flex-wrap:wrap;gap:6px}
+.submit-chips span{font-size:12px;font-weight:600;padding:5px 10px;border-radius:99px;background:var(--panel2);color:var(--text)}
+.submit-dialog ul{margin:0;padding:0 0 0 18px;display:flex;flex-direction:column;gap:6px;font-size:13px;line-height:1.6;color:var(--muted)}
+.submit-dialog ul b{color:var(--text)}
+.submit-dialog label{display:flex;flex-direction:column;gap:6px;font-size:12px;font-weight:600}
+.submit-dialog label small{font-weight:400;color:var(--muted);margin-left:4px}
+.submit-dialog textarea{border:0;border-radius:10px;background:var(--panel2);color:var(--text);padding:10px 12px;font:inherit;font-size:13px;resize:vertical}
+.submit-dialog footer{display:flex;justify-content:flex-end;gap:8px}
+.submit-dialog footer button{height:38px;padding:0 16px;border-radius:10px;border:0;font:inherit;font-size:13px;font-weight:600;background:var(--panel2);color:var(--text);cursor:pointer}
+.submit-dialog footer .primary{background:#2563eb;color:#fff}
+.submit-dialog footer .primary:hover{background:#1d4ed8}
+.submit-dialog section h3{margin:0 0 6px;font-size:13px;font-weight:700}
+.submit-dialog .submit-stop{padding:12px 14px;border-radius:12px;background:color-mix(in srgb,#e5484d 14%,transparent)}
+.submit-dialog .submit-stop h3{color:#e5484d}
+.submit-dialog .submit-stop ul,.submit-dialog .submit-warn ul{color:var(--text)}
+.submit-dialog .submit-warn{padding:12px 14px;border-radius:12px;background:color-mix(in srgb,#f5b400 14%,transparent)}
+/* 적용 실패·지난 적용 결과 알림(src/editor-boot.js) */
+.apply-alert{margin:0;padding:10px 16px;font-size:13px;line-height:1.55;flex:none;display:flex;flex-direction:column;gap:2px}
+.apply-alert.fail{background:#e5484d;color:#fff}
+.apply-alert.fail strong{font-size:14px}
+.apply-alert.done{background:color-mix(in srgb,#f5b400 16%,transparent);color:var(--text)}
+.apply-alert ul{margin:2px 0 0;padding-left:18px}
+.apply-alert button{align-self:flex-start;margin-top:4px;border:0;background:transparent;color:inherit;text-decoration:underline;font:inherit;font-size:12px;cursor:pointer;padding:0}
+/* 제출 전 검사(src/editor-checks.js) — 빠지거나 거절될 항목 */
+#warns .alert.ck-bad{background:color-mix(in srgb,#e5484d 14%,transparent);border-color:color-mix(in srgb,#e5484d 50%,transparent);cursor:pointer}
+#warns .alert.ck-warn{cursor:pointer}
+#insp .alert.ck-bad{background:color-mix(in srgb,#e5484d 14%,transparent);border-color:color-mix(in srgb,#e5484d 50%,transparent)}
+#insp .alert.ck-info{background:var(--panel2);border-color:transparent;color:var(--muted)}
+.blk.ck-bad{border-color:#e5484d!important;box-shadow:0 0 0 1px #e5484d!important}
+.ck-mute{position:absolute;left:3px;bottom:3px;width:16px;height:16px;border-radius:5px;background:#000a;display:grid;place-items:center;z-index:2;pointer-events:none}
+.ck-mute svg{width:12px;height:12px;fill:none;stroke:#fff;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.ck-mute svg path:first-child{fill:#fff}
+/* 강조·줌 편집(src/editor-fx.js) */
+.shorts .vslot{overflow:hidden}
+#vzoom{position:absolute;inset:0;overflow:hidden;transition:transform .25s ease}   /* 줌(editor-fx)은 이 칸에, 자르기(editor-frame)는 안쪽 영상에 */
+.blk.s.fx-emph{box-shadow:inset 0 -3px 0 #fff}
+.blk.s.fx-emph2{box-shadow:inset 0 -3px 0 #FF5540}
+.fx-zoom{position:absolute;right:3px;bottom:3px;width:16px;height:16px;border-radius:5px;background:#000a;display:grid;place-items:center;z-index:2;pointer-events:none}
+.fx-zoom svg{width:12px;height:12px;fill:none;stroke:#fff;stroke-width:2;stroke-linecap:round}
+.fx-box{display:flex;flex-direction:column;gap:8px;padding:10px 0;border-top:1px solid var(--line)}
+.fx-head{font-size:12px;font-weight:700}
+.fx-segs{display:flex;flex-wrap:wrap;gap:4px}
+#tlRoot .fx-seg{height:28px;padding:0 10px;font-size:12px;border-radius:8px;border:1px solid var(--line);background:transparent;color:var(--text)}
+#tlRoot .fx-seg.on{background:var(--text);color:var(--bg,#111);border-color:var(--text)}
+#tlRoot .fx-seg:disabled{opacity:.45;cursor:default}
+.fx-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:12px}
+.fx-row label{display:flex;align-items:center;gap:4px;white-space:nowrap;flex-direction:row!important;font-size:12px}
+.fx-row select{width:auto}
+.fx-row input{width:56px}
+.fx-check{display:flex!important;flex-direction:row!important;align-items:center;gap:6px;font-size:12px}
+.fx-check input{width:auto;margin:0}
+#insp .fx-check{justify-content:flex-start;white-space:nowrap}
+#insp .fx-check input{flex:none;width:16px;height:16px;padding:0}
+/* 엔진 폰트(ai-video assets/fonts, serve.py /engine-fonts) — 새 파이프라인 대사 자막 미리보기를 렌더와 같은 글꼴로 */
+@font-face{font-family:EngineNotoBlack;src:url('/engine-fonts/NotoSansCJKkr-Black.otf') format('opentype');font-display:swap}
+@font-face{font-family:EngineJalnan;src:url('/engine-fonts/Jalnan.ttf') format('truetype');font-display:swap}
+@font-face{font-family:EngineJalnanGothic;src:url('/engine-fonts/JalnanGothic.ttf') format('truetype');font-display:swap}
+@font-face{font-family:EngineMulmaru;src:url('/engine-fonts/mulmaru.ttf') format('truetype');font-display:swap}
+@font-face{font-family:EngineGriun;src:url('/engine-fonts/Griun.ttf') format('truetype');font-display:swap}
+/* 텍스트 색 견본(편집 폼) */
+.swrow{display:flex;gap:6px;margin:-2px 0 6px}
+#tlRoot .swrow .sw{width:22px;height:22px;min-width:0;padding:0;border-radius:6px;border:1px solid var(--line2);cursor:pointer}
+#tlRoot .swrow .sw.on{outline:2px solid var(--accent);outline-offset:1px}
+#insp .colrow input[type=color]{width:34px;flex:none}
+#insp .colrow .hex{flex:1;min-width:0}
+/* 오른쪽 칸: 숫자(시간)는 아래에 접어 둔다 */
+.ins-time{border-top:1px solid var(--line);padding-top:10px;margin-top:4px}
+.ins-time summary{cursor:pointer;font-size:12px;font-weight:700;list-style:none;display:flex;align-items:center;gap:8px}
+.ins-time summary::-webkit-details-marker{display:none}
+.ins-time summary::before{content:"▸";font-size:10px;color:var(--muted)}
+.ins-time[open] summary::before{content:"▾"}
+.ins-time summary span{font-weight:400;color:var(--muted);font-variant-numeric:tabular-nums}
+.ins-time[open]>:not(summary){margin-top:8px}
+.ins-time>*+*{margin-top:8px}
+#insp textarea:disabled,#insp input:disabled,#insp select:disabled{opacity:.75}
+/* 제목 배경 버튼 — 누를 때마다 없음 → 둥근네모 → 각진네모 */
+.boxrow{display:flex;align-items:center;gap:8px}
+#tlRoot .boxcyc{width:34px;height:30px;min-width:0;padding:0;display:grid;place-items:center;border-radius:8px;border:1px solid var(--line2);background:var(--panel2);cursor:pointer}
+.boxcyc i{display:block;width:18px;height:14px}
+.boxcyc.none i{border:1.5px dashed var(--muted);border-radius:4px}
+.boxcyc.round i{background:var(--boxc,#000);border-radius:5px}
+.boxcyc.rect i{background:var(--boxc,#000);border-radius:0}
+#insp .boxrow input[type=color],#railPanel .boxrow input[type=color]{width:34px;height:30px;padding:2px;flex:none;cursor:pointer}
+/* ── 테두리 없애기(Workspace 처럼 면의 밝기로 나눈다, 2026-09-29) ──
+   남기는 것: 눈금선, 고른 블록 표시(outline/box-shadow), 경고 고리(box-shadow), '없음' 점선 아이콘 */
+#tlRoot button,#tlRoot .ico,#tlRoot select,#tlRoot input,#tlRoot textarea,
+#tlRoot .alert,#tlRoot .card,#tlRoot .tplItem,#tlRoot .dgrp,#tlRoot .zoomgrp,#tlRoot .grp,
+#tlRoot #side,#side,.imgchip,.ins-time,#tlRoot .blk.c,#tlRoot .blk.c.hook,#tlRoot .blk.ai{border-color:transparent!important}
+.ins-time{padding-top:6px}
+#tlRoot input[type=color]{padding:3px;background:var(--panel2);border-radius:9px}   /* 흰색을 골라도 보이게 옅은 면 위에 올린다 */
+#tlRoot input[type=color]::-webkit-color-swatch-wrapper{padding:0}
+#tlRoot input[type=color]::-webkit-color-swatch{border:none;border-radius:6px}
+#tlRoot input[type=color]::-moz-color-swatch{border:none;border-radius:6px}
+/* 흰 견본이 흰 면에 묻히지 않게 견본 줄에 옅은 면을 깐다 */
+.swrow{background:var(--panel2);border-radius:10px;padding:6px;width:max-content}
+.imgchip{background:rgba(0,0,0,.45)}
+/* 원본 줄: 쓴 구간은 안 쓴 곳을 어둡게 해서 이미 갈린다 — 틀·타일 칸막이 없이 */
+#tlRoot .srcuse,#tlRoot .srcuse.hooku,#tlRoot .fstile{border-color:transparent!important}
+/* 상단바 종 버튼과 알림 창(src/editor-notes.js) */
+#tlApp #runs{display:none}   /* 지금 열린 편 이름표(파일 이름)는 보이지 않는다 */
+#bellBtn{position:relative}
+#bellBtn svg,#themeBtn svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+#bellBtn{overflow:visible}
+#bellBtn .bell-n{position:absolute;top:-5px;right:-6px;min-width:16px;height:16px;padding:0 4px;border-radius:99px;background:var(--accent);color:#fff;font-size:10px;font-weight:700;line-height:16px;text-align:center;box-sizing:border-box}
+#bellBtn .bell-n[hidden]{display:none}
+#bellBtn.bad .bell-n{background:#e5484d}
+#notePop{position:fixed;z-index:400;width:min(360px,calc(100vw - 24px));border-radius:16px;background:var(--panel);color:var(--text);font-size:13px;line-height:1.55}
+#notePop .np-body{max-height:min(70vh,560px);overflow:auto;padding:16px;display:flex;flex-direction:column;gap:14px;border-radius:inherit}
+/* 말풍선 꼬리 — 종 버튼 가운데를 가리킨다(src/editor-notes.js 가 --tail-right 를 잰다) */
+#notePop::before{content:"";position:absolute;top:-6px;right:var(--tail-right,14px);width:14px;height:14px;background:inherit;border-radius:3px;transform:rotate(45deg)}
+#notePop[hidden]{display:none}
+#notePop .np-sec h3{margin:0 0 6px;font-size:12px;font-weight:700;color:var(--muted)}
+#notePop .np-sec p{margin:0}
+#notePop .np-sec ul{margin:0;padding-left:18px}
+#notePop .np-sub{color:var(--muted);font-size:12px;margin-top:4px}
+#notePop .np-fail{padding:12px;border-radius:12px;background:color-mix(in srgb,#e5484d 14%,transparent)}
+#notePop .np-fail h3{color:#e5484d}
+#notePop #warns{display:flex;flex-direction:column;gap:6px}
+/* 창 안의 목록은 모두 같은 면 상자에(테두리 없이) */
+#notePop .alert,#notePop .np-box{border:none!important;border-radius:10px;padding:10px 12px;background:var(--panel2);color:var(--text)}
+#notePop .alert.ok{color:var(--muted)}
+#notePop .np-box ul{margin:0;padding-left:18px}
+/* 상단바 아이콘 버튼 — 아이콘을 정가운데로 */
+/* 알림·밝기·전체화면 버튼은 같은 크기 정사각형 */
+#bellBtn,#themeBtn,#fsBtn{display:inline-grid;place-items:center;padding:0;width:32px;height:32px;line-height:0;flex:none}
+/* 크게 보기 창은 편집 화면(#tlRoot, z-index 200) 위에 뜬다 — 종전 80 이라 뒤에 가려 영상이 사라진 것처럼 보였다 */
+#pvModal{z-index:350}
+/* 미리보기 작품 로고·캡션 */
+.shorts .ovwork .wlogo{vertical-align:top}
+.shorts .ovwork .wcap{white-space:nowrap;font-weight:700;line-height:1.4}
+/* 상단바 — 좁은 창에서도 한 줄: 버튼은 줄바꿈 없이, 저장 상태는 말줄임, 더 좁으면 이메일·저장 상태를 숨긴다 */
+body.applayout header{flex-wrap:nowrap;overflow:hidden;gap:8px}
+body.applayout header>*{flex:none}
+body.applayout header button,body.applayout header h1{white-space:nowrap}
+body.applayout header .grow{flex:1 1 0;min-width:0}
+body.applayout header #rochip,body.applayout header #who{flex:0 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media (max-width:900px){body.applayout header #who{display:none}}
+@media (max-width:700px){body.applayout header #rochip{display:none}}
+.shorts .ovwork .wlogo-ph{display:inline-grid;place-items:center;border-radius:8px;background:rgba(255,255,255,.08);color:rgba(255,255,255,.45);font-size:11px;font-weight:600;vertical-align:top}
+#notePop .np-head{display:flex;align-items:center;justify-content:space-between;margin:-2px 0 -2px}
+#notePop .np-head h2{margin:0;font-size:16px;font-weight:700;color:var(--text)}
+/* 로고 탭 — 작품 관리 로고를 그림으로 고른다. 면으로 나누고 고른 것만 표시 고리 */
+.lgGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 10px;margin:6px 0 8px}
+.lgTile{display:flex;flex-direction:column;gap:6px;padding:0;border:0;background:transparent;color:inherit;text-align:left;cursor:pointer;min-width:0}
+.lgTile:hover{filter:brightness(1.06)}
+.lgTile.on .lgImg{box-shadow:0 0 0 2px var(--accent)}
+.lgTile.on .lgName{color:var(--accent);font-weight:600}
+.lgTile .lgImg{display:grid;place-items:center;height:56px;border-radius:4px;background:#1b1d22;overflow:hidden}
+.lgTile .lgImg img{max-width:90%;max-height:44px;object-fit:contain}
+.lgTile .lgImg i{font-style:normal;font-weight:800;font-size:12px;color:var(--text);padding:0 6px;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+.lgTile .lgName{font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lgTile .lgName em{font-style:normal;font-size:10.5px;color:var(--faint);margin-left:2px}
+.lgUp{background:var(--panel2);border-radius:6px;padding:8px;margin:4px 0 8px;display:grid;gap:6px}
+.seg{display:inline-flex;gap:4px}
+.seg button{border:0;border-radius:4px;padding:4px 10px;background:var(--panel2);color:inherit;cursor:pointer;font-size:12px}
+.seg button.on{background:var(--accent);color:#fff}
+/* 미리보기 작품 로고 조각 — 편집 중이면 잡을 수 있다(.ovwork 줄 전체는 클릭을 통과시킨다) */
+.shorts .ovwork .wl{display:inline-block;position:relative;vertical-align:top}
+.shorts .ovwork .wl.sel{pointer-events:auto;cursor:move}
+.shorts .ovplat.sel{cursor:move}
+/* 서랍 헤더(2026-09-29 목업 2안) — 띠·카드 없이 굵은 구역 제목과 여백, 구역 사이에만 얇은 회색 줄 */
+#railPanel{--divider:var(--line)}
+#railPanel > h3{margin:0 0 2px;padding:0;font-size:16px;font-weight:700;color:var(--text);letter-spacing:-.01em;background:none}
+#railPanel > h3 .faint{font-size:12px;font-weight:500}
+#railPanel .dgrp{padding:0;gap:9px;margin:0;border-radius:0}
+#railPanel .dgrp > b,#railPanel .lgSec > summary{display:flex;align-items:baseline;gap:8px;margin:0 0 2px;padding:0;font-size:13px;font-weight:700;color:var(--text);text-transform:none;letter-spacing:-.01em;background:none;min-width:0}
+#railPanel .dgrp > b em{font-style:normal;font-weight:500;font-size:12px;color:var(--faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+#railPanel .dgrp ~ .dgrp,#railPanel .lgSec ~ .lgSec{border-top:1px solid var(--divider);padding-top:16px;margin-top:8px}
+#tlRoot #railPanel .dgrp ~ .dgrp{border-top-color:var(--divider)!important}   /* 네모 테두리 지우기 규칙(위 !important)의 예외 — 구역 구분선은 신호용 */
+#railPanel .dgrp ~ .listhead{border-top:1px solid var(--divider);padding-top:14px;margin-top:8px}   /* 자막·내레이션: 공통 설정과 줄 목록 사이 */
+#railPanel .lgSec{display:block;margin:0 0 8px}
+#railPanel .lgSec > summary{cursor:pointer;list-style:none;justify-content:space-between;align-items:center}
+#railPanel .lgSec > summary::-webkit-details-marker{display:none}
+#railPanel .lgSec > summary::after{content:"";width:7px;height:7px;border:solid var(--muted);border-width:0 1.6px 1.6px 0;transform:rotate(-45deg);margin-right:3px;transition:transform .15s}
+#railPanel .lgSec[open] > summary::after{transform:rotate(45deg) translate(-2px,-2px)}
+#railPanel .lgSec[open] > summary{margin-bottom:12px}
+#railPanel .lgSec > :not(summary) + :not(summary){margin-top:12px}
+#railPanel .lgSec .lgGrid{margin:0}
+#railPanel .lgSec > .lnk{display:block;padding:4px 0}
+/* 로고 그림 뒤 — 작품 관리 에셋(templates.css .asset-preview)과 같은 체커보드. 글자색을 바탕에 13%·19% 섞어 테마를 따른다 */
+.lgTile .lgImg{background:repeating-conic-gradient(color-mix(in srgb,var(--text) 13%,var(--panel)) 0 25%,color-mix(in srgb,var(--text) 19%,var(--panel)) 0 50%) 0 0/16px 16px}
+/* 원본 소재 — 파형이 없을 때는 썸네일(2~44) · 내레이션 점 · 시각 글자만 */
+.srcarea.nowave{height:72px}
+.srcarea.nowave .srcanchor{top:50px}
+#srcRow:not(.collapsed):has(.srcarea.nowave) .srcl{height:72px}   /* 왼쪽 라벨 칸도 같은 높이로 */
+/* 슬라이더 — 브라우저 기본 막대의 회색 테두리 대신 면만 있는 막대 + 파란 동그라미 */
+#tlRoot input[type=range]{-webkit-appearance:none;appearance:none;background:transparent;cursor:pointer}
+#tlRoot input[type=range]::-webkit-slider-runnable-track{height:4px;border:0;border-radius:2px;background:var(--line2)}
+#tlRoot input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;margin-top:-5px;border:0;border-radius:50%;background:var(--accent)}
+#tlRoot input[type=range]::-moz-range-track{height:4px;border:0;border-radius:2px;background:var(--line2)}
+#tlRoot input[type=range]::-moz-range-thumb{width:14px;height:14px;border:0;border-radius:50%;background:var(--accent)}
+/* 확대 조절 — 좁은 화면에서도 편집 버튼 옆에 남도록 슬라이더가 남은 폭만큼 줄어든다(32~110px) */
+.tltools .zoomgrp{flex:1 1 170px;max-width:250px;min-width:0}
+.tltools .zoomgrp input[type=range]{flex:1 1 0;width:0;min-width:32px;max-width:110px}
+.tltools .zoomgrp .zfit{flex:none;white-space:nowrap}
+
+/* ── Studio 디자인(2026-09-29) — Workspace 기준: 글자 11·12·13·15 · 알약 버튼 · 12px 패널 · 선 아이콘 · 다크 고정 ── */
+body{font-family:Pretendard,-apple-system,"Apple SD Gothic Neo",sans-serif;font-size:13px;letter-spacing:-.02em}
+/* 글자 네 단계 */
+body.applayout header h1{font-size:15px;font-weight:700;letter-spacing:-.3px}
+.rochip,#who,.small,.tltools{font-size:12px}
+.faint,.tc,.ruler i,.srclab{font-size:11px}
+#rail button span{font-size:11px;letter-spacing:-.2px}
+.lab,.lab div{font-size:12px}
+.blk{font-size:11px;font-weight:500;color:var(--blkink)}
+.dfld > span{font-size:12px;color:var(--muted)}
+#railPanel > h3{font-size:15px}
+#insp .ttl{font-size:15px}
+/* 상단바·도구 줄 — 버튼은 알약 */
+body.applayout header{background:var(--rail);height:52px;padding:0 14px;gap:10px}
+body.applayout header button,.tltools button,.tltools .ico,.tltools .grp,.tltools .zoomgrp{border-radius:999px!important}
+body.applayout header button{height:32px;padding:0 14px;background:var(--panel2);color:var(--text);font-weight:600;display:inline-flex;align-items:center;gap:4px}
+#bellBtn,#fsBtn{width:32px!important;padding:0!important;justify-content:center}
+.tltools{background:var(--rail);padding:8px 14px;gap:8px}
+.tltools button,.tltools .ico{background:var(--panel2);color:var(--text)}
+.tltools .grp{background:var(--panel2);padding:0 4px}
+.tltools .grp button{background:transparent}
+.tltools .grp button + button{border-left-color:transparent!important}
+.tltools button.primary{background:#f4f4f4;color:#181818;font-weight:700}   /* 주 버튼 = Workspace 다크 solid(흰 알약) */
+.tltools button.primary:hover{background:#dedede;filter:none}
+#saveDraftBtn.primary{background:var(--panel2);color:var(--text)}          /* 저장은 보조 */
+#editToggle.on{background:var(--accent);color:var(--accent-ink)}
+/* 왼쪽 레일 */
+#rail{width:56px;background:var(--rail)}
+body.applayout #railPanel{left:56px}
+#rail button{width:48px;height:52px;border-radius:10px;color:var(--muted)}
+#rail button svg{width:20px;height:20px;flex:none}
+#rail button.on{background:var(--panel2);color:var(--text)}
+#rail button.on svg{stroke:var(--text)}
+#railPanel{background:var(--panel)}
+.lab,.ruler{background:var(--rail)}
+.lab div::before{border-radius:50%}
+input,select,textarea,.dfld input,.dfld select{background:var(--panel2);border-radius:8px}
+.blk{border-radius:4px}
+.blk.sel,body.editing .blk.sel{box-shadow:0 0 0 2px var(--accent)}
+#notePop{background:var(--panel2)}
+/* 글자 옆 작은 선 아이콘(EI) */
+.ei{width:1.15em;height:1.15em;flex:none;vertical-align:-.2em;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+button:has(> .ei){display:inline-flex;align-items:center;justify-content:center;gap:5px}
+.steprow button .ei,.zbtn .ei,.srcz button .ei{width:14px;height:14px}
+#backBtn{padding-left:9px!important}
+#fsBtn .ei{width:16px;height:16px}
+.caret{display:inline-flex;align-items:center}.caret .ei{width:12px;height:12px}
+.stbadge.warnb .ei{width:12px;height:12px;color:var(--warn)}
+#editor-gate a{display:inline-flex;align-items:center;gap:4px;text-decoration:none}
+/* 검은 쇼츠가 어두운 편집실에 묻히지 않게 — 미리보기 주변만 한 단계 밝게 + 화면 둘레 옅은 선(신호용) */
+.player,#shortsWrap{background:#232323!important}
+.shorts{box-shadow:0 0 0 1px rgba(255,255,255,.14);border-radius:10px}
+/* 쇼츠 안전 영역(src/editor-safe.js) — 버튼은 미리보기 화면 오른쪽 옆 아래 */
+#shortsWrap{position:relative}
+#safeBtn{position:absolute;width:36px;height:36px;padding:0;border:0;border-radius:50%!important;display:grid;place-items:center;cursor:pointer;background:#454545;color:#f2f2f2;z-index:30}
+#safeBtn:hover{background:#525252}
+#safeBtn.on{background:#f4f4f4;color:#181818}
+#safeOverlay{position:absolute;inset:0;z-index:20;pointer-events:none}
+#safeOverlay[hidden]{display:none}
+#safeOverlay i{position:absolute}
+/* 도구 줄 이름표 — 어디서 만든 영상인지 알약 */
+#runname{display:inline-flex;align-items:center;gap:10px;min-width:0}
+.srcpill{flex:none;font-size:11px;font-weight:600;line-height:1;padding:5px 9px;border-radius:999px;background:var(--panel2);color:var(--muted)}
+/* VES Studio 로고 — 글자 높이 가운데에 맞춘다 */
+.studio-mark{width:18px;height:18px;transform:translateY(-1.5px)}   /* 몸통이 아래로 무거워 보여서 글자(대문자) 가운데보다 살짝 위로 */
+/* 계정(src/editor-account.js) — Workspace 처럼 동그란 로봇. 이메일·로그아웃은 그 창 안으로 */
+#who,#logout{display:none!important}
+#accountBtn{width:32px!important;height:32px!important;padding:0!important;border-radius:50%!important;display:grid!important;place-items:center;background:var(--panel2);flex:none}
+#accountBtn[aria-expanded="true"]{box-shadow:0 0 0 2px var(--accent)}
+#accountBtn .avatar-robot{width:21px;height:21px;display:block}
+.avatar-robot{display:block}
+.ar1{fill:color-mix(in srgb,var(--text) 72%,var(--bg))}.ar2{fill:#c3c3c3}.ar3{fill:var(--muted)}.arg{fill:var(--accent)}.arw{fill:#fff}  /* 어두운 화면 — 몸을 살짝 어둡게 해서 흰 눈이 보이게 */
+#accountPop{position:fixed;z-index:360;width:260px;padding:16px;border-radius:14px;background:var(--panel2);display:flex;flex-direction:column;gap:12px;font-size:13px}
+#accountPop[hidden]{display:none}
+.acc-who{display:flex;align-items:center;gap:12px;min-width:0}
+.acc-av{width:44px;height:44px;border-radius:50%;background:var(--panel);display:grid;place-items:center;flex:none}
+.acc-av .avatar-robot{width:30px;height:30px}
+.acc-who>div{display:flex;flex-direction:column;gap:3px;min-width:0}
+.acc-who strong{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acc-who small{font-size:11px;color:var(--muted)}
+.acc-robots{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.acc-robots button{height:48px;border:0;border-radius:12px!important;padding:0;background:var(--panel);display:grid;place-items:center;cursor:pointer}
+.acc-robots button:hover{background:#2e2e2e}
+.acc-robots button[aria-checked="true"]{box-shadow:inset 0 0 0 2px var(--accent)}
+.acc-robots .avatar-robot{width:28px;height:28px}
+.acc-msg{margin:0;font-size:11px;color:var(--danger)}.acc-msg:empty{display:none}
+.acc-out{width:100%;height:36px;border:0;border-radius:999px!important;background:var(--panel);color:var(--text);font-weight:600;cursor:pointer}
+.acc-out:hover{background:#2e2e2e}
+/* 구간 화면 위치(src/editor-frame.js) — 편집 중 영상 칸을 좌우로 끈다 */
+body.editing .vslot.fr-ok{cursor:ew-resize}
+.vslot.fr-drag{cursor:grabbing!important}
+.fr-man{position:absolute;left:3px;bottom:3px;width:16px;height:16px;border-radius:5px;background:#000a;display:grid;place-items:center;z-index:2;pointer-events:none}
+.fr-man svg{width:12px;height:12px;fill:none;stroke:#fff;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.fr-row{display:flex;align-items:center;gap:10px;font-size:12px}
+.fr-row .k{color:var(--muted)}
+.fr-row .lnk{margin-left:auto}
+/* 구간 칸 버튼 줄(앞으로·뒤로·구간 삭제) — 같은 폭으로 나눈다 */
+.ebtns.eq{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+.ebtns.eq button{width:100%;min-width:0;justify-content:center}
+/* 내레이션 자막 구절 — 블록(목소리 하나) 안의 세로선이 구절 경계. 대략·재는 중이면 선을 옅게 */
+.blk.t.phr{padding:0!important}
+.blk.t .phc{position:absolute;top:0;bottom:0;display:flex;align-items:center;padding:0 5px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.blk.t .phd{position:absolute;top:3px;bottom:3px;width:1.5px;margin-left:-.75px;background:var(--bg);pointer-events:none}
+.blk.t.phr-rough .phd{opacity:.45}
+.ph-list{display:flex;flex-direction:column;gap:3px;padding:8px 10px;border-radius:8px;background:var(--panel2);font-size:12px}
+.ph-list>div{display:flex;gap:10px;align-items:baseline}
+.ph-list .tc{color:var(--faint);flex:none}
+.ph-list em{font-style:normal;font-size:11px;color:var(--faint)}
+.ph-list .ph-note{color:var(--warn);font-size:11px}
+/* 내레이션 구절이 뜰 때 — 렌더(v3_tts.ass \fscx130 → 92 → 106 → 100, 0.1초)와 같은 톡 튀어나오기 */
+@keyframes ttsPop{0%{transform:scale(1.3)}33%{transform:scale(.92)}66%{transform:scale(1.06)}100%{transform:scale(1)}}
+.shorts .ovtts.pop{animation:ttsPop .1s linear}
+/* 위치·폭 버튼(dmove·dwide) — 숫자 대신 누르며 미리보기로 본다 */
+.steprow.mv{display:flex;align-items:center;gap:6px}
+.steprow.mv > button:not(.lnk){width:32px;height:30px;padding:0;flex:none}
+.steprow.mv .mvv{font-style:normal;font-size:12px;color:var(--muted);min-width:52px;text-align:center}
+.steprow.mv .lnk{margin-left:auto;font-size:12px;flex:none;width:auto;height:auto;padding:0 2px;white-space:nowrap}
+/* 트랙 높이 자동 맞춤 — 블록 높이가 트랙을 따른다(--vz 자막·내레이션·텍스트·제목, --vzc 구간. draw 가 #inner 에 건다) */
+#inner .blk{height:calc(20px * var(--vz, 1))}
+#inner .vtrack .blk{height:calc(44px * var(--vzc, 1))}
+/* 트랙이 커질 때 글자는 조금만(최대 1.3배) — 블록만큼 키우면 답답하다 */
+#inner .blk{font-size:calc(11px * min(var(--vz, 1), 1.3))}
+/* 고른 블록 — 흰 테두리와 양옆 날개가 한 몸(날개 안 세로 두 줄 손잡이). 참고 이미지처럼, 2026-09-29.
+   테두리(4px)를 블록 안쪽에 두고 내용을 둥근 테두리 안으로 잘라서, 썸네일 모서리가 밖으로 삐져나오지 않는다(신호용 테두리) */
+body.editing .blk.sel{box-shadow:none!important;outline:none!important;border:4px solid #fff!important;border-radius:8px;overflow:hidden;z-index:5}
+body.editing .blk.c.sel::before,body.editing .blk.c.sel::after,
+body.editing .blk.t.sel::before,body.editing .blk.t.sel::after,
+body.editing .blk.s.sel::before,body.editing .blk.s.sel::after,
+body.editing .blk.x.sel::before,body.editing .blk.x.sel::after{
+  content:"";width:12px;border-radius:0;background-color:#fff;color:transparent;
+  background-image:linear-gradient(#3a3a3a,#3a3a3a),linear-gradient(#3a3a3a,#3a3a3a);
+  background-size:1.5px 12px,1.5px 12px;background-repeat:no-repeat;background-position:calc(50% - 2px) 50%,calc(50% + 2px) 50%}
+body.editing .blk.c.sel .cl{left:12px;top:0}
+body.editing #tlRoot #inner .blk.sel{border-color:#fff!important}   /* 네모 테두리 지우기 규칙(#tlRoot .blk.c)의 예외 — 고른 표시는 신호용 */
+/* 여러 개 고른 블록(⇧)·잠금 상태에서 고른 블록 — 띄운 바깥 선(outline-offset) 대신 블록 안쪽 테두리로 붙여 틈이 없게 */
+#tlRoot #inner .blk.msel{outline:none!important;box-shadow:none!important;border:3px solid var(--accent)!important;border-radius:8px;overflow:hidden}
+body:not(.editing) #tlRoot #inner .blk.sel{outline:none!important;box-shadow:none!important;border:3px solid #fff!important;border-radius:8px;overflow:hidden}
+/* 모서리 틈 없애기 — 둥근 테두리 안쪽 곡선과 날개·썸네일이 만나는 자리에 블록 바탕이 비쳤다. 날개 밑(양끝 12px)과 구간 바탕을 흰색으로 */
+body.editing #tlRoot #inner .blk.sel{background-image:linear-gradient(to right,#fff 12px,transparent 12px,transparent calc(100% - 12px),#fff calc(100% - 12px))}
+body.editing #tlRoot #inner .blk.c.sel{background-color:#fff}
+/* 모서리 이음새까지 없애기 — 테두리(안쪽 곡선)를 쓰지 않는다. 블록을 한 번만 둥글게 자르고 흰 테를 안쪽 그림자로 칠한다.
+   날개가 모서리를 덮고, 썸네일·번호는 위아래 4px 안쪽에 둬서 흰 테 위를 덮지 않는다 */
+body.editing #tlRoot #inner .blk.sel{border:0!important;box-shadow:inset 0 0 0 4px #fff!important;border-radius:8px;overflow:hidden}
+body.editing #tlRoot #inner .blk.c.sel .ct{top:4px!important;bottom:4px!important;height:auto!important}
+body.editing #tlRoot #inner .blk.c.sel .cl{top:4px;left:12px}
+/* 고른 구간 — 왼쪽 아래 표시(소리 끔·화면 위치)가 날개에 가리지 않게 날개 안쪽으로, 흰 테 위로 올라오게 */
+body.editing #tlRoot #inner .blk.c.sel .ck-mute,body.editing #tlRoot #inner .blk.c.sel .fr-man{left:15px;bottom:7px}
+body.editing #tlRoot #inner .blk.c.sel .fx-zoom{right:15px;bottom:7px}
+/* 날개 손잡이 두 줄 — 더 얇고 짧게(1px × 9px, 간격 3px) */
+body.editing #tlRoot #inner .blk.sel::before,body.editing #tlRoot #inner .blk.sel::after{
+  background-size:1px 9px,1px 9px;background-position:calc(50% - 1.5px) 50%,calc(50% + 1.5px) 50%}
+/* 층 순서: 재생 위치 빨간 선 > 고른 블록 흰 테 > 구절 구분선. 구분선은 1px, 고른 블록에선 흰 테(4px) 안쪽까지만 */
+#inner .outph{z-index:30}
+#tlRoot #inner .blk.t .phd{width:1px;margin-left:0}
+body.editing #tlRoot #inner .blk.t.sel .phd{top:4px;bottom:4px}

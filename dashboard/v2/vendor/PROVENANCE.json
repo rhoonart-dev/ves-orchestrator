@@ -1,0 +1,6 @@
+{
+  "package": "@supabase/supabase-js",
+  "version": "2.112.2",
+  "source": "ves-orchestrator/dashboard/index.html inline UMD",
+  "sha256": "517af9ab22d07540869886b47951caf2fc8c25f0c7e00a3ea6f86d1d10eafc4d"
+}
