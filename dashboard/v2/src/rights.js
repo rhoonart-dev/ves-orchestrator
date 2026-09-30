@@ -1,15 +1,10 @@
 import {fetchRights} from './rights-service.js';
-import {ON_WORK_PC,localOnlyEmpty} from './local-only.js';
 import {enhanceDropdowns} from './dropdowns.js';
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const labels={pending:'검수 대기',revision_requested:'수정 요청',resubmit_requested:'재제출 요청',completed:'검수 완료',cancelled:'취소'};
 const date=v=>v?new Date(v).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'}):'—';
 const link=(url,label)=>{try{const u=new URL(url);return ['https:','http:'].includes(u.protocol)?`<a href="${esc(u.href)}" target="_blank" rel="noopener noreferrer">${label} ↗</a>`:''}catch{return ''}};
 export function mountRights(root,client,initial={}){
- if(!ON_WORK_PC){   // 권리사 검수 목록은 레이블리에서 읽는데, 아직 작업 컴퓨터(로컬 서버)를 거친다
-  root.innerHTML=localOnlyEmpty('권리사 검수는 작업 컴퓨터에서만 볼 수 있어요','검수 목록을 아직 작업 컴퓨터에서 레이블리로 읽어 와요. 웹에서도 볼 수 있게 옮기는 중이에요.');
-  return()=>{};
- }
  let disposed=false,busy=false,records=[],selected=null,request=null,lastAttempt=0,page=1,pageCount=1,filterKey='';
  const pageSize=10;
  root.innerHTML=`<section class="rights-page"><div class="rights-head"><div class="rights-title"><h2>검수 목록</h2><span class="rights-result-count" role="status"></span></div><div class="rights-head-actions"><p class="rights-sync" role="status">불러오는 중…</p><button class="rights-refresh" type="button">새로고침</button></div></div><div class="rights-toolbar"><label class="rights-compact-filter">채널<select class="rights-channel"><option value="">전체</option></select></label><label class="rights-compact-filter">검수 상태<select class="rights-status"><option value="">전체</option>${Object.entries(labels).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select></label><label class="rights-compact-filter rights-work-filter">작품<select class="rights-work"><option value="">전체</option></select></label><label class="rights-search-label">검색<input type="search" class="rights-search" placeholder="채널·작품·회차·검수 ID"></label></div><div class="rights-layout"><aside class="rights-filters" aria-label="검수 필터"></aside><section class="rights-results" aria-label="권리사 검수 기록"><div class="rights-list"></div><div class="rights-pagination" role="navigation" aria-label="검수 목록 페이지" hidden><button type="button" class="rights-page-prev" aria-label="이전 페이지"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m12 5-5 5 5 5"/></svg></button><span class="rights-page-position" role="status" aria-live="polite"></span><button type="button" class="rights-page-next" aria-label="다음 페이지"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m8 5 5 5-5 5"/></svg></button></div></section></div><dialog class="rights-drawer" aria-labelledby="rights-detail-heading"><header class="rights-drawer-head"><h2 id="rights-detail-heading">검수 상세</h2><button type="button" class="rights-detail-close" aria-label="검수 상세 닫기">×</button></header><article class="rights-detail" aria-label="권리사 검수 상세"></article></dialog></section>`;

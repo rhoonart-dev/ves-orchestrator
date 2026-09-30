@@ -1,4 +1,4 @@
-import {mountChannels} from './channels.js?v=web-2';
+import {mountChannels} from './channels.js?v=web-3';
 import {mountChannelTemplates} from './channel-templates.js?v=av-1';
 import {mountPerformance} from './performance.js?v=15';
 import {mountTrends} from './trends.js?v=ask-1';
@@ -12,7 +12,7 @@ import {mountNodes} from './nodes.js';
 import {mountLocalVideos} from './local-videos.js?v=web-1';
 import {mountSchedule} from './schedule.js?v=web-2';
 import {createReviewService} from './review-service.js';
-import {mountRights} from './rights.js?v=web-1';
+import {mountRights} from './rights.js?v=web-2';
 import {setupMobileNavigation} from './mobile-navigation.js';
 import {setupScrollbars} from './scrollbars.js';
 import {setupWheelScroll} from './wheel-scroll.js';
