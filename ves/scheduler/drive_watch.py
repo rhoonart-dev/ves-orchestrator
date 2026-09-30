@@ -12,7 +12,7 @@ import datetime as dt
 import json
 import re
 
-from ves.scheduler.planner import _load_channels
+from ves.scheduler.planner import _load_channels, _load_paused
 
 _FOLDER_RE = re.compile(r"drive\.google\.com/drive/folders/([A-Za-z0-9_-]{20,})")
 
@@ -50,17 +50,26 @@ def sync_nodes(nodes_value, node_value) -> list:
     return [n.strip() for n in raw.split(",") if n.strip()]
 
 
+def active_works(channels, paused) -> tuple:
+    """(쉬지 않는 채널의 작품 집합, 쉬지 않는 채널이 하나라도 있는가). 순수 — 테스트 대상.
+    채널을 멈추면(0103 paused_channels) 그 채널에만 걸린 작품은 드라이브에서도 받지 않는다(2026-09-30 사용자 요청).
+    여러 채널에 걸린 작품은 하나라도 쉬지 않으면 받는다."""
+    live = [ch for ch in channels or [] if ch.get("token_slug") not in (paused or set())]
+    return {w for ch in live for w in (ch.get("works") or [])}, bool(live)
+
+
 def collect_targets(conn, cfg) -> list:
     """감시 대상 폴더 목록 [(라벨, url, 작품명|None, 모드)] — drive_watch 와 source_watch 가 공유한다."""
     targets = []
+    live, any_live = active_works(_load_channels(cfg), _load_paused(conn))
 
     with conn.cursor() as c:
         c.execute("SELECT value FROM public.ops_config WHERE key='drive_watch_folder'")
         row = c.fetchone()
-    if row and row["value"]:
+    if row and row["value"] and any_live:     # 모든 채널이 쉬면 외부 폴더도 받지 않는다
         targets.append(("외부폴더", row["value"], None, "external"))
 
-    works = sorted({w for ch in _load_channels(cfg) for w in (ch.get("works") or [])})
+    works = sorted(live)
     if works and cfg.laeebly_url:
         try:
             from ves.db import connect

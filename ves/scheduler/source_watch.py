@@ -147,6 +147,11 @@ def run(conn, cfg) -> int:
     low_days = float(kv.get("source_low_days") or LOW_DAYS)
 
     low = needs_refill(rows, low_days)
+    # 쉬는 채널에만 걸린 작품은 보충하지 않는다(경보도 내지 않는다) — drive_watch.active_works 와 같은 기준
+    from ves.scheduler.drive_watch import active_works
+    from ves.scheduler.planner import _load_channels, _load_paused
+    live, _ = active_works(_load_channels(cfg), _load_paused(conn))
+    low = [w for w in low if w in live]
     if not low:
         return 0
 
