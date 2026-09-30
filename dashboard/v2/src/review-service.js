@@ -1,4 +1,5 @@
 import {inspectEditor} from './editor-service.js';
+import {needWorkPc} from './local-only.js';
 import {hiddenChannels} from './channel-visibility.js';
 import {fetchWorkPolicies} from './rights-service.js';
 const fields='id,kind,work_order_id,job_id,clip_id,channel_slug,round_id,payload,status,decided_by,decided_at,decision_note,created_at';
@@ -87,6 +88,7 @@ export function createReviewService(client){
   return readAll(()=>client.from('review_queue').select(fields).eq('work_order_id',r.work_order_id).order('created_at',{ascending:false}).order('id'));
  }
  async function reject(item,note){
+  needWorkPc();
   if(!note.trim())throw new Error('반려 사유를 입력해 주세요.');
   const {data:auth,error}=await client.auth.getSession();if(error||!auth.session)throw new Error('로그인이 필요합니다.');
   const response=await fetch('/api/workflow/'+encodeURIComponent(item.id),{method:'POST',headers:{Authorization:'Bearer '+auth.session.access_token,'Content-Type':'application/json'},body:JSON.stringify({action:'reject',note:note.trim()})});

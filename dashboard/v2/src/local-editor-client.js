@@ -1,7 +1,9 @@
+import {needWorkPc} from './local-only.js';
 // Local bundle mode for the ported editor: auth stays on the real VES client; every data call the
 // editor makes is answered from /api/local-videos (ai-video videos/<suffix>/ bundles). Nothing is
 // written to VES tables; the only VES reads are the voice settings (ops_config) and voice preview. Submissions are recorded as edits and re-render the video in the background — see scripts/local_videos_api.py.
 async function api(client,path,body){
+ needWorkPc('편집실은 아직 작업 컴퓨터에서만 열 수 있어요.');
  const {data:{session}}=await client.auth.getSession();
  const headers={'Authorization':`Bearer ${session?.access_token||''}`};
  if(body)headers['Content-Type']='application/json';
