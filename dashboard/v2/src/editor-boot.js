@@ -1,13 +1,13 @@
 import {config} from './config.js';
 import {setupScrollbars} from './scrollbars.js';
-import {createLocalEditorClient,loadLocalVideo} from './local-editor-client.js?v=render-119';
-import {confirmSubmit} from './editor-submit-dialog.js?v=render-119';
-import './editor-checks.js?v=render-119';   // window.__edChecks — 제출 전 검사(ves-editor.js 가 부른다)
-import './editor-fx.js?v=render-119';
-import './editor-frame.js?v=render-119';   // window.__edFrame — 구간 화면 위치(미리보기 자르기·끌기)       // window.__edFx — 강조·줌 편집
-import {mountNotes} from './editor-notes.js?v=render-119';   // 상단바 종 버튼(알림 창)
-import {mountSafeArea} from './editor-safe.js?v=render-119';   // 미리보기 옆 쇼츠 안전 영역 버튼
-import {mountAccount} from './editor-account.js?v=render-119';   // 오른쪽 위 계정 로봇(이메일·로그아웃)
+import {createLocalEditorClient,loadLocalVideo} from './local-editor-client.js?v=remote-1';
+import {confirmSubmit} from './editor-submit-dialog.js?v=render-123';
+import './editor-checks.js?v=render-123';   // window.__edChecks — 제출 전 검사(ves-editor.js 가 부른다)
+import './editor-fx.js?v=render-123';
+import './editor-frame.js?v=render-123';   // window.__edFrame — 구간 화면 위치(미리보기 자르기·끌기)       // window.__edFx — 강조·줌 편집
+import {mountNotes} from './editor-notes.js?v=render-123';   // 상단바 종 버튼(알림 창)
+import {mountSafeArea} from './editor-safe.js?v=render-123';   // 미리보기 옆 쇼츠 안전 영역 버튼
+import {mountAccount} from './editor-account.js?v=render-123';   // 오른쪽 위 계정 로봇(이메일·로그아웃)
 import {icon} from './icons.js';
 const gate=document.getElementById('editor-gate'),message=gate.querySelector('p');
 // 여는 중 진행 표시: 단계마다 목표치까지 천천히 차오른다(오래 걸리는 영상 자료 단계에서도 멈춘 것처럼 보이지 않게).
@@ -89,7 +89,7 @@ async function boot(){
  if(!roles.data.some(r=>['reviewer','operator','admin'].includes(r.role)))throw new Error('편집하려면 검수자나 관리자 권한이 필요해요.');
  const payload=await bootLocal(client);
  step(3);
- await import('./ves-editor.js?v=render-119');
+ await import('./ves-editor.js?v=render-123');
  const root=document.getElementById('tlRoot');root.style.display='flex';root.style.flexDirection='column';
  showLocalNotes(payload);setupScrollbars();
  mountAccount(client,data.user,roles.data.map(r=>r.role));

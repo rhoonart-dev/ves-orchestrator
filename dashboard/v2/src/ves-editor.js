@@ -254,7 +254,9 @@ function resolveCues(tts, finalClips){
   }
   const total = base;
   return { total, cues: tts.map((t, ti) => {
-    const containing = spans.filter(sp => sp.s <= t.src && t.src < sp.e);
+    // 엔진 src_to_out 과 같이 시작에 0.001초 여유 — 초안에 저장된 구간 시각은 소수 셋째 자리로 반올림돼(2640.9666→2640.967)
+    // 구간 시작에 딱 맞춘 내레이션 앵커가 '밖'으로 떨어져 빠진다고 잘못 나왔다
+    const containing = spans.filter(sp => sp.s - 0.001 <= t.src && t.src < sp.e);
     if (containing.length){
       const exact = cur && cur.row && cur.row.timeline && cur.row.timeline.engine_rules === false
         && containing.find(sp => Math.abs(sp.s - t.src) < 0.002);
@@ -289,22 +291,33 @@ function runEngineRules(){
   m.textCues = resolveCues(m.texts || [], dd.clips).cues;   // 텍스트도 같은 앵커 규칙
   // 자막(장면 따라가기 켬)도 같은 규칙으로 재배치해 **화면에 반영**한다.
   // 길이는 유지하고 시작만 앵커가 가리키는 자리로 — 엔진이 렌더 때 하는 일과 같다.
+  // 같은 원본 장면을 두 번 쓴 편(앞은 내레이션 덮개·소리 끔, 뒤는 대사와 함께)에서 '첫 구간'에 붙이면 대사 자막이
+  // 덮개 쪽 내레이션 위로 간다. 그래서 담은 구간이 여럿이면 ① 내레이션과 안 겹치는 구간 ② 지금(원래) 자리에서 가장 가까운 구간.
+  // 그런 줄은 _amb 로 표시해 제출 때 원본 시각 대신 이 완성본 시각을 보낸다(엔진 src_to_out 도 첫 구간 규칙이다).
   {
-    const idx = [], anch = [];
-    (m.subs || []).forEach((su, i) => {
+    const spans = []; let b0 = 0;
+    for (const c of dd.clips.filter(c => !c.dead)){ spans.push({ s: c.start, e: c.end, base: b0, sp: clipSpd(c) }); b0 += clipDur(c); }
+    const voiced = (m.cues || []).filter(q => !q.dropped).map(q => [q.out, q.out + q.dur]);
+    const quiet = (a, b) => !voiced.some(([x, y]) => Math.min(b, y) - Math.max(a, x) > 0.1);
+    (m.subs || []).forEach(su => {
+      Object.defineProperty(su, "_amb", { value: false, writable: true, enumerable: false, configurable: true });
       if (su.del || !su.follow || su.src == null) return;
-      idx.push(i); anch.push({ src: +su.src, dur: Math.max(0.1, su.end - su.start) });
+      const len = su.end - su.start, src = +su.src;
+      const hits = spans.filter(sp => sp.s - 0.001 <= src && src < sp.e)
+        .map(sp => ({ out: sp.base + Math.max(0, src - sp.s) / sp.sp }));
+      if (!hits.length){                              // 경계 밖 — 종전 엔진 스냅 그대로
+        const q = resolveCues([{ src, dur: Math.max(0.1, len) }], dd.clips).cues[0];
+        if (!q.dropped){ su.start = +q.out.toFixed(3); su.end = +(q.out + len).toFixed(3); }
+        return;
+      }
+      let pick = hits;
+      if (hits.length > 1){
+        su._amb = true;
+        const ok = hits.filter(h => quiet(h.out, h.out + len)); if (ok.length) pick = ok;
+      }
+      const h = pick.reduce((a, b) => Math.abs(b.out - su.start) < Math.abs(a.out - su.start) ? b : a);
+      su.start = +h.out.toFixed(3); su.end = +(h.out + len).toFixed(3);
     });
-    if (idx.length){
-      const rs = resolveCues(anch, dd.clips).cues;
-      rs.forEach((q, k) => {
-        const su = m.subs[idx[k]];
-        if (q.dropped) return;                    // 소재가 빠진 줄 — 자리 유지(경고로 알린다)
-        const len = su.end - su.start;
-        su.start = +q.out.toFixed(3);
-        su.end = +(q.out + len).toFixed(3);
-      });
-    }
   }
   // 완성본 출력 위치 (dead 제외 누적)
   let base = 0;
@@ -1477,8 +1490,7 @@ function draw(){
           if (to === curPos || to === curPos + 1) return;      // 제자리
           // 시각 고정(장면 따라가기 끔) 자막이 있으면 알린다 — 그 줄만 제자리에 남는다
           const pinned = cur.model.subs.filter(su => !su.del && !su.follow).length;
-          if (pinned && !confirm(`구간 순서를 바꿀까요?\n\n자막과 내레이션은 장면을 따라 함께 움직여요. ` +
-            `'장면 따라가기'를 끈 자막 ${pinned}줄은 지금 자리에 그대로 있어요.`)) return;
+          if (pinned) setTimeout(() => undoToast(`구간 순서를 바꿨어요. 장면 따라가기를 끈 자막 ${pinned}줄은 제자리에 있어요`), 0);
           snap();
           // 객체 참조로 옮긴다 — 인덱스는 splice 뒤 밀리므로 믿을 수 없다
           const moved = cur.model.clips[from];
@@ -2299,8 +2311,8 @@ window.updClip = (i, f, v) => { snap(); const c = cur.model.clips[i];
   if (f === "role") c.role = v;
   else { const t = parseT(v); if (t == null){ toast("시각은 16:04.1 이나 초로 적어 주세요"); return; } c[f] = t; }
   refresh("clip", i); };
-window.delClip = i => { if (!confirm((i + 1) + "번 구간을 지울까요?")) return;
-  snap(); cur.model.clips.splice(i, 1); refresh(); closeSide(); };
+window.delClip = i => {
+  snap(); cur.model.clips.splice(i, 1); refresh(); closeSide(); undoToast(`${i + 1}번 구간을 지웠어요`); };
 window.moveClip = (i, d) => { const a = cur.model.clips, j = i + d;
   if (j < 0 || j >= a.length) return; snap(); [a[i], a[j]] = [a[j], a[i]]; refresh("clip", j); };
 window.updTts = (i, f, v) => { snap(); const t = cur.model.tts[i];
@@ -2351,16 +2363,15 @@ window.subCkToggle = (i, on) => { on ? subCk.add(i) : subCk.delete(i);
   renderRailPanel("subs"); };
 window.delSubChecked = () => {
   if (!subCk.size){ toast("지울 자막을 먼저 골라 주세요"); return; }
-  if (!confirm(`고른 자막 ${subCk.size}줄을 지울까요? ⌘Z로 되돌릴 수 있어요.`)) return;
+  const n = subCk.size;
   snap(); subCk.forEach(i => { if (cur.model.subs[i]) cur.model.subs[i].del = true; });
-  subCk = new Set(); refresh(); renderRailPanel("subs");
+  subCk = new Set(); refresh(); renderRailPanel("subs"); undoToast(`자막 ${n}줄을 지웠어요`);
 };
 window.subsClearAll = () => {
   const live = cur.model.subs.filter(su => !su.del).length;
   if (!live){ toast("이미 모두 지워져 있어요"); return; }
-  if (!confirm("대사 자막 " + live + "줄을 모두 지우고 자막 없이 내보낼까요?\n⌘Z로 되돌릴 수 있어요.")) return;
   snap(); cur.model.subs.forEach(su => { su.del = true; });
-  subCk = new Set(); refresh(); renderRailPanel("subs");
+  subCk = new Set(); refresh(); renderRailPanel("subs"); undoToast(`대사 자막 ${live}줄을 모두 지웠어요`);
 };
 
 // 내레이션 다중 선택·일괄 목소리 — 자막과 같은 규약
@@ -2371,17 +2382,16 @@ window.ttsCkAll = on => { ttsCk = new Set(on ? cur.model.tts.map((_, i) => i) : 
 window.ttsCkToggle = (i, on) => { on ? ttsCk.add(i) : ttsCk.delete(i); renderRailPanel("tts"); };
 window.delTtsChecked = () => {
   if (!ttsCk.size){ toast("지울 내레이션을 먼저 골라 주세요"); return; }
-  if (!confirm(`고른 내레이션 ${ttsCk.size}줄을 지울까요? ⌘Z로 되돌릴 수 있어요.`)) return;
+  const n = ttsCk.size;
   snap();
   [...ttsCk].sort((a, b) => b - a).forEach(i => cur.model.tts.splice(i, 1));
-  ttsCk = new Set(); refresh(); renderRailPanel("tts");
+  ttsCk = new Set(); refresh(); renderRailPanel("tts"); undoToast(`내레이션 ${n}줄을 지웠어요`);
 };
 window.applyVoiceAll = () => {
   const idx = ttsCk.size ? [...ttsCk] : cur.model.tts.map((_, i) => i);
   if (!idx.length){ toast("내레이션이 없어요"); return; }
-  if (!confirm(`${idx.length}줄의 목소리를 바꿀까요?`)) return;
   snap(); idx.forEach(i => { cur.model.tts[i].voice = ttsBulkVoice; });
-  refresh(); renderRailPanel("tts");
+  refresh(); renderRailPanel("tts"); undoToast(`${idx.length}줄의 목소리를 바꿨어요`);
 };
 window.previewBulkVoice = () => {
   const t = cur.model.tts.find(x => String(x.text || "").trim());
@@ -2622,9 +2632,8 @@ function multiTrim(edge){
       else { if (sp.a >= outT - 0.001) del.push(sp);
         else if (sp.b > outT) trim.push(sp); }
     }
-    if (del.length && !confirm(`고른 구간을 재생 헤드${edge === "start" ? "부터" : "까지"}로 다듬을까요?\n\n` +
-        `${del.length}개는 지우고 ${trim.length}개는 잘라요.`)) return true;
     snap();
+    if (del.length) setTimeout(() => undoToast(`구간 ${del.length}개를 지우고 ${trim.length}개를 잘랐어요`), 0);
     for (const sp of trim){
       const c = m.clips[sp.i], srcT = clipSrcAt(sp.f, sp.f.out, outT);
       if (edge === "start") c.start = +Math.max(0, Math.min(c.end - MIN, srcT)).toFixed(3);
@@ -2697,15 +2706,11 @@ window.delSelected = () => {
     : (curSel && MULTI_KINDS.includes(curSel.kind) ? curSel.kind : null);
   if (!kind){ toast("지울 블록을 먼저 골라 주세요"); return; }
   const idx = multiSel.idx.length ? [...multiSel.idx] : [curSel.i];
-  const soft = kind === "sub";
-  if (!confirm(`${MULTI_LABEL[kind]} ${idx.length}개를 지울까요?` +
-      (soft ? "\n\n지운 자막은 왼쪽 [자막] 목록에 흐리게 남아서 되살릴 수 있어요." : "") +
-      "\n\n⌘Z로 되돌릴 수 있어요.")) return;
   snap();
   const n = multiDelete(idx, kind, true);
   multiSel = { kind: null, idx: [] }; curSel = null;
   refresh(); closeSide(); updTrashBtn();
-  toast(`${MULTI_LABEL[kind]} ${n}개를 지웠어요. ⌘Z로 되돌릴 수 있어요`);
+  undoToast(`${MULTI_LABEL[kind]} ${n}개를 지웠어요`);
 };
 
 window.splitSelClip = () => {
@@ -2759,6 +2764,20 @@ window.addClipFromSel = () => {
   srcSel = null; $("#addClipBtn").disabled = true;
   refresh("clip", cur.model.clips.length - 1);
 };
+// 되돌리기 알림 — 지우기·한꺼번에 바꾸기는 묻지 않고 바로 하고, 화면 아래에 [되돌리기] 를 8초 띄운다(2026-09-29 사용자).
+// 브라우저 확인창은 편집 흐름을 끊는다. 되돌리기는 ⌘Z 와 같다(바꾸기 전에 snap 해 둔 상태로).
+function undoToast(msg){
+  let el = document.getElementById("undoToast");
+  if (!el){ el = document.createElement("div"); el.id = "undoToast"; el.setAttribute("role", "status"); document.body.append(el); }
+  const hide = () => el.classList.remove("on");
+  el.innerHTML = `<span>${esc(msg)}</span><button type="button">되돌리기</button>`;
+  el.querySelector("button").onclick = () => { hide(); doUndo(); };
+  // 8초 뒤 사라진다 — 마우스를 올려 두는 동안은 기다린다
+  const arm = () => { clearTimeout(el._t); el._t = setTimeout(hide, 8000); };
+  el.onmouseenter = () => clearTimeout(el._t); el.onmouseleave = arm;
+  el.classList.add("on"); arm();
+}
+window.undoToast = undoToast;
 function toast(msg){ $("#saveMsg").textContent = msg;
   setTimeout(() => { if ($("#saveMsg").textContent === msg) paintSaveMsg(); }, 3500); }
 
@@ -2803,7 +2822,9 @@ function collectOv(forDraft){
       if (forDraft && su.del) o.del = true;
       // 장면 따라가기 켬 = 앵커 동봉(엔진이 최종 타임라인으로 재배치).
       // 끔 = 앵커 없이 → start_sec 그대로 박힌다(V3-b 계약).
-      if (su.src != null && su.follow) o.source_time_sec = +(+su.src).toFixed(3);
+      // 같은 장면이 여러 구간에 있는 줄(_amb)은 제출 때 원본 시각을 빼고 편집실이 고른 자리를 그대로 보낸다 — 엔진은 첫 구간에 붙인다.
+      // 초안에는 남긴다(다시 열 때 '장면 따라가기'가 켜진 채로)
+      if (su.src != null && su.follow && (forDraft || !su._amb)) o.source_time_sec = +(+su.src).toFixed(3);
       if (su.style && Object.keys(su.style).length) o.style = { ...su.style };
       return o; }); n++; }
   else if (forDraft && (cur.row.draft || {}).subtitles) d.subtitles = null;
