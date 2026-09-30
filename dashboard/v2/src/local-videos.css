@@ -27,7 +27,6 @@
 .lv-badge.ok{background:var(--dot-ok-bg);color:var(--dot-ok-text)}
 .lv-badge.fail{background:var(--danger-bg);color:var(--danger)}
 @keyframes lv-pulse{50%{opacity:.25}}
-.lv-row-state.lv-row-error{font-size:12px;font-weight:600;color:var(--danger);background:var(--danger-bg);border-radius:8px;padding:8px 10px;margin-top:2px}
 .lv-notes{margin:8px 0 0;padding-left:16px;font-size:11px;line-height:1.7;color:var(--secondary)}
 .lv-notes li.warn{color:var(--ink)}
 /* 왼쪽 세로 캡처(완성본 1초 지점) — 카드 높이 전체(글 + 버튼 줄)를 차지. 버튼은 오른쪽 아래 */

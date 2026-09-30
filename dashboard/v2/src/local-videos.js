@@ -1,7 +1,8 @@
 import {esc} from './review-details.js';
 import {ON_WORK_PC,localChip} from './local-only.js';
 import {assetRequest} from './work-assets.js';
-import {localMedia} from './local-jobs.js?v=mv-4';
+import {localMedia,jobNode} from './local-jobs.js?v=rf-1';
+import {failureInfo,lineHtml,openFailurePop,injectStyle as failureStyle} from './render-failure.js?v=7';
 // 편집실 메뉴 — 다시 렌더 중인 영상, 이어서 할 초안, 최근 제출(7일)을 나눠 보여 준다. 새 편집은 작업 목록의 영상에서 시작한다.
 // 렌더 중인 영상이 있으면 15초마다 다시 읽어 끝나는 대로 '최근 제출'로 옮긴다.
 const EDITORS=['reviewer','operator','admin'];
@@ -17,26 +18,32 @@ function kind(v){
  if(v.draft?.stale)return 'stale';
  return null;
 }
+// 렌더 실패 한 줄 — 이유 + [자세히](말풍선: 할 일 · 렌더한 맥미니 로봇의 말). 말풍선 내용은 편 열쇠로 찾는다
+const failures=new Map();
+function failedLine(v){
+ const info=failureInfo(v.apply.error,{node:v.apply.node||null,at:v.apply.finished_at,restorable:v.apply.restorable});
+ failures.set(v.key,info);return lineHtml(info,v.key);
+}
 function row(job,v,k,canEdit){
  const editable=canEdit&&v.status==='ready'&&v.source_ok;
  const edit=label=>!ON_WORK_PC&&!String(v.key||'').startsWith('remote-')?(editable?localChip('편집은 작업 컴퓨터에서'):''):editable?`<a class="lv-edit" href="editor.html?local=1&run=${encodeURIComponent(v.key)}&back=${encodeURIComponent(job.id)}&from=editor">${label}</a>`:'';
  const [badge,line,action]={
   busy:()=>['<span class="lv-badge busy">렌더 중</span>',`${when(v.apply.started_at)} 제출${v.apply.by?' · '+v.apply.by:''} · 끝나면 새 판으로 바뀌어요`,''],
   draft:()=>['<span class="lv-badge">초안</span>',`${when(v.draft.saved_at)} 저장${v.draft.saved_by?' · '+v.draft.saved_by:''}`,edit('이어서 편집')],
-  failed:()=>['<span class="lv-badge fail">렌더 실패</span>',v.apply.error||'다시 렌더하지 못했어요',edit(v.apply.restorable?'제출한 내용 고치기':'다시 편집')],
+  failed:()=>['<span class="lv-badge fail">렌더 실패</span>',null,edit(v.apply.restorable?'제출한 내용 고치기':'다시 편집')],
   done:()=>['<span class="lv-badge ok">새 판 완성</span>',`${when(v.apply.finished_at)} 완성${v.apply.by?' · '+v.apply.by:''}${v.apply.notes?.length?` · 달라진 점 ${v.apply.notes.length}가지`:''}`,edit('새 판 편집')],
   stale:()=>['<span class="lv-badge">지난 초안</span>','영상이 새로 만들어져서 이 초안은 이어갈 수 없어요',edit('새 판 편집')],
  }[k]();
  // 왼쪽 세로 캡처 — 완성본 1초 지점(렌더가 바뀌면 지문으로 새로 읽는다)
  const thumb=`<span class="lv-thumb"><video src="${esc(v.thumb||localMedia(v.key,'shorts.mp4')+'&v='+encodeURIComponent(String(v.render_fingerprint||'').slice(0,12)))}#t=1" muted playsinline preload="metadata" aria-hidden="true"></video></span>`;
- return `<article class="lv-row"><div class="lv-row-main">${thumb}<div class="lv-row-copy"><p class="lv-eyebrow">${esc([job.work,job.title].filter(Boolean).join(' · '))} · ${esc(v.suffix)}</p><h3>${badge}${esc((v.title||v.suffix).replace(/\n/g,' '))}</h3><p class="lv-row-state${k==='failed'?' lv-row-error':''}">${esc(line)}</p>${k==='done'&&v.apply.notes?.length?`<ul class="lv-notes">${v.apply.notes.map(n=>`<li class="${n.level==='warn'?'warn':''}">${esc(n.text)}</li>`).join('')}</ul>`:''}</div></div><div class="lv-actions"><a class="lv-folder" href="#review/${esc(job.id)}">작업 폴더</a>${action}</div></article>`;
+ return `<article class="lv-row"><div class="lv-row-main">${thumb}<div class="lv-row-copy"><p class="lv-eyebrow">${esc([job.work,job.title].filter(Boolean).join(' · '))} · ${esc(v.suffix)}</p><h3>${badge}${esc((v.title||v.suffix).replace(/\n/g,' '))}</h3><p class="lv-row-state">${k==='failed'?failedLine(v):esc(line)}</p>${k==='done'&&v.apply.notes?.length?`<ul class="lv-notes">${v.apply.notes.map(n=>`<li class="${n.level==='warn'?'warn':''}">${esc(n.text)}</li>`).join('')}</ul>`:''}</div></div><div class="lv-actions"><a class="lv-folder" href="#review/${esc(job.id)}">작업 폴더</a>${action}</div></article>`;
 }
 // 맥미니 영상의 편집 — 초안(0113 tikitaka_edit_drafts, 사람별) · 다시 렌더(tikitaka_apply_edit 잡). 행 하나 = 초안 하나 또는 그 편의 최근 렌더
 async function remoteRows(client){
  const since=new Date(Date.now()-RECENT_MS).toISOString();
  const [d,j]=await Promise.all([
   client.from('tikitaka_edit_drafts').select('video_id,email,based_on,saved_at,submitted_job').order('saved_at',{ascending:false}).limit(300),
-  client.from('job_queue').select('id,status,error,params,created_at,started_at,finished_at').eq('kind','tikitaka_apply_edit').gte('created_at',since).order('created_at',{ascending:false}).limit(300)]);
+  client.from('job_queue').select('id,status,error,params,created_at,started_at,finished_at,node_id,required_caps').eq('kind','tikitaka_apply_edit').gte('created_at',since).order('created_at',{ascending:false}).limit(300)]);
  const drafts=d.data||[],jobs=j.data||[];
  const ids=[...new Set([...drafts.map(x=>x.video_id),...jobs.map(x=>x.params?.video_id)].filter(Boolean))];
  if(!ids.length)return [];
@@ -51,7 +58,7 @@ async function remoteRows(client){
  for(const q of jobs){                       // 그 편의 가장 최근 렌더만
   const x=byId.get(q.params?.video_id);if(!x||seen.has(x.id))continue;seen.add(x.id);
   const state={pending:'queued',running:'running',succeeded:'done'}[q.status]||'failed';
-  const v={...base(x),apply:{state,started_at:q.started_at||q.created_at,finished_at:q.finished_at||q.created_at,error:state==='failed'?String(q.error||'').slice(-200):null,by:q.params?.by||''}};
+  const v={...base(x),apply:{state,started_at:q.started_at||q.created_at,finished_at:q.finished_at||q.created_at,error:state==='failed'?String(q.error||'').slice(-300):null,by:q.params?.by||'',node:jobNode(q)}};
   if(state==='failed')v.apply.restorable=drafts.some(dd=>dd.video_id===x.id&&dd.submitted_job===q.id);
   out.push({job:jobOf(x),v,k:kind(v),who:q.params?.by||''});
  }
@@ -89,6 +96,7 @@ export function mountLocalVideos(root,{client,role}={}){
   }catch(e){if(dead)return;root.replaceChildren();const p=document.createElement('p');p.className='auth-notice';p.setAttribute('role','alert');p.textContent=e.message;root.append(p);}
  }
  if(!client){root.innerHTML='<p class="lv-status">로그인하면 편집 중인 영상을 볼 수 있어요.</p>';return()=>{};}
+ failureStyle();root.addEventListener('click',e=>{const b=e.target.closest('.rf-why');const info=b&&failures.get(b.dataset.rf);if(!info)return;const href=b.closest('.lv-row')?.querySelector('.lv-edit')?.getAttribute('href');openFailurePop(b,info,{action:href?{href,label:'편집실 열기'}:null});});   // 말풍선 아래 [편집실 열기] — 카드의 편집 버튼과 같은 곳
  render();
  return()=>{dead=true;clearTimeout(timer);};
 }

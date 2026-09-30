@@ -4,7 +4,7 @@ import {showToast} from './toast.js?v=1';
 import {loadLocalMedia} from './media-catalog.js';
 import {icon} from './icons.js';
 import {filterOptions,visibleJobs} from './review-model.js';
-import {loadLocalJobs} from './local-jobs.js?v=mv-4';
+import {loadLocalJobs} from './local-jobs.js?v=rf-1';
 import {workPosters} from './work-posters.js';
 // 필터 목록 그림 — 채널은 유튜브 채널 아이콘(channels_mirror.avatar_url), 작품은 작품 탭과 같은 포스터. 없으면 첫 글자.
 const norm=t=>String(t||'').replace(/\s/g,'');
