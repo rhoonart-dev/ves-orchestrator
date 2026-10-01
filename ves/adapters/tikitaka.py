@@ -67,6 +67,16 @@ def engine_args(args: dict | None) -> list:
     return out
 
 
+def engine_episode(p: dict) -> str:
+    """엔진 --episode — 엔진(리서치)은 회차 하나('8화')만 받는다. 두 회차 합본('7-8화')이면 마지막 회차를 넘긴다
+    (작업 컴퓨터에서 5-6화 합본을 '6화'로 돌리던 것과 같다). 순수 — 테스트 대상."""
+    lab = str(p.get("episode_label") or "")
+    m = re.fullmatch(r"(\d+)\s*-\s*(\d+)\s*(\D*)", lab)
+    if m:
+        return f"{m[2]}{m[3] or '화'}"
+    return lab or f"{p['episode']}화"
+
+
 def build_argv_pure(py: str, params: dict, source_path: str, out_dir: str) -> list:
     p = params or {}
     if not p.get("work_title"):
@@ -79,7 +89,7 @@ def build_argv_pure(py: str, params: dict, source_path: str, out_dir: str) -> li
     return [py, "-u", "-m", "app.tikitaka",
             "--source", source_path,
             "--title", str(p["work_title"]),
-            "--episode", str(p.get("episode_label") or f"{p['episode']}화"),
+            "--episode", engine_episode(p),
             "--count", str(count),
             "--out", out_dir,
             *engine_args(p.get("args"))]

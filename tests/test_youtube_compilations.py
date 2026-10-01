@@ -72,6 +72,7 @@ def test_prev_summary_never_emits_guide_keys():
 
 def test_argv_uses_episode_label():
     argv = tk.build_argv_pure("py", {"work_title": "로또", "episode": 5, "episode_label": "5-6화", "count": 3}, "/s", "/o")
-    assert argv[argv.index("--episode") + 1] == "5-6화"
+    assert argv[argv.index("--episode") + 1] == "6화"          # 엔진은 회차 하나만 받는다 — 두 회차 합본은 마지막 회차
+    assert tk.engine_episode({"episode_label": "410회", "episode": 410}) == "410회"
     argv = tk.build_argv_pure("py", {"work_title": "로또", "episode": 5, "count": 3}, "/s", "/o")
     assert argv[argv.index("--episode") + 1] == "5화"
