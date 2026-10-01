@@ -2193,10 +2193,11 @@ window.addEventListener("keydown", e => {
   else if (k === "q"){ e.preventDefault(); startHere(); }
 });
 window.addEventListener("keydown", e => {
-  if (!editMode || !(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z") return;
+  const k = e.key.toLowerCase(), redoY = k === "y" && e.ctrlKey && !e.metaKey;   // 윈도우의 다시 실행(Ctrl+Y)도 받는다
+  if (!editMode || !(e.metaKey || e.ctrlKey) || (k !== "z" && !redoY)) return;
   const tag = (e.target.tagName || "").toLowerCase();
   if (tag === "input" || tag === "textarea") return;   // 입력칸 안은 브라우저 기본 undo
-  e.preventDefault(); e.shiftKey ? doRedo() : doUndo();
+  e.preventDefault(); (e.shiftKey || redoY) ? doRedo() : doUndo();
 });
 
 // ── 시간대별 제목(E8) — 실험실은 창을 **읽고 통째로 대체**만 한다 ────────────

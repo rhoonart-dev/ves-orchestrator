@@ -2,13 +2,16 @@
 // data-tip="설명" 을 달거나, 예전처럼 title 을 달아도 된다(올리는 순간 title 을 data-tip 으로 옮겨 기본 설명이 같이 뜨지 않게).
 // 마우스를 올리거나 키보드로 고르면 그 아래(자리가 없으면 위)에 뜬다. 워크스페이스 · 편집실 둘 다 쓴다.
 let tip=null,cur=null,timer=0;
+// 단축키 설명은 맥 기호로 적어 두고(⌘Z · ⇧⌘Z), 윈도우 · 리눅스에서는 Ctrl 로 바꿔 보여 준다(다시 실행은 윈도우에 익숙한 Ctrl+Y)
+const MAC=/Mac|iPhone|iPad/.test(navigator.userAgentData?.platform||navigator.platform||navigator.userAgent);
+const keys=t=>MAC?t:t.replace(/⇧⌘Z/g,'Ctrl+Y').replace(/⇧⌘(\w)/g,'Ctrl+Shift+$1').replace(/⌘⇧(\w)/g,'Ctrl+Shift+$1').replace(/⌘\+?/g,'Ctrl+').replace(/⌥\+?/g,'Alt+').replace(/⇧\+?/g,'Shift+');
 const SEL='[data-tip],[title]';
 // title → data-tip. 글자 없는 아이콘 버튼은 title 이 이름이었으니 aria-label 로, 나머지는 설명(aria-description)으로 남긴다
 function adopt(el){
  if(!el.hasAttribute('title'))return;
  const t=el.getAttribute('title').trim();el.removeAttribute('title');
  if(!t){delete el.dataset.tip;return;}
- el.dataset.tip=t;
+ el.dataset.tip=keys(t);
  if(!el.getAttribute('aria-label')&&!el.textContent.trim())el.setAttribute('aria-label',t);
  else el.setAttribute('aria-description',t);
 }
@@ -16,7 +19,7 @@ function target(e){const el=e.target?.closest?.(SEL);if(el)adopt(el);return el?.
 function show(el){
  const text=el.dataset.tip;if(!text||!el.isConnected)return;
  if(!tip){tip=document.createElement('div');tip.className='ws-hint';tip.setAttribute('role','tooltip');tip.id='ws-hint';document.body.append(tip);}
- tip.textContent=text;cur=el;el.setAttribute('aria-describedby','ws-hint');tip.classList.add('on');
+ tip.textContent=keys(text);cur=el;el.setAttribute('aria-describedby','ws-hint');tip.classList.add('on');
  const r=el.getBoundingClientRect(),vw=document.documentElement.clientWidth,m=8,w=tip.offsetWidth,h=tip.offsetHeight;
  const up=r.bottom+8+h>innerHeight-m;
  tip.style.left=Math.min(Math.max(r.left+r.width/2-w/2,m),vw-w-m)+'px';
