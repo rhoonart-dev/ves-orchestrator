@@ -3,7 +3,7 @@
 // 마우스를 올리거나 키보드로 고르면 그 아래(자리가 없으면 위)에 뜬다. 워크스페이스 · 편집실 둘 다 쓴다.
 let tip=null,cur=null,timer=0;
 // 단축키 설명은 맥 기호로 적어 두고(⌘Z · ⇧⌘Z), 윈도우 · 리눅스에서는 Ctrl 로 바꿔 보여 준다(다시 실행은 윈도우에 익숙한 Ctrl+Y)
-const MAC=/Mac|iPhone|iPad/.test(navigator.userAgentData?.platform||navigator.platform||navigator.userAgent);
+const MAC=/mac|iphone|ipad/i.test(navigator.userAgentData?.platform||navigator.platform||navigator.userAgent);
 const keys=t=>MAC?t:t.replace(/⇧⌘Z/g,'Ctrl+Y').replace(/⇧⌘(\w)/g,'Ctrl+Shift+$1').replace(/⌘⇧(\w)/g,'Ctrl+Shift+$1').replace(/⌘\+?/g,'Ctrl+').replace(/⌥\+?/g,'Alt+').replace(/⇧\+?/g,'Shift+');
 const SEL='[data-tip],[title]';
 // title → data-tip. 글자 없는 아이콘 버튼은 title 이 이름이었으니 aria-label 로, 나머지는 설명(aria-description)으로 남긴다
