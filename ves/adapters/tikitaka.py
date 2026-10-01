@@ -313,6 +313,52 @@ def task_guides(cfg, conn, p: dict) -> list:
     return out
 
 
+# ───────── 진행 단계(0125) — 엔진이 잡 폴더 run_log.json 에 남기는 단계 기록으로 어디까지 했는지 센다 ─────────
+_RENDER_RE = re.compile(r"^review_(v\d+(?:_[A-Za-z0-9_-]+)?)$")
+STAGES = (("transcribe", "받아쓰기"), ("analyze", "장면 분석"), ("script", "대본 쓰기"), ("render", "영상 확인 · 렌더"))
+
+
+def progress_of(steps: list, total=None) -> dict | None:
+    """run_log.json steps → {stage, label, done, rendered, total, sec_per_video, steps}. 순수 — 테스트 대상.
+    단계형 대본은 분석보다 대본이 먼저 끝나기도 해서, 단계마다 '끝났나'를 따로 보고 아직 안 끝난 첫 단계를 '지금'으로 본다."""
+    if not steps:
+        return None
+    names = [str(x.get("step") or "") for x in steps]
+    at = {}
+    for x in steps:
+        at.setdefault(str(x.get("step") or ""), x.get("at"))
+    done = []
+    if "transcript_polish" in names or "transcribe" in names:
+        done.append("transcribe")
+    if "grid" in names or "chunk_analyze" in names:
+        done.append("analyze")
+    rebuild = next((x for x in steps if x.get("step") == "rebuild"), None)
+    if rebuild:
+        done.append("script")
+        total = int(rebuild.get("versions") or 0) or total
+    renders = []
+    for x in steps:
+        m = _RENDER_RE.match(str(x.get("step") or ""))
+        if m and m.group(1) not in [r[0] for r in renders]:
+            renders.append((m.group(1), x.get("at")))
+    rendered = len(renders)
+    if total and rendered >= int(total):
+        done.append("render")
+    stage = next((k for k, _ in STAGES if k not in done), "render")
+    label = dict(STAGES)[stage]
+    if stage == "render" and total:
+        label = f"렌더 {min(rendered, int(total))}/{int(total)}"
+    spv = None
+    if len(renders) >= 2:
+        import datetime as _dt
+        ts = sorted(_dt.datetime.fromisoformat(a) for _, a in renders if a)
+        if len(ts) >= 2:
+            spv = round((ts[-1] - ts[0]).total_seconds() / (len(ts) - 1))
+    return {"stage": stage, "label": label, "done": done, "rendered": rendered, "total": int(total) if total else None,
+            "sec_per_video": spv, "steps": {**{k: at.get(v) for k, v in (("transcribe", "transcript_polish"), ("analyze", "grid"), ("script", "rebuild"))},
+                      "last_render": renders[-1][1] if renders else None}}
+
+
 # ───────── tikitaka_generate (subprocess형) ─────────
 class Generate:
     PIN_DEPENDENT_KINDS = PIN_DEPENDENT_KINDS
@@ -386,6 +432,12 @@ class Generate:
     @staticmethod
     def classify_error(rc, stderr, stdout):
         return classify_tail(stderr, stdout)
+
+    @staticmethod
+    def progress(cfg, job):
+        """실행기가 30초마다 부른다(0125). 잡 폴더의 run_log.json 으로 진행 단계를 센다."""
+        log = _read_json(pathlib.Path(Generate._out_dir(cfg, job)) / "run_log.json") or {}
+        return progress_of(log.get("steps") or [], (job.get("params") or {}).get("count"))
 
     @staticmethod
     def is_already_done(cfg, job):

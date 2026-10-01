@@ -104,7 +104,7 @@ export function taskState(t,stat){
  if(t.status==='draft')return {kind:'draft',text:'시작 전'};
  const s=stat||{};
  if(s.failed)return {kind:'failed',text:'만들지 못했어요'};
- if(!s.videos)return {kind:'busy',text:'만들고 있어요'};
+ if(!s.videos)return {kind:'busy',text:s.progress?.label||'만들고 있어요'};
  return {kind:'done',text:`${s.videos}편 중 ${s.published||0}편 발행`};
 }
 

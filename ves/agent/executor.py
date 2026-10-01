@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import time
 
 from ves import config as cfgmod
 from ves import db
@@ -175,6 +176,24 @@ def run_job(cfg, conn, job) -> str | None:
                 pass
 
 
+PROGRESS_EVERY_SEC = 30   # 진행 단계(0125)를 이 간격으로 읽어 바뀌었을 때만 적는다
+
+
+def _write_progress(conn, job, fn, cfg, last):
+    """어댑터 progress() → job_queue.progress. 실패해도 잡은 계속 간다(진행 표시는 곁가지)."""
+    try:
+        cur = fn(cfg, job)
+        if cur and cur != last:
+            import json as _json
+            with conn.cursor() as c:
+                c.execute("UPDATE public.job_queue SET progress=%s::jsonb, progress_at=now() WHERE id=%s",
+                          (_json.dumps(cur, ensure_ascii=False), job["id"]))
+            return cur
+    except Exception as e:  # noqa: BLE001
+        print(f"[executor] 진행 단계 기록 실패(무시): {type(e).__name__} {e}")
+    return last
+
+
 def _run_subprocess(cfg, conn, job, ad) -> dict:
     partial = ((job.get("result") or {}).get("partial_run_id"))
     argv = None
@@ -191,12 +210,17 @@ def _run_subprocess(cfg, conn, job, ad) -> dict:
     cmd = ([CAFFEINATE, "-i"] if _has_caffeinate() else []) + argv
     proc = subprocess.Popen(cmd, cwd=cwd, env=env, text=True,
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    progress_fn = getattr(ad, "progress", None)
+    last_progress, next_poll = None, 0.0
     with lease.LeaseRenewer(lambda: db.connect(cfg.db_url), job) as lr:
         while True:
             try:
                 out, err = proc.communicate(timeout=5)
                 break
             except subprocess.TimeoutExpired:
+                if progress_fn and time.monotonic() >= next_poll:
+                    next_poll = time.monotonic() + PROGRESS_EVERY_SEC
+                    last_progress = _write_progress(conn, job, progress_fn, cfg, last_progress)
                 if lr.lost.is_set():                  # 소유권 상실/취소 → 즉시 중단(★⑤)
                     proc.kill()
                     out, err = proc.communicate()
