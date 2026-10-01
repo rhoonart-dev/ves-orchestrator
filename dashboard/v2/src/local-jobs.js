@@ -26,13 +26,14 @@ async function loadRemoteJobs(client,names){
  }
  // 작업 번호(0121 tikitaka_tasks) — '5-6화 #3' 처럼 부르고, 만든 시각은 작업을 저장한 때
  const tasks=new Map();
- if(rows.length){const {data:ts}=await client.from('tikitaka_tasks').select('work_order_id,work_no,episode_key,created_at,started_at,options').in('work_order_id',[...new Set(rows.map(r=>r.work_order_id))]).then(r=>r,()=>({data:[]}));(ts||[]).forEach(t=>tasks.set(t.work_order_id,t));}
+ if(rows.length){const {data:ts}=await client.from('tikitaka_tasks').select('work_order_id,work_no,episode_key,created_at,started_at,source_compilations(name)').in('work_order_id',[...new Set(rows.map(r=>r.work_order_id))]).then(r=>r,()=>({data:[]}));(ts||[]).forEach(t=>tasks.set(t.work_order_id,t));}
  const byWo=new Map();
  for(const r of rows){if(!byWo.has(r.work_order_id))byWo.set(r.work_order_id,[]);byWo.get(r.work_order_id).push(r);}
  return [...byWo.entries()].map(([wo,list])=>{
   const r=list[0],ch=names.get(r.channel_slug);list.sort((a,b)=>(a.version||0)-(b.version||0)||a.suffix.localeCompare(b.suffix));
-  const t=tasks.get(wo),ep=epLabel(r.episode)||'회차 미정';
-  return {id:'MV-'+wo,source:'local-bundle',remote:true,raw:wo,work:r.work_title,workId:r.work_title,episode:epLabel(r.episode),title:t?`${ep} #${t.work_no}`:ep,note:t?.options?.memo||'',workNo:t?.work_no??null,madeAt:t?.created_at||null,
+  // 회차는 작업 기록의 것('7-8') — 엔진은 두 회차 합본도 마지막 회차('8화')를 적는다. 설명 줄은 합본 이름만(메모는 길어서 안 싣는다)
+  const t=tasks.get(wo),unit=(String(r.episode||'').match(/[^\d\s-]+$/)||['화'])[0],ep=t?`${t.episode_key}${unit}`:(epLabel(r.episode)||'회차 미정');
+  return {id:'MV-'+wo,source:'local-bundle',remote:true,raw:wo,work:r.work_title,workId:r.work_title,episode:epLabel(r.episode),title:t?`${ep} #${t.work_no}`:ep,note:t?(t.source_compilations?.name||'원본 파일'):'',workNo:t?.work_no??null,madeAt:t?.created_at||null,
    channelId:r.channel_slug||null,channel:r.channel_slug?(ch?.name||r.channel_slug):'채널 미배정',youtubeChannelId:ch?.channel_id||null,channelAvatar:ch?.avatar_url||null,
    createdAt:list.map(x=>x.updated_at||x.created_at).sort().pop(),videos:list.length,nodeId:r.node_id,status:'내부 검수',fileCountLabel:'완성 영상',
    bundles:list.map(x=>({key:`remote-${wo}/${x.suffix}`,video_id:x.id,apply:applies.get(x.id)||null,suffix:x.suffix,version:x.version,tag:x.tag,title:x.title,status:'ready',render_fingerprint:x.render_fingerprint,
