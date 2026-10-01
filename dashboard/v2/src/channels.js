@@ -35,9 +35,22 @@ export function mountChannels(root,{client,role}={}){
  }
  openBtn.onclick=()=>{drawDialog();dlg.showModal();};
  dlg.addEventListener('click',e=>{if(e.target===dlg)dlg.close();});
+ // 사용 작품 상태 거르기 — 기본은 '신청 정보 확인 필요' · '사용 승인'만. 고른 것은 이 브라우저에 기억
+ const STATUS_ORDER=['신청 정보 확인 필요','사용 승인','사용 승인 대기','사용 신청 반려','작품 연결 확인 필요','확인 불가'];
+ const DEFAULT_SHOW=['신청 정보 확인 필요','사용 승인'];
+ let shown=new Set(DEFAULT_SHOW);try{const v=JSON.parse(localStorage.getItem('ch-work-status')||'null');if(Array.isArray(v))shown=new Set(v);}catch{}
+ function worksHtml(rows,total){
+  if(!total)return '<p>연결된 작품이 없습니다.</p>';
+  const count=new Map();for(const r of rows)count.set(r.status,(count.get(r.status)||0)+1);
+  const chips=STATUS_ORDER.filter(st=>count.has(st)||DEFAULT_SHOW.includes(st)).map(st=>`<button type="button" class="ch-status-chip${shown.has(st)?' on':''}" data-status="${esc(st)}" aria-pressed="${shown.has(st)}">${esc(st)} <b>${count.get(st)||0}</b></button>`).join('');
+  const list=rows.filter(r=>shown.has(r.status));
+  const hiddenN=rows.length-list.length;
+  return `<div class="ch-status-filter" role="group" aria-label="사용 상태로 거르기">${chips}</div>${list.map(r=>r.html).join('')||'<p class="ch-status-empty">고른 상태의 작품이 없어요.</p>'}${hiddenN?`<p class="ch-status-more">다른 상태 ${hiddenN}개는 숨겨져 있어요. 위에서 눌러 볼 수 있어요.</p>`:''}`;
+ }
+ main.addEventListener('click',e=>{const b=e.target.closest('.ch-status-chip');if(!b)return;const st=b.dataset.status;shown.has(st)?shown.delete(st):shown.add(st);try{localStorage.setItem('ch-work-status',JSON.stringify([...shown]))}catch{}render();});
  function render(){renderList();
   const assigned=current.works||[],applicationWorks=policy.applications.filter(a=>a.youtube_channel_id===current.channel_id).map(a=>a.work_title).filter(Boolean),names=[...new Set([...assigned,...applicationWorks])];
-  main.innerHTML=`<header><div><h2>${esc(current.name)}</h2><p>작품 사용 신청은 레이블리에서 관리해요.</p></div><a class="works-button" href="#channel-templates?channel=${encodeURIComponent(current.token_slug)}">디자인 템플릿</a></header><section class="channel-works"><h3>사용 작품</h3>${policyError?`<p class="asset-error">${esc(policyError)}</p>`:''}${names.map(title=>{const work=policyForWork(policy.works,title),app=permissionForWork(policy.applications,current.channel_id,work?.id),status=policyError?'확인 불가':!work?'작품 연결 확인 필요':!app?'신청 정보 확인 필요':app.rejected_bool===true?'사용 신청 반려':app.status===true?'사용 승인':'사용 승인 대기';return `<article${assigned.includes(title)&&work?.id?` data-logo-work="${esc(title)}" data-logo-id="${esc(work.id)}"`:''}><div><strong>${esc(title)}</strong><p>${assigned.includes(title)?'생성 대상 작품':'사용 신청한 작품'}</p></div><div><span>${status}</span><small>${({required:'권리사 검수 필요',none:'내부 검수 후 발행',unaired_only:'미방영분 권리사 검수'})[work?.inspection_policy]||'검수 정책 확인 필요'}</small></div></article>`;}).join('')||'<p>연결된 작품이 없습니다.</p>'}</section>`;
+  main.innerHTML=`<header><div><h2>${esc(current.name)}</h2><p>작품 사용 신청은 레이블리에서 관리해요.</p></div><a class="works-button" href="#channel-templates?channel=${encodeURIComponent(current.token_slug)}">디자인 템플릿</a></header><section class="channel-works"><h3>사용 작품</h3>${policyError?`<p class="asset-error">${esc(policyError)}</p>`:''}${worksHtml(names.map(title=>{const work=policyForWork(policy.works,title),app=permissionForWork(policy.applications,current.channel_id,work?.id),status=policyError?'확인 불가':!work?'작품 연결 확인 필요':!app?'신청 정보 확인 필요':app.rejected_bool===true?'사용 신청 반려':app.status===true?'사용 승인':'사용 승인 대기';return {status,html:`<article${assigned.includes(title)&&work?.id?` data-logo-work="${esc(title)}" data-logo-id="${esc(work.id)}"`:''}><div><strong>${esc(title)}</strong><p>${assigned.includes(title)?'생성 대상 작품':'사용 신청한 작품'}</p></div><div><span>${status}</span><small>${({required:'권리사 검수 필요',none:'내부 검수 후 발행',unaired_only:'미방영분 권리사 검수'})[work?.inspection_policy]||'검수 정책 확인 필요'}</small></div></article>`};}),names.length)}</section>`;
   loadLogos(current);
  }
  // 작품 로고 고르기(0112) — 생성 대상 작품마다. 작품 에셋에 로고가 있으면 칩으로, 안 고르면 기본. 운영자·관리자만 바꾼다
