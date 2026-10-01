@@ -150,6 +150,7 @@ export function mountWorkbench(root,job,{service=null,role=null,refresh=null}={}
   const ro=new ResizeObserver(()=>{if(!tip.isConnected)return ro.disconnect();place();setTimeout(place,450);});ro.observe(box);ro.observe(document.documentElement);   // 폭이 바뀌어 버튼 자리가 옮겨진 뒤에 다시 맞춘다
  }
  // 버튼 아래 한 줄 — 다시 렌더 실패는 이유 + [자세히](말풍선: 할 일 · 렌더한 맥미니 로봇의 말), 나머지는 글자 그대로
+ const editLabel=(link,text)=>{const t=[...link.childNodes].find(n=>n.nodeType===3&&n.textContent.trim());if(t)t.textContent=text;};
  // 지난 수정에서 달라진 점 — 버튼 아래 긴 글 대신 아래 카드와 같은 폭의 접는 상자(처음엔 접힘)
  function editNotes(b){
   const d=$('.edit-notes'),notes=b?.apply?.state==='done'?(b.apply.notes||[]):[];
@@ -165,7 +166,7 @@ export function mountWorkbench(root,job,{service=null,role=null,refresh=null}={}
  }
  async function prepareActions(item,ticket){
   const link=$('.open-editor'),note=$('.editor-readiness'),thumbs=$('.open-thumbs'),premiere=$('.open-premiere');
-  link.removeAttribute('href');link.setAttribute('aria-disabled','true');thumbs.hidden=true;link.hidden=false;premiere.hidden=true;editNotes(null);
+  link.removeAttribute('href');link.setAttribute('aria-disabled','true');thumbs.hidden=true;link.hidden=false;premiere.hidden=true;editNotes(null);editLabel(link,'편집실 열기');link.removeAttribute('title');
   if(local){                                   // local bundle: open the local editor (edits are recorded, not rendered)
    const b=item.bundle;note.hidden=false;
    if(b.remote){                               // 맥미니 영상: 편집실은 여기서 열고, 제출하면 그 맥미니가 다시 렌더한다(썸네일은 아직 작업 컴퓨터 영상만)
@@ -188,7 +189,10 @@ export function mountWorkbench(root,job,{service=null,role=null,refresh=null}={}
    thumbs.onclick=()=>{video.pause();openThumbnails({client:service?.client,video:b,onChange:async()=>{
     if(!refresh)return;try{const next=(await refresh()).find(j=>j.id===job.id);if(disposed||!next)return;
      job.bundles=next.bundles;const nb=next.bundles.find(x=>x.key===b.key);if(nb){item.bundle=nb;if(selectedId===item.id)prepareActions(item,ticket);}}catch{}}})};
-   failureNote(note,b,[b.draft&&!b.draft.stale?'이어서 할 초안 있음':'']);editNotes(b);
+   failureNote(note,b,[]);editNotes(b);
+   // 이어서 할 초안이 있으면 버튼 이름으로 알린다(편집실 목록 카드와 같은 말) — 올리면 저장 시각
+   if(b.draft&&!b.draft.stale){editLabel(link,'이어서 편집');const at=b.draft.saved_at?new Date(b.draft.saved_at):null;
+    if(at&&!Number.isNaN(+at))link.title=at.toLocaleString('ko-KR',{timeZone:'Asia/Seoul',month:'long',day:'numeric',hour:'numeric',minute:'2-digit'})+' 저장'+(b.draft.saved_by?' · '+b.draft.saved_by:'');}
    link.href=`editor.html?local=1&run=${encodeURIComponent(item.id)}&back=${encodeURIComponent(job.id)}`;link.setAttribute('aria-disabled','false');renderTip(link);
    return;
   }
