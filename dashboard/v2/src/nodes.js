@@ -1,11 +1,12 @@
 import {nodeHealth} from './home-model.js';
+import {JOB_KIND} from './job-kinds.js';
 import {nodeRobot,nodeRobotState} from './node-robots.js';
 import {createNodesService,canManageNodes,versionMatch} from './nodes-service.js?v=web-1';
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const name=id=>String(id).replace(/^mm-(\d+)$/,'Mac mini $1');
 const date=value=>value?new Date(value).toLocaleString('ko-KR',{timeZone:'Asia/Seoul',month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):'기록 없음';
 const engineNames={ai_video:'영상 제작',brain:'영상 분석',localization:'현지화',orchestrator:'작업 관리'};
-const kinds={generate:'영상 제작',evaluate:'자동 검사',localize:'현지화',publish:'발행',acquire:'소스 준비',upload_artifacts:'결과 업로드',ingest:'기록 적재',editor_assets:'편집실 준비'};
+const kinds=JOB_KIND;
 const statusNames={active:'가동',draining:'작업 마무리',disabled:'비활성'};
 const short=sha=>sha?String(sha).slice(0,7):'—';
 export function mountNodes(root,{client=null,role=null,authStatus='loading',service=null}={}){

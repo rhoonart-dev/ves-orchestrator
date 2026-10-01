@@ -1,4 +1,5 @@
 import {icon} from './icons.js';
+import {JOB_KIND} from './job-kinds.js';
 import {nodeRobot,nodeRobotState} from './node-robots.js';
 import {fetchRights} from './rights-service.js';
 import {loadOperations} from './home-service.js?v=web-1';
@@ -8,7 +9,7 @@ import {loadLocalJobs} from './local-jobs.js?v=room-1';
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const format=n=>n==null?'—':n.toLocaleString('ko-KR');
 const date=v=>v?new Date(v).toLocaleString('ko-KR',{timeZone:'Asia/Seoul',month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):'—';
-const stage={acquire:'소스 준비',generate:'영상 제작',upload_artifacts:'결과 업로드',ingest:'기록 적재',evaluate:'자동 검사',publish:'발행',localize:'영상 현지화',sync_drive_folder:'드라이브 인입',register_playlist:'유튜브 소스 등록',zanmang_autopilot:'잔망루피 자동화',zanmang_decision:'잔망루피 검수 반영',editor_assets:'편집실 준비',register_sources:'소스 등록'};
+const stage=JOB_KIND;
 const rightsLabels={pending:'검수 대기',completed:'검수 완료',revision_requested:'수정 요청',resubmit_requested:'재제출 요청',cancelled:'취소'};
 export function mountHome(root,{client=null,service=null,authStatus='loading'}={}){
  let disposed=false,busy=false,lastAttempt=0,request,jobs=null,localJobs=null,rights=null,ops=null,week=null,errors={};

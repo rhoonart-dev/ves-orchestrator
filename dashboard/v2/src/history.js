@@ -3,16 +3,13 @@ import {pagerHtml} from './pager.js';
 import {askConfirm} from './confirm-dialog.js';
 import {hiddenChannels} from './channel-visibility.js';
 import {enhanceDropdowns} from './dropdowns.js';
+import {jobKindKo} from './job-kinds.js';
 // 작업 이력 — 예전 VES '작업 내역'(renderJobsTab)을 옮겼다. 맥미니 잡(job_queue)을 상태·맥·채널로 거르고,
 // 운영자는 재시도 · 잡 취소 · 작업지시 취소를 할 수 있다(RPC retry_job · cancel_job · cancel_work_order).
 // 아래는 최근 상태 변화(job_events 40건). 홈의 '실행 중' 칸이 ?status=running 으로 들어온다.
 const STATUS={all:'전체',pending:'대기',running:'실행',failed:'실패',dead:'중단',blocked:'보류',succeeded:'완료',cancelled:'취소'};
 const TONE={pending:'mut',running:'info',succeeded:'good',failed:'crit',dead:'crit',blocked:'warn',cancelled:'mut'};
-const KIND={acquire:'소스 준비',generate:'영상 제작',upload_artifacts:'결과 업로드',ingest:'기록 적재',evaluate:'자동 검사',publish:'발행',
- localize:'일본어 번역',sync_drive_folder:'드라이브 인입',register_playlist:'유튜브 소스 등록',zanmang_autopilot:'잔망루피 자동화',
- zanmang_decision:'잔망루피 검수 반영',editor_assets:'편집실 준비',register_sources:'소스 등록',scan_drive_shorts:'드라이브 쇼츠 확인',
- tikitaka_generate:'영상 만들기',tikitaka_upload:'영상 올리기',tikitaka_apply_edit:'다시 렌더',scan_work_logos:'로고 찾기'};
-const kindKo=k=>KIND[k]||k||'?';
+const kindKo=jobKindKo;
 const EDITORS=['operator','admin'];
 const LIMIT=200,PAGE=20;   // 최근 200건을 받아 20개씩 쪽으로 나눠 보여 준다
 function ago(t){
