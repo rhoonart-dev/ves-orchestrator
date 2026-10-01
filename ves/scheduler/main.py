@@ -16,6 +16,7 @@ import traceback
 from ves import config as cfgmod
 from ves import db
 from ves.config import get_config
+from ves.adapters import tikitaka_review
 from ves.scheduler import (algo_watch, channels_sync, drive_balance, drive_watch, laeebly_sync,
                            editor_uploads_gc, loopy_drive, loopy_picker, loopy_scout,
                            perf_sync, planner, reaper, reconcile, source_watch,
@@ -114,6 +115,7 @@ def main():
                     ("laeebly_sync",  lambda: laeebly_sync.run(conn, cfg),  _due_interval(last.get("laeebly_sync"), now, 10)),
                     # 권리사 검수 사본(0117) — 검수 결과를 곧 보게 2분
                     ("laeebly_inspect", lambda: laeebly_sync.run_inspections(conn, cfg), _due_interval(last.get("laeebly_inspect"), now, 2)),
+                    ("tikitaka_inspect_submit", lambda: tikitaka_review.submit_inspections(conn, cfg), _due_interval(last.get("tikitaka_inspect_submit"), now, 1)),   # 검수 흐름 레이블리 신청(0120)
                     ("perf_sync",     lambda: perf_sync.run(conn, cfg),     _due_interval(last.get("perf_sync"), now, 60)),
                     ("zanmang_daily", lambda: zanmang_daily.run(conn, cfg), _due_daily(last.get("zanmang_daily"), now, 10)),
                     # 외부 쇼츠 아카이브(L-P3) — 03:00 KST. 전량 재나열이 46유닛(무료
