@@ -5,7 +5,8 @@ import {confirmSubmit} from './editor-submit-dialog.js?v=render-123';
 import './editor-checks.js?v=render-123';   // window.__edChecks — 제출 전 검사(ves-editor.js 가 부른다)
 import './editor-fx.js?v=render-123';
 import './editor-frame.js?v=render-123';   // window.__edFrame — 구간 화면 위치(미리보기 자르기·끌기)       // window.__edFx — 강조·줌 편집
-import {mountNotes} from './editor-notes.js?v=rf-2';   // 상단바 종 버튼(알림 창)
+import {mountNotes} from './editor-notes.js?v=rf-2';
+import {setupHoverTips} from './hover-tip.js?v=2';   // 버튼 설명을 바로 · 워크스페이스 모양으로(브라우저 기본 title 대신)   // 상단바 종 버튼(알림 창)
 import {mountSafeArea} from './editor-safe.js?v=render-123';   // 미리보기 옆 쇼츠 안전 영역 버튼
 import {mountAccount} from './editor-account.js?v=render-123';   // 오른쪽 위 계정 로봇(이메일·로그아웃)
 import {icon} from './icons.js';
@@ -92,7 +93,7 @@ async function boot(){
  step(3);
  await import('./ves-editor.js?v=rf-1');
  const root=document.getElementById('tlRoot');root.style.display='flex';root.style.flexDirection='column';
- const notes=showLocalNotes(payload);setupScrollbars();
+ const notes=showLocalNotes(payload);setupScrollbars();setupHoverTips();
  mountAccount(client,data.user,roles.data.map(r=>r.role));
  await window.__tlEnter({});
  done(()=>notes?.openIfFailed());   // 실패 알림 창은 막이 걷힌 뒤에
