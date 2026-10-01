@@ -72,3 +72,29 @@
 @media(max-width:760px){.video-column{width:100%}}
 /* 숨긴 편집실 버튼(VES 검수 카드 영상 — src/workbench.js prepareActions) */
 .open-editor[hidden]{display:none!important}
+
+/* 맥미니 영상 검수 카드(src/tikitaka-review.js) — 칸은 면 밝기로, 버튼은 알약 */
+.tr-card .tr-info{display:grid;grid-template-columns:72px 1fr;gap:8px 12px;font-size:12px;margin:0 0 4px;line-height:1.6}
+.tr-card .tr-info dt{color:var(--muted)}.tr-card .tr-info dd{margin:0;color:var(--secondary)}
+.tr-card .tr-form{display:flex;flex-direction:column;gap:10px;background:var(--inset);border-radius:12px;padding:14px;margin-top:12px}
+.tr-card .tr-form label{display:flex;flex-direction:column;gap:6px;font-size:12px;font-weight:600}
+.tr-card .tr-form label small{font-weight:400;color:var(--muted)}
+.tr-card .tr-form input,.tr-card .tr-form textarea,.tr-card .tr-form select{font:inherit;font-size:13px;border:0;border-radius:10px;background:var(--surface);padding:9px 12px;color:var(--ink);min-width:0}
+.tr-card .tr-form textarea{resize:vertical}
+.tr-card .tr-row{display:flex;gap:8px}.tr-card .tr-row input{flex:1}
+.tr-card .tr-meta{margin-top:12px;background:var(--inset);border-radius:12px;padding:12px 14px}
+.tr-card .tr-meta summary{list-style:none;cursor:pointer;font-size:12px;font-weight:600;display:flex;align-items:center;gap:6px}
+.tr-card .tr-meta summary::-webkit-details-marker{display:none}.tr-card .tr-meta summary::after{content:'⌄';margin-left:auto;color:var(--muted)}
+.tr-card .tr-meta[open] summary::after{transform:rotate(180deg)}
+.tr-card .tr-meta summary small{font-weight:400;color:var(--muted)}
+.tr-card .tr-meta .tr-form{padding:10px 0 0;margin:0;background:none}
+.tr-card .tr-hint{margin:0;font-size:11px;color:var(--muted)}
+.tr-card .tr-must{margin-top:12px;background:color-mix(in srgb,var(--accent) 9%,var(--surface));border-radius:12px;padding:12px 14px;font-size:12px;line-height:1.6}
+.tr-card .tr-must b{display:block;margin-bottom:2px}.tr-card .tr-must p{margin:0}.tr-card .tr-must small{color:var(--muted)}
+.tr-card .tr-notes{margin:8px 0 0;padding-left:18px;font-size:12px;line-height:1.8;color:var(--secondary)}
+.tr-card .tr-error{margin:10px 0 0;font-size:12px;color:var(--danger)}.tr-card .tr-error:empty{display:none}
+.tr-card .tr-acts{display:flex;justify-content:flex-end;gap:8px;margin-top:16px;flex-wrap:wrap}
+.tr-card .tr-btn{display:inline-flex;align-items:center;justify-content:center;height:36px;padding:0 16px;border:0;border-radius:999px;font:inherit;font-size:13px;font-weight:600;text-decoration:none;cursor:pointer;background:var(--inset);color:var(--ink)}
+.tr-card .tr-btn.pri{background:var(--solid);color:var(--on-solid)}
+.tr-card .tr-btn.danger{background:var(--danger-bg);color:var(--danger)}
+.tr-card .tr-btn:disabled{opacity:.45;cursor:default}

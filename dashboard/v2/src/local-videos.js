@@ -2,7 +2,7 @@ import {esc} from './review-details.js?v=web-1';
 import {ON_WORK_PC,localChip,connectWorkPc} from './local-only.js?v=web-1';
 import {showToast} from './toast.js?v=1';
 import {assetRequest} from './work-assets.js?v=web-1';
-import {localMedia,jobNode} from './local-jobs.js?v=web-1';
+import {localMedia,jobNode} from './local-jobs.js?v=rev-1';
 import {failureInfo,lineHtml,openFailurePop,injectStyle as failureStyle} from './render-failure.js?v=7';
 // 편집실 메뉴 — 다시 렌더 중인 영상, 이어서 할 초안, 최근 제출(7일)을 나눠 보여 준다. 새 편집은 작업 목록의 영상에서 시작한다.
 // 렌더 중인 영상이 있으면 15초마다 다시 읽어 끝나는 대로 '최근 제출'로 옮긴다.
