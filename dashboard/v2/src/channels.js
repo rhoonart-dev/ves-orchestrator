@@ -1,10 +1,10 @@
-import {esc} from './review-details.js';
+import {esc} from './review-details.js?v=web-1';
 import {icon} from './icons.js';
 import {fetchWorkPolicies} from './rights-service.js';
 import {loadWorkAssets} from './work-assets-data.js?v=1';
 import {hiddenChannels,setChannelHidden,withWorkOverrides} from './channel-visibility.js';
-import {readAll} from './review-service.js';
-import {assetRequest} from './work-assets.js';
+import {readAll} from './review-service.js?v=web-1';
+import {assetRequest} from './work-assets.js?v=web-1';
 import {policyForWork,permissionForWork} from './workflow-model.js';
 export function mountChannels(root,{client,role}={}){
  const canEdit=['operator','admin'].includes(role);

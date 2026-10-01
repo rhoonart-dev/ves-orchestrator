@@ -1,7 +1,8 @@
-import {assetRequest} from './work-assets.js';
+import {apiUrl} from './local-only.js?v=web-1';
+import {assetRequest} from './work-assets.js?v=web-1';
 // Local tikitaka bundles (ai-video videos/vN) shaped like 작업 목록 jobs: one job folder → N videos.
 // 채널은 잡 폴더 모음의 channels.json(작품→채널) 또는 잡의 display.json channel 로 정한다 — 이름은 channels_mirror 에서.
-export const localMedia=(key,f)=>`/api/local-videos/media?key=${encodeURIComponent(key)}&f=${encodeURIComponent(f)}`;
+export const localMedia=(key,f)=>apiUrl(`/api/local-videos/media?key=${encodeURIComponent(key)}&f=${encodeURIComponent(f)}`);
 export function toJob(j,names=new Map()){
  return {id:j.id,source:'local-bundle',raw:j.job,work:j.work||j.job,workId:j.work||j.job,episode:j.episode||'',title:j.title,note:j.note||'',
   channelId:j.channel||null,channel:j.channel?(names.get(j.channel)?.name||j.channel):'채널 미배정',youtubeChannelId:names.get(j.channel)?.channel_id||null,channelAvatar:names.get(j.channel)?.avatar_url||null,createdAt:j.updated||new Date(0).toISOString(),videos:j.videos.length,

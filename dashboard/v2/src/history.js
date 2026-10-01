@@ -1,4 +1,4 @@
-import {esc} from './review-details.js';
+import {esc} from './review-details.js?v=web-1';
 import {pagerHtml} from './pager.js';
 import {askConfirm} from './confirm-dialog.js';
 import {hiddenChannels} from './channel-visibility.js';

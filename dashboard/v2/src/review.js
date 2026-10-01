@@ -1,10 +1,10 @@
 import {enhanceDropdowns} from './dropdowns.js';
-import {ON_WORK_PC} from './local-only.js';
+import {ON_WORK_PC,connectWorkPc} from './local-only.js?v=web-1';
 import {showToast} from './toast.js?v=1';
 import {loadLocalMedia} from './media-catalog.js';
 import {icon} from './icons.js';
 import {filterOptions,visibleJobs} from './review-model.js';
-import {loadLocalJobs} from './local-jobs.js?v=rf-1';
+import {loadLocalJobs} from './local-jobs.js?v=web-1';
 import {workPosters} from './work-posters.js';
 // 필터 목록 그림 — 채널은 유튜브 채널 아이콘(channels_mirror.avatar_url), 작품은 작품 탭과 같은 포스터. 없으면 첫 글자.
 const norm=t=>String(t||'').replace(/\s/g,'');
@@ -21,7 +21,7 @@ export function mountReview(root,{jobs=[],connected=false,service=null,source=nu
  if(source==='local'&&ON_WORK_PC){state.preview=true;state.mode='all';state.selected=null;state.query='';state.listQuery='';try{sessionStorage.setItem('ves-workspace-review-preview','true')}catch{}}
  let disposed=false,catalog=null,refreshing=false,lastAttempt=0,localJobs=[],localState='idle',liveSync='',localSync='';
  const showSync=()=>{root.querySelector('.review-sync').textContent=state.preview?localSync:liveSync;};
- root.innerHTML=`<section class="review-page" aria-label="작업 폴더"><div class="review-toolbar"><div class="folder-context"><h2></h2><span class="folder-count"></span><span class="sample-badge" hidden>작업 컴퓨터에서 만든 영상</span></div><div class="review-toolbar-actions"><span class="review-sync" role="status"></span><button class="review-refresh preview-toggle" type="button">새로고침</button></div></div><div class="review-controls"><div class="review-controls-left"><div class="source-seg" role="radiogroup" aria-label="보는 목록"><button type="button" role="radio" data-src="live" aria-checked="${!state.preview}">${icon('server')}<span>맥미니</span></button><button type="button" role="radio" data-src="local" aria-checked="${state.preview}"${ON_WORK_PC?'':' class="is-local-only" title="작업 컴퓨터에서 워크스페이스를 켰을 때만 볼 수 있어요"'}>${icon('laptop')}<span>작업 컴퓨터</span></button></div><div class="review-segments" role="radiogroup" aria-label="작업 분류"><span class="segment-highlight" aria-hidden="true"></span>${modes.map(([id,name,glyph])=>`<button type="button" role="radio" data-mode="${id}" aria-checked="false">${icon(glyph)}<span>${name}</span></button>`).join('')}</div></div><div class="folder-tools"><label class="folder-search">${icon('search')}<input type="search" aria-label="작업 검색" placeholder="작업 검색" value="${esc(state.query)}"></label><select aria-label="작업 정렬"><option value="newest">최신순</option><option value="oldest">오래된 순</option></select></div></div><div class="review-layout"><div class="filter-slot"><aside class="review-filter" aria-label="작업 필터"><div class="filter-heading"><h2></h2><button class="filter-close" type="button" aria-label="필터 닫기">${icon('close')}</button></div><label class="filter-search">${icon('search')}<input type="search" aria-label="필터 목록 검색" placeholder="검색"></label><div class="filter-options"></div></aside></div><section class="folder-area" aria-label="작업 목록"><div class="folder-results" aria-live="polite"></div></section></div></section>`;
+ root.innerHTML=`<section class="review-page" aria-label="작업 폴더"><div class="review-toolbar"><div class="folder-context"><h2></h2><span class="folder-count"></span><span class="sample-badge" hidden>작업 컴퓨터에서 만든 영상</span></div><div class="review-toolbar-actions"><span class="review-sync" role="status"></span><button class="review-refresh preview-toggle" type="button">새로고침</button></div></div><div class="review-controls"><div class="review-controls-left"><div class="source-seg" role="radiogroup" aria-label="보는 목록"><button type="button" role="radio" data-src="live" aria-checked="${!state.preview}">${icon('server')}<span>맥미니</span></button><button type="button" role="radio" data-src="local" aria-checked="${state.preview}"${ON_WORK_PC?'':' class="is-local-only" title="작업 컴퓨터에서 로컬 서버를 켜면 볼 수 있어요"'}>${icon('laptop')}<span>작업 컴퓨터</span></button></div><div class="review-segments" role="radiogroup" aria-label="작업 분류"><span class="segment-highlight" aria-hidden="true"></span>${modes.map(([id,name,glyph])=>`<button type="button" role="radio" data-mode="${id}" aria-checked="false">${icon(glyph)}<span>${name}</span></button>`).join('')}</div></div><div class="folder-tools"><label class="folder-search">${icon('search')}<input type="search" aria-label="작업 검색" placeholder="작업 검색" value="${esc(state.query)}"></label><select aria-label="작업 정렬"><option value="newest">최신순</option><option value="oldest">오래된 순</option></select></div></div><div class="review-layout"><div class="filter-slot"><aside class="review-filter" aria-label="작업 필터"><div class="filter-heading"><h2></h2><button class="filter-close" type="button" aria-label="필터 닫기">${icon('close')}</button></div><label class="filter-search">${icon('search')}<input type="search" aria-label="필터 목록 검색" placeholder="검색"></label><div class="filter-options"></div></aside></div><section class="folder-area" aria-label="작업 목록"><div class="folder-results" aria-live="polite"></div></section></div></section>`;
  const $=s=>root.querySelector(s);
   // 맥미니(VES 작업 + 맥미니 새 방식 영상) | 작업 컴퓨터(이 컴퓨터에서 만든 영상만) — 만든 기계로 나눈다
  const data=()=>state.preview?localJobs.filter(j=>!j.remote):[...jobs,...localJobs.filter(j=>j.remote)];
@@ -91,7 +91,13 @@ export function mountReview(root,{jobs=[],connected=false,service=null,source=nu
  $('.folder-tools select').onchange=e=>{state.sort=e.target.value;renderCards();};
  // 보는 목록 고르기(맥미니 | 작업 컴퓨터) — 지금 보는 쪽이 검정으로 채워진다
  root.querySelectorAll('.source-seg [data-src]').forEach(b=>b.onclick=()=>{
-  if(b.dataset.src==='local'&&!ON_WORK_PC){showToast(root,'작업 컴퓨터 목록은 작업 컴퓨터에서 워크스페이스를 켰을 때만 볼 수 있어요.');return;}
+  // 웹 주소: 이 컴퓨터에 로컬 서버가 켜져 있으면 붙어서 이 컴퓨터의 작업을 보여 준다(한 번 붙으면 기억). 아니면 이유 한 줄
+  if(b.dataset.src==='local'&&!ON_WORK_PC){
+   if(b.dataset.busy)return;b.dataset.busy='1';showToast(root,'이 컴퓨터의 로컬 서버를 찾는 중이에요.');
+   connectWorkPc().then(ok=>{delete b.dataset.busy;
+    if(ok){try{sessionStorage.setItem('ves-workspace-review-preview','true')}catch{}location.reload();}
+    else showToast(root,'이 컴퓨터에서 로컬 서버를 찾지 못했어요. 작업 컴퓨터에서 로컬 서버를 켠 뒤 다시 눌러 주세요.');});
+   return;}
   if((b.dataset.src==='local')!==state.preview)togglePreview();});
 
 

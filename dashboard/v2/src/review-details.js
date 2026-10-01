@@ -1,4 +1,4 @@
-import {score,reviewLabels} from './review-service.js';
+import {score,reviewLabels} from './review-service.js?v=web-1';
 export const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const date=v=>v?new Date(v).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'}):'—';
 const names={pacing:'전개 속도',hook_3s:'초반 몰입',visual_hook:'화면 주목도',completion_pull:'끝까지 볼 동기'};

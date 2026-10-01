@@ -1,14 +1,14 @@
-import {esc} from './review-details.js';
-import {needWorkPc} from './local-only.js';
-import {mountLogoDrive} from './work-logo-drive.js?v=5';
+import {esc} from './review-details.js?v=web-1';
+import {needWorkPc,apiUrl,localize} from './local-only.js?v=web-1';
+import {mountLogoDrive} from './work-logo-drive.js?v=web-1';
 import {showToast} from './toast.js?v=1';
 import {loadWorkAssets,uploadWorkAsset,logoVariant,setPlatformSource} from './work-assets-data.js?v=1';
 export async function assetRequest(client,path,options={}){
  if(String(path).startsWith('/api/'))needWorkPc();   // 웹 주소에서는 로컬 서버가 없다
  if(!client)throw Error('로그인하면 VES 에셋을 관리할 수 있어요.');
  const {data,error}=await client.auth.getSession();if(error||!data.session)throw Error('로그인이 필요합니다.');
- const r=await fetch(path,{...options,headers:{...options.headers,Authorization:'Bearer '+data.session.access_token}});
- const body=await r.json();if(!r.ok)throw Error(body.error||'에셋 요청에 실패했습니다.');return body;
+ const r=await fetch(apiUrl(path),{...options,headers:{...options.headers,Authorization:'Bearer '+data.session.access_token}});
+ const body=await r.json();if(!r.ok)throw Error(body.error||'에셋 요청에 실패했습니다.');return localize(body);
 }
 // 작품 에셋 — 로고를 용도마다 여러 개(이름·기본 하나, 0112). 채널은 채널 관리에서 그 작품에 쓸 로고를 고르고, 안 고르면 기본.
 // 플랫폼 로고는 권리사마다(0115): 레이블리 권리사 로고(기본) · 다른 권리사 · 이 작품만 · 안 씀 중에서 작품마다 고른다.

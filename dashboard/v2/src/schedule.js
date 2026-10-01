@@ -1,8 +1,8 @@
 import {icon} from './icons.js';
 import {loadCatalog} from './work-catalog.js';
 import {askConfirm} from './confirm-dialog.js';
-import {esc} from './review-details.js';
-import {assetRequest} from './work-assets.js';
+import {esc} from './review-details.js?v=web-1';
+import {assetRequest} from './work-assets.js?v=web-1';
 import {STATUS,PLATFORMS,EDITORS,KINDS,SOURCE_LOCATIONS,kindOf,kstISO,kstParts,shownStatus,episodeNo,weeklyRows,listRange,insertRows,updateRow,updateSeriesTime,removeRows,listPublished,youtubeUrl,youtubeThumb,listSourceChannels,addSourceChannel,removeSourceChannel,workCard,listWorkCards,linkWorkSource,updateFollowing} from './release-schedule.js';
 // 발행 일정: calendar (left / top) + list of the selected day (right / below).
 // Two kinds, never mixed: 작품 공개(원작, round dots, editable) and 우리 영상(채널에 공개된 쇼츠, square marks, read-only).

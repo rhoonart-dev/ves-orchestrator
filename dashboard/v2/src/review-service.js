@@ -1,5 +1,5 @@
 import {inspectEditor} from './editor-service.js';
-import {needWorkPc} from './local-only.js';
+import {needWorkPc,apiUrl} from './local-only.js?v=web-1';
 import {hiddenChannels} from './channel-visibility.js';
 import {fetchWorkPolicies} from './rights-service.js';
 const fields='id,kind,work_order_id,job_id,clip_id,channel_slug,round_id,payload,status,decided_by,decided_at,decision_note,created_at';
@@ -91,7 +91,7 @@ export function createReviewService(client){
   needWorkPc();
   if(!note.trim())throw new Error('반려 사유를 입력해 주세요.');
   const {data:auth,error}=await client.auth.getSession();if(error||!auth.session)throw new Error('로그인이 필요합니다.');
-  const response=await fetch('/api/workflow/'+encodeURIComponent(item.id),{method:'POST',headers:{Authorization:'Bearer '+auth.session.access_token,'Content-Type':'application/json'},body:JSON.stringify({action:'reject',note:note.trim()})});
+  const response=await fetch(apiUrl('/api/workflow/'+encodeURIComponent(item.id)),{method:'POST',headers:{Authorization:'Bearer '+auth.session.access_token,'Content-Type':'application/json'},body:JSON.stringify({action:'reject',note:note.trim()})});
   const result=await response.json();if(!response.ok)throw new Error(result.error||'반려 기록을 저장하지 못했습니다.');cached=null;
  }
  return {client,listJobs,loadItems,preview,history,reject,inspectEditor:id=>inspectEditor(client,id),workPolicies:signal=>fetchWorkPolicies(client,signal)};

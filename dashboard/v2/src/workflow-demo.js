@@ -1,4 +1,4 @@
-import {statusIcon,timelineHtml} from './workflow-card.js';
+import {statusIcon,timelineHtml} from './workflow-card.js?v=web-1';
 import {scenarios} from './workflow-demo-data.js';
 import {initialDemo,transitionDemo} from './workflow-demo-model.js';
 import {setupScrollbars} from './scrollbars.js';

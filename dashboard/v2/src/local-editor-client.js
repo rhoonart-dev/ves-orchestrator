@@ -1,4 +1,4 @@
-import {needWorkPc} from './local-only.js';
+import {needWorkPc,apiUrl,localize} from './local-only.js?v=web-1';
 import {isRemoteKey,remoteEditorPayload,remoteLogos,remoteSaveDraft,remoteSubmit,remoteCheck} from './remote-editor-data.js?v=3';
 // Local bundle mode for the ported editor: auth stays on the real VES client; every data call the
 // editor makes is answered from /api/local-videos (ai-video videos/<suffix>/ bundles). Nothing is
@@ -8,10 +8,10 @@ async function api(client,path,body){
  const {data:{session}}=await client.auth.getSession();
  const headers={'Authorization':`Bearer ${session?.access_token||''}`};
  if(body)headers['Content-Type']='application/json';
- const res=await fetch(path,{method:body?'POST':'GET',headers,body:body?JSON.stringify(body):undefined,cache:'no-store'});
+ const res=await fetch(apiUrl(path),{method:body?'POST':'GET',headers,body:body?JSON.stringify(body):undefined,cache:'no-store'});
  const payload=await res.json().catch(()=>({error:'작업 컴퓨터의 답을 읽지 못했어요.'}));
  if(!res.ok)throw new Error(payload.error||'작업 컴퓨터에 요청하지 못했어요.');
- return payload;
+ return localize(payload);   // 웹 주소로 열었으면 미디어 주소도 127.0.0.1:8769 로
 }
 // 맥미니 영상(remote-<작업지시>/<편>)은 로컬 서버 없이 브라우저가 저장소에서 바로 연다(remote-editor-data.js) — 웹 주소에서도 된다
 export const loadLocalVideo=(client,key)=>isRemoteKey(key)?remoteEditorPayload(client,key):api(client,`/api/local-videos/editor?key=${encodeURIComponent(key)}`);
@@ -96,7 +96,7 @@ export function createLocalEditorClient(client,payload){
   uploadLogo:async(workId,role,file,label,box)=>{
    const {data:{session}}=await client.auth.getSession();
    const q=new URLSearchParams({role,filename:file.name,width:String(box[0]),height:String(box[1]),label});
-   const res=await fetch(`/api/work-assets/${encodeURIComponent(workId)}?${q}`,{method:'POST',body:file,
+   const res=await fetch(apiUrl(`/api/work-assets/${encodeURIComponent(workId)}?${q}`),{method:'POST',body:file,
     headers:{'Authorization':`Bearer ${session?.access_token||''}`,'Content-Type':file.type||'application/octet-stream'}});
    const payload=await res.json().catch(()=>({error:'작업 컴퓨터의 답을 읽지 못했어요.'}));
    if(!res.ok)throw new Error(payload.error||'로고를 올리지 못했어요.');

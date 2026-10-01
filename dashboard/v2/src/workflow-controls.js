@@ -1,12 +1,12 @@
-import {workflowView,workflowCardHtml} from './workflow-card.js';
-import {needWorkPc} from './local-only.js';
+import {workflowView,workflowCardHtml} from './workflow-card.js?v=web-1';
+import {needWorkPc,apiUrl} from './local-only.js?v=web-1';
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export function mountWorkflowControls(root,{client,reviewId,canReview,item,onState=()=>{},onChange=()=>{}}){
  let disposed=false,data=null,dialog=null,poll=null,lastCard=null;const abort=new AbortController();
  async function request(method='GET',body=null,file=false){
   needWorkPc();
   const {data:auth,error}=await client.auth.getSession();if(error||!auth.session)throw new Error('로그인이 필요합니다.');
-  const response=await fetch('/api/workflow/'+encodeURIComponent(reviewId)+(file?'/file':''),{method,headers:{Authorization:'Bearer '+auth.session.access_token,...(body&&!file?{'Content-Type':'application/json'}:{})},body:body?(file?body:JSON.stringify(body)):null,signal:abort.signal});
+  const response=await fetch(apiUrl('/api/workflow/'+encodeURIComponent(reviewId)+(file?'/file':'')),{method,headers:{Authorization:'Bearer '+auth.session.access_token,...(body&&!file?{'Content-Type':'application/json'}:{})},body:body?(file?body:JSON.stringify(body)):null,signal:abort.signal});
   const result=await response.json();if(!response.ok)throw new Error(result.error||'작업을 처리하지 못했습니다.');return result;
  }
  async function refresh(quiet=false){

@@ -1,4 +1,4 @@
-import {esc} from './review-details.js';
+import {esc} from './review-details.js?v=web-1';
 // 드라이브에서 작품 로고 가져오기(오케스트레이터 0114). 로컬 서버를 거치지 않는다:
 // 찾기는 request_work_logo_scan RPC → 맥미니가 rclone 으로 폴더를 훑어 work_logo_scans 에 후보를 적는다.
 // 화면은 그 줄을 읽고(미리보기는 ves-outputs 서명 URL), 고른 것을 import_work_logos RPC 로 넣는다.

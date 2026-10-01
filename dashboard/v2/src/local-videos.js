@@ -1,7 +1,8 @@
-import {esc} from './review-details.js';
-import {ON_WORK_PC,localChip} from './local-only.js';
-import {assetRequest} from './work-assets.js';
-import {localMedia,jobNode} from './local-jobs.js?v=rf-1';
+import {esc} from './review-details.js?v=web-1';
+import {ON_WORK_PC,localChip,connectWorkPc} from './local-only.js?v=web-1';
+import {showToast} from './toast.js?v=1';
+import {assetRequest} from './work-assets.js?v=web-1';
+import {localMedia,jobNode} from './local-jobs.js?v=web-1';
 import {failureInfo,lineHtml,openFailurePop,injectStyle as failureStyle} from './render-failure.js?v=7';
 // 편집실 메뉴 — 다시 렌더 중인 영상, 이어서 할 초안, 최근 제출(7일)을 나눠 보여 준다. 새 편집은 작업 목록의 영상에서 시작한다.
 // 렌더 중인 영상이 있으면 15초마다 다시 읽어 끝나는 대로 '최근 제출'로 옮긴다.
@@ -91,7 +92,10 @@ export function mountLocalVideos(root,{client,role}={}){
    root.innerHTML=`<section class="lv-intro"><header class="lv-head"><div><h2>편집 중인 영상</h2><div class="lv-scope" role="radiogroup" aria-label="누구의 편집"><button type="button" role="radio" data-scope="mine" aria-checked="${scope==='mine'}">내 편집</button><button type="button" role="radio" data-scope="all" aria-checked="${scope==='all'}">모두</button></div><p>제출하면 편집한 그대로 다시 렌더해서 같은 번호의 새 판으로 바꿔요. 새 편집은 <a href="#review?source=local">작업 목록</a>에서 영상을 고른 뒤 <b>편집실</b> 버튼으로 시작해요.</p></div></header></section>`+
     (sections||`<section class="empty-state"><h2>편집 중인 영상이 없어요</h2><p>작업 목록에서 영상의 <b>편집실</b> 버튼으로 여세요.</p><p><a href="#review?source=local">작업 목록으로</a></p></section>`);
    root.querySelectorAll('[data-scope]').forEach(b=>b.onclick=()=>{if(scope===b.dataset.scope)return;scope=b.dataset.scope;try{localStorage.setItem('lv-scope',scope)}catch{}render();});
-   if(!localOk)root.querySelector('.lv-intro').insertAdjacentHTML('beforeend',`<p class="lv-local-off">${ON_WORK_PC?'작업 컴퓨터 영상은 작업 컴퓨터에서 워크스페이스를 켰을 때만 보여요.':'작업 컴퓨터 영상은 작업 컴퓨터에서만 볼 수 있어요. 맥미니 영상은 여기서 편집할 수 있어요.'}</p>`);
+   if(!localOk){root.querySelector('.lv-intro').insertAdjacentHTML('beforeend',`<p class="lv-local-off">${ON_WORK_PC?'작업 컴퓨터 영상은 작업 컴퓨터에서 워크스페이스를 켰을 때만 보여요.':'작업 컴퓨터 영상은 그 컴퓨터에서 로컬 서버를 켜면 여기서도 볼 수 있어요. <button type="button" class="lv-connect">이 컴퓨터 연결</button>'}</p>`);
+    // 웹 주소: 이 컴퓨터에 로컬 서버가 켜져 있으면 붙어서 이 컴퓨터의 작업을 보여 준다(한 번 붙으면 기억 · src/local-only.js)
+    const c=root.querySelector('.lv-connect');if(c)c.onclick=async()=>{c.disabled=true;c.textContent='찾는 중…';
+     if(await connectWorkPc())location.reload();else{c.disabled=false;c.textContent='이 컴퓨터 연결';showToast(root,'이 컴퓨터에서 로컬 서버를 찾지 못했어요. 로컬 서버를 켠 뒤 다시 눌러 주세요.');}};}
    if(rows.some(r=>r.k==='busy'))timer=setTimeout(render,15000);
   }catch(e){if(dead)return;root.replaceChildren();const p=document.createElement('p');p.className='auth-notice';p.setAttribute('role','alert');p.textContent=e.message;root.append(p);}
  }
