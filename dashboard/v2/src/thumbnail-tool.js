@@ -1,6 +1,6 @@
 import {esc} from './review-details.js?v=web-1';
 import {assetRequest} from './work-assets.js?v=web-1';
-import {localMedia} from './local-jobs.js?v=rev-1';
+import {localMedia} from './local-jobs.js?v=room-1';
 // 썸네일 창 — 엔진(ai-video app.tikitaka.thumbnail)을 부르고, thumbnails.json 을 읽고, 사람이 고른 목록을 manual.json 으로 넘긴다.
 // 미리보기의 글자는 대략(엔진 글꼴·색만 맞춤) — 정확한 결과는 [이 목록으로 만들기]의 합성본이다.
 const COLOR_NAMES={white:'흰색',yellow:'노랑',lime:'라임',neon:'형광(번짐)',peach:'살구',sky:'하늘'};

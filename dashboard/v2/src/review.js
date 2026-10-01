@@ -4,7 +4,7 @@ import {showToast} from './toast.js?v=1';
 import {loadLocalMedia} from './media-catalog.js';
 import {icon} from './icons.js';
 import {filterOptions,visibleJobs} from './review-model.js';
-import {loadLocalJobs} from './local-jobs.js?v=rev-1';
+import {loadLocalJobs} from './local-jobs.js?v=room-1';
 import {workPosters} from './work-posters.js';
 // 필터 목록 그림 — 채널은 유튜브 채널 아이콘(channels_mirror.avatar_url), 작품은 작품 탭과 같은 포스터. 없으면 첫 글자.
 const norm=t=>String(t||'').replace(/\s/g,'');
@@ -63,7 +63,7 @@ export function mountReview(root,{jobs=[],connected=false,service=null,source=nu
    const preview=$('.empty-preview');if(preview)preview.onclick=togglePreview;
    return;
   }
-  $('.folder-results').innerHTML=`<div class="folder-grid">${list.map(j=>`<button type="button" class="job-folder" data-job="${esc(j.id)}" aria-label="${esc(j.work+' · '+j.title+' · '+j.id)}"><div class="folder-top">${flatFolder}<span class="folder-status">${esc(j.status)}</span></div><p class="folder-work">${esc(j.work)}</p><h3>${esc(j.title)}</h3><span class="folder-job-id" title="${esc(j.id)}">${esc(j.note||j.id)}</span><div class="folder-bottom"><span>${icon('video')}${esc(j.channel)} · ${catalog?.[j.id]?'완성 영상':esc(j.fileCountLabel||'영상')} ${catalog?.[j.id]?.length??j.videos}개</span><time datetime="${esc(j.createdAt)}">${new Intl.DateTimeFormat('ko-KR',{year:'numeric',month:'2-digit',day:'2-digit',timeZone:'Asia/Seoul'}).format(new Date(j.createdAt)).replace(/\. /g,'.').replace(/\.$/,'')}</time></div></button>`).join('')}</div>`;
+  $('.folder-results').innerHTML=`<div class="folder-grid">${list.map(j=>`<button type="button" class="job-folder" data-job="${esc(j.id)}" aria-label="${esc(j.work+' · '+j.title+' · '+j.id)}"><div class="folder-top">${flatFolder}<span class="folder-status">${esc(j.status)}</span></div><p class="folder-work">${esc(j.work)}</p><h3>${esc(j.title)}</h3><span class="folder-job-id" title="${esc(j.id)}">${esc(j.note||j.id)}</span><div class="folder-bottom"><span>${icon('video')}${esc(j.channel)} · ${catalog?.[j.id]?'완성 영상':esc(j.fileCountLabel||'영상')} ${catalog?.[j.id]?.length??j.videos}개</span><time datetime="${esc(j.madeAt||j.createdAt)}">${new Intl.DateTimeFormat('ko-KR',{year:'numeric',month:'long',day:'numeric',hour:'numeric',minute:'2-digit',timeZone:'Asia/Seoul'}).format(new Date(j.madeAt||j.createdAt))} 생성</time></div></button>`).join('')}</div>`;
   $('.folder-results').querySelectorAll('[data-job]').forEach(button=>button.onclick=()=>{
    const job=data().find(j=>j.id===button.dataset.job);
    location.hash=`review/${job.id}`;
