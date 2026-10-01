@@ -15,7 +15,7 @@ import {createReviewService} from './review-service.js?v=web-1';
 import {mountRights} from './rights.js?v=web-2';
 import {setupMobileNavigation} from './mobile-navigation.js';
 import {setupScrollbars} from './scrollbars.js';
-import {setupHoverTips} from './hover-tip.js?v=2';
+import {setupHoverTips} from './hover-tip.js?v=3';
 import {setupWheelScroll} from './wheel-scroll.js';
 import {setupLayoutMotion} from './layout-motion.js';
 import {mountWorkbench} from './workbench.js?v=tip-3';
