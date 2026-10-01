@@ -1,4 +1,4 @@
-import {mountChannels} from './channels.js?v=web-1';
+import {mountChannels} from './channels.js?v=status-1';
 import {mountChannelTemplates} from './channel-templates.js?v=web-1';
 import {mountPerformance} from './performance.js?v=copy-1';
 import {mountTrends} from './trends.js?v=copy-1';
