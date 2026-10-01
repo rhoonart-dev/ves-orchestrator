@@ -16,14 +16,16 @@ export async function loadRoom(client,work){
  ]);
  const wos=tasks.map(t=>t.work_order_id).filter(Boolean),stats=new Map();
  if(wos.length){
-  const [vids,jobs]=await Promise.all([
+  const [vids,jobs,runs]=await Promise.all([
    client.from('tikitaka_videos').select('id,work_order_id,status').in('work_order_id',wos).then(r=>r.data||[]),
    client.from('job_queue').select('work_order_id,status').in('work_order_id',wos).in('status',['failed','dead']).then(r=>r.data||[],()=>[]),
+   client.from('job_queue').select('work_order_id,progress').in('work_order_id',wos).eq('kind','tikitaka_generate').eq('status','running').then(r=>r.data||[],()=>[]),
   ]);
   const ids=vids.map(v=>v.id),pub=new Set();
   if(ids.length){const {data}=await client.from('tikitaka_reviews').select('video_id,stage').in('video_id',ids).eq('stage','scheduled');(data||[]).forEach(r=>pub.add(r.video_id));}
   for(const v of vids){const s=stats.get(v.work_order_id)||{videos:0,published:0};s.videos++;if(pub.has(v.id))s.published++;stats.set(v.work_order_id,s);}
   for(const j of jobs){const s=stats.get(j.work_order_id)||{videos:0,published:0};s.failed=true;stats.set(j.work_order_id,s);}
+  for(const j of runs){const s=stats.get(j.work_order_id)||{videos:0,published:0};s.progress=j.progress;stats.set(j.work_order_id,s);}   // 진행 단계(0125)
  }
  return {work,card,yt,sources,comps,tasks,channels:chans,stats};
 }

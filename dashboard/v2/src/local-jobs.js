@@ -1,5 +1,6 @@
 import {apiUrl} from './local-only.js?v=web-1';
 import {assetRequest} from './work-assets.js?v=web-1';
+import {JOB_COLS,summarize} from './job-progress.js';
 // Local tikitaka bundles (ai-video videos/vN) shaped like 작업 목록 jobs: one job folder → N videos.
 // 채널은 잡 폴더 모음의 channels.json(작품→채널) 또는 잡의 display.json channel 로 정한다 — 이름은 channels_mirror 에서.
 export const localMedia=(key,f)=>apiUrl(`/api/local-videos/media?key=${encodeURIComponent(key)}&f=${encodeURIComponent(f)}`);
@@ -29,7 +30,7 @@ async function loadRemoteJobs(client,names){
  if(rows.length){const {data:ts}=await client.from('tikitaka_tasks').select('work_order_id,work_no,episode_key,created_at,started_at,source_compilations(name)').in('work_order_id',[...new Set(rows.map(r=>r.work_order_id))]).then(r=>r,()=>({data:[]}));(ts||[]).forEach(t=>tasks.set(t.work_order_id,t));}
  const byWo=new Map();
  for(const r of rows){if(!byWo.has(r.work_order_id))byWo.set(r.work_order_id,[]);byWo.get(r.work_order_id).push(r);}
- return [...byWo.entries()].map(([wo,list])=>{
+ const made=[...byWo.entries()].map(([wo,list])=>{
   const r=list[0],ch=names.get(r.channel_slug);list.sort((a,b)=>(a.version||0)-(b.version||0)||a.suffix.localeCompare(b.suffix));
   // 회차는 작업 기록의 것('7-8') — 엔진은 두 회차 합본도 마지막 회차('8화')를 적는다. 설명 줄은 합본 이름만(메모는 길어서 안 싣는다)
   const t=tasks.get(wo),unit=(String(r.episode||'').match(/[^\d\s-]+$/)||['화'])[0],ep=t?`${t.episode_key}${unit}`:(epLabel(r.episode)||'회차 미정');
@@ -39,6 +40,28 @@ async function loadRemoteJobs(client,names){
    bundles:list.map(x=>({key:`remote-${wo}/${x.suffix}`,video_id:x.id,apply:applies.get(x.id)||null,suffix:x.suffix,version:x.version,tag:x.tag,title:x.title,status:'ready',render_fingerprint:x.render_fingerprint,
     review_items:x.review_items,labels:0,duration:Number(x.duration_sec)||0,remote:true,node:x.node_id,src:signed.get(x.files?.['shorts.mp4']?.key)||''}))};
  });
+ return withRunning(client,names,made);
+}
+// 만드는 중인 작업(0121 작업 · 0125 진행 단계) — 아직 편이 없어도 카드로 띄우고, 막대 · 한 줄 · 단계 창에 쓸 진행 요약을 붙인다
+async function withRunning(client,names,made){
+ const since=new Date(Date.now()-14*864e5).toISOString();
+ const {data:ts}=await client.from('tikitaka_tasks').select('work_order_id,work_no,episode_key,channel_slug,work_title,created_at,started_at,source_compilations(name)')
+  .eq('status','queued').gte('started_at',since).then(r=>r,()=>({data:[]}));
+ const tasks=ts||[],have=new Set(made.map(j=>j.raw));
+ const wos=[...new Set([...tasks.map(t=>t.work_order_id),...made.map(j=>j.raw)])].filter(Boolean);
+ if(!wos.length)return made;
+ const {data:js}=await client.from('job_queue').select(JOB_COLS).in('work_order_id',wos).in('kind',['acquire','tikitaka_generate','tikitaka_upload']).then(r=>r,()=>({data:[]}));
+ const byWo=new Map();for(const j of js||[]){if(!byWo.has(j.work_order_id))byWo.set(j.work_order_id,[]);byWo.get(j.work_order_id).push(j);}
+ for(const j of made){const s=summarize(byWo.get(j.raw));if(s&&s.state!=='done'){j.progress=s;j.running=s.state==='busy';if(j.running)j.status='만드는 중';}}
+ const running=tasks.filter(t=>!have.has(t.work_order_id)).map(t=>{
+  const s=summarize(byWo.get(t.work_order_id));if(!s||s.state==='done')return null;
+  const ch=names.get(t.channel_slug),unit='화';
+  return {id:'MV-'+t.work_order_id,source:'local-bundle',remote:true,raw:t.work_order_id,work:t.work_title,workId:t.work_title,episode:`${t.episode_key}${unit}`,
+   title:`${t.episode_key}${unit} #${t.work_no}`,note:t.source_compilations?.name||'원본 파일',workNo:t.work_no,madeAt:t.created_at,channelId:t.channel_slug,
+   channel:ch?.name||t.channel_slug,channelAvatar:ch?.avatar_url||null,createdAt:t.started_at||t.created_at,videos:0,nodeId:s.node,
+   status:s.state==='failed'?'만들지 못했어요':'만드는 중',fileCountLabel:'완성 영상',bundles:[],progress:s,running:s.state==='busy'};
+ }).filter(Boolean);
+ return [...running,...made];
 }
 // 잡을 맡았던 맥미니 — 실패하면 node_id 가 비어서, 편을 만든 노드로 박아 둔 required_caps(node:mm-02)로
 export const jobNode=j=>j.node_id||(j.required_caps||[]).find(c=>String(c).startsWith('node:'))?.slice(5)||null;

@@ -76,3 +76,19 @@ def test_argv_uses_episode_label():
     assert tk.engine_episode({"episode_label": "410회", "episode": 410}) == "410회"
     argv = tk.build_argv_pure("py", {"work_title": "로또", "episode": 5, "count": 3}, "/s", "/o")
     assert argv[argv.index("--episode") + 1] == "5화"
+
+
+def test_progress_of_stages_and_render_count():
+    steps = [{"step": "scenecut", "at": "2026-10-01T20:51:00"}, {"step": "transcribe", "at": "2026-10-01T20:52:00"},
+             {"step": "transcript_polish", "at": "2026-10-01T20:53:00"}]
+    p = tk.progress_of(steps, 14)
+    assert p["stage"] == "analyze" and p["label"] == "장면 분석" and p["done"] == ["transcribe"]
+    # 단계형: 대본이 분석보다 먼저 끝나도 지금 단계는 분석
+    p = tk.progress_of(steps + [{"step": "rebuild", "versions": 12, "at": "2026-10-01T21:10:00"}], 14)
+    assert p["stage"] == "analyze" and "script" in p["done"] and p["total"] == 12
+    steps += [{"step": "grid", "at": "2026-10-01T21:12:00"}, {"step": "rebuild", "versions": 14, "at": "2026-10-01T21:30:00"},
+              {"step": "review_v1", "at": "2026-10-01T21:40:00"}, {"step": "review_v1", "at": "2026-10-01T21:41:00"},
+              {"step": "review_v4", "at": "2026-10-01T21:49:00"}]
+    p = tk.progress_of(steps, 14)
+    assert p["label"] == "렌더 2/14" and p["rendered"] == 2 and p["sec_per_video"] == 540
+    assert tk.progress_of([], 14) is None

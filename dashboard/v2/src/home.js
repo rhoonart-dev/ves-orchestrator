@@ -52,7 +52,7 @@ export function mountHome(root,{client=null,service=null,authStatus='loading'}={
   if(ops){
    $('.home-node-grid').innerHTML=ops.nodes.map(n=>{
     const health=nodeHealth(n),running=ops.running.filter(j=>j.node_id===n.node_id);
-    return `<article class="home-node"><div><span class="home-node-symbol">${nodeRobot(n.node_id,nodeRobotState(n,health,running.length))}</span><strong>${esc(n.node_id)}</strong></div><span class="home-node-state ${health.tone}"><i></i>${health.label}</span><div class="home-node-work">${running.map(j=>{const group=jobs?.find(x=>x.workOrderId===j.work_order_id);return `<p><strong>${esc(stage[j.kind]||j.kind)}</strong><small>${esc(group?.work||j.work||'작품 미등록')}</small></p>`;}).join('')||`<p class="home-node-idle">${health.online?'쉬는 중':'실행 작업 기록 없음'}</p>`}</div><small class="home-last-seen">최근 응답 ${date(n.last_seen_at)}</small></article>`;
+    return `<article class="home-node"><div><span class="home-node-symbol">${nodeRobot(n.node_id,nodeRobotState(n,health,running.length))}</span><strong>${esc(n.node_id)}</strong></div><span class="home-node-state ${health.tone}"><i></i>${health.label}</span><div class="home-node-work">${running.map(j=>{const group=jobs?.find(x=>x.workOrderId===j.work_order_id);return `<p><strong>${esc(stage[j.kind]||j.kind)}${j.progress?.label?` · ${esc(j.progress.label)}`:''}</strong><small>${esc(group?.work||j.work||'작품 미등록')}</small></p>`;}).join('')||`<p class="home-node-idle">${health.online?'쉬는 중':'실행 작업 기록 없음'}</p>`}</div><small class="home-last-seen">최근 응답 ${date(n.last_seen_at)}</small></article>`;
    }).join('')||message('ops','등록된 노드가 없습니다.');
   }else $('.home-node-grid').innerHTML=message('ops');
  }
