@@ -1,4 +1,4 @@
-import {loadCatalog} from './work-catalog.js';
+import {loadCatalog} from './work-catalog.js?v=hide-1';
 // 작품 로고 읽기·쓰기 — Supabase 로 바로(오케스트레이터 0112·0115·0116). 예전 로컬 서버 work_assets_api 와 같은 모양·규칙.
 // 읽기: 로고 표(work_asset_variants/versions) · 채널 선택 · 플랫폼 로고 출처 + 저장소 서명 URL
 // 쓰기: 파일은 저장소 최종 자리(works/<id>/<sha>.<ext>)에 바로 올리고 register_work_asset RPC 로 적는다. 나머지는 RPC.

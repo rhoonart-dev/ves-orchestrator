@@ -1,6 +1,6 @@
 import {mountWorkflowControls} from './workflow-controls.js?v=web-1';
 import {openPremiereExport} from './premiere-export.js?v=4';
-import {loadCatalog,loadGuide} from './work-catalog.js';
+import {loadCatalog,loadGuide} from './work-catalog.js?v=hide-1';
 
 import {openThumbnails} from './thumbnail-tool.js?v=rev-1';
 import {workflowCardHtml,timelineHtml,reviewEvents} from './workflow-card.js?v=web-1';

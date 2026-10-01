@@ -1,5 +1,5 @@
 import {icon} from './icons.js';
-import {loadCatalog} from './work-catalog.js';
+import {loadCatalog} from './work-catalog.js?v=hide-1';
 import {askConfirm} from './confirm-dialog.js';
 import {esc} from './review-details.js?v=web-1';
 import {assetRequest} from './work-assets.js?v=web-1';
