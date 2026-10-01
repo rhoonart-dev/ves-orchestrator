@@ -11,17 +11,32 @@ export function loadCatalog(client,{fresh=false}={}){
  if(!client)return Promise.reject(Error('로그인하면 작품 목록을 볼 수 있어요.'));
  if(cache&&!fresh)return cache;
  cache=(async()=>{
-  const [works,channels,cards,overrides]=await Promise.all([
+  const [all,channels,cards,overrides,hidden]=await Promise.all([
    rows(client.from('laeebly_works').select(LIST_COLS).order('title').order('id').range(0,4999)),
    rows(client.from('channels_mirror').select('works')),
    rows(client.from('work_cards').select('work_title')),
-   rows(client.from('channel_works_overrides').select('works'))]);
+   rows(client.from('channel_works_overrides').select('works')),
+   hiddenWorks(client)]);
+  const works=all.filter(w=>!hidden.has(w.id));
   const titles=new Set();
   for(const c of [...channels,...overrides])for(const t of c.works||[])titles.add(t);
   for(const c of cards)if(c.work_title)titles.add(c.work_title);
-  return {works,pipeline_titles:[...titles].sort()};
+  return {works,pipeline_titles:[...titles].sort(),hidden_works:all.filter(w=>hidden.has(w.id)),hidden};
  })().catch(e=>{cache=null;throw e;});
  return cache;
+}
+
+// 워크스페이스에서 숨길 작품 — ops_config.workspace_hidden_works(JSON 배열: 레이블리 작품 id, 레이블리에 없는 작품은 'title:<작품명>').
+// 같은 이름으로 두 번 등록된 옛것 등을 화면에서만 뺀다. 레이블리 원본은 그대로. 바꾸기는 운영자·관리자(0123 set_workspace_work_hidden).
+export function hiddenWorks(client){
+ return client.from('ops_config').select('value').eq('key','workspace_hidden_works').maybeSingle()
+  .then(r=>{try{return new Set(JSON.parse(r.data?.value||'[]'));}catch{return new Set();}},()=>new Set());
+}
+export async function setWorkHidden(client,key,hidden){
+ const {data,error}=await client.rpc('set_workspace_work_hidden',{p_key:key,p_hidden:hidden});
+ if(error)throw new Error(error.message||'작품 표시를 바꾸지 못했어요.');
+ cache=null;   // 다음에 목록을 읽을 때 새로
+ return new Set(Array.isArray(data)?data:[]);
 }
 
 const guides=new Map();

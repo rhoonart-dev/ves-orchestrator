@@ -1,5 +1,5 @@
 import {mountWorkAssets,assetRequest} from './work-assets.js?v=web-1';
-import {loadCatalog,loadGuide} from './work-catalog.js';
+import {loadCatalog,loadGuide,setWorkHidden} from './work-catalog.js?v=hide-1';
 import {loadSources,workSummary,videoRows,epUsable,epUsed,epTries,epLeft,epRemain,setLimit,setUsed} from './sources.js';
 import {workPosters} from './work-posters.js';
 import {icon} from './icons.js';
@@ -18,8 +18,8 @@ const date=value=>new Date(value).toLocaleDateString('ko-KR',{year:'numeric',mon
 export function mountWorks(root,{client,role}={}){
  let works=sampleWorks.map(w=>({...w})),releaseAssets=()=>{},liveGuides={};
  root.parentElement.classList.add('works-page');
- let legacyOpen=new Set(),roomClips=new Set(),catalogByTitle=new Map(),disposed=false,src=null,srcError='',openVideos=new Set(),guideData=null,guideError=false,releaseDropdown=()=>{},copyNoticeTimer;
- root.innerHTML=`<div class="works-layout"><aside class="works-sidebar" aria-label="작품 목록"><label class="works-search">${icon('search')}<input type="search" placeholder="작품 검색" aria-label="작품 검색" value="${esc(state.workQuery)}"></label><div class="works-options"></div></aside><section class="works-main"><div class="works-heading"></div><div class="works-toolbar"><div class="works-kinds" aria-label="작품 유형"></div></div><div class="works-results" aria-live="polite"></div></section></div><dialog class="works-guide" aria-labelledby="works-guide-title"><header><div><p class="works-guide-kicker"></p><h2 id="works-guide-title"></h2><p class="works-guide-meta"></p></div><button type="button" class="works-close" aria-label="안내 닫기">×</button></header><div class="works-guide-body"></div><footer></footer><div role="status" aria-live="polite" aria-atomic="true" class="works-copy-status"></div></dialog>`;
+ let overview={tasks:new Map(),clips:new Map()},hiddenSet=new Set(),hiddenRecs=[],legacyOpen=new Set(),roomClips=new Set(),catalogByTitle=new Map(),disposed=false,src=null,srcError='',openVideos=new Set(),guideData=null,guideError=false,releaseDropdown=()=>{},copyNoticeTimer;
+ root.innerHTML=`<div class="works-layout"><aside class="works-sidebar" aria-label="작품 목록"><label class="works-search">${icon('search')}<input type="search" placeholder="작품 검색" aria-label="작품 검색" value="${esc(state.workQuery)}"></label><div class="works-options"></div><button type="button" class="ch-hidden-open works-hidden-open" hidden></button></aside><dialog class="ch-hidden-dialog works-hidden-dialog" aria-labelledby="works-hidden-title"></dialog><section class="works-main"><div class="works-heading"></div><div class="works-toolbar"><div class="works-kinds" aria-label="작품 유형"></div></div><div class="works-results" aria-live="polite"></div></section></div><dialog class="works-guide" aria-labelledby="works-guide-title"><header><div><p class="works-guide-kicker"></p><h2 id="works-guide-title"></h2><p class="works-guide-meta"></p></div><button type="button" class="works-close" aria-label="안내 닫기">×</button></header><div class="works-guide-body"></div><footer></footer><div role="status" aria-live="polite" aria-atomic="true" class="works-copy-status"></div></dialog>`;
  const $=s=>root.querySelector(s),guideDialog=$('.works-guide'),canEdit=EDIT_ROLES.includes(role);
  function hideCopyNotice(){clearTimeout(copyNoticeTimer);$('.works-copy-status')?.classList.remove('visible');}   // 화면을 떠나며 창을 닫을 때는 이미 없다
  function showCopyNotice(message,duration=1800){
@@ -32,10 +32,13 @@ export function mountWorks(root,{client,role}={}){
  closeDialog(guideDialog);
  // 작품 목록 = 작품 카탈로그 + 소스가 등록된 작품(소스 창고에만 있는 작품도 고를 수 있게)
  const srcTitle=w=>src&&Object.keys(src.eps).find(t=>norm(t)===norm(w.name)||norm(t)===norm(liveGuides[w.id]?.title));
- function allWorks(){
+ // 숨긴 작품(0123) — 레이블리 작품은 id, 레이블리에 없는 작품은 'title:<작품명>' 로 가린다
+ const workKey=w=>w.licensedId||liveGuides[w.id]?.id||'title:'+w.name;
+ const allWorks=()=>rawWorks().filter(w=>!hiddenSet.has(workKey(w)));
+ function rawWorks(){
   if(!src)return works;
   const have=new Set(works.map(srcTitle).filter(Boolean));
-  return [...works,...Object.keys(src.eps).filter(t=>!have.has(t)).sort((a,b)=>a.localeCompare(b,'ko')).map(t=>{const id='src-'+t,rec=catalogByTitle.get(norm(t));if(rec)liveGuides[id]=rec;return {id,name:t,type:rec?.video_type||'작품'};})];
+  return [...works,...Object.keys(src.eps).filter(t=>!have.has(t)).sort((a,b)=>a.localeCompare(b,'ko')).map(t=>{const id='src-'+t,rec=catalogByTitle.get(norm(t))||hiddenRecs.find(r=>norm(r.title)===norm(t));if(rec)liveGuides[id]=rec;return {id,name:t,type:rec?.video_type||'작품'};})];   // 숨긴 레이블리 작품과 이름이 같은 원본도 같이 가린다
  }
  const epCount=w=>{const t=srcTitle(w);return t?Object.keys(src.eps[t]).length:0;};
  // 포스터 — 레이블리 작품 DB(licensed_video.thumbnail)의 것, 없으면 로컬에 적어 둔 것
@@ -58,25 +61,27 @@ export function mountWorks(root,{client,role}={}){
  function render(){
   renderSidebar();
   const list=allWorks(),work=list.find(w=>w.id===state.work);
-  $('.works-heading').innerHTML=`<div><h2>${esc(work?.name||'소스 창고')}</h2><p>${esc(work?work.type:'작품별 원본 소스와 채널별 남은 편수')}</p></div>${work&&(!work.id.startsWith('src-')||liveGuides[work.id])?`<div class="works-heading-actions"><button type="button" class="works-button" data-guide="assets">에셋</button><button type="button" class="works-button" data-guide="guide">${icon('file')}권리사 가이드</button><button type="button" class="works-button solid" data-guide="required">${icon('pencil')}필수 기입 정보</button></div>`:''}`;
+  $('.works-heading').innerHTML=`<div><h2>${esc(work?.name||'소스 창고')}</h2><p>${esc(work?work.type:'작품별 원본과 작업')}</p></div>${work&&(!work.id.startsWith('src-')||liveGuides[work.id])?`<div class="works-heading-actions"><button type="button" class="works-button" data-guide="assets">에셋</button><button type="button" class="works-button" data-guide="guide">${icon('file')}권리사 가이드</button><button type="button" class="works-button solid" data-guide="required">${icon('pencil')}필수 기입 정보</button></div>`:''}`;
   $('.works-heading').querySelectorAll('[data-guide]').forEach(b=>b.onclick=()=>showGuide(b.dataset.guide));
   const out=$('.works-results');
   if(!src){$('.works-toolbar').hidden=true;out.innerHTML=`<p class="works-empty">${srcError?'소스 목록을 불러오지 못했어요. '+esc(srcError):client?'소스 목록을 불러오는 중…':'로그인하면 소스 창고를 볼 수 있어요.'}</p>`;return;}
   if(work){$('.works-toolbar').hidden=true;renderWork(work);return;}
-  // 전체 — 소스가 있는 작품을 급한 순(며칠치가 적은 순)으로
+  // 전체 — 소스가 있는 작품을 최근에 움직인 순(마지막 작업 · 새 클립)으로. 예전 'n편 남음 · n일치'는 쇼츠 1편 = 작업지시 1개였던 옛 방식 셈이라 뺐다
   const kinds=['전체','드라마','예능','영화','웹콘텐츠','다큐멘터리'];
-  const rows=list.map(w=>({w,t:srcTitle(w)})).filter(r=>r.t).map(r=>({...r,sum:workSummary(src,r.t)}))
-   .sort((a,b)=>(a.sum.days-b.sum.days)||a.w.name.localeCompare(b.w.name,'ko'));
+  const act=t=>{const o=overview.tasks.get(t),c=overview.clips.get(t);return [o?.last,c].filter(Boolean).sort().pop()||'';};
+  const rows=list.map(w=>({w,t:srcTitle(w)})).filter(r=>r.t).map(r=>({...r,sum:workSummary(src,r.t),act:act(r.t)}))
+   .sort((a,b)=>b.act.localeCompare(a.act)||a.w.name.localeCompare(b.w.name,'ko'));
   const shown=rows.filter(r=>state.kind==='전체'||r.w.type===state.kind);
   $('.works-toolbar').hidden=false;
   $('.works-kinds').innerHTML=kinds.filter(k=>k==='전체'||rows.some(r=>r.w.type===k)).map(k=>`<button type="button" data-kind="${k}" class="${state.kind===k?'active':''}" aria-pressed="${state.kind===k}">${k}<small>${k==='전체'?rows.length:rows.filter(r=>r.w.type===k).length}</small></button>`).join('');
   $('.works-kinds').querySelectorAll('button').forEach(b=>b.onclick=()=>{state.kind=b.dataset.kind;render();});
-  out.innerHTML=`${src.byChannelMissing?'<p class="src-warn">채널별 소진 기록을 읽지 못했어요. 채널 숫자가 0으로 보일 수 있어요.</p>':''}
-   <div class="src-works">${shown.map(({w,sum})=>`<button type="button" class="src-work" data-work="${esc(w.id)}">
+  const day=v=>new Intl.DateTimeFormat('ko-KR',{month:'long',day:'numeric',timeZone:'Asia/Seoul'}).format(new Date(v));
+  const ago=v=>{const m=Math.round((Date.now()-new Date(v))/60000);return m<60?`${Math.max(1,m)}분 전`:m<1440?`${Math.round(m/60)}시간 전`:`${Math.round(m/1440)}일 전`;};
+  out.innerHTML=`<div class="src-works">${shown.map(({w,t,sum})=>{const o=overview.tasks.get(t),clip=overview.clips.get(t),eps=sum.eps.filter(e=>e.ep!=null).length;
+   return `<button type="button" class="src-work" data-work="${esc(w.id)}">
     ${poster(w)?`<img class="src-poster" src="${esc(poster(w))}" alt="" referrerpolicy="no-referrer">`:`<span class="src-poster">${icon('library')}</span>`}
-    <span class="src-work-copy"><strong>${esc(w.name)}</strong><small>${sum.eps.length}회차 · ${sum.chs.length?esc(sum.chs.map(c=>c.name).join(', ')):'배정 채널 없음'}</small></span>
-    <span class="src-work-next">${sum.next.map(n=>`<span>${avatar(n.channel)}${n.ep?`다음 ${esc(n.ep)}`:'남은 회차 없음'}</span>`).join('')}</span>
-    ${chip(sum)}</button>`).join('')||'<p class="works-empty">이 유형의 소스가 없어요.</p>'}</div>`;
+    <span class="src-work-copy"><strong>${esc(w.name)}</strong><small>${eps?`회차 ${eps}개`:'회차 없음'} · ${sum.chs.length?esc(sum.chs.map(c=>c.name).join(', ')):'배정 채널 없음'}</small></span>
+    <span class="src-work-act">${[o?`작업 ${o.n}개 · 마지막 작업 ${esc(day(o.last))}`:'아직 작업 없음',clip?`새 클립 ${esc(ago(clip))}`:''].filter(Boolean).join(' · ')}</span></button>`;}).join('')||'<p class="works-empty">이 유형의 소스가 없어요.</p>'}</div>`;
   out.querySelectorAll('[data-work]').forEach(b=>b.onclick=()=>chooseWork(b.dataset.work));
  }
  function renderWork(work){
@@ -95,6 +100,16 @@ export function mountWorks(root,{client,role}={}){
   legacyBody(out.querySelector('.src-legacy-body'),work,t,sum);
  }
  const list=()=>allWorks();
+ // 전체 목록 요약 — 작품별 새 방식 작업 수 · 마지막 작업(tikitaka_tasks), 유튜브 작품의 마지막 클립 시각(sources)
+ async function loadOverview(){
+  const [tasks,clips]=await Promise.all([
+   client.from('tikitaka_tasks').select('work_title,created_at').neq('status','deleted').then(r=>r.data||[],()=>[]),
+   client.from('sources').select('work_title,published_ts').not('yt_source_id','is',null).not('published_ts','is',null).order('published_ts',{ascending:false}).limit(1000).then(r=>r.data||[],()=>[])]);
+  const t=new Map(),c=new Map();
+  for(const r of tasks){const v=t.get(r.work_title)||{n:0,last:''};v.n++;if(r.created_at>v.last)v.last=r.created_at;t.set(r.work_title,v);}
+  for(const r of clips)if(!c.has(r.work_title))c.set(r.work_title,r.published_ts);
+  overview={tasks:t,clips:c};
+ }
  function legacyBody(out,work,t,sum){
   out.innerHTML=`<div class="src-summary">${chip(sum)}<span>${sum.eps.length}회차</span>${sum.chs.length?sum.chs.map(c=>`<span class="src-ch-tag">${avatar(c)}${esc(c.name)}</span>`).join(''):'<span class="src-muted">배정된 채널이 없어 소진되지 않아요. 채널 목록에서 작품을 배정하세요</span>'}</div>
    <p class="src-help"><b>한도</b>는 그 회차로 만들 수 있는 편수예요(길이로 자동: 10분 미만 1 · 10~30분 2 · 30분 이상 3). 채널마다 따로 세고, <b>발행된 편수</b>만 한도를 깎아요. 반려·취소된 시도는 <b>시도</b>로만 잡혀요.${canEdit?' 숫자를 고치면 바로 저장돼요.':''}</p>
@@ -155,10 +170,35 @@ export function mountWorks(root,{client,role}={}){
 window.addEventListener('resize',fadeEdge);
  $('.works-sidebar input').oninput=e=>{state.workQuery=e.target.value;renderSidebar();};
  releaseDropdown=enhanceDropdowns(root);render();
+ if(client)loadOverview().then(()=>{if(!disposed&&src)render();});
  if(client)loadSources(client).then(data=>{if(disposed)return;src=data;render();}).catch(e=>{if(disposed)return;srcError=e.message||'';render();});
  fetch('assets/local-guides.json').then(r=>{if(!r.ok)throw Error();return r.json();}).then(data=>{if(disposed)return;guideData=data;if(guideDialog.open&&guideMode!=='assets')showGuide(guideMode);}).catch(()=>{if(disposed)return;guideError=true;if(guideDialog.open&&guideMode!=='assets')showGuide(guideMode);});
- if(client)loadCatalog(client).then(data=>{   // 레이블리 작품 정보 사본(웹에서도 된다)
+ // 숨긴 작품 관리 — 작품 목록 맨 아래 회색 버튼. 작품마다 보이기 스위치(운영자·관리자만 바꿀 수 있다). 채널 숨기기와 같은 모양
+ const hidOpen=$('.works-hidden-open'),hidDlg=$('.works-hidden-dialog');
+ function drawHiddenOpen(){hidOpen.hidden=!client;hidOpen.innerHTML=`숨긴 작품 관리${hiddenSet.size?`<small>${hiddenSet.size}</small>`:''}`;}
+ function drawHidden(msg=''){
+  const shown=allWorks().map(w=>({key:workKey(w),name:w.name,type:w.type,pic:poster(w),on:true}));
+  const gone=[...hiddenRecs.map(r=>({key:r.id,name:r.title,type:r.video_type||'작품',pic:r.thumbnail||'',on:false})),
+   ...[...hiddenSet].filter(k=>k.startsWith('title:')).map(k=>({key:k,name:k.slice(6),type:'작품',pic:'',on:false}))];
+  const rows=[...gone,...shown];
+  hidDlg.innerHTML=`<div class="ch-hidden-body"><header><h2 id="works-hidden-title">숨긴 작품 관리</h2><button type="button" class="ch-hidden-close" aria-label="닫기">×</button></header>
+   <p class="ch-hidden-hint">숨긴 작품은 작품 관리 · 발행 일정 · 편집 화면의 작품 목록에서 빠져요. 레이블리 정보는 그대로예요.${canEdit?'':'<br>바꾸려면 운영자 권한이 필요해요.'}</p>
+   <p class="ch-hidden-msg" role="status">${esc(msg)}</p>
+   <div class="ch-hidden-list">${rows.map(r=>`<label class="ch-hidden-row${r.on?'':' is-hidden'}"><span class="ch-hidden-av works-hidden-pic">${r.pic?`<img src="${esc(r.pic)}" alt="" referrerpolicy="no-referrer">`:icon('library')}</span><span class="ch-hidden-name"><strong>${esc(r.name)}</strong><small>${r.on?esc(r.type):'숨김'}</small></span><input type="checkbox" role="switch" data-key="${esc(r.key)}" ${r.on?'checked':''} ${canEdit?'':'disabled'} aria-label="${esc(r.name)} 보이기"></label>`).join('')}</div></div>`;
+  hidDlg.querySelector('.ch-hidden-close').onclick=()=>hidDlg.close();
+  hidDlg.querySelectorAll('input[data-key]').forEach(t=>t.onchange=async()=>{
+   t.disabled=true;
+   try{await setWorkHidden(client,t.dataset.key,!t.checked);await refreshCatalog(true);if(!allWorks().some(w=>w.id===state.work))state.work='all';render();drawHidden();}
+   catch(e){t.checked=!t.checked;t.disabled=false;drawHidden(e.message);}
+  });
+ }
+ hidOpen.onclick=()=>{drawHidden();hidDlg.showModal();};
+ hidDlg.addEventListener('click',e=>{if(e.target===hidDlg)hidDlg.close();});
+ const refreshCatalog=fresh=>loadCatalog(client,{fresh}).then(applyCatalog);
+ if(client)refreshCatalog(false).catch(()=>{});
+ function applyCatalog(data){   // 레이블리 작품 정보 사본(웹에서도 된다)
   if(disposed)return;
+  hiddenSet=data.hidden||new Set();hiddenRecs=data.hidden_works||[];drawHiddenOpen();
   const linked=new Set(data.pipeline_titles||[]);
   catalogByTitle=new Map(data.works.map(r=>[norm(r.title),r]));
   const normalize=t=>t.replace(/\s/g,'');
@@ -166,6 +206,6 @@ window.addEventListener('resize',fadeEdge);
   const ids=new Set(samples.map(w=>w.licensedId));
   works=[...samples,...data.works.filter(r=>linked.has(r.title)&&!ids.has(r.id)).map(r=>{const id='licensed-'+r.id;liveGuides[id]=r;return {id,licensedId:r.id,name:r.title,type:r.video_type||'작품'};})];
   render();if(guideDialog.open)showGuide(guideMode);
- }).catch(()=>{});
- return ()=>{window.removeEventListener('resize',fadeEdge);root.parentElement.classList.remove('works-page');disposed=true;releaseAssets();clearTimeout(copyNoticeTimer);releaseDropdown();if(guideDialog.open)guideDialog.close();};
+ }
+ return ()=>{window.removeEventListener('resize',fadeEdge);root.parentElement.classList.remove('works-page');disposed=true;releaseAssets();clearTimeout(copyNoticeTimer);releaseDropdown();if(guideDialog.open)guideDialog.close();if(hidDlg.open)hidDlg.close();};
 }
