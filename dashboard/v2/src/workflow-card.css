@@ -47,6 +47,16 @@
 .workflow-timeline time{font-size:10px;color:var(--muted);font-variant-numeric:tabular-nums}
 .workflow-timeline p{margin:2px 0 0;font-size:11px;color:var(--secondary);white-space:pre-wrap;overflow-wrap:anywhere}
 .workflow-history .workflow-timeline{max-height:340px;overflow:auto}
+/* 지난 수정에서 달라진 점 — 작업 이력 상자와 같은 모양, 아래 카드와 같은 폭(버튼 묶음 칸 안에서 늘린다) */
+.edit-notes{align-self:stretch;background:var(--surface);border-radius:16px;padding:16px 22px;margin:4px -3px 0;text-align:left}   /* 버튼 칸의 좌우 3px 를 되돌려 카드와 같은 폭 */
+.edit-notes[hidden]{display:none}
+.edit-notes summary{display:flex;align-items:center;gap:8px;list-style:none;cursor:pointer;font-size:13px;font-weight:600;min-height:24px}
+.edit-notes summary::-webkit-details-marker{display:none}
+.edit-notes summary::after{content:'⌄';margin-left:auto;color:var(--muted);transition:transform .2s}
+.edit-notes[open] summary::after{transform:rotate(180deg)}
+.edit-notes summary small{font-weight:400;font-size:11px;color:var(--muted)}
+.edit-notes ul{margin:10px 0 2px;padding-left:18px;font-size:12px;line-height:1.75;color:var(--secondary)}
+.edit-notes li.warn{color:var(--ink)}
 .workflow-dialog,.workflow-dialog input,.workflow-dialog select,.workflow-dialog textarea,.reject-dialog,.reject-dialog textarea{color:var(--ink)}
 @media(max-width:1250px){.workflow-inspector{overflow:visible;width:min(100%,580px)}}
 @media(max-width:760px){.workflow-card{padding:24px 22px}.workflow-card h3{font-size:20px}.workflow-inspector{width:100%}}
