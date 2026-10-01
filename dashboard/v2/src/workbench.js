@@ -33,7 +33,7 @@ export function mountWorkbench(root,job,{service=null,role=null,refresh=null}={}
  const canReview=['reviewer','operator','admin'].includes(role);
  const canExport=['operator','admin'].includes(role);   // 프리미어로 내보내기는 우리 팀만 — 크리에이터는 편집실을 쓰게(2026-09-30)
  let releaseWorkflow=()=>{};
- root.innerHTML=`<section class="video-workspace"><div class="workbench-top"><div><a class="workbench-back" href="#review${local?'?source=local':''}">‹ 작업 목록</a><h2>${esc(job.work)}</h2><p>${esc(job.episode)} · 작업 ID ${esc(job.id)} <span>${live?'Supabase 검수 기록':job.remote?'':local?'작업 컴퓨터의 로컬 영상':'로컬 예시'}</span></p></div><button class="workbench-guide" type="button">${icon('file')}권리사 가이드</button></div><div class="mobile-video-controls"><button class="video-previous" type="button" aria-label="이전 영상">‹</button><button class="video-picker-open" type="button" aria-haspopup="dialog" aria-controls="video-picker-dialog"><span class="video-picker-label">영상 선택</span><strong class="mobile-current-title">불러오는 중…</strong></button><button class="video-next" type="button" aria-label="다음 영상">›</button></div><div class="workbench-body"><aside class="video-rail" aria-label="완성 영상 목록"><header><h3>완성 영상 <span class="video-total"></span></h3></header><div class="video-rail-list"><p class="workbench-note">영상을 불러오는 중…</p></div></aside><div class="video-column"><div class="video-stage" aria-label="영상 재생"><div class="video-frame"><video controls playsinline preload="metadata" controlslist="nofullscreen" aria-label="선택한 완성 영상"></video><button class="video-expand" type="button" aria-label="영상 전체화면"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/></svg></button></div><div class="media-error" role="alert" hidden><p>영상을 불러오지 못했습니다.</p><button type="button">다시 시도</button></div><p class="player-message" role="status"></p></div></div><aside class="video-inspector workflow-inspector" aria-label="선택한 영상 검수"><div class="workflow-editor-actions" hidden><div class="editor-buttons"><button type="button" class="open-thumbs" hidden>${icon('image')}<span>썸네일 생성</span></button><button type="button" class="open-premiere" hidden>${icon('download')}<span>프리미어로 내보내기</span></button><a class="open-editor" aria-disabled="true">${icon('pencil')}편집실 열기</a></div><small class="editor-readiness"></small></div><div class="workflow-operations"></div><details class="workflow-history"><summary>작업 이력 <small>한국 시간</small></summary><div class="workbench-history-content"></div></details></aside></div></section><dialog class="reject-dialog" aria-labelledby="reject-title"><form><div class="login-heading"><h2 id="reject-title">영상 반려</h2><button type="button" class="reject-close" aria-label="닫기">×</button></div><p>반려 사유를 작업 이력에 남깁니다. 자동으로 새 영상을 생성하지 않습니다.</p><label>반려 사유<textarea name="note" required maxlength="2000" rows="4"></textarea></label><p class="reject-error" role="alert"></p><button class="primary" type="submit">반려하기</button></form></dialog><dialog class="workbench-guide-dialog" aria-labelledby="workbench-guide-title"><div class="login-heading"><h2 id="workbench-guide-title">권리사 가이드</h2><button type="button" aria-label="가이드 닫기">×</button></div><div class="workbench-guide-content"></div></dialog><dialog id="video-picker-dialog" class="video-picker-dialog" aria-label="영상 선택"><button class="video-picker-close" type="button" aria-label="영상 목록 닫기">×</button></dialog>`;
+ root.innerHTML=`<section class="video-workspace"><div class="workbench-top"><div><a class="workbench-back" href="#review${local?'?source=local':''}">‹ 작업 목록</a><h2>${esc(job.work)}</h2><p>${esc(job.episode)} · 작업 ID ${esc(job.id)} <span>${live?'Supabase 검수 기록':job.remote?'':local?'작업 컴퓨터의 로컬 영상':'로컬 예시'}</span></p></div><button class="workbench-guide" type="button">${icon('file')}권리사 가이드</button></div><div class="mobile-video-controls"><button class="video-previous" type="button" aria-label="이전 영상">‹</button><button class="video-picker-open" type="button" aria-haspopup="dialog" aria-controls="video-picker-dialog"><span class="video-picker-label">영상 선택</span><strong class="mobile-current-title">불러오는 중…</strong></button><button class="video-next" type="button" aria-label="다음 영상">›</button></div><div class="workbench-body"><aside class="video-rail" aria-label="완성 영상 목록"><header><h3>완성 영상 <span class="video-total"></span></h3></header><div class="video-rail-list"><p class="workbench-note">영상을 불러오는 중…</p></div></aside><div class="video-column"><div class="video-stage" aria-label="영상 재생"><div class="video-frame"><video controls playsinline preload="metadata" controlslist="nofullscreen" aria-label="선택한 완성 영상"></video><button class="video-expand" type="button" aria-label="영상 전체화면"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/></svg></button></div><div class="media-error" role="alert" hidden><p>영상을 불러오지 못했습니다.</p><button type="button">다시 시도</button></div><p class="player-message" role="status"></p></div></div><aside class="video-inspector workflow-inspector" aria-label="선택한 영상 검수"><div class="workflow-editor-actions" hidden><div class="editor-buttons"><button type="button" class="open-thumbs" hidden>${icon('image')}<span>썸네일 생성</span></button><button type="button" class="open-premiere" hidden>${icon('download')}<span>프리미어로 내보내기</span></button><a class="open-editor" aria-disabled="true">${icon('pencil')}편집실 열기</a></div><small class="editor-readiness"></small><details class="edit-notes" hidden><summary></summary><ul></ul></details></div><div class="workflow-operations"></div><details class="workflow-history"><summary>작업 이력 <small>한국 시간</small></summary><div class="workbench-history-content"></div></details></aside></div></section><dialog class="reject-dialog" aria-labelledby="reject-title"><form><div class="login-heading"><h2 id="reject-title">영상 반려</h2><button type="button" class="reject-close" aria-label="닫기">×</button></div><p>반려 사유를 작업 이력에 남깁니다. 자동으로 새 영상을 생성하지 않습니다.</p><label>반려 사유<textarea name="note" required maxlength="2000" rows="4"></textarea></label><p class="reject-error" role="alert"></p><button class="primary" type="submit">반려하기</button></form></dialog><dialog class="workbench-guide-dialog" aria-labelledby="workbench-guide-title"><div class="login-heading"><h2 id="workbench-guide-title">권리사 가이드</h2><button type="button" aria-label="가이드 닫기">×</button></div><div class="workbench-guide-content"></div></dialog><dialog id="video-picker-dialog" class="video-picker-dialog" aria-label="영상 선택"><button class="video-picker-close" type="button" aria-label="영상 목록 닫기">×</button></dialog>`;
  const $=s=>root.querySelector(s);
  const mobile=matchMedia('(max-width: 760px)');
  const rail=$('.video-rail'),railHome=document.createComment('video list');rail.before(railHome);
@@ -136,17 +136,27 @@ export function mountWorkbench(root,job,{service=null,role=null,refresh=null}={}
    // 말풍선 가운데를 편집실 열기 버튼 가운데에. 화면(넓은 화면은 오른쪽 스크롤 칸) 끝에 닿으면 안쪽으로 밀되,
    // 꼬리는 늘 버튼 가운데를 가리키고 알약의 둥근 끝이 아니라 평평한 부분에 붙는다
    const clip=box.closest('.workflow-inspector'),c=clip?.getBoundingClientRect(),w=tip.offsetWidth,r=tip.offsetHeight/2,mid=b.left+b.width/2;
-   const lo=c?c.left:8,hi=(c?c.right:document.documentElement.clientWidth-8)-w;
-   let left=Math.min(Math.max(mid-w/2,lo),hi);left=Math.min(Math.max(left,mid-(w-r-6)),mid-(r+6));
+   // 잘리는 칸: 넓은 화면은 오른쪽 스크롤 칸(스크롤 막대 자리는 빼고 보이는 폭만), 아니면 화면. 4px 여유
+   const cut=clip&&getComputedStyle(clip).overflowX!=='visible';
+   const lo=cut?c.left+clip.clientLeft+4:8,hi=(cut?c.left+clip.clientLeft+clip.clientWidth-4:document.documentElement.clientWidth-8)-w;
+   // 꼬리를 평평한 곳에 두려고 먼저 맞추고, 잘리지 않게 하는 걸 마지막에(둘이 부딪히면 잘리지 않는 쪽)
+   let left=Math.min(Math.max(mid-w/2,mid-(w-r-6)),mid-(r+6));left=Math.min(Math.max(left,lo),hi);
    // 위에 자리가 없으면(넓은 화면 오른쪽 칸은 스크롤 칸이라 위로 삐져나간 부분이 잘려 그림자만 비친다) 버튼 아래로
    const below=row.top-(c?c.top:-Infinity)<tip.offsetHeight+12;
    tip.classList.toggle('below',below);tip.style.right='auto';tip.style.left=(left-o.left)+'px';
    if(below){tip.style.bottom='auto';tip.style.top=(row.bottom-o.top+10)+'px';}else{tip.style.top='auto';tip.style.bottom=(o.bottom-row.top+10)+'px';}
-   tip.querySelector('i').style.left=(mid-left-6)+'px';};
+   tip.querySelector('i').style.left=Math.min(Math.max(mid-left-6,12),w-24)+'px';};
   requestAnimationFrame(place);
   const ro=new ResizeObserver(()=>{if(!tip.isConnected)return ro.disconnect();place();setTimeout(place,450);});ro.observe(box);ro.observe(document.documentElement);   // 폭이 바뀌어 버튼 자리가 옮겨진 뒤에 다시 맞춘다
  }
  // 버튼 아래 한 줄 — 다시 렌더 실패는 이유 + [자세히](말풍선: 할 일 · 렌더한 맥미니 로봇의 말), 나머지는 글자 그대로
+ // 지난 수정에서 달라진 점 — 버튼 아래 긴 글 대신 아래 카드와 같은 폭의 접는 상자(처음엔 접힘)
+ function editNotes(b){
+  const d=$('.edit-notes'),notes=b?.apply?.state==='done'?(b.apply.notes||[]):[];
+  d.hidden=!notes.length;d.open=false;if(!notes.length)return;
+  d.querySelector('summary').innerHTML=`지난 수정에서 달라진 점 <small>${notes.length}가지</small>`;
+  d.querySelector('ul').innerHTML=notes.map(n=>`<li class="${n.level==='warn'?'warn':''}">${esc(n.text)}</li>`).join('');
+ }
  function failureNote(note,b,rest){
   const a=b.apply,parts=rest.filter(Boolean).map(esc);
   if(a?.state==='failed'){failureStyle();const info=failureInfo(a.error,{node:a.node||(b.remote?b.node:null),at:a.finished_at,restorable:a.restorable});
@@ -155,7 +165,7 @@ export function mountWorkbench(root,job,{service=null,role=null,refresh=null}={}
  }
  async function prepareActions(item,ticket){
   const link=$('.open-editor'),note=$('.editor-readiness'),thumbs=$('.open-thumbs'),premiere=$('.open-premiere');
-  link.removeAttribute('href');link.setAttribute('aria-disabled','true');thumbs.hidden=true;link.hidden=false;premiere.hidden=true;
+  link.removeAttribute('href');link.setAttribute('aria-disabled','true');thumbs.hidden=true;link.hidden=false;premiere.hidden=true;editNotes(null);
   if(local){                                   // local bundle: open the local editor (edits are recorded, not rendered)
    const b=item.bundle;note.hidden=false;
    if(b.remote){                               // 맥미니 영상: 편집실은 여기서 열고, 제출하면 그 맥미니가 다시 렌더한다(썸네일은 아직 작업 컴퓨터 영상만)
@@ -164,7 +174,7 @@ export function mountWorkbench(root,job,{service=null,role=null,refresh=null}={}
     const [,wo,suffix]=String(b.key||'').match(/^remote-([^/]+)\/(.+)$/)||[];
     if(wo&&canExport&&service?.client){premiere.hidden=false;premiere.onclick=()=>{video.pause();openPremiereExport(service.client,{wo,suffix});};}
     if(rendering(b)){note.textContent='다시 렌더하고 있어요. 끝나면 편집할 수 있어요.';return;}
-    failureNote(note,b,[]);
+    failureNote(note,b,[]);editNotes(b);
     link.href=`editor.html?local=1&run=${encodeURIComponent(item.id)}&back=${encodeURIComponent(job.id)}`;link.setAttribute('aria-disabled','false');renderTip(link);
     return;
    }
@@ -178,7 +188,7 @@ export function mountWorkbench(root,job,{service=null,role=null,refresh=null}={}
    thumbs.onclick=()=>{video.pause();openThumbnails({client:service?.client,video:b,onChange:async()=>{
     if(!refresh)return;try{const next=(await refresh()).find(j=>j.id===job.id);if(disposed||!next)return;
      job.bundles=next.bundles;const nb=next.bundles.find(x=>x.key===b.key);if(nb){item.bundle=nb;if(selectedId===item.id)prepareActions(item,ticket);}}catch{}}})};
-   failureNote(note,b,[b.apply?.state==='done'&&b.apply.notes?.length?`지난 수정에서 달라진 점: ${b.apply.notes.map(n=>n.text).join(' ')}`:'',b.draft&&!b.draft.stale?'이어서 할 초안 있음':'']);
+   failureNote(note,b,[b.draft&&!b.draft.stale?'이어서 할 초안 있음':'']);editNotes(b);
    link.href=`editor.html?local=1&run=${encodeURIComponent(item.id)}&back=${encodeURIComponent(job.id)}`;link.setAttribute('aria-disabled','false');renderTip(link);
    return;
   }
