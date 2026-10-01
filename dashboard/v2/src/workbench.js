@@ -8,7 +8,7 @@ import {mountTikitakaReview} from './tikitaka-review.js?v=rev-1';
 import {score,reviewLabels} from './review-service.js?v=web-1';
 import {icon} from './icons.js';
 import {loadLocalMedia,timeLabel} from './media-catalog.js';
-import {bundleItem} from './local-jobs.js?v=rev-1';
+import {bundleItem} from './local-jobs.js?v=room-1';
 import {failureInfo,lineHtml,openFailurePop,injectStyle as failureStyle} from './render-failure.js?v=7';
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const remembered=new Map();

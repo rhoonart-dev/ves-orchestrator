@@ -24,11 +24,15 @@ async function loadRemoteJobs(client,names){
    .in('work_order_id',[...new Set(rows.map(r=>r.work_order_id))]).order('created_at',{ascending:false}).limit(200);
   for(const j of jobs||[]){const vid=j.params?.video_id;if(vid&&!applies.has(vid))applies.set(vid,{edit_id:j.id,state:{pending:'queued',running:'running',succeeded:'done'}[j.status]||'failed',error:j.status==='failed'||j.status==='dead'?String(j.error||'').slice(-300):null,node:jobNode(j),finished_at:j.finished_at||j.updated_at});}
  }
+ // 작업 번호(0121 tikitaka_tasks) — '5-6화 #3' 처럼 부르고, 만든 시각은 작업을 저장한 때
+ const tasks=new Map();
+ if(rows.length){const {data:ts}=await client.from('tikitaka_tasks').select('work_order_id,work_no,episode_key,created_at,started_at,options').in('work_order_id',[...new Set(rows.map(r=>r.work_order_id))]).then(r=>r,()=>({data:[]}));(ts||[]).forEach(t=>tasks.set(t.work_order_id,t));}
  const byWo=new Map();
  for(const r of rows){if(!byWo.has(r.work_order_id))byWo.set(r.work_order_id,[]);byWo.get(r.work_order_id).push(r);}
  return [...byWo.entries()].map(([wo,list])=>{
   const r=list[0],ch=names.get(r.channel_slug);list.sort((a,b)=>(a.version||0)-(b.version||0)||a.suffix.localeCompare(b.suffix));
-  return {id:'MV-'+wo,source:'local-bundle',remote:true,raw:wo,work:r.work_title,workId:r.work_title,episode:epLabel(r.episode),title:epLabel(r.episode)||'회차 미정',note:'',
+  const t=tasks.get(wo),ep=epLabel(r.episode)||'회차 미정';
+  return {id:'MV-'+wo,source:'local-bundle',remote:true,raw:wo,work:r.work_title,workId:r.work_title,episode:epLabel(r.episode),title:t?`${ep} #${t.work_no}`:ep,note:t?.options?.memo||'',workNo:t?.work_no??null,madeAt:t?.created_at||null,
    channelId:r.channel_slug||null,channel:r.channel_slug?(ch?.name||r.channel_slug):'채널 미배정',youtubeChannelId:ch?.channel_id||null,channelAvatar:ch?.avatar_url||null,
    createdAt:list.map(x=>x.updated_at||x.created_at).sort().pop(),videos:list.length,nodeId:r.node_id,status:'내부 검수',fileCountLabel:'완성 영상',
    bundles:list.map(x=>({key:`remote-${wo}/${x.suffix}`,video_id:x.id,apply:applies.get(x.id)||null,suffix:x.suffix,version:x.version,tag:x.tag,title:x.title,status:'ready',render_fingerprint:x.render_fingerprint,

@@ -7,6 +7,8 @@ import {enhanceDropdowns} from './dropdowns.js';
 import {guideFragment} from './workbench.js?v=rev-1';
 import {GuideDetails} from './guide-details.js';
 import {esc} from './review-details.js?v=web-1';
+import {loadRoom,renderRoom} from './source-room.js';
+import {showToast} from './toast.js';
 const sampleWorks=[['lotto','로또 1등도 출근합니다','드라마'],['jigeum','지금 불륜이 문제가 아닙니다(c)','드라마'],['gawang','가왕쇼','예능'],['sinbyeong','신병','드라마'],['jjijji','종합광고대행사 찌찌: 광고의 온도편','드라마'],['karlovy','카를로비바리','영화']].map(([id,name,type])=>({id,name,type}));
 const state={work:'all',kind:'전체',workQuery:''};
 const EDIT_ROLES=['operator','admin'];
@@ -16,7 +18,7 @@ const date=value=>new Date(value).toLocaleDateString('ko-KR',{year:'numeric',mon
 export function mountWorks(root,{client,role}={}){
  let works=sampleWorks.map(w=>({...w})),releaseAssets=()=>{},liveGuides={};
  root.parentElement.classList.add('works-page');
- let catalogByTitle=new Map(),disposed=false,src=null,srcError='',openVideos=new Set(),guideData=null,guideError=false,releaseDropdown=()=>{},copyNoticeTimer;
+ let legacyOpen=new Set(),roomClips=new Set(),catalogByTitle=new Map(),disposed=false,src=null,srcError='',openVideos=new Set(),guideData=null,guideError=false,releaseDropdown=()=>{},copyNoticeTimer;
  root.innerHTML=`<div class="works-layout"><aside class="works-sidebar" aria-label="작품 목록"><label class="works-search">${icon('search')}<input type="search" placeholder="작품 검색" aria-label="작품 검색" value="${esc(state.workQuery)}"></label><div class="works-options"></div></aside><section class="works-main"><div class="works-heading"></div><div class="works-toolbar"><div class="works-kinds" aria-label="작품 유형"></div></div><div class="works-results" aria-live="polite"></div></section></div><dialog class="works-guide" aria-labelledby="works-guide-title"><header><div><p class="works-guide-kicker"></p><h2 id="works-guide-title"></h2><p class="works-guide-meta"></p></div><button type="button" class="works-close" aria-label="안내 닫기">×</button></header><div class="works-guide-body"></div><footer></footer><div role="status" aria-live="polite" aria-atomic="true" class="works-copy-status"></div></dialog>`;
  const $=s=>root.querySelector(s),guideDialog=$('.works-guide'),canEdit=EDIT_ROLES.includes(role);
  function hideCopyNotice(){clearTimeout(copyNoticeTimer);$('.works-copy-status')?.classList.remove('visible');}   // 화면을 떠나며 창을 닫을 때는 이미 없다
@@ -81,13 +83,26 @@ export function mountWorks(root,{client,role}={}){
   const out=$('.works-results'),t=srcTitle(work);
   if(!t){out.innerHTML='<div class="src-none"><h3>아직 등록된 원본이 없어요</h3><p>소스 창고에는 VES가 쇼츠를 만들 때 쓰는 원본 영상(회차)이 모여요.</p><ul><li><b>유튜브에 있는 원본</b>은 VES가 알아서 등록해요.</li><li><b>드라이브 같은 파일 원본</b>은 관리자가 한 번 등록해 줘야 해요. <small>(<code>deploy/register_source.py</code>)</small></li></ul><p class="src-muted">작업 컴퓨터에서 바로 만든 작품은 원본 파일을 그 컴퓨터에 두고 쓰기 때문에 여기에는 안 보여요.</p></div>';return;}
   const sum=workSummary(src,t);
+  // 새 구조(0121) — 회차 → 원본(합본 · 파일) → 작업 #번호. 예전 파이프라인 숫자는 맨 아래에 접어 둔다
+  const roomKey=t;
+  out.innerHTML=`<div class="sr-room"><p class="src-muted">불러오는 중…</p></div><details class="src-legacy" ${legacyOpen.has(t)?'open':''}><summary>예전 파이프라인 기록</summary><div class="src-legacy-body"></div></details>`;
+  const legacy=out.querySelector('.src-legacy');legacy.ontoggle=()=>{legacy.open?legacyOpen.add(t):legacyOpen.delete(t);};
+  const drawRoom=()=>loadRoom(client,t).then(d=>{if(disposed||srcTitle(list().find(w=>w.id===state.work)||{})!==roomKey)return;
+   const host=out.querySelector('.sr-room');if(!host)return;
+   renderRoom(host,d,{client,canEdit,workChannels:sum.chs,reload:drawRoom,toast:m=>showToast(document.body,m),openClips:roomClips});
+  }).catch(e=>{const host=out.querySelector('.sr-room');if(host)host.innerHTML=`<p class="src-warn">원본 목록을 불러오지 못했어요. ${esc(e.message||'')}</p>`;});
+  drawRoom();
+  legacyBody(out.querySelector('.src-legacy-body'),work,t,sum);
+ }
+ const list=()=>allWorks();
+ function legacyBody(out,work,t,sum){
   out.innerHTML=`<div class="src-summary">${chip(sum)}<span>${sum.eps.length}회차</span>${sum.chs.length?sum.chs.map(c=>`<span class="src-ch-tag">${avatar(c)}${esc(c.name)}</span>`).join(''):'<span class="src-muted">배정된 채널이 없어 소진되지 않아요. 채널 목록에서 작품을 배정하세요</span>'}</div>
    <p class="src-help"><b>한도</b>는 그 회차로 만들 수 있는 편수예요(길이로 자동: 10분 미만 1 · 10~30분 2 · 30분 이상 3). 채널마다 따로 세고, <b>발행된 편수</b>만 한도를 깎아요. 반려·취소된 시도는 <b>시도</b>로만 잡혀요.${canEdit?' 숫자를 고치면 바로 저장돼요.':''}</p>
    <p class="src-msg" role="status"></p>
    <div class="src-eps">${sum.eps.map(e=>epBlock(e,sum)).join('')}</div>`;
-  out.querySelectorAll('[data-vids]').forEach(b=>b.onclick=()=>{const k=b.dataset.vids;openVideos.has(k)?openVideos.delete(k):openVideos.add(k);renderWork(work);});
+  out.querySelectorAll('[data-vids]').forEach(b=>b.onclick=()=>{const k=b.dataset.vids;openVideos.has(k)?openVideos.delete(k):openVideos.add(k);legacyBody(out,work,t,workSummary(src,t));});
   const msg=text=>{const m=out.querySelector('.src-msg');if(m)m.textContent=text;};
-  const reload=async note=>{try{src=await loadSources(client);}catch{}if(!disposed){renderWork(work);msg(note);}};
+  const reload=async note=>{try{src=await loadSources(client);}catch{}if(!disposed){legacyBody(out,work,t,workSummary(src,t));msg(note);}};
   out.querySelectorAll('[data-limit]').forEach(el=>el.onchange=async()=>{const v=parseInt(el.value,10);
    if(!Number.isInteger(v)||v<0||v>20){msg('한도는 0~20 사이로 적어 주세요.');return reload('');}
    const sids=el.dataset.limit.split(',');try{await setLimit(client,sids,v);reload(sids.length>1?`영상 ${sids.length}개 한도를 ${v}편으로 저장했어요.`:`한도를 ${v}편으로 저장했어요.`);}catch(e){reload('저장하지 못했어요: '+e.message);}});
