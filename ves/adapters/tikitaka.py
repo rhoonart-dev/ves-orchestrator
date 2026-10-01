@@ -79,7 +79,7 @@ def build_argv_pure(py: str, params: dict, source_path: str, out_dir: str) -> li
     return [py, "-u", "-m", "app.tikitaka",
             "--source", source_path,
             "--title", str(p["work_title"]),
-            "--episode", f"{p['episode']}화",
+            "--episode", str(p.get("episode_label") or f"{p['episode']}화"),
             "--count", str(count),
             "--out", out_dir,
             *engine_args(p.get("args"))]
@@ -166,6 +166,143 @@ def fetch_asset(cfg, asset: dict) -> str:
     return str(dest)
 
 
+# ───────── 작업 가이드(0121) — 합본 구성 메모 · 작업 메모 · 앞 회차 요약 · 다른 채널이 쓴 장면 ─────────
+# 엔진은 --guide 를 주면 작품·회차 가이드 자동 탐색을 끈다. 그래서 자동 탐색과 같은 규칙으로 찾은 파일을 먼저 넘기고
+# 이 작업의 가이드를 뒤에 붙인다(같은 키는 뒤 파일이 이긴다).
+GUIDE_DIR = "guides/tikitaka"
+PREV_SUMMARY_MAX = 5000
+
+
+def discover_guides(engine_dir: str, title: str, episode_label: str) -> list:
+    """엔진 guide.discover_guides 와 같은 규칙(작품 → 회차, 있는 것만). 순수에 가깝다 — 파일 존재만 본다."""
+    base = pathlib.Path(engine_dir) / GUIDE_DIR
+    found = []
+    for cand in (base / f"{title}.md", base / f"{title}.txt"):
+        if cand.exists():
+            found.append(str(cand))
+            break
+    labels = [str(episode_label)]
+    m = re.fullmatch(r"(\d+)(?:회|화)?", str(episode_label))
+    if m:
+        labels += [m[1], m[1] + "화", m[1] + "회"]
+    for cand in (base / title / f"{lab}{ext}" for lab in dict.fromkeys(labels) for ext in (".md", ".txt")):
+        if cand.exists():
+            found.append(str(cand))
+            break
+    return found
+
+
+def _mmss(sec: float) -> str:
+    return f"{int(sec // 60):02d}:{sec % 60:04.1f}"
+
+
+def used_ranges(edit_plans: list, pad: float = 0.5) -> list:
+    """다른 채널 편들의 edit_plan → 대사·현장음으로 쓴 원본 구간(덮개 컷은 뺀다) 합친 것. 순수 — 테스트 대상."""
+    spans = []
+    for ep in edit_plans:
+        for t in (ep or {}).get("timeline") or []:
+            if t.get("cover") or not t.get("use_original_audio", True):
+                continue
+            a, b = t.get("clip_start_sec"), t.get("clip_end_sec")
+            if isinstance(a, (int, float)) and isinstance(b, (int, float)) and b > a:
+                spans.append((max(0.0, a - pad), b + pad))
+    out = []
+    for a, b in sorted(spans):
+        if out and a <= out[-1][1] + 1.0:
+            out[-1][1] = max(out[-1][1], b)
+        else:
+            out.append([a, b])
+    return out
+
+
+def avoid_guide(ranges: list, channels: list) -> str:
+    if not ranges:
+        return ""
+    who = ", ".join(dict.fromkeys(channels)) or "다른 채널"
+    return ("# 다른 채널이 이미 쓴 장면\n\n"
+            f"같은 원본으로 {who} 채널이 먼저 만든 편들이 대사·현장음으로 쓴 구간이다. 채널끼리 같은 장면이 겹치지 않게 이 구간은 쓰지 않는다.\n\n"
+            "활용 불가: " + " / ".join(f"{_mmss(a)}~{_mmss(b)} (다른 채널 사용)" for a, b in ranges) + "\n")
+
+
+def prev_summary(label: str, videos: list) -> str:
+    """앞 회차 작업 편들(title · grid rows) → 대본 요약 본문. 구조 키로 읽히지 않게 줄마다 '- ' 를 붙인다. 순수 — 테스트 대상."""
+    if not videos:
+        return ""
+    lines = [f"# 앞 회차 내용 — {label} 작업에서 만든 편들의 대본 요약", "",
+             "이번 회차 이야기를 이해시키려고 지난 회 맥락을 내레이션으로 짧게 말할 때만 참고한다. 앞 회차 편과 같은 말을 되풀이하지 않는다.", ""]
+    for v in videos:
+        lines.append(f"- 편 제목: {v.get('title') or ''}")
+        for r in (v.get("rows") or [])[:40]:
+            txt = str(r.get("text") or "").strip().replace("\n", " ")
+            if txt:
+                lines.append(f"  - ({'내레이션' if r.get('mode') == 'N' else '대사'}) {txt}")
+    body = "\n".join(lines)
+    return body[:PREV_SUMMARY_MAX] + ("\n- (이하 생략)" if len(body) > PREV_SUMMARY_MAX else "") + "\n"
+
+
+def _storage_json(store, key: str):
+    import tempfile as _tf
+    with _tf.NamedTemporaryFile(suffix=".json") as f:
+        try:
+            store.download("ves-outputs", key, f.name)
+            return json.loads(pathlib.Path(f.name).read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001 — 없는 파일은 건너뛴다
+            return None
+
+
+def task_guides(cfg, conn, p: dict) -> list:
+    """이 작업(0121 tikitaka_tasks)의 가이드 [(파일 이름, 본문)]. 작업 번호가 없는 옛 작업은 빈 목록."""
+    if not p.get("task_id"):
+        return []
+    from ves.storage.supabase_storage import Store
+    store = Store(cfg.supabase_url, cfg.supabase_service_key)
+    out = []
+    with conn.cursor() as c:
+        if p.get("compilation_id"):
+            c.execute("SELECT notes FROM public.source_compilations WHERE id=%s", (p["compilation_id"],))
+            r = c.fetchone()
+            if r and r.get("notes"):
+                out.append(("compilation.md", r["notes"]))
+        if p.get("prev_ref"):
+            c.execute("""SELECT t.episode_key, t.work_no, t.work_order_id FROM public.tikitaka_tasks t
+                          WHERE t.work_title=%s AND t.status='queued' AND t.work_order_id IS NOT NULL
+                            AND split_part(t.episode_key,'-',1)::int < split_part(%s,'-',1)::int
+                            AND EXISTS (SELECT 1 FROM public.tikitaka_videos v WHERE v.work_order_id=t.work_order_id)
+                          ORDER BY split_part(t.episode_key,'-',1)::int DESC, t.work_no DESC LIMIT 1""",
+                      (p["work_title"], p.get("episode_key") or str(p.get("episode"))))
+            prev = c.fetchone()
+            if prev:
+                c.execute("""SELECT title, files FROM public.tikitaka_videos WHERE work_order_id=%s
+                              AND status NOT IN ('rejected','discarded') ORDER BY suffix""", (prev["work_order_id"],))
+                vids = []
+                for v in c.fetchall():
+                    key = ((v.get("files") or {}).get("grid_table.json") or {}).get("key")
+                    grid = _storage_json(store, key) if key else None
+                    vids.append({"title": v.get("title"), "rows": (grid or {}).get("rows") or []})
+                text = prev_summary(f"{prev['episode_key']} #{prev['work_no']}", vids)
+                if text:
+                    out.append(("prev_episode.md", text))
+        if p.get("avoid_other") and p.get("source_sha256"):
+            c.execute("""SELECT v.files, v.channel_slug, m.name FROM public.tikitaka_videos v
+                           JOIN public.work_orders w ON w.id = v.work_order_id
+                           LEFT JOIN public.channels_mirror m ON m.token_slug = v.channel_slug
+                          WHERE w.source_sha256=%s AND v.channel_slug <> %s AND v.status NOT IN ('rejected','discarded')""",
+                      (p["source_sha256"], p.get("channel_slug") or ""))
+            plans, names = [], []
+            for v in c.fetchall():
+                key = ((v.get("files") or {}).get("edit_plan.json") or {}).get("key")
+                ep = _storage_json(store, key) if key else None
+                if ep:
+                    plans.append(ep)
+                    names.append(v.get("name") or v.get("channel_slug"))
+            text = avoid_guide(used_ranges(plans), names)
+            if text:
+                out.append(("avoid_other.md", text))
+    if p.get("memo"):
+        out.append(("memo.md", "# 작업 메모\n\n" + str(p["memo"]).strip() + "\n"))
+    return out
+
+
 # ───────── tikitaka_generate (subprocess형) ─────────
 class Generate:
     PIN_DEPENDENT_KINDS = PIN_DEPENDENT_KINDS
@@ -196,6 +333,7 @@ class Generate:
     def enrich_params(cfg, conn, job):
         p = dict(job.get("params") or {})
         p["logo_asset"] = pinned_logo(conn, job)   # 없으면 None — 엔진은 작품 가이드의 '로고:' 를 쓴다
+        p["task_guides"] = task_guides(cfg, conn, p)
         return p
 
     @staticmethod
@@ -208,6 +346,17 @@ class Generate:
         if not os.path.exists(src):
             raise base.PermanentError(f"원본 캐시가 이 노드에 없어요: {src} — acquire 가 다른 노드에서 돌았을 수 있어요")
         argv = build_argv_pure(cfgmod.engine_py(cfg, "ai_video"), p, src, Generate._out_dir(cfg, job))
+        guides = p.get("task_guides") or []
+        if guides:
+            gdir = pathlib.Path(Generate._out_dir(cfg, job)) / "task_guides"
+            gdir.mkdir(parents=True, exist_ok=True)
+            files = discover_guides(cfgmod.engine_dir(cfg, "ai_video"), str(p["work_title"]),
+                                    str(p.get("episode_label") or f"{p['episode']}화"))
+            for name, text in guides:
+                (gdir / name).write_text(text, encoding="utf-8")
+                files.append(str(gdir / name))
+            at = argv.index("--out") + 2
+            argv[at:at] = [x for f in files for x in ("--guide", f)]
         asset = p.get("logo_asset")
         if asset:
             # 작업에 직접 준 엔진 인자(logo_width 등)가 이기도록 --out 바로 뒤, 엔진 선택 인자 앞에 넣는다

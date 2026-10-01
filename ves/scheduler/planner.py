@@ -352,6 +352,8 @@ def _pick_source(conn, work, pipeline="shorts_kr", episode=None, channel_slug=No
                       public.source_retry_slack(s.work_title)           AS retry_slack
                  FROM public.sources s
                 WHERE s.work_title = %(work)s AND s.is_active
+                  -- 합본 · 선공개 · 몰아보기 · 비하인드(0121)는 새 방식(소스 창고에서 사람이 고른다) 재료라 여기서 집지 않는다
+                  AND s.clip_kind = 'clip'
                   -- 하한 이하 소스는 쓰지 않는다(8/12 사용자 결정). 등록 때 걸러지지만,
                   -- 사람이 실수로 활성화해도 여기서 한 번 더 막는다. 길이 미상은 종전대로 사용.
                   -- 하한은 작품 카드값(0031) — 정본은 public.source_min_duration 하나다.

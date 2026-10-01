@@ -307,3 +307,6 @@ def _load_all():
     register("tikitaka_publish", tikitaka_review.Publish)  # 검수 흐름: 일부공개(검수용) · 비공개+예약 올리기(0120)
     from ves.adapters import work_logos
     register("scan_work_logos", work_logos)            # 작품 관리 '드라이브에서 가져오기' — 로고 후보 모으기(0114)
+    from ves.adapters import youtube_clips
+    register("youtube_overlap", youtube_clips.Overlap)       # 유튜브 원천 여럿 — 아래 채널 클립의 겹침 구간(0121)
+    register("build_compilation", youtube_clips.Build)       # 소스 창고 합본 만들기 → sources(compilation)(0121)
