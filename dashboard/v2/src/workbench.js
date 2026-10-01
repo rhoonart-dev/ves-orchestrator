@@ -2,12 +2,13 @@ import {mountWorkflowControls} from './workflow-controls.js?v=web-1';
 import {openPremiereExport} from './premiere-export.js?v=4';
 import {loadCatalog,loadGuide} from './work-catalog.js';
 
-import {openThumbnails} from './thumbnail-tool.js?v=web-1';
+import {openThumbnails} from './thumbnail-tool.js?v=rev-1';
 import {workflowCardHtml,timelineHtml,reviewEvents} from './workflow-card.js?v=web-1';
+import {mountTikitakaReview} from './tikitaka-review.js?v=rev-1';
 import {score,reviewLabels} from './review-service.js?v=web-1';
 import {icon} from './icons.js';
 import {loadLocalMedia,timeLabel} from './media-catalog.js';
-import {bundleItem} from './local-jobs.js?v=web-1';
+import {bundleItem} from './local-jobs.js?v=rev-1';
 import {failureInfo,lineHtml,openFailurePop,injectStyle as failureStyle} from './render-failure.js?v=7';
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const remembered=new Map();
@@ -119,6 +120,9 @@ export function mountWorkbench(root,job,{service=null,role=null,refresh=null}={}
   if(picker.open)picker.close();
   releaseWorkflow();workflowState=null;$('.workflow-editor-actions').hidden=true;$('.workflow-history').open=false;loadHistory(item);
   if(live)releaseWorkflow=mountWorkflowControls($('.workflow-operations'),{client:service.client,reviewId:item.id,item,canReview,onState:(data,view)=>{if(disposed||ticket!==selectionVersion)return;workflowState=data;drawHistory();syncActions(item,view);},onChange:()=>{prepareActions(item,ticket);loadHistory(item);}});
+  // 맥미니 영상: 새 검수 흐름(0120) — 내부 검수 · 권리사 검수 신청 · 공개를 이 카드에서
+  else if(item.bundle?.remote&&item.bundle.video_id&&service?.client){releaseWorkflow=mountTikitakaReview($('.workflow-operations'),{client:service.client,videoId:item.bundle.video_id,title:item.title,canReview,
+   editHref:()=>$('.open-editor').getAttribute('href'),onChange:()=>loadHistory(item)});syncActions(item,null);}
   else{$('.workflow-operations').innerHTML=workflowCardHtml(item,{local:item.bundle?.remote?'remote':local?'bundle':true});releaseWorkflow=()=>{};syncActions(item,null);}
   prepareActions(item,ticket);fit();
   if(live){try{const src=await service.preview(item);if(disposed||ticket!==selectionVersion)return;video.src=src;video.load();}catch(error){if(disposed||ticket!==selectionVersion)return;$('.media-error p').textContent=error.message;$('.media-error').hidden=false;}}

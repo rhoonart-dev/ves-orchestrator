@@ -1,4 +1,4 @@
-import {listRange,listPublished,kstParts,kstISO,KINDS,kindOf} from './release-schedule.js';
+import {listRange,listPublished,kstParts,kstISO,KINDS,kindOf} from './release-schedule.js?v=rev-1';
 // 홈 '이번 주 발행' — 오늘부터 7일 띠(작품 공개 ● · 우리 영상 ■), 오늘 목록, 다가오는 작품 공개.
 // 데이터는 발행 일정 탭과 같다(work_release_schedule · perf_video_map). 예약 발행 기록이 생기면 '오늘 발행' 칸에 예약 수를 더한다.
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
