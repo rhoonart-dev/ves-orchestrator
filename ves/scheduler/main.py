@@ -21,7 +21,7 @@ from ves.scheduler import (algo_watch, channels_sync, drive_balance, drive_watch
                            editor_uploads_gc, loopy_drive, loopy_picker, loopy_scout,
                            perf_sync, planner, reaper, reconcile, source_watch,
                            trend_report, trend_scout,
-                           storage_gc, version_watch, zanmang_daily)
+                           storage_gc, version_watch, youtube_watch, zanmang_daily)
 
 KST = dt.timezone(dt.timedelta(hours=9))
 TICK_SEC = 30
@@ -109,6 +109,8 @@ def main():
                     ("drive_watch",   lambda: drive_watch.run(conn, cfg),   _due_daily(last.get("drive_watch"), now, 7)),
                     ("drive_balance", lambda: drive_balance.run(conn, cfg), _due_interval(last.get("drive_balance"), now, 5)),
                     ("source_watch",  lambda: source_watch.run(conn, cfg),  _due_interval(last.get("source_watch"), now, 60)),
+                    # 작품별 유튜브 원천(0121) — 07시에 새 클립 모으기 · 원천이 여럿이면 겹침 찾기
+                    ("youtube_watch", lambda: youtube_watch.run(conn, cfg), _due_daily(last.get("youtube_watch"), now, 7)),
                     ("planner",       lambda: planner.run(conn, cfg),       _due_daily(last.get("planner"), now, 9)),
                     ("channels_sync", lambda: channels_sync.run(conn, cfg), _due_daily(last.get("channels_sync"), now, 8)),
                     # 레이블리 작품 정보 사본(0116) — 워크스페이스 작품 관리를 웹에서. 10분이면 사람이 고친 게 곧 보인다

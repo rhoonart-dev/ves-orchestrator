@@ -19,6 +19,8 @@ yt-dlp 는 ai-video venv 모듈로 실행(런치디 PATH 에 brew 가 없어도 
 """
 from __future__ import annotations
 
+import re
+
 from ves import config as cfgmod
 from ves.adapters import base
 
@@ -246,10 +248,179 @@ def _work_card(conn, work):
         return c.fetchone() or {}
 
 
+# ───────── 작품별 유튜브 원천 여러 개(0121) ─────────
+# 클립형 작품(티빙·디글·tvN 클립 채널)은 한 회차가 2~5분 클립 여러 개로 나온다. 예고·선공개·몰아보기도 합본 재료라
+# 거르지 않고 종류를 붙여 둔다. 길이 하한은 쇼츠만 거르는 60초(종전 180초는 클립을 다 버린다).
+CLIP_MIN_SEC = 60
+_RECAP_RE = re.compile(r"몰아\s*보기|몰아봐|정주행|요약")
+_PRERELEASE_RE = re.compile(r"선공개")
+_EXTRA_RE = re.compile(r"비하인드|코멘터리|메이킹|예고|티저|대본\s*리딩|인터뷰|스페셜\s*영상|포스터|촬영\s*현장")
+_LABEL_RE = re.compile(r"(\d{1,4})\s*[-~&,·]\s*(\d{1,4})\s*(?:화|회|부|편)")
+_ONE_RE = re.compile(r"(\d{1,4})\s*(?:화|회차|회)")
+
+
+def clip_kind_of(title: str) -> str:
+    """제목 → clip(본편 클립) · prerelease(선공개) · recap(몰아보기) · extra(비하인드·예고 등 — 합본에 기본으로 안 넣는다).
+    순수 — 테스트 대상."""
+    import unicodedata as _ud
+    t = _ud.normalize("NFC", str(title or ""))
+    if _EXTRA_RE.search(t):
+        return "extra"
+    if _RECAP_RE.search(t):
+        return "recap"
+    if _PRERELEASE_RE.search(t):
+        return "prerelease"
+    return "clip"
+
+
+def episode_label_of(title: str, regex=None):
+    """제목 → (회차 숫자, 여러 회차 표기 '5-6' | None). 순수 — 테스트 대상.
+    '[5-6화 선공개]' → (5, '5-6') · '5화 | 매장 실장' → (5, None) · 'EP.410' + 정규식 → (410, None)."""
+    import unicodedata as _ud
+    t = _ud.normalize("NFC", str(title or ""))
+    m = _LABEL_RE.search(t)
+    if m:
+        a, b = int(m.group(1)), int(m.group(2))
+        if 0 < a < b <= a + 20:
+            return a, f"{a}-{b}"
+    ep = base.guess_episode_title(t, regex or "")
+    if ep is None:
+        m = _ONE_RE.search(t)
+        ep = int(m.group(1)) if m else None
+    return ep, None
+
+
+def plan_clip_rows(entries, title_filter: str = "", episode_regex=None, exclude_rx=None, min_duration=None) -> list:
+    """원천 하나의 목록 → 등록 행. 순수 — 테스트 대상. 회차를 못 읽으면 episode=None(회차 모름으로 둔다 — 서수로 지어내지 않는다)."""
+    rx = base.compile_episode_regex(episode_regex or "")
+    ex = base.compile_exclude_regex(exclude_rx or "")
+    norm = lambda v: "".join(str(v or "").split())   # noqa: E731
+    filt = norm(title_filter)
+    lo = min_duration if min_duration is not None else CLIP_MIN_SEC
+    out = []
+    for e in entries or []:
+        vid = (e or {}).get("id")
+        title = str((e or {}).get("title") or "")
+        if not vid or is_dead_entry(e):
+            continue
+        if filt and filt not in norm(title):
+            continue
+        if base.title_excluded(title, ex):
+            continue
+        dur = entry_duration(e)
+        if dur is not None and dur < lo:
+            continue                      # 쇼츠 · 짧은 예고
+        ep, label = episode_label_of(title, rx)
+        out.append({"episode": ep, "episode_label": label, "kind": clip_kind_of(title),
+                    "url": f"https://www.youtube.com/watch?v={vid}", "title": title,
+                    "duration": dur, "published_ts": _upload_ts(e)})
+    return out
+
+
+def _list_entries(cfg, url: str, limit: int = 0, lang: str = "ko"):
+    import json
+    import subprocess
+    argv = [cfgmod.engine_py(cfg, "ai_video"), "-m", "yt_dlp", "--flat-playlist", "-J",
+            "--extractor-args", f"youtube:lang={lang or 'ko'}"]
+    if limit > 0:
+        argv += ["--playlist-end", str(limit)]
+    argv.append(url)
+    r = subprocess.run(argv, capture_output=True, text=True, timeout=600)
+    if r.returncode != 0:
+        cls = base.classify_by_patterns(r.stderr or "", r.stdout or "")
+        msg = (r.stderr or r.stdout or "")[-500:]
+        if cls == "permanent":
+            raise base.PermanentError(msg)
+        raise RuntimeError(msg)
+    try:
+        data = json.loads(r.stdout or "{}")
+    except json.JSONDecodeError:
+        raise base.PermanentError("yt-dlp 출력 파싱 실패 — --flat-playlist -J 계약 확인")
+    return data, (data.get("entries") or ([data] if data.get("id") else []))
+
+
+def _fill_upload_times(cfg, conn, work: str, rows: list, cap: int = 60) -> None:
+    """목록(--flat-playlist)은 올린 시각을 안 준다. 아직 시각이 없는 영상만 하나씩 물어 채운다(같은 회차 안 순서의 근거)."""
+    import json
+    import subprocess
+    with conn.cursor() as c:
+        c.execute("SELECT source_url FROM public.sources WHERE work_title=%s AND published_ts IS NOT NULL "
+                  "AND source_url = ANY(%s)", (work, [r["url"] for r in rows]))
+        known = {x["source_url"] for x in c.fetchall()}
+    todo = [r for r in rows if r["published_ts"] is None and r["url"] not in known][:cap]
+    for r in todo:
+        try:
+            p = subprocess.run([cfgmod.engine_py(cfg, "ai_video"), "-m", "yt_dlp", "-J", "--skip-download", "--no-playlist",
+                                "--extractor-args", "youtube:lang=ko", r["url"]], capture_output=True, text=True, timeout=120)
+            meta = json.loads(p.stdout or "{}") if p.returncode == 0 else {}
+        except (subprocess.TimeoutExpired, ValueError):
+            meta = {}
+        ts = meta.get("timestamp") or meta.get("release_timestamp")
+        if isinstance(ts, (int, float)) and ts > 0:
+            r["published_ts"] = float(ts)
+
+
+def run_source(cfg, conn, job):
+    """work_youtube_sources 한 줄을 훑어 클립을 sources 에 등록한다(0121). 채널 피드는 최근 것만(기본 200개)."""
+    p = job["params"]
+    with conn.cursor() as c:
+        c.execute("SELECT * FROM public.work_youtube_sources WHERE id=%s", (p["yt_source_id"],))
+        src = c.fetchone()
+    if not src or not src.get("is_active"):
+        return {"skipped": "원천이 없거나 꺼져 있어요"}
+    limit = int(p.get("max_items") if p.get("max_items") is not None else (0 if "list=" in src["url"] else 200))
+    try:
+        data, entries = _list_entries(cfg, src["url"], limit)
+    except Exception as e:
+        with conn.cursor() as c:
+            c.execute("UPDATE public.work_youtube_sources SET last_checked_at=now(), last_error=%s WHERE id=%s",
+                      (str(e)[-300:], src["id"]))
+        conn.commit()
+        raise
+    rows = plan_clip_rows(entries, src.get("title_filter") or "", src.get("episode_regex"), src.get("exclude_regex"))
+    work = src["work_title"]
+    _fill_upload_times(cfg, conn, work, rows)
+    inserted = updated = 0
+    with conn.cursor() as c:
+        for r in rows:
+            c.execute(
+                """INSERT INTO public.sources
+                       (work_title, episode, episode_source, episode_label, clip_kind, yt_source_id, source_url, origin,
+                        registered_by, use_limit, duration_sec, published_ts, title)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,'youtube',%s,%s,%s,to_timestamp(%s),%s)
+                   ON CONFLICT (work_title, source_url) WHERE source_url IS NOT NULL DO UPDATE SET
+                       yt_source_id = COALESCE(sources.yt_source_id, EXCLUDED.yt_source_id),
+                       clip_kind = CASE WHEN sources.clip_kind = 'clip' THEN EXCLUDED.clip_kind ELSE sources.clip_kind END,
+                       episode_label = COALESCE(sources.episode_label, EXCLUDED.episode_label),
+                       duration_sec = COALESCE(sources.duration_sec, EXCLUDED.duration_sec),
+                       published_ts = COALESCE(sources.published_ts, EXCLUDED.published_ts),
+                       title = COALESCE(sources.title, EXCLUDED.title)
+                     WHERE sources.yt_source_id IS NULL OR sources.episode_label IS DISTINCT FROM COALESCE(sources.episode_label, EXCLUDED.episode_label)
+                        OR (sources.clip_kind = 'clip' AND EXCLUDED.clip_kind <> 'clip')
+                        OR sources.duration_sec IS NULL OR sources.published_ts IS NULL OR sources.title IS NULL
+                   RETURNING (xmax = 0) AS inserted""",
+                (work, r["episode"], "parsed" if r["episode"] is not None else None, r["episode_label"], r["kind"],
+                 src["id"], r["url"], f"register_playlist:{job['id']}", base.use_limit_for(r["duration"]),
+                 r["duration"], r["published_ts"], r["title"] or None))
+            res = c.fetchone()
+            if res and res.get("inserted"):
+                inserted += 1
+            elif res:
+                updated += 1
+        label = data.get("channel") or data.get("uploader")
+        c.execute("""UPDATE public.work_youtube_sources SET last_checked_at=now(), last_found=%s, last_error=NULL,
+                            label = COALESCE(label, %s) WHERE id=%s""", (len(rows), (label or None) and str(label)[:100], src["id"]))
+    kinds = {k: sum(1 for r in rows if r["kind"] == k) for k in ("clip", "prerelease", "recap", "extra")}
+    return {"work": work, "listed": len(entries), "matched": len(rows), "registered_new": inserted,
+            "updated": updated, "kinds": kinds, "episode_unknown": sum(1 for r in rows if r["episode"] is None)}
+
+
 def run(cfg, conn, job, deps):
     import json
     import subprocess
     p = job["params"]
+    if p.get("yt_source_id"):
+        return run_source(cfg, conn, job)
     work, url = p.get("work_title"), p.get("playlist_url")
     if not (work and url):
         raise base.PermanentError("params.work_title/playlist_url 필요")
