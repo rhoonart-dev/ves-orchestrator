@@ -1,6 +1,6 @@
 import {config} from './config.js';
 import {setupScrollbars} from './scrollbars.js';
-import {createLocalEditorClient,loadLocalVideo} from './local-editor-client.js?v=rf-1';
+import {createLocalEditorClient,loadLocalVideo} from './local-editor-client.js?v=web-1';
 import {confirmSubmit} from './editor-submit-dialog.js?v=render-123';
 import './editor-checks.js?v=render-123';   // window.__edChecks — 제출 전 검사(ves-editor.js 가 부른다)
 import './editor-fx.js?v=render-123';

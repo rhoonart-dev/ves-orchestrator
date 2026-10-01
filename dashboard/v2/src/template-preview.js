@@ -1,4 +1,4 @@
-import {esc} from './review-details.js';
+import {esc} from './review-details.js?v=web-1';
 // 채널 템플릿 미리보기 — 1080×1920 쇼츠 위에 채널 디자인을 얹는다. 배치와 기본값은 VES Studio 의
 // layoutShorts(ves-editor.js)·ai-video config 와 같다: 영상 1:1 가운데, 제목 70/90 흰색·노랑(밴드 위 가운데),
 // 대사 자막 65 노랑(밴드 하단 안쪽), 내레이션 70 하늘색(하단 550), 작품명 44(하단 140), 플랫폼 표기(밴드 모서리 24).

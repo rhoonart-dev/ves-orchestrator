@@ -1,8 +1,8 @@
-import {esc} from './review-details.js';
+import {esc} from './review-details.js?v=web-1';
 import {visibleChannels,withWorkOverrides} from './channel-visibility.js';
 import {templateFields,fonts,changedDesign} from './template-model.js';
-import {readAll} from './review-service.js';
-import {renderPreview} from './template-preview.js';
+import {readAll} from './review-service.js?v=web-1';
+import {renderPreview} from './template-preview.js?v=web-1';
 export function mountChannelTemplates(root,{client,role,channel}={}){
  let dead=false,channels=[],overrides=[],current=null,dirty=false,saving=false,scene='dialogue';
  const writable=['operator','admin'].includes(role);

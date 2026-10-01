@@ -1,4 +1,4 @@
-import {readAll} from './review-service.js';
+import {readAll} from './review-service.js?v=web-1';
 export const canManageNodes=role=>['operator','admin'].includes(role);
 export function versionMatch(current,target){
  if(!current||!target)return 'unknown';

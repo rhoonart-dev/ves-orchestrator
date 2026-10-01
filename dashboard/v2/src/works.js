@@ -1,12 +1,12 @@
-import {mountWorkAssets,assetRequest} from './work-assets.js?v=web-2';
+import {mountWorkAssets,assetRequest} from './work-assets.js?v=web-1';
 import {loadCatalog,loadGuide} from './work-catalog.js';
 import {loadSources,workSummary,videoRows,epUsable,epUsed,epTries,epLeft,epRemain,setLimit,setUsed} from './sources.js';
 import {workPosters} from './work-posters.js';
 import {icon} from './icons.js';
 import {enhanceDropdowns} from './dropdowns.js';
-import {guideFragment} from './workbench.js?v=tip-2';
+import {guideFragment} from './workbench.js?v=web-1';
 import {GuideDetails} from './guide-details.js';
-import {esc} from './review-details.js';
+import {esc} from './review-details.js?v=web-1';
 const sampleWorks=[['lotto','로또 1등도 출근합니다','드라마'],['jigeum','지금 불륜이 문제가 아닙니다(c)','드라마'],['gawang','가왕쇼','예능'],['sinbyeong','신병','드라마'],['jjijji','종합광고대행사 찌찌: 광고의 온도편','드라마'],['karlovy','카를로비바리','영화']].map(([id,name,type])=>({id,name,type}));
 const state={work:'all',kind:'전체',workQuery:''};
 const EDIT_ROLES=['operator','admin'];

@@ -1,5 +1,5 @@
 import {inspectionRoute} from './workflow-model.js';
-import {esc,judgeHtml} from './review-details.js';
+import {esc,judgeHtml} from './review-details.js?v=web-1';
 export function statusIcon(stage){
  const marks={new:'M8 15v-3m4 3V8m4 7v-5',uploading:'M12 17V7m-3.5 3.5L12 7l3.5 3.5',attaching:'m10 14 4-4m-3.5-.5 1-1a2.8 2.8 0 0 1 4 4l-1 1m-1 1-1 1a2.8 2.8 0 0 1-4-4l1-1',pending:'M12 7v5l3 2',revision:'m8 13 5-5 3 3-5 5H8Zm4-4 3 3',approved:'m7.5 12 3 3 6-6',rendering:'M8 9h8m-8 3h5m-5 3h8',error:'M12 7.5v5M12 16h.01',scheduled:'m7.5 12 3 3 6-6',rejected:'m9 9 6 6m0-6-6 6'};
  return `<svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true"><circle class="status-ring" pathLength="1" cx="12" cy="12" r="9.5"/><path ${stage==='scheduled'?'class="status-check" pathLength="1"':''} d="${marks[stage]||marks.new}"/></svg>`;

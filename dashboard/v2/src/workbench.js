@@ -1,13 +1,13 @@
-import {mountWorkflowControls} from './workflow-controls.js';
+import {mountWorkflowControls} from './workflow-controls.js?v=web-1';
 import {openPremiereExport} from './premiere-export.js?v=4';
 import {loadCatalog,loadGuide} from './work-catalog.js';
 
-import {openThumbnails} from './thumbnail-tool.js?v=10';
-import {workflowCardHtml,timelineHtml,reviewEvents} from './workflow-card.js';
-import {score,reviewLabels} from './review-service.js';
+import {openThumbnails} from './thumbnail-tool.js?v=web-1';
+import {workflowCardHtml,timelineHtml,reviewEvents} from './workflow-card.js?v=web-1';
+import {score,reviewLabels} from './review-service.js?v=web-1';
 import {icon} from './icons.js';
 import {loadLocalMedia,timeLabel} from './media-catalog.js';
-import {bundleItem} from './local-jobs.js?v=rf-1';
+import {bundleItem} from './local-jobs.js?v=web-1';
 import {failureInfo,lineHtml,openFailurePop,injectStyle as failureStyle} from './render-failure.js?v=7';
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const remembered=new Map();

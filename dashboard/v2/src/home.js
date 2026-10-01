@@ -1,10 +1,10 @@
 import {icon} from './icons.js';
 import {nodeRobot,nodeRobotState} from './node-robots.js';
 import {fetchRights} from './rights-service.js';
-import {loadOperations} from './home-service.js';
+import {loadOperations} from './home-service.js?v=web-1';
 import {summarizeHome,nodeHealth} from './home-model.js';
 import {loadWeek,weekHtml,todayMetric} from './home-week.js';
-import {loadLocalJobs} from './local-jobs.js?v=rf-1';
+import {loadLocalJobs} from './local-jobs.js?v=web-1';
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const format=n=>n==null?'—':n.toLocaleString('ko-KR');
 const date=v=>v?new Date(v).toLocaleString('ko-KR',{timeZone:'Asia/Seoul',month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):'—';

@@ -1,6 +1,6 @@
 import {nodeHealth} from './home-model.js';
 import {nodeRobot,nodeRobotState} from './node-robots.js';
-import {createNodesService,canManageNodes,versionMatch} from './nodes-service.js';
+import {createNodesService,canManageNodes,versionMatch} from './nodes-service.js?v=web-1';
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const name=id=>String(id).replace(/^mm-(\d+)$/,'Mac mini $1');
 const date=value=>value?new Date(value).toLocaleString('ko-KR',{timeZone:'Asia/Seoul',month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):'기록 없음';

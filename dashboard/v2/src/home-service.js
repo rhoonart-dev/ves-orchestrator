@@ -1,4 +1,4 @@
-import {readAll} from './review-service.js';
+import {readAll} from './review-service.js?v=web-1';
 export async function loadOperations(client){
  const [nodes,running]=await Promise.all([
   readAll(()=>client.from('node_registry').select('node_id,status,last_seen_at').order('node_id')),
