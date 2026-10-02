@@ -21,6 +21,8 @@ export function openThumbnails({client,video,onChange=()=>{}}){
  const key=video.key,ver=video.suffix;
  // 제목 — 'v11_r3325-3638' 같은 폴더 이름 대신 영상 제목을 보여 준다(없으면 그냥 '썸네일').
  const name=String(video.title||'').replace(/\s*\n\s*/g,' ').trim();
+ // 내려받는 파일 이름 — 다운로드 목록에서 알아보게 영상 제목으로(파일 이름에 못 쓰는 글자는 뺀다)
+ const fileBase=(name.replace(/[\\/:*?"<>|]/g,' ').replace(/\s+/g,' ').trim().slice(0,60)||ver||'썸네일');
  const heading=`<small class="thumb-kicker">썸네일</small><h2>${esc(name||'썸네일')}</h2>`;
  let data=null,items=[],poll=0,busy=false,closed=false;
  const dlg=document.createElement('dialog');dlg.className='thumb-dialog';
@@ -107,7 +109,7 @@ export function openThumbnails({client,video,onChange=()=>{}}){
     <div class="thumb-picks">${picks.map(p=>`<figure><img src="${esc(media(p.file))}" alt="썸네일 ${p.rank}">
      <figcaption><b>${esc(p.label||'라벨 없음')}</b>${p.why?`<small>${esc(p.why)}</small>`:''}${doc.how==='flash'&&p.label?'<small class="thumb-check">라벨을 확인해 주세요. 다른 인물의 대사일 수 있어요</small>':''}
      <span class="thumb-pick-acts">${chosen===p.rank?`<button class="thumb-chosen" data-choose="" title="누르면 고른 것을 취소해요">✓ 발행용</button>`:`<button data-choose="${p.rank}">발행용으로 고르기</button>`}
-     <a class="thumb-dl" href="${esc(media(p.file))}" download="${esc(ver)}_썸네일_${p.rank}.png">내려받기</a></span></figcaption></figure>`).join('')}</div>
+     <a class="thumb-dl" href="${esc(media(p.file))}" download="${esc(fileBase)}_썸네일${p.rank}.png">내려받기</a></span></figcaption></figure>`).join('')}</div>
     <p class="thumb-hint">발행용으로 고른 썸네일은 대시보드에서 발행할 때 같이 올라가고, 발행 일정 달력에도 이 그림으로 보여요.</p></section>
    <section class="thumb-sec"><div class="thumb-sec-head"><h3>고를 목록 <span>${items.length}/${MAX}</span></h3>
      <button class="primary" data-act="manual" ${running||!items.length?'disabled':''}>이 목록으로 만들기</button></div>
