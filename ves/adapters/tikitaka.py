@@ -940,8 +940,9 @@ class TemplatePreview:
             with tempfile.TemporaryDirectory(prefix="tpl-preview-") as td:
                 tdp = pathlib.Path(td)
                 (tdp / "design.json").write_text(json.dumps({"design": p["design"]}, ensure_ascii=False), encoding="utf-8")
+                logo = ["--work-asset-id", str(p["work_asset_id"])] if p.get("work_asset_id") else []   # 채널 × 작품 로고(0135)
                 r = subprocess.run([cfgmod.engine_py(cfg, "ai_video"), "-m", "app.tikitaka.template_preview", str(job_dir), suffix,
-                                    "--design", str(tdp / "design.json"), "--out", str(tdp / "out")],
+                                    "--design", str(tdp / "design.json"), "--out", str(tdp / "out"), *logo],
                                    cwd=cfgmod.engine_dir(cfg, "ai_video"), env=cfgmod.job_env(cfg),
                                    capture_output=True, text=True, timeout=900)
                 out = last_json_line(r.stdout)
