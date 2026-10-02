@@ -103,7 +103,7 @@ export function mountWorkbench(root,job,{service=null,role=null,refresh=null}={}
  function heartIntro(){
   try{if(localStorage.getItem('ves-heart-intro'))return;}catch{return;}
   const frame=$('.video-frame');if(!frame||frame.querySelector('.heart-intro'))return;
-  frame.insertAdjacentHTML('beforeend','<div class="heart-intro" role="dialog" aria-label="하트 안내"><p>하트는 괜찮은 영상을 표시해 두는 거예요. 팀 모두에게 보이고, 검수나 발행에는 영향이 없어요.</p><button type="button">확인</button></div>');
+  frame.insertAdjacentHTML('beforeend','<div class="heart-intro" role="dialog" aria-label="하트 안내"><p><b>찜했어요!</b> 괜찮은 영상을 표시해 두는 거예요. 팀 모두에게 보이고, 검수나 발행에는 영향이 없어요.</p><button type="button">확인</button></div>');
   frame.querySelector('.heart-intro button').onclick=e=>{e.stopPropagation();try{localStorage.setItem('ves-heart-intro','1');}catch{}frame.querySelector('.heart-intro')?.remove();};
  }
  $('.video-expand').onclick=async()=>{try{if(document.fullscreenElement===stage)await document.exitFullscreen();else await stage.requestFullscreen();}catch{$('.player-message').textContent='전체화면을 열지 못했습니다. 다시 시도해 주세요.';}};
