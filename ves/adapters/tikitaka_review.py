@@ -26,6 +26,8 @@ from ves import config as cfgmod
 from ves.adapters import base
 
 YT_UPLOAD = "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status"
+YT_THUMB = "https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId="
+THUMB_MAX = 2 * 1024 * 1024          # 유튜브 맞춤 썸네일 한도(2MB)
 CATEGORY_ENTERTAINMENT = "24"
 INSPECTION_BUCKET = "workspace-inspections"
 
@@ -102,6 +104,52 @@ def upload_video(token: str, path: str, body: dict) -> dict:
     return out
 
 
+def thumb_file(src: str, d: str) -> tuple[str, str]:
+    """2MB 를 넘으면 JPEG 로 줄인다 → (경로, content-type)."""
+    import subprocess
+    if os.path.getsize(src) <= THUMB_MAX:
+        return src, ("image/png" if src.endswith(".png") else "image/jpeg")
+    for q, w in ((3, None), (5, 1280)):
+        out = os.path.join(d, f"thumb_{q}.jpg")
+        vf = ["-vf", f"scale={w}:-2"] if w else []
+        subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", src, *vf, "-q:v", str(q), out],
+                       check=True, timeout=60)
+        if os.path.getsize(out) <= THUMB_MAX:
+            return out, "image/jpeg"
+    raise base.PermanentError("썸네일 파일이 2MB 를 넘어서 줄이지 못했어요")
+
+
+def set_thumbnail(token: str, yt_id: str, path: str, ctype: str) -> None:
+    with open(path, "rb") as f:
+        req = urllib.request.Request(YT_THUMB + urllib.parse.quote(yt_id), data=f.read(), method="POST",
+                                     headers={"Authorization": "Bearer " + token, "Content-Type": ctype})
+    _http_json(req, timeout=120)
+
+
+def put_publish_thumb(cfg, conn, vid: str, yt_id: str, token: str) -> dict | None:
+    """작업 화면에서 발행용으로 고른 썸네일(0129 tikitaka_thumbnails.publish)을 올린 영상에 넣는다.
+    못 넣어도 영상은 그대로 둔다(전화 인증이 안 된 채널 · 권한 부족) — 검수 카드가 '스튜디오에서 넣어 주세요'로 알린다."""
+    from ves.storage.supabase_storage import Store
+    with conn.cursor() as c:
+        c.execute("SELECT publish FROM public.tikitaka_thumbnails WHERE video_id = %s", (vid,))
+        row = c.fetchone()
+    pub = (row or {}).get("publish") or {}
+    if not pub.get("key"):
+        return None
+    rank = pub.get("rank")
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            src = os.path.join(d, os.path.basename(str(pub["key"])) or "thumb.png")
+            Store(cfg.supabase_url, cfg.supabase_service_key).download("ves-outputs", pub["key"], src)
+            path, ctype = thumb_file(src, d)
+            set_thumbnail(token, yt_id, path, ctype)
+        print(f"[tikitaka_publish] {vid} 썸네일 {rank}번 → {yt_id}")
+        return {"state": "set", "rank": rank}
+    except Exception as e:                      # 영상은 이미 올라갔다 — 잡을 실패로 돌리지 않는다
+        print(f"[tikitaka_publish] {vid} 썸네일을 넣지 못함: {e}")
+        return {"state": "todo", "rank": rank, "reason": str(e)[:300]}
+
+
 # ───────── 잡: tikitaka_publish ─────────
 class Publish:
     @staticmethod
@@ -154,9 +202,15 @@ class Publish:
             c.execute("""UPDATE public.tikitaka_reviews SET youtube_id = %s, stage = %s, error = %s, updated_at = now()
                           WHERE video_id = %s AND upload_job_id = %s""", (yt, stage, err, vid, job["id"]))
         conn.commit()
+        thumb = put_publish_thumb(cfg, conn, vid, yt, token) if stage != "needs_attention" else None
+        if thumb is not None:
+            with conn.cursor() as c:
+                c.execute("""UPDATE public.tikitaka_reviews SET meta = coalesce(meta, '{}'::jsonb) || jsonb_build_object('thumb', %s::jsonb),
+                              updated_at = now() WHERE video_id = %s AND upload_job_id = %s""", (json.dumps(thumb), vid, job["id"]))
+            conn.commit()
         print(f"[tikitaka_publish] {vid} → {yt} ({body['status']['privacyStatus']}{' · ' + body['status'].get('publishAt', '') if body['status'].get('publishAt') else ''})")
         return {"youtube_id": yt, "privacy": body["status"]["privacyStatus"], "publish_at": body["status"].get("publishAt"),
-                "stage": stage}
+                "stage": stage, "thumb": thumb}
 
 
 # ───────── 스케줄러: 레이블리 권리사 검수 신청 ─────────
