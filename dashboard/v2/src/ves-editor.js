@@ -200,7 +200,7 @@ function buildModel(){
     _raw: { ...t } }));
   cur.model = { clips, tts, subs, title, texts, titleSegs,
     fromDraft: { clips: !!d.clips, tts: !!d.tts, title: !!(d.title),
-                 subs: !!d.subtitles, texts: !!d.texts } };
+                 subs: !!d.subtitles, texts: !!d.texts, sfx: !!d.sfx } };
   // 변경 감지 기준(초안 저장은 바뀐 섹션만 싣는다 — 안 바뀐 자막까지 실으면
   // '자막을 고친 편'으로 읽혀 자막 끔 채널에서 자막이 켜진다, 8/17 규칙)
   //
@@ -231,6 +231,7 @@ function buildModel(){
                subs: JSON.stringify(baseSubs), texts: JSON.stringify(baseTexts),
                title: tl.top_title || "", titleSegs: JSON.stringify(baseSegs) };
   if (window.__edFx) window.__edFx.load(cur, tl, d);   // 강조·줌: 렌더 값 + 초안
+  if (window.__edSfx) window.__edSfx.load(cur, d);      // 효과음: 렌더가 섞은 것(sfx.json) + 초안
   dirty = false; lastSavedAt = cur.row.draft_at ? new Date(cur.row.draft_at) : null;
   updSaveBtn(); paintSaveMsg();
   if (editMode) autoSaveStart();
@@ -280,7 +281,7 @@ function resolveCues(tts, finalClips){
   }) };
 }
 
-const edH = () => ({ clipDur, clipSpd, clipSrcAt, ttsEst, cueKey, fmt });   // src/editor-checks.js 가 쓰는 편집실 계산
+const edH = () => ({ clipDur, clipSpd, clipSrcAt, ttsEst, cueKey, fmt, srcToOut });   // src/editor-checks.js 가 쓰는 편집실 계산
 // 강조·줌은 자막·구간 객체에 붙어 다니지만 자막·구간 비교에서는 빼고 따로 보낸다(src/editor-fx.js)
 const edNoFx = (k, v) => (k === "zoom" || k === "emph") ? undefined : v;
 function runEngineRules(){
@@ -1069,6 +1070,7 @@ function phraseAt(q, outT){
 function paintCues(outT){
   if (!cur || !cur.model) return;
   if (window.__edFx) window.__edFx.paint(cur, outT, edH());
+  if (window.__edSfx){ const v = $("#vid"); window.__edSfx.paint(cur, outT, !!(v && !v.paused && seqSnd), edH()); }
   if (window.__edFrame) window.__edFrame.paint(cur, outT, edH());   // 구간 줌 미리보기
   const v = $("#vid");
   const q = outT == null ? null
@@ -1238,14 +1240,15 @@ function draw(){
   const W = Math.ceil(m.total * px) + 30;   // 전체 보기에서는 창 폭과 같다(종전 최소 600px 때문에 좁은 창에서 앞이 잘렸다)
 
   const fd = m.fromDraft;
-  $("#draftchip").innerHTML = (fd.clips || fd.tts || fd.title || fd.texts)
-    ? `<span style="color:var(--accent)">고친 곳: ${["clips","tts","title","subs","texts"]
-        .filter(k => fd[k]).map(k => ({clips:"구간",tts:"내레이션",title:"제목",subs:"자막",texts:"텍스트"}[k])).join("·")}</span>`
+  $("#draftchip").innerHTML = (fd.clips || fd.tts || fd.title || fd.texts || fd.sfx)
+    ? `<span style="color:var(--accent)">고친 곳: ${["clips","tts","title","subs","texts","sfx"]
+        .filter(k => fd[k]).map(k => ({clips:"구간",tts:"내레이션",title:"제목",subs:"자막",texts:"텍스트",sfx:"효과음"}[k])).join("·")}</span>`
     : `<span class="faint">고친 내용 없음</span>`;
   $("#lclips").innerHTML = `구간 <span class="faint">${m.clips.length}</span>`;
   $("#lsubs").innerHTML = `자막 <span class="faint">${m.subs.length}</span>`;
   $("#ltts").innerHTML = `내레이션 <span class="faint">${m.tts.length}</span>`;
   $("#ltxt").innerHTML = `텍스트 <span class="faint">${(m.texts || []).length}</span>`;
+  if ($("#lsfx")) $("#lsfx").innerHTML = `효과음 <span class="faint">${window.__edSfx ? window.__edSfx.count(cur) : 0}</span>`;
 
   let h = `<div class="outph" id="outph" style="left:-9999px"></div>`;
   h += `<div class="ghostph" id="ghostph" style="left:-9999px"><i id="ghosttc"></i><b class="thumb" id="ghostthumb"></b></div>`;
@@ -1309,8 +1312,17 @@ function draw(){
     off.forEach(([x, y]) => { const l = merged[merged.length - 1]; if (l && x <= l[1] + 1e-3) l[1] = Math.max(l[1], y); else merged.push([x, y]); });
     h += `<div class="track aud" data-lab="laud" style="height:20px"><i class="aud-on" style="left:0;width:${Math.max(0, m.total * px)}px"></i>`;
     merged.forEach(([x, y]) => { h += `<i class="aud-off" style="left:${x * px}px;width:${Math.max(2, (y - x) * px)}px" title="${esc(fmt(x) + " ~ " + fmt(y))} 원음 꺼짐 · 내레이션이 나오는 동안"></i>`; });
+    // 원본 소리가 빈 곳(맥미니가 완성본에서 찾은 것 · 0130) — 렌더 시각 → 원본 → 지금 자리
+    (cur.row.audio_gaps || []).forEach(g => {
+      const s0 = window.__edSfx ? window.__edSfx.renderToSrc(cur, +g.start) : null, x = s0 != null ? srcToOut(s0) : null;
+      if (x == null) return;
+      const len = Math.max(0.1, +g.end - +g.start);
+      h += `<i class="aud-gap" style="left:${x * px}px;width:${Math.max(3, len * px)}px" title="${esc(fmt(x))}부터 ${len.toFixed(1)}초 원본 소리가 비어 있어요"></i>`;
+    });
     h += `</div>`;
   }
+  // 효과음 줄(src/editor-sfx.js) — 자동은 회색, 직접 넣은 것은 보라색
+  if (window.__edSfx) h += window.__edSfx.laneHtml(cur, px, edH());
 
   // 제목
   h += `<div class="track" data-lab="lttl" style="${trackStyle(1)}"><div class="blk ttl" data-k="title" data-i="0"
@@ -1458,6 +1470,15 @@ function draw(){
       });
     anchored('#inner .blk.t', cur.model.tts, "tts");
     anchored('#inner .blk.x', cur.model.texts, "txt");
+    // 직접 넣은 효과음 — 끌어서 자리만 옮긴다(길이는 오른쪽 칸에서)
+    if (window.__edSfx && window.__edSfx.editable())
+      document.querySelectorAll('#inner .blk.fx:not(.auto)').forEach(el => {
+        const i = +el.dataset.i;
+        bindBlk(el, (edge, left) => scrubOut(left / px), () => {
+          const hit = outToSrc(Math.max(0, parseFloat(el.style.left) / px));
+          if (hit) window.__edSfx.moveTo(i, hit.src); else draw();
+        }, false, true);
+      });
     // 자막 — 완성본 시각이 좌표. '장면 따라가기'가 켜져 있으면 앵커도 함께 옮긴다.
     document.querySelectorAll('#inner .blk.s').forEach(el => {
       const i = +el.dataset.i, su = cur.model.subs[i]; if (!su) return;
@@ -1837,7 +1858,7 @@ window.sideRevert = () => {
   }
   select(curSel.kind, curSel.i);           // 되돌린 값으로 패널 다시 그림
 };
-const BLK_CLS = { clip: "c", tts: "t", sub: "s", txt: "x", title: "ttl" };
+const BLK_CLS = { clip: "c", tts: "t", sub: "s", txt: "x", title: "ttl", sfx: "fx:not(.auto)", sfxa: "fx.auto" };
 function select(kind, i, el, noSeek){
   multiSel = { kind: null, idx: [] };    // 보통 선택은 ⇧다중을 푼다
   document.querySelectorAll(".blk.sel, .blk.msel")
@@ -1871,6 +1892,9 @@ function select(kind, i, el, noSeek){
       if (q && !q.dropped){ outT = q.out; outEnd = q.out + q.dur; } }
     else if (kind === "sub"){ const su = m.subs[i];
       if (su){ outT = su.start; outEnd = su.end; } }
+    else if ((kind === "sfx" || kind === "sfxa") && window.__edSfx){
+      const x = window.__edSfx.items(cur, edH()).find(y => y.k === kind && y.i === i);
+      if (x){ outT = x.at; outEnd = x.at + x.dur; } }
     if (outT != null){
       // 시작 정각은 시크 왕복 오차로 '블록 밖'이 될 수 있다 — 조금 안쪽에 세운다.
       const inside = outEnd != null
@@ -1897,6 +1921,8 @@ function select(kind, i, el, noSeek){
       <span class="ttl">텍스트</span></div>
       ${q.lost || q.dropped ? `<div class="alert warn ck-bad">이 텍스트는 빠져요. 원래 장면이 지금 구간에 없어요.</div>`
         : q.multi ? `<div class="alert warn">같은 장면이 두 구간에 있어서 앞 구간에 붙어요.</div>` : ""}`;
+  } else if (kind === "sfx" || kind === "sfxa"){
+    h = window.__edSfx ? window.__edSfx.sideHtml(cur, kind, i, editMode, edH()) : "";
   } else if (kind === "sub"){
     const s = m.subs[i];
     h = `<div class="khead"><span class="sw" style="background:var(--sub)"></span>
@@ -2120,13 +2146,15 @@ outScroll().addEventListener("wheel", e => {
   outZoomTo(cur.outPx * Math.exp(-d * (e.ctrlKey ? 0.01 : 0.003)), t, mx);   // 핀치는 작은 값이 잦다
 }, { passive: false });
 // 단축키: = 확대 · − 축소 · ⇧Z 전체 보기(⌘ 와 함께 눌러도 브라우저 확대 대신 타임라인)
+// 단축키는 키 자리(e.code)로 본다 — 한글 입력 중이면 e.key 가 "ㄴ"·"ㅋ"처럼 와서 S·Z 가 먹지 않았다
+const keyOf = e => /^Key[A-Z]$/.test(e.code || "") ? e.code.slice(3).toLowerCase() : (e.key || "").toLowerCase();
 window.addEventListener("keydown", e => {
   if (!cur || !cur.model || !window.__tlOpen) return;
   const tg = (e.target.tagName || "").toLowerCase();
   if (tg === "input" || tg === "textarea" || tg === "select" || e.target.isContentEditable) return;
   if (e.key === "=" || e.key === "+"){ e.preventDefault(); outZoomStep(1); }
   else if (e.key === "-" || e.key === "_"){ e.preventDefault(); outZoomStep(-1); }
-  else if (e.key.toLowerCase() === "z" && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey){ e.preventDefault(); outZoomFit(); }
+  else if (keyOf(e) === "z" && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey){ e.preventDefault(); outZoomFit(); }
 });
 
   // ═════════ 편집 모드 (2026-08-24) — 고치기는 자유, 쓰기는 [초안 저장] 하나 ═════════
@@ -2167,7 +2195,7 @@ const refresh = (kind, i) => { markDirty(); runEngineRules(); draw();
 // 실행 취소 — 뮤테이터가 바꾸기 **전에** snap() 으로 쌓는다. 60개 상한.
 let undoStack = [], redoStack = [];
 const modelState = () => JSON.stringify({ c: cur.model.clips, t: cur.model.tts,
-  s: cur.model.subs, x: cur.model.texts, ti: cur.model.title });
+  s: cur.model.subs, x: cur.model.texts, ti: cur.model.title, sf: cur.model.sfx });
 function snap(){ undoStack.push(modelState());
   if (undoStack.length > 60) undoStack.shift(); redoStack = [];
   // 🛑 30초 자동 저장은 `dirty` 를 보는데(autoSaveStart), 정작 그 값을 세우는 곳이
@@ -2186,6 +2214,7 @@ function ovRepaint(){                      // 멈춰 있어도 오버레이를 �
 function applyState(j){ const st = JSON.parse(j);
   cur.model.clips = st.c; cur.model.tts = st.t; cur.model.subs = st.s;
   cur.model.texts = st.x; cur.model.title = st.ti;
+  if (st.sf) cur.model.sfx = st.sf;
   syncDirty();                       // ⌘Z 로 되돌아왔으면 '저장 안 됨'도 풀린다
   runEngineRules(); draw(); layoutShorts(); ovRepaint();
   if (!curSel) closeSide(); }
@@ -2198,7 +2227,7 @@ window.addEventListener("keydown", e => {
   if (!editMode || e.metaKey || e.ctrlKey || e.altKey) return;
   const tag = (e.target.tagName || "").toLowerCase();
   if (tag === "input" || tag === "textarea" || tag === "select") return;
-  const k = e.key.toLowerCase();
+  const k = keyOf(e);
   if (k === "i"){ e.preventDefault(); markIn(); }
   else if (k === "o"){ e.preventDefault(); markOut(); }
   else if (e.key === "Enter"){ e.preventDefault(); addClipFromMarks(); }
@@ -2212,7 +2241,7 @@ window.addEventListener("keydown", e => {
   else if (k === "q"){ e.preventDefault(); startHere(); }
 });
 window.addEventListener("keydown", e => {
-  const k = e.key.toLowerCase(), redoY = k === "y" && e.ctrlKey && !e.metaKey;   // 윈도우의 다시 실행(Ctrl+Y)도 받는다
+  const k = keyOf(e), redoY = k === "y" && e.ctrlKey && !e.metaKey;   // 윈도우의 다시 실행(Ctrl+Y)도 받는다
   if (!editMode || !(e.metaKey || e.ctrlKey) || (k !== "z" && !redoY)) return;
   const tag = (e.target.tagName || "").toLowerCase();
   if (tag === "input" || tag === "textarea") return;   // 입력칸 안은 브라우저 기본 undo
@@ -2722,6 +2751,8 @@ function updTrashBtn(){
 window.updTrashBtn = updTrashBtn;
 window.delSelected = () => {
   if (!editMode){ toast("편집 잠금을 먼저 풀어 주세요"); return; }
+  if (!multiSel.idx.length && curSel && curSel.kind === "sfx" && window.__edSfx){
+    window.__edSfx.del(curSel.i); curSel = null; return; }
   const kind = multiSel.idx.length ? multiSel.kind
     : (curSel && MULTI_KINDS.includes(curSel.kind) ? curSel.kind : null);
   if (!kind){ toast("지울 블록을 먼저 골라 주세요"); return; }
@@ -2762,6 +2793,7 @@ window.__edRefresh = (kind, i, keep) => {      // keep: 재생 위치를 그대�
   if (!keep) return refresh(kind, i);
   markDirty(); runEngineRules(); draw(); if (kind) select(kind, i, null, true);
   if (window.__railOn && window.renderRailPanel) renderRailPanel(window.__railOn); };
+window.__edTime = { curOut, srcToOut, outToSrc };   // src/editor-sfx.js — 재생 헤드 자리에 효과음 넣기
 window.__edEditing = () => editMode;   // 진단용 — 검사 결과(cur.model.checks)를 밖에서 확인할 때만
 window.__edToast = msg => toast(msg);
 // 강조·줌 바꾸기 — 실행 취소에 쌓고 다시 그린다(미리보기 자막 모양도 바로)
@@ -2860,6 +2892,8 @@ function collectOv(forDraft){
       source_time_sec: +t.src.toFixed(3), duration_sec: +t.dur.toFixed(3) })); n++; }
   else if (forDraft && (cur.row.draft || {}).texts) d.texts = null;
   if (window.__edFx){ const fx = window.__edFx.collect(cur, forDraft); Object.assign(d, fx); n += Object.keys(fx).length; }
+  if (window.__edSfx){ const sf = window.__edSfx.collect(cur, forDraft, edH(), !!d.clips);
+    Object.assign(d, sf); if (sf.sfx) n++; }
   return { d, n };
 }
 
@@ -3265,6 +3299,7 @@ document.documentElement.dataset.theme = "dark";
     subs: `<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/>
       <path d="M6.5 13h6M6.5 16h11M15.5 13h2"/></svg>`,
     txt: `<svg viewBox="0 0 24 24"><path d="M4 8V5h16v3M9 5v14M15 12v7M12 19h6M6 19h6"/></svg>`,
+    sfx: `<svg viewBox="0 0 24 24"><path d="M4 10v4h3l5 4V6L7 10z"/><path d="M16 9.5a3.5 3.5 0 0 1 0 5M18.5 7a7 7 0 0 1 0 10"/></svg>`,
     tts: `<svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/>
       <path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/></svg>`,
     misc: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/>
@@ -3273,7 +3308,7 @@ document.documentElement.dataset.theme = "dark";
       <path d="M8.8 15.2 7 21l5-2.6L17 21l-1.8-5.8M12 7.5l.9 1.8 2 .3-1.45 1.4.35 2-1.8-.95-1.8.95.35-2L9.1 9.6l2-.3z"/></svg>`,
   };
   const railTabs = [["src", "원본"], ["title", "제목"], ["subs", "자막"],
-                    ["txt", "텍스트"], ["tts", "내레이션"], ["logo", "로고"], ["misc", "기타"]];
+                    ["txt", "텍스트"], ["tts", "내레이션"], ["sfx", "효과음"], ["logo", "로고"], ["misc", "기타"]];
   window.__railOn = null;
   railTabs.forEach(([k, label]) => {
     const b = document.createElement("button");
@@ -3476,6 +3511,8 @@ document.documentElement.dataset.theme = "dark";
         <button onclick="addTtsAt()">${EI.plus}내레이션 추가 (원본 재생 자리)</button>
         <div class="small faint">미리듣기는 일레븐랩스 목소리만 돼요. 기본 목소리는 다시 렌더한 뒤에 들을 수 있어요.
           ${elVoicesOn() ? "" : "일레븐랩스가 꺼져 있어서 새로 고를 수 없어요. 지금 목소리는 그대로 둬요."}</div>`;
+    } else if (k === "sfx"){
+      railPanel.innerHTML = need ? `<h3>효과음</h3>` + need : (window.__edSfx ? window.__edSfx.railHtml(cur, editMode) : "");
     } else if (k === "misc"){
       if (!m){ railPanel.innerHTML = `<h3>기타</h3>` + need; return; }
       const chd = cur.chDesign || {};
@@ -3712,7 +3749,7 @@ document.documentElement.dataset.theme = "dark";
 window.toggleFs = () => document.fullscreenElement
   ? document.exitFullscreen() : document.documentElement.requestFullscreen();
 window.addEventListener("keydown", e => {
-  if (e.key.toLowerCase() !== "f" || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (keyOf(e) !== "f" || e.metaKey || e.ctrlKey || e.altKey) return;
   const t = (e.target.tagName || "").toLowerCase();
   if (t === "input" || t === "textarea" || t === "select") return;
   e.preventDefault(); toggleFs();

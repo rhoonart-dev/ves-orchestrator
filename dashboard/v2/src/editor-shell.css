@@ -427,9 +427,38 @@ body.editing #tlRoot #inner .blk.t.sel .phd{top:4px;bottom:4px}
 #edBar .eb-save #draftchip:not(:empty)+#saveMsg:not(:empty)::before{content:'· ';color:var(--faint,#5e5e64)}
 @media(max-width:760px){#edBar .g-mark,#edBar .g-mark+.sep{display:none}}   /* 좁으면 I·O·Enter 부터 뺀다 — 실행 취소와 저장 상태는 남긴다 */
 #undoToast,#edToast{bottom:44px}   /* 알림은 안내 줄 위에 */
-/* 원음 줄 — 나오는 곳 회색 · 내레이션 때문에 꺼지는 곳 노란 점선 */
+/* 원음 줄 — 나오는 곳 밝은 회색 · 내레이션 때문에 꺼지는 곳 진회색 줄무늬 · 원본 소리가 빈 곳 빨강. 이 줄만 모서리 없이 네모 */
 #inner .track.aud{position:relative}
-#inner .track.aud i{position:absolute;top:7px;height:6px;border-radius:3px;pointer-events:auto}
-#inner .track.aud .aud-on{background:#8e8e93;opacity:.55}
-#inner .track.aud .aud-off{background:repeating-linear-gradient(90deg,#ffb340 0 3px,transparent 3px 6px);opacity:1}
+#inner .track.aud i{position:absolute;top:7px;height:6px;border-radius:0;pointer-events:auto}
+#inner .track.aud .aud-on{background:#d1d1d6}
+#inner .track.aud .aud-off{background:repeating-linear-gradient(135deg,#48484a 0 3px,#2c2c2e 3px 6px)}
+#inner .track.aud .aud-gap{background:#ff453a}
 #laud{height:20px}
+.lab #laud::before{background:#d1d1d6}
+/* 효과음 줄(src/editor-sfx.js) — 자동은 회색, 직접 넣은 것은 보라색 */
+:root{--sfx:#5e5ce6}
+#lsfx{height:26px}
+.lab #lsfx::before{background:var(--sfx)}
+#inner .track.sfx{position:relative}
+#inner .track.sfx .blk.fx{position:absolute;top:3px;height:20px;border-radius:5px;font-size:10px;line-height:20px;padding:0 5px;
+ box-sizing:border-box;white-space:nowrap;overflow:hidden;text-overflow:clip;background:var(--sfx);color:#fff;border:0}
+#inner .track.sfx .blk.fx.auto{background:var(--panel2);color:var(--faint)}
+#inner .track.sfx .blk.fx.off{opacity:.35;text-decoration:line-through}
+#inner .track.sfx .blk.fx.sel{box-shadow:0 0 0 2px #fff}
+.sfx-cats{display:flex;gap:4px;flex-wrap:wrap}
+.sfx-cats button{border:0;border-radius:999px;padding:4px 10px;font-size:11.5px;background:var(--panel2);color:var(--muted)}
+.sfx-cats button.on{background:var(--accent);color:var(--accent-ink,#000)}
+.drawList .sfx-row{display:flex;align-items:center;gap:6px}
+.drawList .sfx-row .tx{flex:1;min-width:0}
+.sfx-row .sfx-name{flex:1;min-width:0;background:var(--panel);border:0;border-radius:6px;padding:4px 6px;color:var(--text);font:inherit}
+.sfx-add{border:0;border-radius:7px;padding:4px 9px;font-size:11px;background:var(--panel);color:var(--text);white-space:nowrap}
+.sfx-add:disabled{opacity:.4}
+.sfx-legend{margin-top:6px;background:var(--panel2);border-radius:10px;padding:10px 11px;display:flex;flex-direction:column;gap:8px;font-size:11.5px;color:var(--muted)}
+.sfx-legend>div{display:flex;gap:9px;align-items:center}
+.sfx-legend svg{width:15px;height:15px}
+.sfx-seg{display:flex;gap:4px;flex:1}
+.sfx-seg button{flex:1;border:0;border-radius:7px;padding:5px 0;font-size:11.5px;background:var(--panel2);color:var(--muted)}
+.sfx-seg button.on{background:var(--accent);color:var(--accent-ink,#000)}
+/* 효과음 칸은 길이를 끌어 바꾸지 않는다 — 고른 표시에 날개 없이 흰 테두리만 */
+body #tlRoot #inner .track.sfx .blk.fx.sel{background-image:none!important;padding:0 5px!important;box-shadow:inset 0 0 0 2px #fff!important;border:0!important;border-radius:5px}
+body #tlRoot #inner .track.sfx .blk.fx.sel::before,body #tlRoot #inner .track.sfx .blk.fx.sel::after{display:none!important}
