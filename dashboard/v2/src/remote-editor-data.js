@@ -160,7 +160,7 @@ export async function remoteEditorPayload(client,key){
   meta:{key,title:video.title,work:video.work,episode:video.episode,status:video.status,render_fingerprint:r.render_fingerprint,
    labels:(labels?.labels||[]).length,dropped_labels:labels?.dropped||[],final_url:at('shorts.mp4'),draft_note:note,
    timing_note:speed.length?`배속이나 멈춤이 걸린 구간 ${speed.length}개는 완성본과 같은 속도로 재생해요.`:'',
-   logos,apply,restored_from:restored,can_check:false,fx_edit:true,frame_edit:true,phrase_edit:true,sfx_edit:true,   // 맥미니가 ai-video ffe1002f·ae8cc2f7 이후라 화면 위치·구절 줄바꿈을 받는다(remote_videos_api 와 같이)
+   logos,apply,restored_from:restored,can_check:false,fx_edit:true,frame_edit:true,phrase_edit:true,placement:true,sfx_edit:true,   // 맥미니가 ai-video ffe1002f·ae8cc2f7·f39398f7 이후라 화면 위치·구절 줄바꿈·같은 장면 여러 구간 배치를 받는다(remote_videos_api 와 같이)
    framing:framing?.schema==='tikitaka_framing/v1'&&Array.isArray(framing.clips)?framing:null,render_layout:typeof band?.y==='number'?{band_y:Math.round(band.y)}:{},
    render_design:displayDesign(render.design||{}),remote_node:r.node_id,serverless:true,
    video_id:r.id,files_sha:{work:files[Object.keys(files).find(n=>n.startsWith('assets/logo_work.'))]?.sha256||null,platform:files[Object.keys(files).find(n=>n.startsWith('assets/logo_platform.'))]?.sha256||null}}};

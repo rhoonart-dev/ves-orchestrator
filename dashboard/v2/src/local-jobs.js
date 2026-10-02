@@ -57,7 +57,7 @@ async function withRunning(client,names,made){
  if(!wos.length)return made;
  const {data:js}=await client.from('job_queue').select(JOB_COLS).in('work_order_id',wos).in('kind',['acquire','tikitaka_generate','tikitaka_upload']).then(r=>r,()=>({data:[]}));
  const byWo=new Map();for(const j of js||[]){if(!byWo.has(j.work_order_id))byWo.set(j.work_order_id,[]);byWo.get(j.work_order_id).push(j);}
- for(const j of made){const s=summarize(byWo.get(j.raw));if(s?.skipped&&s.state==='done')j.note=`${j.note?j.note+' · ':''}${s.skipped}편 검사에서 빠짐`;   // 빠진 편은 카드 설명 줄에
+ for(const j of made){const s=summarize(byWo.get(j.raw));if(s?.skipped&&s.state==='done'){j.note=`${j.note?j.note+' · ':''}${s.skipped}편 빠짐`;j.skippedList=s.skippedList;}   // 빠진 편은 카드 설명 줄에
   if(s&&s.state!=='done'){j.progress=s;j.running=s.state==='busy';if(j.running)j.status='만드는 중';}}
  const running=tasks.filter(t=>!have.has(t.work_order_id)).map(t=>{
   const s=summarize(byWo.get(t.work_order_id));if(!s||s.state==='done')return null;
