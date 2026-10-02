@@ -98,3 +98,11 @@
 .tr-card .tr-btn.pri{background:var(--solid);color:var(--on-solid)}
 .tr-card .tr-btn.danger{background:var(--danger-bg);color:var(--danger)}
 .tr-card .tr-btn:disabled{opacity:.45;cursor:default}
+/* 설명란 고정(0128) — 설명 칸 아래 글자 버튼 */
+.tr-card .tr-fix{display:flex;gap:12px;flex-wrap:wrap;margin-top:6px}
+.tr-card .tr-link{border:0;background:none;padding:0;font:inherit;font-size:12px;font-weight:600;color:var(--secondary);cursor:pointer}
+.tr-card .tr-link:hover{color:var(--ink)}
+.tr-card .tr-must.danger{background:var(--danger-bg);color:var(--danger)}.tr-card .tr-must.danger b{color:var(--danger)}
+/* 지역 제한 확인 체크(선택 C) — 체크해야 승인 버튼이 눌린다 */
+.tr-card .tr-geo{display:flex;align-items:center;gap:10px;margin-top:14px;background:var(--dot-warn-bg);color:var(--status-warn);border-radius:12px;padding:12px 14px;font-size:13px;font-weight:600;cursor:pointer}
+.tr-card .tr-geo input{width:18px;height:18px;margin:0;accent-color:var(--status-warn);flex:none}
