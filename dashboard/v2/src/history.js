@@ -72,7 +72,7 @@ export function mountHistory(root,{client=null,role=null,params=new URLSearchPar
       const acts=canEdit?[['failed','dead','cancelled'].includes(j.status)?`<button type="button" data-act="retry" data-id="${j.id}">재시도</button>`:'',
        ['pending','running','blocked'].includes(j.status)?`<button type="button" class="danger" data-act="cancel" data-id="${j.id}">취소</button>`:'',
        j.work_order_id&&wo.status&&wo.status!=='cancelled'?`<button type="button" class="danger" data-act="cancel-wo" data-id="${j.work_order_id}" title="이 잡이 속한 작업지시를 통째로 취소해요. 남은 잡과 검수 대기 카드가 같이 닫히고, 소스 소진에서도 빠져요">작업지시 취소</button>`:''].join(''):'';
-      return `<tr><td>${esc(kindKo(j.kind))}</td><td><span class="hist-st ${TONE[j.status]||'mut'}">${STATUS[j.status]||esc(j.status)}</span>${j.status==='running'&&j.progress?.label?`<small class="hist-prog">${esc(j.progress.label)}</small>`:''}</td>
+      return `<tr><td>${esc(kindKo(j.kind))}</td><td><span class="hist-st ${TONE[j.status]||'mut'}"${j.status==='running'&&j.progress?.label?` data-tip="${esc(j.progress.label)}"`:''}>${STATUS[j.status]||esc(j.status)}</span></td>
        <td class="tnum">${j.attempt??0}/${j.max_attempts??3}</td>
        <td class="mono">${esc(j.node_id||'')}${pin?` <small title="이 맥에서만 돌아요">${esc(pin.replace('node:',''))} 고정</small>`:''}</td>
        <td>${esc(work)}${ep!=null?` <small>· ${esc(ep)}회차</small>`:''}${wo.channel_slug?`<small class="hist-ch">${esc(chName(wo.channel_slug))}</small>`:''}</td>
