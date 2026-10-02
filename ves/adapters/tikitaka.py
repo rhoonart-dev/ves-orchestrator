@@ -729,3 +729,97 @@ class ApplyEdit:
         upload_bundle(cfg, conn, store, job, wo, suffix, job_dir / "videos" / suffix, p)
         return {"suffix": suffix, "edit_id": out["edit_id"], "video_id": p.get("video_id"),
                 **apply_report(last_json_line(ap.stdout), ap.stderr)}
+
+
+# ───────── tikitaka_thumbnails (네이티브, 0129) — 맥미니 영상 썸네일 ─────────
+# 썸네일 엔진(app.tikitaka.thumbnail)은 그 편의 작업 폴더(최종 렌더 필터 · 분석)가 있어야 돈다 → 그 편을 만든 맥미니에서만.
+# 결과 폴더 <잡 폴더>/thumbnails/<편>/ 의 그림을 ves-outputs/tikitaka/<작업지시>/<편>/thumbnails/ 로 올리고 tikitaka_thumbnails 에 적는다.
+THUMB_UP = re.compile(r"^(thumbnails\.json|manual\.json|thumb_\d{1,2}\.png|compare\.png|sheet\.jpg|frames/c\d{2,3}_\d{2,3}\.jpg)$")
+
+
+def clean_thumb_manual(items, doc) -> list:
+    """사람이 고른 목록 검사 — 워크스페이스 local_videos_api.clean_manual 과 같은 규칙. 순수 — 테스트 대상."""
+    if not isinstance(items, list) or not 0 < len(items) <= 8:
+        raise base.PermanentError("썸네일은 1~8장까지 고를 수 있어요.")
+    ids = {f.get("id") for f in (doc or {}).get("frames") or []}
+    colors = set((doc or {}).get("colors") or [])
+    out = []
+    for n, it in enumerate(items, 1):
+        if not isinstance(it, dict) or it.get("frame") not in ids:
+            raise base.PermanentError(f"{n}번째 장면을 찾을 수 없어요.")
+        o = {"frame": it["frame"], "color": it.get("color") if it.get("color") in colors else "white"}
+        if it.get("style") == "split":
+            parts = [str(x).strip()[:20] for x in (it.get("parts") or [])][:2]
+            if len(parts) != 2 or not all(parts):
+                raise base.PermanentError(f"{n}번째 썸네일: 둘로 나누기는 두 칸을 모두 채워 주세요.")
+            o.update(style="split", parts=parts)
+        else:
+            o["label"] = str(it.get("label") or "").strip()[:40]
+        if it.get("y") not in (None, ""):
+            y = int(it["y"])
+            if not 0 <= y <= 1920:
+                raise base.PermanentError(f"{n}번째 썸네일: 세로 위치는 0~1920 사이로 적어 주세요.")
+            o["y"] = y
+        if it.get("why"):
+            o["why"] = str(it["why"])[:200]
+        out.append(o)
+    return out
+
+
+def _thumb_set(conn, video_id, **kw) -> None:
+    from psycopg.types.json import Jsonb
+    cols = ", ".join(f"{k}=%s" for k in kw)
+    vals = [Jsonb(v) if isinstance(v, (dict, list)) else v for v in kw.values()]
+    with conn.cursor() as c:
+        c.execute(f"UPDATE public.tikitaka_thumbnails SET {cols}, updated_at=now() WHERE video_id=%s", (*vals, video_id))
+
+
+class Thumbs:
+    @staticmethod
+    def run(cfg, conn, job, deps):
+        import shutil
+        import subprocess
+        import time
+        from ves.storage.supabase_storage import Store
+        p = job.get("params") or {}
+        vid, wo, suffix, action = p.get("video_id"), p.get("work_order_id"), str(p.get("suffix") or ""), p.get("action") or "run"
+        if not (vid and wo and SUFFIX_RE.match(suffix)):
+            raise base.PermanentError("썸네일 잡 정보가 이상해요")
+        job_dir = pathlib.Path(cfgmod.engine_dir(cfg, "ai_video")) / OUT_ROOT / job_dir_name(wo)
+        try:
+            if not (job_dir / "videos" / suffix / "video.json").is_file():
+                raise base.PermanentError("이 맥미니에 그 영상의 작업 폴더가 없어요. 다시 렌더한 뒤 만들어 주세요.")
+            d = job_dir / "thumbnails" / suffix
+            d.mkdir(parents=True, exist_ok=True)
+            stamp = time.strftime("%Y%m%dT%H%M%S")
+            if action == "manual":
+                doc = _read_json(d / "thumbnails.json")
+                (d / "manual.json").write_text(json.dumps(clean_thumb_manual(p.get("manual"), doc), ensure_ascii=False, indent=1), encoding="utf-8")
+            elif action == "reset" and (d / "manual.json").is_file():
+                (d / "manual.json").replace(d / f"manual.prev_{stamp}.json")
+            r = subprocess.run([cfgmod.engine_py(cfg, "ai_video"), "-m", "app.tikitaka.thumbnail", str(job_dir), suffix],
+                               cwd=cfgmod.engine_dir(cfg, "ai_video"), env=cfgmod.job_env(cfg),
+                               capture_output=True, text=True, timeout=1800)
+            if r.returncode != 0 or not (d / "thumbnails.json").is_file():
+                tail = (r.stderr or r.stdout or "").strip().splitlines()[-1:] or [""]
+                raise RuntimeError(f"썸네일을 만들지 못했어요. {tail[0][:300]}")
+            store = Store(cfg.supabase_url, cfg.supabase_service_key)
+            files = {}
+            for f in sorted(x for x in d.rglob("*") if x.is_file()):
+                rel = f.relative_to(d).as_posix()
+                if not THUMB_UP.match(rel):
+                    continue
+                key = object_key(wo, suffix, "thumbnails/" + rel)
+                store.upload("ves-outputs", key, str(f), content_type=mimetypes.guess_type(f.name)[0] or "application/octet-stream")
+                files[rel] = key
+            doc = _read_json(d / "thumbnails.json")
+            manual = _read_json(d / "manual.json") if (d / "manual.json").is_file() else None
+            _thumb_set(conn, vid, state="done", error=None, doc=doc, manual=manual, files=files, version=int(time.time()))
+            return {"video_id": vid, "suffix": suffix, "picks": len((doc or {}).get("picks") or []), "files": len(files)}
+        except base.PermanentError as e:
+            _thumb_set(conn, vid, state="failed", error=str(e)[:500])
+            raise
+        except Exception as e:
+            final = int(job.get("attempt") or 1) >= int(job.get("max_attempts") or 3)
+            _thumb_set(conn, vid, state="failed" if final else "running", error=str(e)[-500:])
+            raise
