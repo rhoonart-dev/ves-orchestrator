@@ -100,7 +100,7 @@ function mount(){
   const a=r0.sp.a,k=sl.clientWidth/r0.w,cx0=r0.x+r0.w/2,x0=e.clientX,half=Math.min(.5,r0.w/2/a.w);
   let moved=false;
   const mv=ev=>{
-   const dx=ev.clientX-x0;if(!moved){if(Math.abs(dx)<3)return;moved=true;window.__edSnap();}
+   const dx=ev.clientX-x0;if(!moved){if(Math.abs(dx)<10)return;moved=true;window.__edSnap();}   // 10px 넘게 끌어야 옮긴다 — 3px 이면 영상을 누르다 손이 밀려 크롭이 고정됐다(2026-10-02 v6)
    clip.frame_x=+clamp((cx0-dx/k-a.x)/a.w,half,1-half).toFixed(4);
    paint(cur,outT,H,true);
   };

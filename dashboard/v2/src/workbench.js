@@ -2,9 +2,9 @@ import {mountWorkflowControls} from './workflow-controls.js?v=web-1';
 import {openPremiereExport} from './premiere-export.js?v=4';
 import {loadCatalog,loadGuide} from './work-catalog.js?v=hide-1';
 
-import {openThumbnails} from './thumbnail-tool.js?v=rev-1';
+import {openThumbnails} from './thumbnail-tool.js?v=thumb-1';
 import {workflowCardHtml,timelineHtml,reviewEvents} from './workflow-card.js?v=web-1';
-import {mountTikitakaReview} from './tikitaka-review.js?v=gap-2';
+import {mountTikitakaReview} from './tikitaka-review.js?v=thumb-1';
 import {score,reviewLabels} from './review-service.js?v=web-1';
 import {icon} from './icons.js';
 import {loadLocalMedia,timeLabel} from './media-catalog.js';

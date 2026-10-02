@@ -1,11 +1,11 @@
 import {config} from './config.js';
 import {setupScrollbars} from './scrollbars.js';
 import {createLocalEditorClient,loadLocalVideo} from './local-editor-client.js?v=sfx-1';
-import {confirmSubmit} from './editor-submit-dialog.js?v=sfx-1';
+import {confirmSubmit} from './editor-submit-dialog.js?v=sfx-2';
 import './editor-checks.js?v=sfx-2';   // window.__edChecks — 제출 전 검사(ves-editor.js 가 부른다)
 import './editor-fx.js?v=render-123';
 import './editor-sfx.js?v=sfx-1';   // window.__edSfx — 효과음 줄 · 효과음 목록
-import './editor-frame.js?v=render-123';   // window.__edFrame — 구간 화면 위치(미리보기 자르기·끌기)       // window.__edFx — 강조·줌 편집
+import './editor-frame.js?v=sfx-1';   // window.__edFrame — 구간 화면 위치(미리보기 자르기·끌기)       // window.__edFx — 강조·줌 편집
 import {mountNotes} from './editor-notes.js?v=rf-2';
 import {setupHoverTips} from './hover-tip.js?v=4';
 import {mountStatusBar} from './editor-statusbar.js?v=1';   // 맨 아래 안내 줄(단축키 · 저장 상태)   // 버튼 설명을 바로 · 워크스페이스 모양으로(브라우저 기본 title 대신)   // 상단바 종 버튼(알림 창)
@@ -94,7 +94,7 @@ async function boot(){
  if(!roles.data.some(r=>['reviewer','operator','admin'].includes(r.role)))throw new Error('편집하려면 검수자나 관리자 권한이 필요해요.');
  const payload=await bootLocal(client);
  step(3);
- await import('./ves-editor.js?v=sfx-4');
+ await import('./ves-editor.js?v=sfx-5');
  const root=document.getElementById('tlRoot');root.style.display='flex';root.style.flexDirection='column';
  const notes=showLocalNotes(payload);setupScrollbars();setupHoverTips();mountStatusBar();
  mountAccount(client,data.user,roles.data.map(r=>r.role));
