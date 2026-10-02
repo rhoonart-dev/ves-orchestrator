@@ -1,5 +1,5 @@
-import {mountChannels} from './channels.js?v=status-1';
-import {mountChannelTemplates} from './channel-templates.js?v=web-1';
+import {mountChannels} from './channels.js?v=tpl-2';
+import {mountChannelTemplates} from './channel-templates.js?v=tpl-6';
 import {mountPerformance} from './performance.js?v=copy-1';
 import {mountTrends} from './trends.js?v=copy-1';
 import {mountArchive} from './archive.js?v=pager-2';
