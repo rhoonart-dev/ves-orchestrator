@@ -49,9 +49,10 @@ FIXED_ARGS = {"script_flow": "staged", "speed": "fast"}
 DEFAULT_ARGS = {"stt": "elevenlabs", "cover_cut_guard": True}
 
 
-def effective_args(task_args: dict | None, work_args: dict | None) -> dict:
-    """기본값 < 작품 엔진 설정(work_cards.engine_args, 시작할 때 값) < 작업에 준 값 < 고정값. 순수."""
-    return {**DEFAULT_ARGS, **(work_args or {}), **(task_args or {}), **FIXED_ARGS}
+def effective_args(task_args: dict | None, work_args: dict | None, channel_voice: str | None = None) -> dict:
+    """기본값 < 작품 엔진 설정(work_cards.engine_args, 시작할 때 값) < 작업에 준 값 < 채널 × 작품 목소리 < 고정값. 순수."""
+    return {**DEFAULT_ARGS, **(work_args or {}), **(task_args or {}),
+            **({"voice": channel_voice} if channel_voice else {}), **FIXED_ARGS}
 
 
 def engine_args(args: dict | None) -> list:
@@ -432,7 +433,16 @@ class Generate:
                     work_args = (c.fetchone() or {}).get("engine_args") or {}
             except Exception as e:  # noqa: BLE001
                 print(f"[tikitaka_generate] 작품 엔진 설정 읽기 실패(기본값으로): {e}")
-        p["args"] = effective_args(p.get("args"), work_args)   # 저장해 둔 작업도 시작할 때 지금 작품 설정을 읽는다
+        voice = None
+        if p.get("work_title") and p.get("channel_slug"):
+            try:
+                with conn.cursor() as c:   # 채널 × 작품 목소리(0136) — 채널 템플릿 작품 탭. 없으면 작품 기본
+                    c.execute("SELECT voice FROM public.channel_work_designs WHERE token_slug = %s AND work_title = %s",
+                              (p["channel_slug"], p["work_title"]))
+                    voice = (c.fetchone() or {}).get("voice")
+            except Exception as e:  # noqa: BLE001
+                print(f"[tikitaka_generate] 채널 목소리 읽기 실패(작품 기본으로): {e}")
+        p["args"] = effective_args(p.get("args"), work_args, voice)   # 저장해 둔 작업도 시작할 때 지금 작품 설정을 읽는다
         p["template"] = render_template(conn, p)    # 채널 × 작품(없으면 작품 기본) 렌더 템플릿(0133) — 없으면 None
         return p
 

@@ -173,3 +173,9 @@ def test_effective_args_defaults_fixed_and_overrides():
     got = effective_args({"cover_cut_guard": False, "speed": "normal"}, {"voice": "elevenlabs:x", "stt": "default", "script_flow": "single"})
     assert got["cover_cut_guard"] is False and got["stt"] == "default" and got["voice"] == "elevenlabs:x"
     assert got["speed"] == "fast" and got["script_flow"] == "staged"
+
+
+def test_effective_args_channel_voice_wins():
+    from ves.adapters.tikitaka import effective_args
+    assert effective_args({"voice": "a"}, {"voice": "b"}, "elevenlabs:c")["voice"] == "elevenlabs:c"
+    assert effective_args({}, {"voice": "elevenlabs:b"}, None)["voice"] == "elevenlabs:b"

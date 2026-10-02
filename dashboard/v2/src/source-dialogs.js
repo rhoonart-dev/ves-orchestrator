@@ -57,6 +57,9 @@ export function openSourceSettings({client,data,youtube=false,onSaved}){
  let showYt=youtube||rows.length>0;   // 파일 원본 작품(가왕쇼 등)은 유튜브 칸 없이 기본값만
  const ui=shell('작품 설정',data.work);
  const pickers=[];
+ // 엔진 설정(작품 단위) — 대본 단계형 · 말 빠르기 빠르게는 고정, 받아쓰기 · 덮개 컷 점검 · 크기 위치만 고른다. 목소리는 채널 템플릿(채널 × 작품)
+ let engine=null,presetSel='';
+ client.from('work_cards').select('engine_args').eq('work_title',data.work).maybeSingle().then(({data:w})=>{engine=w?.engine_args||{};presetSel=engine.design_preset||'';draw();});
  function draw(){
   pickers.splice(0).forEach(p=>p.release());
   const fmt=r=>EP_FORMATS.some(([v])=>v===r.episode_regex)?r.episode_regex:'custom';
@@ -77,7 +80,14 @@ export function openSourceSettings({client,data,youtube=false,onSaved}){
     ${showYt?row('한 합본에 넣을 회차','합본 만들 때 · 티빙에서 두 편씩 나오는 드라마는 2회씩',seg('group',[['1','1회씩'],['2','2회씩']],ui.val.seg('group')||card.compile_group||1)):''}
     ${showYt?row('앞 회차 몰아보기 넣기','합본 만들 때 · 지난 이야기를 말할 때 밑 화면으로만 써요',sw('recap',ui.val.sw('recap')??card.compile_recap)):''}
     ${row('앞 회차 내용 참고하기','작업할 때 · 앞 회차 작업의 대본 요약을 같이 넘겨요',sw('prev',ui.val.sw('prev')??card.task_prev_ref))}</div>
-   ${showYt?'':'<p class="sr-sm"><button type="button" class="sr-link" data-yt>유튜브에서 클립을 받는 작품이면 원천 채널 추가 ›</button></p>'}`;
+   ${showYt?'':'<p class="sr-sm"><button type="button" class="sr-link" data-yt>유튜브에서 클립을 받는 작품이면 원천 채널 추가 ›</button></p>'}
+   <div class="sr-sect"><h4>엔진 설정</h4><p class="sr-hint">이 작품으로 거는 모든 작업에 붙어요. 작업을 시작할 때의 값으로 만들어요. 색 · 폰트 · 로고 · 목소리는 채널 템플릿에서 채널마다 정해요.</p>
+    ${!engine?'<p class="sr-sm">불러오는 중…</p>':`
+    ${row('대본 방식','',`<span class="sr-fixed">단계형 · 고정</span>`)}
+    ${row('말 빠르기','',`<span class="sr-fixed">빠르게 · 고정</span>`)}
+    ${row('받아쓰기','ElevenLabs 가 기본이에요',seg('stt',[['elevenlabs','ElevenLabs'],['whisper','Whisper']],ui.val.seg('stt')||engine.stt||'elevenlabs'))}
+    ${row('덮개 컷 점검','덮개 화면에 짧게 끼어든 다른 장면을 찾아 고쳐요',sw('guard',ui.val.sw('guard')??engine.cover_cut_guard!==false))}
+    ${row('크기 · 위치','영상 칸 · 글자 크기 · 로고 자리. 엔진 파일의 배치를 써요',`<select class="sr-in sr-preset" data-preset>${[['','엔진 기본'],['jigeum_v2','jigeum_v2 (지금불륜 2안)'],['jigeum','jigeum (지금불륜 1안)'],['lotto_tving_v2','lotto_tving_v2 (로또 2안)'],['lotto_tving','lotto_tving (로또 1안)'],['gawangsho','gawangsho (가왕쇼)']].map(([v,t])=>`<option value="${v}"${presetSel===v?' selected':''}>${t}</option>`).join('')}</select>`)}`}</div>`;
   ui.body.querySelectorAll('.sr-srcrow').forEach(el=>{
    const i=+el.dataset.i,r=rows[i];
    pickers.push(picker(el.querySelector('.sr-pickhost'),{options:chOpts,selected:[r.channel_id||'url'],onChange:([id])=>{r.channel_id=id==='url'?'':id;draw();}}));
@@ -87,6 +97,7 @@ export function openSourceSettings({client,data,youtube=false,onSaved}){
   ui.body.querySelectorAll('[data-down]').forEach(b=>b.onclick=()=>{const i=+b.dataset.down;[rows[i+1],rows[i]]=[rows[i],rows[i+1]];draw();});
   ui.body.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{rows.splice(+b.dataset.del,1);draw();});
   const add=()=>{rows.push({channel_id:data.channels[0]?.id||'',url:'',title_filter:data.work,episode_regex:''});showYt=true;draw();};
+  ui.body.querySelector('[data-preset]')?.addEventListener('change',e=>{presetSel=e.target.value;});
   ui.body.querySelector('[data-add]')?.addEventListener('click',add);
   ui.body.querySelector('[data-yt]')?.addEventListener('click',add);
   ui.wire();
@@ -102,7 +113,9 @@ export function openSourceSettings({client,data,youtube=false,onSaved}){
   const r1=showYt?await client.rpc('set_work_youtube_sources',{p_work:data.work,p_items:items}):{};
   const r2=r1.error?null:await client.rpc('set_work_compile_defaults',{p_work:data.work,p_unit:ui.val.seg('unit'),
    p_group:showYt?+ui.val.seg('group'):null,p_recap:showYt?ui.val.sw('recap'):null,p_prev_ref:ui.val.sw('prev')});
-  const er=r1.error||r2?.error;
+  const r4=r1.error||r2?.error||!engine?null:await client.rpc('set_work_engine_args',{p_work:data.work,p_args:Object.fromEntries(Object.entries({...engine,
+   stt:ui.val.seg('stt')||engine.stt||'elevenlabs',cover_cut_guard:!!ui.val.sw('guard'),design_preset:presetSel||null}).filter(([,v])=>v!==null&&v!==''))});
+  const er=r1.error||r2?.error||r4?.error;
   if(er){ui.err('저장하지 못했어요. '+er.message);b.disabled=false;return;}
   const r3=showYt&&items.length?await client.rpc('request_youtube_check',{p_work:data.work}):null;
   pickers.forEach(p=>p.release());ui.close();
@@ -200,15 +213,20 @@ export function openTask({client,data,room,group,sourceId,task=null,workChannels
   <div class="sr-row col"><span class="sr-lb">대본 쓸 때 참고할 메모</span><textarea class="sr-memo" maxlength="2000" placeholder="예: 실장 정체는 6화 엔딩 전까지 말하지 않기">${esc(opts.memo||'')}</textarea></div>
  </div><p class="sr-warn" data-plan hidden></p>${others.length&&!task?`<p class="sr-sm">이 원본으로 한 작업: ${others.map(t=>'#'+t.work_no).join(' · ')}</p>`:''}`;
  ui.wire();
- // 채널마다 만들어질 영상 모양(0134) — 채널 템플릿의 '이 채널에서만' → '모든 채널 기본' → 엔진 기본. 바꾸는 곳은 채널 템플릿
+ // 채널마다 만들어질 영상 모양(0134) · 목소리(0136) — 채널 템플릿의 '이 채널에서만' → '모든 채널 기본' → 엔진 기본
  let tpl=null;
  const tplName=id=>!tpl?'':tpl.chan.has(id)?'<b>이 채널 값</b>':tpl.work?'모든 채널 기본':'엔진 기본';
+ const voiceOf=id=>{if(!tpl)return '';const v=tpl.voice.get(id)||tpl.workVoice;const n=tpl.names.get(v)||(v?v.replace(/^elevenlabs:/,''):'엔진 기본');return tpl.voice.has(id)?`<b>${esc(n)}</b>`:esc(n);};
  const plan=()=>{const el=ui.body.querySelector('[data-plan]'),list=pick.get();el.hidden=!list.length;
   if(!list.length)return;const n=nextNo(group);
-  el.innerHTML=(task?'':'채널마다 작업이 따로 생겨요.')+'<span class="sr-tpl-lines">'+list.map((id,i)=>{const c=chans.find(x=>x.id===id);return `<span>${chanChip(c?.name||id,c?.avatar,task?'':`#${n+i}`)}${tpl?` 모양 ${tplName(id)}`:''}</span>`;}).join('')+'</span>'+(tpl?'<small>영상 모양은 채널 템플릿에서 작품마다 정해요.</small>':'');};
- Promise.all([client.from('channel_work_designs').select('token_slug').eq('work_title',data.work),
-  client.from('work_cards').select('render_design').eq('work_title',data.work).maybeSingle()]).then(([c,w])=>{
-   tpl={chan:new Set((c.data||[]).map(x=>x.token_slug)),work:!!(w.data?.render_design&&Object.keys(w.data.render_design).length)};plan();}).catch(()=>{});
+  el.innerHTML=(task?'':'채널마다 작업이 따로 생겨요.')+'<span class="sr-tpl-lines">'+list.map((id,i)=>{const c=chans.find(x=>x.id===id);return `<span>${chanChip(c?.name||id,c?.avatar,task?'':`#${n+i}`)}${tpl?` 모양 ${tplName(id)} · 목소리 ${voiceOf(id)}`:''}</span>`;}).join('')+'</span>'+(tpl?'<small>굵은 글씨는 이 채널에서만 따로 정한 값이에요. 모양과 목소리는 채널 템플릿에서 작품마다 정해요.</small>':'');};
+ Promise.all([client.from('channel_work_designs').select('token_slug,design,voice').eq('work_title',data.work),
+  client.from('work_cards').select('render_design,engine_args').eq('work_title',data.work).maybeSingle(),
+  client.from('tts_voices').select('id,name,gender')]).then(([c,w,v])=>{
+   const rows=c.data||[];
+   tpl={chan:new Set(rows.filter(x=>x.design&&Object.keys(x.design).length).map(x=>x.token_slug)),voice:new Map(rows.filter(x=>x.voice).map(x=>[x.token_slug,x.voice])),
+    work:!!(w.data?.render_design&&Object.keys(w.data.render_design).length),workVoice:w.data?.engine_args?.voice||null,
+    names:new Map((v.data||[]).map(x=>[x.id,x.name+(x.gender?` (${x.gender})`:'')]))};plan();}).catch(()=>{});
  pick=picker(ui.body.querySelector('.sr-pickhost'),{options:chans,selected:chosen,multi:!task,onChange:()=>plan()});
  plan();
  const options=()=>({count:+ui.body.querySelector('[data-count]').value||10,prev_ref:ui.val.sw('prev'),avoid_other:ui.val.sw('avoid'),memo:ui.body.querySelector('.sr-memo').value.trim()||null,...(opts.args?{args:opts.args}:{})});

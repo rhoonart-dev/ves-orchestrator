@@ -337,3 +337,4 @@
 .ct-side .rt-pick select{background:var(--inset)}
 .ct-side .rt-wait,.ct-side .rt-stale,.ct-side .rt-fail{background:var(--inset)}
 @media(max-width:1100px){.template-main>.template-split.ct-split{grid-template-columns:1fr}}
+.ct-voice{margin-bottom:6px}.ct-voice-row{display:flex;gap:8px;align-items:center}.ct-voice-row select{flex:1;max-width:340px}.ct-listen{border:0;border-radius:999px;height:36px;padding:0 14px;background:var(--inset);font:inherit;font-size:12px;font-weight:600;color:var(--ink)}.ct-voice .rt-none{margin:6px 0 0}
