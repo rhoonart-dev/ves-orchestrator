@@ -5,6 +5,7 @@ import {hiddenChannels} from './channel-visibility.js';
 import {enhanceDropdowns} from './dropdowns.js';
 import {jobKindKo} from './job-kinds.js';
 // 작업 이력 — 예전 VES '작업 내역'(renderJobsTab)을 옮겼다. 맥미니 잡(job_queue)을 상태·맥·채널로 거르고,
+// 다시 시도 중이거나 끝난 잡의 오류는 앞 시도의 기록이라 '지난 시도 오류'로 흐리게 보인다(지금 실패한 것처럼 보이지 않게).
 // 운영자는 재시도 · 잡 취소 · 작업지시 취소를 할 수 있다(RPC retry_job · cancel_job · cancel_work_order).
 // 아래는 최근 상태 변화(job_events 40건). 홈의 '실행 중' 칸이 ?status=running 으로 들어온다.
 const STATUS={all:'전체',pending:'대기',running:'실행',failed:'실패',dead:'중단',blocked:'보류',succeeded:'완료',cancelled:'취소'};
@@ -76,7 +77,7 @@ export function mountHistory(root,{client=null,role=null,params=new URLSearchPar
        <td class="mono">${esc(j.node_id||'')}${pin?` <small title="이 맥에서만 돌아요">${esc(pin.replace('node:',''))} 고정</small>`:''}</td>
        <td>${esc(work)}${ep!=null?` <small>· ${esc(ep)}회차</small>`:''}${wo.channel_slug?`<small class="hist-ch">${esc(chName(wo.channel_slug))}</small>`:''}</td>
        <td class="tnum" title="${esc(kst(j.updated_at))}">${ago(j.updated_at)}</td>
-       <td>${j.error?`<button type="button" class="hist-why${j.status==='cancelled'?' is-cancel':''}" data-err="${j.id}">${j.status==='cancelled'?'취소 이유':'오류 보기'}<svg viewBox="0 0 12 12" aria-hidden="true"><path d="m4 5 2 2 2-2"/></svg></button>`:''}</td>
+       <td>${j.error?`<button type="button" class="hist-why${j.status==='cancelled'?' is-cancel':['running','pending','succeeded'].includes(j.status)?' is-past':''}" data-err="${j.id}">${j.status==='cancelled'?'취소 이유':['running','pending','succeeded'].includes(j.status)?'지난 시도 오류':'오류 보기'}<svg viewBox="0 0 12 12" aria-hidden="true"><path d="m4 5 2 2 2-2"/></svg></button>`:''}</td>
        ${canEdit?`<td class="hist-acts"><div class="hist-acts-in">${acts}</div></td>`:''}</tr>`;}).join('')||`<tr><td colspan="8" class="hist-empty">해당하는 작업이 없어요</td></tr>`}</tbody></table></div>
     ${pagerHtml({cur:st.page,pages,label:'작업 이력 페이지',prev:`data-page="${st.page-1}"`,next:`data-page="${st.page+1}"`})}
    </section>
