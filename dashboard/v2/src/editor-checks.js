@@ -103,6 +103,11 @@ export function analyze(cur,H){
    if(src==null)return;
    const c=live.find(x=>src>=x.start-1e-3&&src<x.end);if(!c)return;
    const out=c.out+(src-c.start)/H.clipSpd(c),len=Math.max(0.1,+g.end-+g.start);
+   // 그 자리를 내레이션이나 효과음이 채웠으면(빈 곳의 절반 이상) 알리지 않는다
+   const sounds=[...(m.cues||[]).filter(q=>!q.dropped&&!q.lost).map(q=>[q.out,q.out+q.dur]),
+    ...(window.__edSfx&&H.srcToOut?window.__edSfx.items(cur,H).filter(x=>!x.off).map(x=>[x.at,x.at+x.dur]):[])];
+   const filled=sounds.reduce((n,[a,b])=>n+Math.max(0,Math.min(b,out+len)-Math.max(a,out)),0);
+   if(filled>=len*0.5)return;
    items.push({level:'warn',kind:'clip',i:c.i,text:`${H.fmt(out)}부터 ${len.toFixed(1)}초 동안 원본 소리가 비어 있어요(${c.i+1}번 구간).`});
   });}
  // 3) 원음이 꺼진 구간: 덮개는 이전 구간에서 물려받는다
