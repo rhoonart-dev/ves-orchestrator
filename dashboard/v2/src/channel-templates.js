@@ -1,30 +1,135 @@
 import {esc} from './review-details.js?v=web-1';
 import {visibleChannels,withWorkOverrides} from './channel-visibility.js';
-import {templateFields,fonts,changedDesign} from './template-model.js';
+import {templateFields,changedDesign} from './template-model.js';
 import {readAll} from './review-service.js?v=web-1';
-import {renderPreview} from './template-preview.js?v=web-1';
+import {swatch,cleanDesign,sameDesign,fieldsHtml,wireColors,mountPreview} from './render-templates.js?v=tpl-3';
+import {loadCatalog} from './work-catalog.js?v=hide-1';
+import {loadWorkAssets} from './work-assets-data.js?v=1';
+// 채널 템플릿 — 채널을 고르고 작품 탭마다 영상 모양을 정한다(0134). '이 채널에서만'은 작품 기본 위에 칸 단위로 얹고,
+// '모든 채널 기본'은 그 작품의 기본값이다. 맥미니는 작업을 시작할 때 이 값을 읽어 그대로 렌더한다(이미 만든 영상은 그대로).
+// 아래 '예전 칸'(크기 · 위치 · 화면비)은 예전 파이프라인 채널 값 — 새 파이프라인 렌더에는 아직 안 쓰이지만 나중을 위해 그대로 둔다.
+const OLD_KEYS=new Set(['title_size','title_size2','subtitles','subtitle_size','tts_size','tts_y_margin','aspect_ratio','video_width','video_y']);
 export function mountChannelTemplates(root,{client,role,channel}={}){
- let dead=false,channels=[],overrides=[],current=null,dirty=false,saving=false,scene='dialogue';
+ let dead=false,assets=new Map(),logoPicks=new Map(),channels=[],overrides=[],current=null,work=null,scope='channel',designs=new Map(),workDefaults=new Map(),presets=[],videos=[],saving=false,preview=null;
  const writable=['operator','admin'].includes(role);
  root.innerHTML='<div class="template-layout"><aside class="template-sidebar"><label>채널 검색<input type="search" placeholder="채널 검색" aria-label="템플릿 채널 검색"></label><div class="template-channels"></div></aside><section class="template-main"><p role="status">채널 템플릿을 불러오는 중…</p></section></div>';
  const main=root.querySelector('.template-main'),list=root.querySelector('.template-channels'),search=root.querySelector('input');
- function renderList(){list.innerHTML=channels.filter(c=>c.name.includes(search.value.trim())).map(c=>`<button type="button" data-slug="${esc(c.token_slug)}" class="has-av${c===current?' active':''}"><span class="tc-av">${c.avatar_url?`<img src="${esc(c.avatar_url)}" alt="" referrerpolicy="no-referrer">`:esc((c.name||'?').slice(0,1))}</span><span class="tc-txt">${esc(c.name)}<small>${c.works?.length||0}개 작품</small></span></button>`).join('');list.querySelectorAll('button').forEach(b=>b.onclick=()=>{if(saving)return;if(dirty){main.querySelector('[role=status]').textContent='변경한 내용을 저장하거나 되돌린 뒤 채널을 선택해 주세요.';return;}current=channels.find(c=>c.token_slug===b.dataset.slug);render();});}
+ const key=(slug,w)=>slug+'\u0000'+w;
+ const chanDesign=()=>designs.get(key(current.token_slug,work))||null;
+ const workDesign=()=>workDefaults.get(work)||null;
+ const effective=(slug,w)=>({...(workDefaults.get(w)||{}),...(designs.get(key(slug,w))||{})});
+ const form=()=>main.querySelector('.rt-form');
+ const formDesign=()=>cleanDesign(Object.fromEntries(new FormData(form())));
+ const saved=()=>(scope==='channel'?chanDesign():workDesign())||{};
+ const dirty=()=>{try{return !!form()&&!sameDesign(formDesign(),saved());}catch{return true;}};
+ const leave=()=>!dirty()||confirm('저장하지 않은 값이 있어요. 그래도 옮길까요?');
+ function renderList(){list.innerHTML=channels.filter(c=>c.name.includes(search.value.trim())).map(c=>`<button type="button" data-slug="${esc(c.token_slug)}" class="has-av${c===current?' active':''}"><span class="tc-av">${c.avatar_url?`<img src="${esc(c.avatar_url)}" alt="" referrerpolicy="no-referrer">`:esc((c.name||'?').slice(0,1))}</span><span class="tc-txt">${esc(c.name)}<small>${c.works?.length||0}개 작품</small></span></button>`).join('');
+  list.querySelectorAll('button').forEach(b=>b.onclick=()=>{if(saving||!leave())return;current=channels.find(c=>c.token_slug===b.dataset.slug);work=current.works?.[0]||null;scope='channel';render();});}
  function render(){
-  renderList();const override=overrides.find(o=>o.token_slug===current.token_slug),design=override?.design??current.design??{};
-  main.innerHTML=`<header><div><h2>${esc(current.name)}</h2><p>저장한 디자인은 다음 영상 생성부터 사용해요.</p></div><span class="template-tag">${override?'저장된 템플릿':'기존 VES 템플릿'}</span></header><div class="template-split"><section class="template-preview" aria-label="템플릿 미리보기"><div class="shorts-preview" role="img" aria-label="쇼츠 화면 미리보기"></div><div class="template-scene" role="radiogroup" aria-label="미리보기 장면"><button type="button" role="radio" data-scene="dialogue" aria-checked="true">대사 장면</button><button type="button" role="radio" data-scene="tts" aria-checked="false">내레이션 장면</button></div><p class="template-preview-note">저장 전 값도 바로 보여요 · 근사 미리보기</p></section><form class="template-form"><fieldset ${writable?'':'disabled'}>${['제목','자막','내레이션 자막','영상 영역'].map(group=>`<section><h3>${group}</h3><div class="template-fields">${templateFields.filter(f=>f[0]===group).map(([,key,label,type,min,max])=>{const v=design[key]??'';return `<label>${label}${type==='onoff'?`<select name="${key}"><option value="">켬 (기본)</option><option value="false" ${v===false||v==='false'?'selected':''}>끔</option></select>`:type==='font'?`<select name="${key}"><option value="">기본값 사용</option>${[...new Set([...fonts,...(v?[v]:[])])].map(f=>`<option ${v===f?'selected':''} value="${esc(f)}">${esc(f)}</option>`).join('')}</select>`:`<input name="${key}" type="${type==='number'?'number':'text'}" value="${esc(v)}" placeholder="${type==='color'?'#FFFFFF':type==='ratio'?'예: 13:9':'기본값 사용'}" ${type==='number'?`min="${min}" max="${max}" step="1"`:''}>`}</label>`;}).join('')}</div></section>`).join('')}</fieldset><footer><p role="status" aria-live="polite"></p>${writable?'<button type="button" class="works-button" data-reset>되돌리기</button><button class="works-button solid" type="submit">템플릿 저장</button>':'<span>운영자만 수정할 수 있어요.</span>'}</footer></form></div>`;
-  const form=main.querySelector('form'),preview=main.querySelector('.shorts-preview');
-  // Preview = saved design (incl. keys this form does not edit) + what is typed now; empty = engine default.
-  const draw=()=>{const live={...design};for(const [,key] of templateFields)delete live[key];
-   for(const [k,v] of new FormData(form))if(String(v).trim()!=='')live[k]=String(v).trim();
-   renderPreview(preview,live,{work:current.works?.[0]||'작품 이름',scene});};
-  main.querySelectorAll('[data-scene]').forEach(b=>b.onclick=()=>{scene=b.dataset.scene;main.querySelectorAll('[data-scene]').forEach(x=>x.setAttribute('aria-checked',String(x===b)));draw();});
-  main.querySelector(`[data-scene="${scene}"]`)?.click();
-  draw();
-  form.oninput=()=>{dirty=true;draw();};form.onchange=()=>{dirty=true;draw();};form.querySelector('[data-reset]')?.addEventListener('click',()=>{if(saving)return;dirty=false;render();});
-  form.onsubmit=async e=>{e.preventDefault();if(!writable)return;const status=form.querySelector('[role=status]'),button=form.querySelector('[type=submit]');try{const next=changedDesign(design,Object.fromEntries(new FormData(form)));saving=true;button.disabled=true;form.querySelector('[data-reset]').disabled=true;form.querySelector('fieldset').disabled=true;status.textContent='저장 중…';const {error}=await client.rpc('set_channel_design',{p_slug:current.token_slug,p_design:next});if(error)throw error;if(dead)return;overrides=overrides.filter(o=>o.token_slug!==current.token_slug).concat({token_slug:current.token_slug,design:next});saving=false;dirty=false;render();main.querySelector('[role=status]').textContent='저장했어요. 다음 생성부터 적용됩니다.';}catch(e){if(!dead){saving=false;form.querySelector('[data-reset]').disabled=false;status.textContent=e.message||'저장하지 못했어요.';status.classList.add('asset-error');button.disabled=false;form.querySelector('fieldset').disabled=false;}}};
+  renderList();preview?.release();preview=null;
+  const works=current.works||[];
+  if(work&&!works.includes(work))work=works[0]||null;
+  const override=overrides.find(o=>o.token_slug===current.token_slug),old=override?.design??current.design??{};
+  const oldHtml=`<details class="ct-old"><summary>예전 칸 · 크기 · 위치 · 화면비 <small>채널 전체 값 · 새 파이프라인 렌더에는 아직 안 쓰여요</small></summary>
+    <form class="template-form ct-old-form"><fieldset ${writable?'':'disabled'}>${['제목','자막','내레이션 자막','영상 영역'].map(g=>{const fs=templateFields.filter(f=>f[0]===g&&OLD_KEYS.has(f[1]));return fs.length?`<section><h3>${g}</h3><div class="template-fields">${fs.map(([,k,l,t,min,max])=>{const v=old[k]??'';return `<label>${l}${t==='onoff'?`<select name="${k}"><option value="">켬 (기본)</option><option value="false" ${v===false||v==='false'?'selected':''}>끔</option></select>`:`<input name="${k}" type="${t==='number'?'number':'text'}" value="${esc(v)}" placeholder="${t==='ratio'?'예: 13:9':'기본값 사용'}" ${t==='number'?`min="${min}" max="${max}" step="1"`:''}>`}</label>`;}).join('')}</div></section>`:'';}).join('')}
+     <p class="rt-status" role="status"></p>${writable?'<div class="rt-actions"><span></span><button type="submit" class="primary">예전 칸 저장</button></div>':''}</fieldset></form></details>`;
+  const tabs=works.map(w=>`<button type="button" class="ct-tab${w===work?' on':''}" data-work="${esc(w)}">${swatch(effective(current.token_slug,w))}${esc(w)}${designs.has(key(current.token_slug,w))?'<i class="ct-dot" title="이 채널에서만 따로 정한 값이 있어요"></i>':''}</button>`).join('');
+  let top='',body='<p class="workbench-note">이 채널에 생성 대상 작품이 없어요. 채널 관리에서 작품을 붙이면 여기서 모양을 정할 수 있어요.</p>';
+  if(work){
+   const ch=chanDesign(),wd=workDesign();
+   const state=scope==='channel'?(ch?`${esc(current.name)}에서만 따로 정한 값이 있어요. 비워 둔 칸은 모든 채널 기본을 따라요.`:wd?`지금은 모든 채널 기본을 따라요. 여기서 고친 칸만 ${esc(current.name)}에서 바뀌어요.`:'아직 정한 값이 없어 엔진 기본으로 만들어요.')
+    :(wd?'이 작품을 만드는 모든 채널의 기본이에요. 채널에서 따로 정한 칸은 그 값이 이겨요.':'아직 기본값이 없어요. 채널마다 따로 정하지 않은 칸은 엔진 기본이에요.');
+   const others=[...designs.entries()].filter(([k])=>k.endsWith('\u0000'+work)&&!k.startsWith(current.token_slug+'\u0000')).map(([k,d])=>{const slug=k.split('\u0000')[0];return {label:`${channels.find(c=>c.token_slug===slug)?.name||slug}의 값`,d};});
+   const loads=[...(scope==='channel'&&wd?[{label:'모든 채널 기본 값',d:wd}]:[]),...others,...presets.map(p=>({label:`기존 템플릿 · ${p.name}`,d:p.design}))];
+   top=`<div class="ct-scope"><button type="button" data-scope="channel" class="${scope==='channel'?'on':''}">${esc(current.name)}에서만</button><button type="button" data-scope="work" class="${scope==='work'?'on':''}">모든 채널 기본</button></div>
+    <p class="ct-state">${state}</p>`;
+   body=`<div class="template-split ct-split"><div class="ct-left"><form class="template-form rt-form"><fieldset ${writable?'':'disabled'}>
+     ${loads.length&&writable?`<div class="ct-load"><select data-load><option value="">불러오기…</option>${loads.map((l,i)=>`<option value="${i}">${esc(l.label)}</option>`).join('')}</select></div>`:''}
+     <section class="ct-logo"><h3>작품 로고</h3><div class="ct-logo-row"><span class="rt-none">작품 관리에 올린 로고를 불러오는 중…</span></div></section>
+     ${fieldsHtml(scope==='channel'?(ch||{}):(wd||{}),scope==='channel'?(wd||{}):{})}
+     <p class="rt-status" role="status"></p>
+     <div class="rt-actions">${writable&&(scope==='channel'?ch:wd)?`<button type="button" class="rt-retire" data-clear>${scope==='channel'?'따로 정한 값 지우기':'기본값 지우기'}</button>`:''}<span></span>${writable?'<button type="button" data-reset>되돌리기</button><button type="submit" class="primary">저장</button>':'<span class="rt-none">운영자만 바꿀 수 있어요.</span>'}</div>
+    </fieldset></form>${oldHtml}</div><aside class="template-preview ct-side rt-preview" aria-label="실제 모양 보기"></aside></div>`;
+  }
+  main.innerHTML=`<header><div><h2>${esc(current.name)}</h2><p>작품마다 영상 모양을 정해요. 저장한 값은 다음 작업부터 써요.</p></div></header>
+   <div class="ct-top"><div class="ct-tabs">${tabs}</div>${top}</div>${body}`;
+  main.querySelectorAll('[data-work]').forEach(b=>b.onclick=()=>{if(b.dataset.work===work||!leave())return;work=b.dataset.work;render();});
+  main.querySelectorAll('[data-scope]').forEach(b=>b.onclick=()=>{if(b.dataset.scope===scope||!leave())return;scope=b.dataset.scope;render();});
+  const oldForm=main.querySelector('.ct-old-form');
+  if(oldForm)oldForm.onsubmit=async e=>{e.preventDefault();if(!writable)return;const st=oldForm.querySelector('.rt-status');
+   try{const next=changedDesign(old,Object.fromEntries(new FormData(oldForm)));st.textContent='저장 중…';
+    const {error}=await client.rpc('set_channel_design',{p_slug:current.token_slug,p_design:next});if(error)throw error;
+    overrides=overrides.filter(o=>o.token_slug!==current.token_slug).concat({token_slug:current.token_slug,design:next});st.textContent='저장했어요.';}
+   catch(x){st.textContent=x.message||'저장하지 못했어요.';}};
+  const f=form();if(!f)return;
+  const status=t=>{f.querySelector('.rt-status').textContent=t;};
+  const changed=()=>{status(dirty()?'저장하지 않은 값이 있어요':'');preview?.refresh();};
+  wireColors(f,changed);f.oninput=changed;f.onchange=e=>{if(!e.target.matches('[data-load]'))changed();};
+  f.querySelector('[data-load]')?.addEventListener('change',e=>{const i=e.target.value;if(i==='')return;
+   const ch=scope==='channel'?chanDesign():workDesign(),wd=workDesign();
+   const loads=[...(scope==='channel'&&wd?[{d:wd}]:[]),...[...designs.entries()].filter(([k])=>k.endsWith('\u0000'+work)&&!k.startsWith(current.token_slug+'\u0000')).map(([,d])=>({d})),...presets.map(p=>({d:p.design}))];
+   const d=loads[+i]?.d||{};
+   for(const el of f.querySelectorAll('[name]')){el.value=d[el.name]||'';const c=f.querySelector(`[data-for="${el.name}"]`);if(c&&d[el.name])c.value=d[el.name];}
+   e.target.value='';changed();status('불러온 값이에요. 저장해야 바뀌어요.');void ch;});
+  f.querySelector('[data-reset]')?.addEventListener('click',()=>render());
+  f.querySelector('[data-clear]')?.addEventListener('click',async()=>{
+   if(!confirm(scope==='channel'?`${current.name}에서 따로 정한 값을 지울까요? 그 뒤로는 모든 채널 기본을 따라요.`:`'${work}' 작품의 기본값을 지울까요?`))return;
+   const r=scope==='channel'?await client.rpc('set_channel_work_design',{p_slug:current.token_slug,p_work:work,p_design:null}):await client.rpc('set_work_design',{p_work:work,p_design:null});
+   if(r.error){status(r.error.message);return;}
+   scope==='channel'?designs.delete(key(current.token_slug,work)):workDefaults.delete(work);render();});
+  f.onsubmit=async e=>{e.preventDefault();if(!writable||saving)return;let d;try{d=formDesign();}catch(x){status(x.message);return;}
+   saving=true;status('저장 중…');
+   const r=scope==='channel'?await client.rpc('set_channel_work_design',{p_slug:current.token_slug,p_work:work,p_design:Object.keys(d).length?d:null}):await client.rpc('set_work_design',{p_work:work,p_design:Object.keys(d).length?d:null});
+   saving=false;if(r.error){status(r.error.message);return;}
+   if(scope==='channel'){r.data&&Object.keys(r.data).length?designs.set(key(current.token_slug,work),r.data):designs.delete(key(current.token_slug,work));}
+   else{r.data?workDefaults.set(work,r.data):workDefaults.delete(work);}
+   render();main.querySelector('.rt-form .rt-status').textContent='저장했어요. 다음 작업부터 이 모양으로 만들어요.';};
+  // 같은 작품 영상으로만 — 로고 크기가 다르면 영상 칸 · 로고 자리가 달라진다(0135)
+  const vids=videos.filter(v=>v.work_title===work);
+  preview=mountPreview(main.querySelector('.ct-side'),{client,videos:vids,writable,status,emptyText:'이 작품을 맥미니에서 만든 영상이 아직 없어요. 한 번 만든 뒤 볼 수 있어요.',
+   target:()=>({p_work:work,p_slug:scope==='channel'?current.token_slug:null}),
+   getDesign:()=>scope==='channel'?{...(workDesign()||{}),...formDesign()}:formDesign()});
+  fillAssets();
+ }
+ // 작품 로고(작품 관리 에셋) — '이 채널에서만'이면 고르기(채널 관리 로고 칸과 같은 값), '모든 채널 기본'이면 작품 기본 로고 보기만.
+ // 권리사 칸에는 작품 관리에 올린 권리사 로고도 고를 수 있게 넣는다
+ async function fillAssets(){
+  const w=work,slug=current.token_slug,row=main.querySelector('.ct-logo-row');if(!row)return;
+  try{
+   if(!assets.has(w)){const {works}=await loadCatalog(client);const id=works.find(x=>x.title===w)?.id;assets.set(w,id?await loadWorkAssets(client,id):null);}
+   if(!logoPicks.has(w)){const {data}=await client.from('channel_work_assets').select('token_slug,label').eq('work_title',w).eq('role','work_logo');logoPicks.set(w,new Map((data||[]).map(x=>[x.token_slug,x.label])));}
+  }catch(e){if(work===w)row.innerHTML=`<span class="rt-fail">${esc(e.message||'로고를 불러오지 못했어요')}</span>`;return;}
+  if(dead||work!==w||current.token_slug!==slug||!main.querySelector('.ct-logo-row'))return;
+  const a=assets.get(w),logos=a?.logos?.work_logo||[],picked=logoPicks.get(w).get(slug)||null;
+  const chip=l=>{const on=scope==='channel'?(picked?l.label===picked:l.is_default):l.is_default;
+   return `<button type="button" class="ch-logo-chip${on?' on':''}" data-logo="${esc(l.label)}" data-default="${l.is_default?1:''}" ${scope==='channel'&&writable?'':'disabled'}><span class="ch-logo-mini">${l.preview_url?`<img src="${esc(l.preview_url)}" alt="">`:''}</span>${esc(l.label)}${l.is_default?' <small>기본</small>':''}</button>`;};
+  main.querySelector('.ct-logo-row').innerHTML=logos.length?`<div class="ch-logo-chips">${logos.map(chip).join('')}</div>${scope==='work'?'<span class="rt-none">기본 로고는 작품 관리에서 바꿔요.</span>':''}`
+   :'<span class="rt-none">작품 관리에 올린 로고가 없어요. 작품 관리에서 올리면 여기서 고를 수 있어요.</span>';
+  main.querySelectorAll('[data-logo]').forEach(b=>b.onclick=async()=>{if(b.classList.contains('on'))return;
+   const {error}=await client.rpc('set_channel_work_asset',{p_slug:slug,p_work:w,p_role:'work_logo',p_label:b.dataset.default?null:b.dataset.logo});
+   if(error){alert(error.message);return;}
+   b.dataset.default?logoPicks.get(w).delete(slug):logoPicks.get(w).set(slug,b.dataset.logo);
+   main.querySelectorAll('[data-logo]').forEach(x=>x.classList.toggle('on',x===b));
+   const st=main.querySelector('.rt-form .rt-status');if(st)st.textContent='로고를 바꿨어요. 실제 모양 보기를 다시 누르면 이 로고로 그려요.';});
+  const sel=main.querySelector('select[name=platform_image]');
+  const up=[...(a?.platform?.holder_logos||[]),...(a?.logos?.platform_logo||[])];
+  if(sel&&up.length&&!sel.querySelector('[data-up]')){
+   sel.insertAdjacentHTML('beforeend',up.map(l=>`<option data-up value="asset:${esc(l.id)}">올린 로고 · ${esc(l.label)}</option>`).join(''));
+   if(sel.dataset.asset)sel.value='asset:'+sel.dataset.asset;}
  }
  search.oninput=renderList;
- if(!client)main.innerHTML='<p>로그인하면 기존 VES의 채널 템플릿을 불러옵니다.</p>';
- else Promise.all([readAll(()=>client.from('channels_mirror').select('token_slug,name,design,works,avatar_url').order('name')).then(c=>visibleChannels(client,c)).then(c=>withWorkOverrides(client,c)),readAll(()=>client.from('channel_design_overrides').select('token_slug,design').order('token_slug'))]).then(([c,o])=>{if(dead)return;channels=c;overrides=o;current=c.find(x=>x.token_slug===channel)||c[0];if(current){render();list.querySelector('.active')?.scrollIntoView({block:'nearest'});}else main.textContent='등록된 채널이 없습니다.';}).catch(e=>{if(!dead)main.textContent='템플릿을 불러오지 못했어요. '+e.message;});
- return()=>{dead=true;};
+ if(!client)main.innerHTML='<p>로그인하면 채널 템플릿을 불러와요.</p>';
+ else Promise.all([
+  readAll(()=>client.from('channels_mirror').select('token_slug,name,design,works,avatar_url').order('name')).then(c=>visibleChannels(client,c)).then(c=>withWorkOverrides(client,c)),
+  readAll(()=>client.from('channel_design_overrides').select('token_slug,design').order('token_slug')),
+  readAll(()=>client.from('channel_work_designs').select('token_slug,work_title,design').order('token_slug')),
+  readAll(()=>client.from('work_cards').select('work_title,render_design').not('render_design','is',null).order('work_title')),
+  readAll(()=>client.from('render_templates').select('id,name,design').is('retired_at',null).order('name')),
+  client.from('tikitaka_videos').select('id,title,suffix,work_title,created_at').order('created_at',{ascending:false}).limit(60).then(r=>r.data||[])
+ ]).then(([c,o,cw,wd,t,v])=>{if(dead)return;channels=c;overrides=o;
+  designs=new Map(cw.map(x=>[key(x.token_slug,x.work_title),x.design]));workDefaults=new Map(wd.map(x=>[x.work_title,x.render_design]));presets=t;videos=v;
+  current=c.find(x=>x.token_slug===channel)||c[0];
+  if(current){work=current.works?.[0]||null;render();list.querySelector('.active')?.scrollIntoView({block:'nearest'});}else main.textContent='등록된 채널이 없습니다.';})
+  .catch(e=>{if(!dead)main.textContent='템플릿을 불러오지 못했어요. '+(e.message||'');});
+ return()=>{dead=true;preview?.release();};
 }

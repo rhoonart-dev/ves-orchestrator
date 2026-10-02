@@ -200,8 +200,15 @@ export function openTask({client,data,room,group,sourceId,task=null,workChannels
   <div class="sr-row col"><span class="sr-lb">대본 쓸 때 참고할 메모</span><textarea class="sr-memo" maxlength="2000" placeholder="예: 실장 정체는 6화 엔딩 전까지 말하지 않기">${esc(opts.memo||'')}</textarea></div>
  </div><p class="sr-warn" data-plan hidden></p>${others.length&&!task?`<p class="sr-sm">이 원본으로 한 작업: ${others.map(t=>'#'+t.work_no).join(' · ')}</p>`:''}`;
  ui.wire();
- const plan=()=>{const el=ui.body.querySelector('[data-plan]'),list=pick.get();el.hidden=!list.length||!!task;
-  if(!task&&list.length){const n=nextNo(group);el.innerHTML='채널마다 작업이 따로 생겨요. '+list.map((id,i)=>{const c=chans.find(x=>x.id===id);return chanChip(c?.name||id,c?.avatar,`#${n+i}`);}).join(' ');}};
+ // 채널마다 만들어질 영상 모양(0134) — 채널 템플릿의 '이 채널에서만' → '모든 채널 기본' → 엔진 기본. 바꾸는 곳은 채널 템플릿
+ let tpl=null;
+ const tplName=id=>!tpl?'':tpl.chan.has(id)?'<b>이 채널 값</b>':tpl.work?'모든 채널 기본':'엔진 기본';
+ const plan=()=>{const el=ui.body.querySelector('[data-plan]'),list=pick.get();el.hidden=!list.length;
+  if(!list.length)return;const n=nextNo(group);
+  el.innerHTML=(task?'':'채널마다 작업이 따로 생겨요.')+'<span class="sr-tpl-lines">'+list.map((id,i)=>{const c=chans.find(x=>x.id===id);return `<span>${chanChip(c?.name||id,c?.avatar,task?'':`#${n+i}`)}${tpl?` 모양 ${tplName(id)}`:''}</span>`;}).join('')+'</span>'+(tpl?'<small>영상 모양은 채널 템플릿에서 작품마다 정해요.</small>':'');};
+ Promise.all([client.from('channel_work_designs').select('token_slug').eq('work_title',data.work),
+  client.from('work_cards').select('render_design').eq('work_title',data.work).maybeSingle()]).then(([c,w])=>{
+   tpl={chan:new Set((c.data||[]).map(x=>x.token_slug)),work:!!(w.data?.render_design&&Object.keys(w.data.render_design).length)};plan();}).catch(()=>{});
  pick=picker(ui.body.querySelector('.sr-pickhost'),{options:chans,selected:chosen,multi:!task,onChange:()=>plan()});
  plan();
  const options=()=>({count:+ui.body.querySelector('[data-count]').value||10,prev_ref:ui.val.sw('prev'),avoid_other:ui.val.sw('avoid'),memo:ui.body.querySelector('.sr-memo').value.trim()||null,...(opts.args?{args:opts.args}:{})});
