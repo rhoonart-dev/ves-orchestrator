@@ -115,13 +115,14 @@ window.addEventListener('hashchange',draw);
 const memory=new Map();let storage;let persistent=false;
 try{const local=window.localStorage;local.setItem('ves-workspace-probe','1');local.removeItem('ves-workspace-probe');storage=local;persistent=true;}catch{storage={getItem:k=>memory.get(k)??null,setItem:(k,v)=>memory.set(k,v),removeItem:k=>memory.delete(k)}}
 // 닉네임(0139 user_profiles) — 계정 창에서 정한다. 팀이 같이 보는 표시(하트를 누른 사람 등)에 이메일 대신 쓴다
-function loadNickname(client){
- const box=$('account-nick');if(!box)return;
- client.from('user_profiles').select('nickname').maybeSingle().then(({data})=>{window.__myNick=data?.nickname||'';box.value=window.__myNick;},()=>{});
+function loadNickname(client,uid){
+ const box=$('account-nick');if(!box||!uid)return;
+ // 내 줄만 — 닉네임은 팀이 서로 읽을 수 있어서, 거르지 않으면 다른 사람 닉네임이 내 칸에 떴다(2026-10-03)
+ client.from('user_profiles').select('nickname').eq('user_id',uid).maybeSingle().then(({data})=>{window.__myNick=data?.nickname||'';box.value=window.__myNick;},()=>{});
  box.onchange=async()=>{const v=box.value.trim().slice(0,20);
-  const {error}=v?await client.from('user_profiles').upsert({nickname:v,updated_at:new Date().toISOString()},{onConflict:'user_id'}):await client.from('user_profiles').delete().not('user_id','is',null);
+  const {error}=v?await client.from('user_profiles').upsert({user_id:uid,nickname:v,updated_at:new Date().toISOString()},{onConflict:'user_id'}):await client.from('user_profiles').delete().eq('user_id',uid);
   $('account-state').textContent=error?'닉네임을 저장하지 못했어요. 다시 해 주세요.':'';if(!error){window.__myNick=v;box.value=v;}};
- box.onkeydown=e=>{if(e.key==='Enter')box.blur();};
+ box.onkeydown=e=>{if(e.key==='Enter'&&!e.isComposing&&e.keyCode!==229)box.blur();};   // 한글 입력 중 Enter 는 글자 확정 — 그때 빠져나가면 마지막 글자가 한 번 더 붙었다
 }
 let auth;
 try{
@@ -135,7 +136,7 @@ try{
   drawAccountRobot(next.user);
   // 저장된 로그인 정보는 탭마다 옛 계정 정보를 들고 있을 수 있다 — 서버에서 한 번 새로 읽어 고른 로봇을 맞춘다
   if(next.status==='ready')client.auth.getUser().then(({data})=>{if(data?.user)drawAccountRobot(data.user);},()=>{});
-  if(next.status==='ready')loadNickname(client);
+  if(next.status==='ready')loadNickname(client,next.user?.id);
   $('account-email').textContent=next.user?.email||'';
   $('account-role').textContent=({viewer:'보기만',reviewer:'검수',operator:'운영',admin:'관리자'})[next.role]||'';
   if(next.status==='ready'){$('password').value='';loadEngineFonts(client);}   // 템플릿 미리보기 폰트(배포 금지 사용권은 비공개 저장소에서)

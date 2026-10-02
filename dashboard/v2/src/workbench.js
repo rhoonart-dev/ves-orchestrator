@@ -41,7 +41,7 @@ const HEART_SVG='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.5s-
 // 카드 제목은 썸네일처럼 두 줄로('1줄 / 2줄' → 줄마다 한 줄). 줄은 접지 않는다 — 목록 폭을 제목 규격(줄당 13자 안팎)만큼 잡아 둔다
 const titleLines=t=>{const p=String(t||'').split(' / ');return p.length>1?p.map(x=>`<span class="tl">${esc(x)}</span>`).join(''):esc(t);};
 const heartWho=h=>h?`${h.name||String(h.email||'').split('@')[0]||'누군가'}님이 찜했어요`:'';   // 닉네임이 없으면 이메일 앞부분
-const heartMark=b=>b?.heart?`<i class="video-heart" aria-label="${esc(heartWho(b.heart))}">${HEART_SVG}</i>`:'';   // 말풍선은 띄우지 않는다(2026-10-02 사용자)
+const heartMark=b=>b?.heart?`<i class="video-heart" data-tip="${esc(heartWho(b.heart))}" aria-label="${esc(heartWho(b.heart))}">${HEART_SVG}</i>`:'';   // 목록 하트에만 말풍선(누가 찜했는지) · 영상 위 하트 버튼에는 안 띄운다(2026-10-03 사용자)
 // 편집을 반영해 다시 만든 영상 — 카드 둘째 줄 · 좁은 화면 영상 선택 줄의 '수정됨' 칩(v1 · v2 대신 앞 번호를 쓴다)
 const isEdited=b=>!!(b&&(b.edited||(!b.remote&&b.apply?.state==='done')));
 const editedChip=b=>isEdited(b)?'<span class="video-edited">수정됨</span>':'';
