@@ -28,14 +28,17 @@ export function guideFragment(html){
  const fragment=document.createDocumentFragment();fragment.append(...parsed.body.childNodes);return fragment;
 }
 const rendering=b=>['queued','running'].includes(b?.apply?.state);
-// 영상 카드 오른쪽 위: 다시 렌더 중 = 노란 점, 편집을 반영해 다시 만든 영상 = 초록 점, 평소와 다를 때만 글자(2026-10-02 사용자 · '편집 가능'은 안 보인다)
+// 영상 카드 오른쪽 위: 다시 렌더 중 = 노란 점, 다시 만든 뒤 아직 안 본 영상 = 초록 점(열어 보면 사라진다 · 0132), 평소와 다를 때만 글자(2026-10-02 사용자 · '편집 가능'은 안 보인다)
 const cardMark=b=>{
  const text=!b.remote&&b.status!=='ready'?'다시 렌더 필요':b.apply?.state==='failed'?'렌더 실패':!b.remote&&b.draft&&!b.draft.stale?'편집 중':'';
  if(text)return `<span class="video-card-state">${text}</span>`;
  if(rendering(b))return '<i class="video-dot busy" title="다시 렌더하는 중이에요"></i>';
- if(b.apply?.state==='done')return '<i class="video-dot edited" title="편집을 반영해 다시 만든 영상이에요"></i>';
+ if(b.unseen)return '<i class="video-dot edited" title="다시 만든 뒤 아직 안 본 영상이에요"></i>';
  return '';
 };
+// 편집을 반영해 다시 만든 영상 — 카드 둘째 줄 · 좁은 화면 영상 선택 줄의 '수정됨' 칩(v1 · v2 대신 앞 번호를 쓴다)
+const isEdited=b=>!!(b&&(b.edited||(!b.remote&&b.apply?.state==='done')));
+const editedChip=b=>isEdited(b)?'<span class="video-edited">수정됨</span>':'';
 export function mountWorkbench(root,job,{service=null,role=null,refresh=null}={}){
  let disposed=false,video,observer,selectedId,selectionVersion=0,historyVersion=0,workflowState=null,historyRows=[];
  const live=job.source==='supabase',local=job.source==='local-bundle';
@@ -123,7 +126,12 @@ export function mountWorkbench(root,job,{service=null,role=null,refresh=null}={}
   $('.video-rail-list').querySelectorAll('[data-video]').forEach(button=>{const on=button.dataset.video===item.id;button.classList.toggle('selected',on);button.setAttribute('aria-pressed',String(on));});
   const index=items.findIndex(i=>i.id===item.id);
   $('.video-picker-label').textContent=`영상 선택 · ${index+1} / ${items.length}`;
-  $('.mobile-current-title').textContent=item.title;
+  $('.mobile-current-title').innerHTML=`${esc(item.title)}${local?editedChip(item.bundle):''}`;
+  if(local&&item.bundle?.unseen&&item.bundle.edited&&service?.client){   // 열어 봤으니 초록 점을 끈다(사람마다 · 0132)
+   item.bundle.unseen=false;
+   $('.video-rail-list').querySelector(`[data-video="${CSS.escape(item.id)}"] .video-dot.edited`)?.remove();
+   service.client.from('user_seen_renders').upsert({video_id:item.bundle.video_id,seen_job:item.bundle.edited,seen_at:new Date().toISOString()},{onConflict:'user_id,video_id'}).then(({error})=>{if(error)console.warn('seen',error.message);});
+  }
   $('.video-previous').disabled=index===0;$('.video-next').disabled=index===items.length-1;
   if(picker.open)picker.close();
   releaseWorkflow();workflowState=null;$('.workflow-editor-actions').hidden=true;$('.workflow-history').open=false;loadHistory(item);
@@ -233,7 +241,7 @@ export function mountWorkbench(root,job,{service=null,role=null,refresh=null}={}
   (live?service.loadItems(job):local?Promise.resolve(job.bundles.map(bundleItem)):loadLocalMedia().then(catalog=>catalog[job.id]||[])).then(loaded=>{
    if(disposed)return;items=loaded;$('.video-total').textContent=items.length;
    if(!items.length){$('.video-rail-list').innerHTML='<p class="workbench-note">연결된 완성 영상이 없습니다.</p>';frame.hidden=true;return;}
-   $('.video-rail-list').innerHTML=items.map((item,n)=>`<button type="button" class="video-list-card" data-video="${esc(item.id)}" aria-pressed="false"><span class="video-no">${n+1}</span><span class="video-poster">${item.poster?`<img src="${esc(item.poster)}" alt="" loading="lazy">`:local?`<video src="${esc(item.src)}#t=1" muted playsinline preload="metadata" aria-hidden="true"></video>`:''}<small>${timeLabel(item.duration)}</small></span><span class="video-list-copy"><strong>${esc(item.title)}</strong>${local?`<span>${esc(item.bundle.suffix)}${item.bundle.labels?` · AI 보조 자막 ${item.bundle.labels}`:''}</span>`:`<span>LLM Judge <b>${live?score(item.judge?.quality_score):'연결 전'}</b></span>`}</span>${live?`<span class="video-card-state">${esc(reviewLabels[item.review.status]||item.review.status)}</span>`:local?cardMark(item.bundle):''}</button>`).join('');
+   $('.video-rail-list').innerHTML=items.map((item,n)=>`<button type="button" class="video-list-card" data-video="${esc(item.id)}" aria-pressed="false"><span class="video-no">${n+1}</span><span class="video-poster">${item.poster?`<img src="${esc(item.poster)}" alt="" loading="lazy">`:local?`<video src="${esc(item.src)}#t=1" muted playsinline preload="metadata" aria-hidden="true"></video>`:''}<small>${timeLabel(item.duration)}</small></span><span class="video-list-copy"><strong>${esc(item.title)}</strong>${local?`<span>${editedChip(item.bundle)}${item.bundle.labels?`AI 보조 자막 ${item.bundle.labels}`:''}</span>`:`<span>LLM Judge <b>${live?score(item.judge?.quality_score):'연결 전'}</b></span>`}</span>${live?`<span class="video-card-state">${esc(reviewLabels[item.review.status]||item.review.status)}</span>`:local?cardMark(item.bundle):''}</button>`).join('');
    $('.video-rail-list').querySelectorAll('[data-video]').forEach(button=>button.onclick=()=>select(items.find(i=>i.id===button.dataset.video)));
    // 편집실에서 돌아오면 편집하던 영상을 고른다(#review/<작업>?video=<영상>) — 한 번 쓰고 주소에서 뺀다
    const wanted=new URLSearchParams(location.hash.split('?')[1]||'').get('video');

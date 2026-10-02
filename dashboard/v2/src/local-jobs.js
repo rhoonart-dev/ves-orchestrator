@@ -19,12 +19,13 @@ async function loadRemoteJobs(client,names){
  const rows=data||[],keys=rows.map(r=>r.files?.['shorts.mp4']?.key).filter(Boolean),signed=new Map();
  if(keys.length){const {data:urls}=await client.storage.from('ves-outputs').createSignedUrls(keys,6*3600);(urls||[]).forEach(u=>{if(u.signedUrl)signed.set(u.path,u.signedUrl);});}
  // 편집실 제출 → 그 맥미니에서 다시 렌더(tikitaka_apply_edit 잡) — 편마다 가장 최근 것의 상태
- const applies=new Map();
+ const applies=new Map(),doneJob=new Map(),seen=new Map();   // doneJob: 편집을 반영해 마지막으로 다시 만든 잡(= '수정됨') · seen: 내가 마지막으로 본 그 잡(0132)
  if(rows.length){
   const {data:jobs}=await client.from('job_queue').select('id,status,error,params,created_at,finished_at,updated_at,node_id,required_caps').eq('kind','tikitaka_apply_edit')
    .in('work_order_id',[...new Set(rows.map(r=>r.work_order_id))]).order('created_at',{ascending:false}).limit(200);
-  for(const j of jobs||[]){const vid=j.params?.video_id;if(vid&&!applies.has(vid))applies.set(vid,{edit_id:j.id,state:{pending:'queued',running:'running',succeeded:'done'}[j.status]||'failed',error:j.status==='failed'||j.status==='dead'?String(j.error||'').slice(-300):null,node:jobNode(j),finished_at:j.finished_at||j.updated_at});}
+  for(const j of jobs||[]){const vid=j.params?.video_id;if(vid&&j.status==='succeeded'&&!doneJob.has(vid))doneJob.set(vid,j.id);if(vid&&!applies.has(vid))applies.set(vid,{edit_id:j.id,state:{pending:'queued',running:'running',succeeded:'done'}[j.status]||'failed',error:j.status==='failed'||j.status==='dead'?String(j.error||'').slice(-300):null,node:jobNode(j),finished_at:j.finished_at||j.updated_at});}
  }
+ if(rows.length){const {data:sr}=await client.from('user_seen_renders').select('video_id,seen_job').in('video_id',rows.map(r=>r.id));(sr||[]).forEach(x=>seen.set(x.video_id,x.seen_job));}
  // 썸네일(0129) — 맥미니 영상은 그 맥미니가 만든다. 버튼 이름(만들기 · 보기 · 만드는 중)에 쓴다
  const thumbs=new Map();
  if(rows.length){const {data:th}=await client.from('tikitaka_thumbnails').select('video_id,state,version').in('video_id',rows.map(r=>r.id)).then(r=>r,()=>({data:[]}));
@@ -41,7 +42,7 @@ async function loadRemoteJobs(client,names){
   return {id:'MV-'+wo,source:'local-bundle',remote:true,raw:wo,work:r.work_title,workId:r.work_title,episode:epLabel(r.episode),title:t?`${ep} #${t.work_no}`:ep,note:t?(t.source_compilations?.name||'원본 파일'):'',workNo:t?.work_no??null,madeAt:t?.created_at||null,
    channelId:r.channel_slug||null,channel:r.channel_slug?(ch?.name||r.channel_slug):'채널 미배정',youtubeChannelId:ch?.channel_id||null,channelAvatar:ch?.avatar_url||null,
    createdAt:list.map(x=>x.updated_at||x.created_at).sort().pop(),videos:list.length,nodeId:r.node_id,status:'내부 검수',fileCountLabel:'완성 영상',
-   bundles:list.map(x=>({key:`remote-${wo}/${x.suffix}`,video_id:x.id,thumbs:thumbs.get(x.id)||{},apply:applies.get(x.id)||null,suffix:x.suffix,version:x.version,tag:x.tag,title:x.title,status:'ready',render_fingerprint:x.render_fingerprint,
+   bundles:list.map(x=>({key:`remote-${wo}/${x.suffix}`,video_id:x.id,thumbs:thumbs.get(x.id)||{},apply:applies.get(x.id)||null,edited:doneJob.get(x.id)||null,unseen:!!doneJob.get(x.id)&&seen.get(x.id)!==doneJob.get(x.id),suffix:x.suffix,version:x.version,tag:x.tag,title:x.title,status:'ready',render_fingerprint:x.render_fingerprint,
     review_items:x.review_items,labels:0,duration:Number(x.duration_sec)||0,remote:true,node:x.node_id,src:signed.get(x.files?.['shorts.mp4']?.key)||''}))};
  });
  return withRunning(client,names,made);
