@@ -16,7 +16,7 @@ export function confirmSubmit(keys,{version='',stop=[],warnings=[],estimated=fal
    ${list('warn','제출하면 이렇게 돼요',warnings)}
    ${blocked?'':`<ul>
     <li>고친 그대로 다시 렌더해요. 몇 분 걸려요.</li>
-    <li>끝나면 같은 번호${version?` (${esc(version)})`:''}의 새 판으로 바뀌고, 이전 판은 보관돼요.</li>
+    <li>끝나면 ${version?esc(version)+' 영상이':'이 영상이'} 고친 대로 바뀌어요.</li>
     <li>렌더하는 동안에는 이 영상을 편집할 수 없어요.</li>
    </ul>`}
    ${hard?'':`<label><span>메모 <small>선택</small></span><textarea rows="2" placeholder="무엇을 고쳤는지 적어 두면 작업 이력에 남아요"></textarea></label>`}

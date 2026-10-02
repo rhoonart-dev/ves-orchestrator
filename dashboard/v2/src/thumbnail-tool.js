@@ -110,7 +110,7 @@ export function openThumbnails({client,video,onChange=()=>{}}){
      <figcaption><b>${esc(p.label||'라벨 없음')}</b>${p.why?`<small>${esc(p.why)}</small>`:''}${doc.how==='flash'&&p.label?'<small class="thumb-check">라벨을 확인해 주세요. 다른 인물의 대사일 수 있어요</small>':''}
      <span class="thumb-pick-acts">${chosen===p.rank?`<button class="thumb-chosen" data-choose="" title="누르면 고른 것을 취소해요">✓ 발행용</button>`:`<button data-choose="${p.rank}">발행용으로 고르기</button>`}
      <a class="thumb-dl" href="${esc(media(p.file))}" download="${esc(fileBase)}_썸네일${p.rank}.png">내려받기</a></span></figcaption></figure>`).join('')}</div>
-    <p class="thumb-hint">발행용으로 고른 썸네일은 대시보드에서 발행할 때 같이 올라가고, 발행 일정 달력에도 이 그림으로 보여요.</p></section>
+    <p class="thumb-hint">발행용으로 고른 썸네일은 검수 카드에서 승인해 유튜브에 올릴 때 같이 들어가고, 발행 일정 달력에도 이 그림으로 보여요.</p></section>
    <section class="thumb-sec"><div class="thumb-sec-head"><h3>고를 목록 <span>${items.length}/${MAX}</span></h3>
      <button class="primary" data-act="manual" ${running||!items.length?'disabled':''}>이 목록으로 만들기</button></div>
     <p class="thumb-hint">순서대로 썸네일 1, 2, 3…이 돼요. 장면은 아래 '다른 장면 고르기'에서 더할 수 있어요.</p>

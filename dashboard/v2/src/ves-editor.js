@@ -1213,7 +1213,9 @@ function fitTracks(){
   const sy = document.getElementById("tlScrollY"), ru = document.getElementById("ruler");
   if (!sy || !lastLanes || !cur || !cur.model) return;
   const src = document.getElementById("srcRow");
-  const avail = sy.clientHeight - (src ? src.offsetHeight : 0) - (ru ? ru.offsetHeight : 0) - 6;
+  // 원음 · 효과음 줄은 높이가 정해져 있다 — 빼고 남는 자리만 나눈다(종전엔 빼먹어서 줄 크기가 어긋났다)
+  const fixed = [...document.querySelectorAll("#inner .track.aud, #inner .track.sfx")].reduce((a, t) => a + t.offsetHeight, 0);
+  const avail = sy.clientHeight - (src ? src.offsetHeight : 0) - (ru ? ru.offsetHeight : 0) - fixed - 6;
   const lanes = [1, lastLanes.s, lastLanes.t, lastLanes.x];                 // 제목·자막·내레이션·텍스트
   const other = lanes.reduce((a, n) => a + n * LANE_H0 + TRACK_PAD, 0);
   let extra = avail - CLIP_H0 - other, kc = 1, ko = 1;
@@ -1224,6 +1226,12 @@ function fitTracks(){
     ko = Math.min(VZ_MAX, 1 + extra / laneSum);                               // 나머지 줄에 남은 만큼
     extra -= (ko - 1) * laneSum;
     if (extra > 0) kc = Math.min(VZC_MAX, kc + extra / CLIP_H0);              // 그래도 남으면 다시 구간 줄
+  }
+  // 줄이 다 최대로 커지고도 남으면 타임라인 칸을 그만큼 줄여 위쪽 영상 미리보기에 돌려준다(텍스트 줄 아래 빈 자리 없애기 · 2026-10-02 사용자)
+  if (extra > 2){
+    const tw = sy.closest(".tlwrap");
+    if (tw){ document.body.style.setProperty("--tlh", Math.max(140, Math.floor(tw.getBoundingClientRect().height - extra)) + "px");
+      requestAnimationFrame(() => centerShorts()); }
   }
   kc = +kc.toFixed(3); ko = +ko.toFixed(3);
   if (Math.abs(kc - VZC) < 0.01 && Math.abs(ko - VZ) < 0.01) return;

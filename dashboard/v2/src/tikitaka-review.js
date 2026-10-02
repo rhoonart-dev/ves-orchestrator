@@ -22,12 +22,13 @@ async function one(q){return (await rows(q.limit(1)))[0]||null;}
 async function load(client,videoId){
  const video=await one(client.from('tikitaka_videos').select('id,work_order_id,suffix,channel_slug,work_title,episode,title,render_fingerprint,publish,node_id,audio_gaps').eq('id',videoId));
  if(!video)throw Error('영상을 찾지 못했어요.');
- const [review,channel,works,policy,fixedDesc]=await Promise.all([
+ const [review,channel,works,policy,fixedDesc,thumbs]=await Promise.all([
   one(client.from('tikitaka_reviews').select('*').eq('video_id',videoId)),
   one(client.from('channels_mirror').select('token_slug,name,channel_id').eq('token_slug',video.channel_slug)),
   rows(client.from('laeebly_works').select('id,title,inspection_policy,company,geo_block_required,required_hashtags_description,required_hashtags_notice').eq('title',video.work_title)),
   one(client.from('channel_work_policies').select('inspection_policy').eq('token_slug',video.channel_slug).eq('work_title',video.work_title)).catch(()=>null),
-  one(client.from('channel_work_descriptions').select('description').eq('token_slug',video.channel_slug).eq('work_title',video.work_title)).catch(()=>null)]);
+  one(client.from('channel_work_descriptions').select('description').eq('token_slug',video.channel_slug).eq('work_title',video.work_title)).catch(()=>null),
+  one(client.from('tikitaka_thumbnails').select('publish').eq('video_id',videoId)).catch(()=>null)]);
  // 채널 + 작품 검수 정책(0126)이 있으면 작품 정책을 덮는다 — 예: 재미쇼츠 × 로또는 권리사 검수 없이 바로 예약
  const work=works.length===1?{...works[0],...(policy?.inspection_policy?{inspection_policy:policy.inspection_policy}:{})}:null;
  const ep=epNo(video.episode);
@@ -38,7 +39,7 @@ async function load(client,videoId){
   channel?.channel_id&&ep!=null?rows(client.from('laeebly_inspections').select('episode_part').eq('youtube_channel_id',channel.channel_id).eq('video_title',video.work_title).eq('episode',ep)):[],
   work&&ep!=null?one(client.from('work_release_schedule').select('release_at,platform,status,episode_label').eq('work_id',work.id).eq('episode_no',ep).neq('status','cancelled').order('release_at')):null,
   rows(client.from('tikitaka_reviews').select('publish_at,tikitaka_videos!inner(channel_slug)').eq('tikitaka_videos.channel_slug',video.channel_slug).not('publish_at','is',null).order('publish_at',{ascending:false}).limit(40))]);
- return {fixedDesc:fixedDesc?.description||null,video,review,channel,work,works:works.length,application,inspection,job,parts,release,channelTimes};
+ return {thumbPick:thumbs?.publish?.key?thumbs.publish:null,fixedDesc:fixedDesc?.description||null,video,review,channel,work,works:works.length,application,inspection,job,parts,release,channelTimes};
 }
 
 // 공개 시각 추천: 이 채널이 평소 올리던 시각(가장 잦은 시:분, 없으면 저녁 7시) · 예약이 없는 가장 가까운 날(내일부터)
@@ -152,6 +153,9 @@ export function mountTikitakaReview(root,{client,videoId,title,canReview,editHre
     const mmss=v=>`${Math.floor(v/60)}:${String(Math.floor(v%60)).padStart(2,'0')}`;
     body=`<div class="tr-must tr-gaps"><b><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4h3l5 4V6L7 10z"/><path d="m16 9 5 6M21 9l-5 6"/></svg>원본 소리가 비어 있어요</b><div class="tr-gap-rows">${gaps.map(g=>`<button type="button" class="tr-gap" data-hear="${+g.start}"><span class="t">${mmss(+g.start)}</span><span>${(+g.end-+g.start).toFixed(1)}초 비어 있음</span><span class="go">듣기 ›</span></button>`).join('')}</div></div>`+body;
    }
+   // 발행용 썸네일 — 올릴 때 유튜브에 같이 넣는다(오케스트레이터 tikitaka_review.put_publish_thumb)
+   if(body&&!rejecting)body+=d.thumbPick?`<div class="tr-must"><b>썸네일</b><p>발행용으로 고른 ${esc(d.thumbPick.rank??'')}번이 같이 올라가요.</p></div>`
+    :`<div class="tr-must"><b>썸네일</b><p>발행용 썸네일을 고르지 않았어요. 고르지 않으면 유튜브가 영상에서 장면을 골라요.</p></div>`;
    if(blockers.length){acts=acts.replace(/data-act="approve"/,'data-act="approve" disabled');}
    else if(work?.geo_block_required&&route!=='rights'&&!rejecting){acts=acts.replace(/data-act="approve"/,'data-act="approve" disabled');}
   }else if(st.key==='rejected'){
@@ -191,6 +195,11 @@ export function mountTikitakaReview(root,{client,videoId,title,canReview,editHre
     body+=`<div class="tr-must danger"><b>지역 제한 설정</b><p>공개 시각 전에 유튜브 스튜디오에서 지역 제한을 설정해 주세요.</p></div>`;
     if(r.youtube_id)acts=`<a class="tr-btn" href="https://studio.youtube.com/video/${encodeURIComponent(r.youtube_id)}/edit" target="_blank" rel="noopener noreferrer">스튜디오에서 열기 ↗</a>`+acts;
    }
+  }
+  // 올렸는데 썸네일을 못 넣었으면(전화 인증 안 된 채널 · 권한) 사람이 스튜디오에서
+  if(r?.meta?.thumb?.state==='todo'&&r.youtube_id&&st.key!=='internal'&&!(r.publish_at&&Date.parse(r.publish_at)<=Date.now())){
+   body+=`<div class="tr-must danger"><b>썸네일</b><p>고른 썸네일을 넣지 못했어요. 유튜브 스튜디오에서 넣어 주세요.</p></div>`;
+   if(!acts.includes('studio.youtube.com'))acts=`<a class="tr-btn" href="https://studio.youtube.com/video/${encodeURIComponent(r.youtube_id)}/edit" target="_blank" rel="noopener noreferrer">스튜디오에서 열기 ↗</a>`+acts;
   }
   if(!canReview)acts='';
   const top=round?`${round}차 검수`:'내부 검수';
