@@ -109,3 +109,9 @@
 .tr-card .tr-geo input:checked{background:var(--solid)}
 .tr-card .tr-geo input:checked::after{content:'';width:9px;height:5px;border-left:2px solid var(--on-solid);border-bottom:2px solid var(--on-solid);transform:translateY(-1px) rotate(-45deg)}
 .tr-card .tr-geo input:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+/* 넓은 화면: 위 버튼(썸네일 · 프리미어 · 편집실)은 제자리, 검수 카드만 둥근 판 안에서 넘어간다 — 칸 전체가 넘어가면 카드 윗변이 잘려 보였다 */
+@media(min-width:1251px){
+ .workflow-inspector{overflow:hidden}
+ .workflow-inspector>.workflow-operations{flex:0 1 auto;min-height:0;overflow:auto;border-radius:20px;overscroll-behavior:contain;scrollbar-width:none}
+ .workflow-inspector>.workflow-operations::-webkit-scrollbar{display:none}
+}
