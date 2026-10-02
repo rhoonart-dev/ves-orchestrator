@@ -37,7 +37,7 @@ export function mountReview(root,{jobs=[],connected=false,service=null,source=nu
  }
  async function refresh(){
   if(!service||refreshing||disposed)return;refreshing=true;lastAttempt=Date.now();$('.review-refresh').disabled=true;
-  try{const loaded=await service.listJobs(true);if(disposed)return;jobs=loaded;connected=true;liveSync='Supabase · '+new Date().toLocaleTimeString('ko-KR')+' 갱신';showSync();renderList();renderCards();}
+  try{const loaded=await service.listJobs(true);if(disposed)return;jobs=loaded;connected=true;liveSync=new Date().toLocaleTimeString('ko-KR')+' 갱신';showSync();renderList();renderCards();}
   catch{if(!disposed){liveSync='조회 실패 · 다시 시도해 주세요.';showSync();}}
   finally{refreshing=false;if(!disposed)$('.review-refresh').disabled=false;}
  }
