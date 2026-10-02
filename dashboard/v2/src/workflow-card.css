@@ -115,3 +115,13 @@
  .workflow-inspector>.workflow-operations{flex:0 1 auto;min-height:0;overflow:auto;border-radius:20px;overscroll-behavior:contain;scrollbar-width:none}
  .workflow-inspector>.workflow-operations::-webkit-scrollbar{display:none}
 }
+
+/* 원본 소리가 빈 곳 — 한 줄씩, 듣기는 왼쪽 영상을 그 자리로(src/tikitaka-review.js) */
+.tr-card .tr-gaps b{display:flex;align-items:center;gap:7px;font-size:13px;margin-bottom:10px}
+.tr-card .tr-gaps b svg{width:16px;height:16px;flex-shrink:0;stroke:var(--accent);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.tr-card .tr-gap-rows{background:var(--surface);border-radius:10px;overflow:hidden}
+.tr-card .tr-gap{display:flex;align-items:center;gap:10px;width:100%;border:0;background:none;padding:9px 12px;font:inherit;font-size:12px;color:var(--ink);text-align:left;cursor:pointer}
+.tr-card .tr-gap+.tr-gap{box-shadow:0 -1px 0 var(--page)}
+.tr-card .tr-gap:hover{background:var(--hover)}
+.tr-card .tr-gap .t{font-weight:700;font-variant-numeric:tabular-nums;width:38px}
+.tr-card .tr-gap .go{margin-left:auto;color:var(--accent);font-weight:600;font-size:11.5px}

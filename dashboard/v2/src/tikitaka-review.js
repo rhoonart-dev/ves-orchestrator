@@ -146,11 +146,11 @@ export function mountTikitakaReview(root,{client,videoId,title,canReview,editHre
     // 지역 제한이 필요한 작품 — 확인 체크를 해야 승인 버튼이 눌린다(2026-10-02 사용자 선택 C)
     if(work?.geo_block_required&&!rejecting)body+=`<label class="tr-geo"><input type="checkbox" name="geo_ok"><span>공개 전에 스튜디오에서 지역 제한을 설정할게요</span></label>`;
    }else{body='';acts='';}
-   // 원본 소리가 비어 있는 곳(0130, 맥미니가 완성본에서 찾는다) — 편집실에서 잘라내도록 알린다
+   // 원본 소리가 비어 있는 곳(0130, 맥미니가 완성본에서 찾는다) — 한 줄씩. 듣기는 왼쪽 영상을 그 자리 조금 앞에서 튼다(2026-10-02 사용자 선택 C)
    const gaps=(video.audio_gaps||[]).filter(g=>+g.end>+g.start);
    if(gaps.length&&body&&!rejecting){
     const mmss=v=>`${Math.floor(v/60)}:${String(Math.floor(v%60)).padStart(2,'0')}`;
-    body=`<div class="tr-must"><b>원본 소리가 비어 있어요</b><p>${gaps.map(g=>`${mmss(+g.start)}부터 ${(+g.end-+g.start).toFixed(1)}초`).join(' · ')}</p><small>그 자리는 소리 없이 나와요. 편집실에서 들어 보고 효과음을 넣거나 그대로 두세요.</small>${editHref()?`<div class="tr-fix"><a class="tr-link" href="${esc(editHref())}">편집실에서 고치기</a></div>`:''}</div>`+body;
+    body=`<div class="tr-must tr-gaps"><b><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4h3l5 4V6L7 10z"/><path d="m16 9 5 6M21 9l-5 6"/></svg>원본 소리가 비어 있어요</b><div class="tr-gap-rows">${gaps.map(g=>`<button type="button" class="tr-gap" data-hear="${+g.start}"><span class="t">${mmss(+g.start)}</span><span>${(+g.end-+g.start).toFixed(1)}초 비어 있음</span><span class="go">듣기 ›</span></button>`).join('')}</div></div>`+body;
    }
    if(blockers.length){acts=acts.replace(/data-act="approve"/,'data-act="approve" disabled');}
    else if(work?.geo_block_required&&route!=='rights'&&!rejecting){acts=acts.replace(/data-act="approve"/,'data-act="approve" disabled');}
@@ -208,6 +208,10 @@ export function mountTikitakaReview(root,{client,videoId,title,canReview,editHre
   on('cancel-reject',async()=>{rejecting=false;draw();});
   on('reject',async()=>{const note=val('reject_note')?.trim();if(!note)throw Error('반려 사유를 적어 주세요.');
    await rpc('tikitaka_review_reject',{p_video:videoId,p_based_on:d.video.render_fingerprint,p_note:note});rejecting=false;await after('반려했어요.');});
+  root.querySelectorAll('[data-hear]').forEach(b=>b.onclick=()=>{   // 왼쪽 영상을 빈 곳 1.5초 앞부터
+   const v=root.closest('.video-workspace')?.querySelector('.video-frame video');if(!v)return;
+   v.currentTime=Math.max(0,+b.dataset.hear-1.5);v.play().catch(()=>{});
+  });
   const geo=root.querySelector('[name=geo_ok]'),ap=root.querySelector('[data-act=approve]');
   if(geo&&ap)geo.onchange=()=>{ap.disabled=!geo.checked;};
   on('fix-desc',async()=>{const v=val('yt_desc')||'';if(!v.trim())throw Error('설명이 비어 있어요');
