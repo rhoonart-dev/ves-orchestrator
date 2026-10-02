@@ -601,6 +601,59 @@ def copy_logos(d: pathlib.Path) -> None:
             pass
 
 
+
+# ───────── 원본 소리가 빈 자리(0130) — 원음이 나와야 하는 구간에서 소리가 완전히 빈 곳 ─────────
+# 권리사 클립이 욕설 등을 지운 자리처럼 입은 움직이는데 소리가 없는 곳(2026-10-02 로또 7-8화 #2 v3 실측: 0:32 · 0:37 · 0:42).
+# 대화가 쉬는 곳은 배경음이 남아 -60dB 아래로 내려가지 않는다 — 그 아래로 0.25초 넘게 빈 곳만 잡는다. 검수 카드 · 편집실이 경고로 보인다.
+GAP_DB, GAP_SEC = -60, 0.25
+
+
+def parse_silences(stderr: str) -> list:
+    """ffmpeg silencedetect 출력 → [(시작, 끝)]. 순수 — 테스트 대상."""
+    out, start = [], None
+    for m in re.finditer(r"silence_(start|end): (-?[0-9.]+)", stderr or ""):
+        if m.group(1) == "start":
+            start = float(m.group(2))
+        elif start is not None:
+            out.append((max(0.0, start), float(m.group(2))))
+            start = None
+    return out
+
+
+def dialogue_gaps(silences: list, timeline: list) -> list:
+    """빈 자리 중 원음이 나오는 구간(덮개 아님 · 원음 켬) 안에 든 것만 [{start, end}]. 순수 — 테스트 대상."""
+    spans, t = [], 0.0
+    for c in timeline or []:
+        d = (float(c.get("clip_end_sec", 0)) - float(c.get("clip_start_sec", 0))) / float(c.get("playback_speed") or 1) + float(c.get("hold_sec") or 0)
+        if not c.get("cover") and c.get("use_original_audio", True):
+            spans.append((t, t + d))
+        t += d
+    out = []
+    for a, b in silences:
+        if b - a < GAP_SEC:
+            continue
+        if any(min(b, y) - max(a, x) >= GAP_SEC * 0.8 for x, y in spans):
+            out.append({"start": round(a, 2), "end": round(b, 2)})
+    return out
+
+
+def audio_gaps(d: pathlib.Path):
+    """편 번들의 완성본에서 원본 소리가 빈 자리. 실패하면 None(경고를 못 띄울 뿐 올리기는 계속)."""
+    import shutil
+    import subprocess
+    mp4, plan = d / "shorts.mp4", _read_json(d / "edit_plan.json") or {}
+    if not mp4.is_file():
+        return None
+    exe = shutil.which("ffmpeg") or "/opt/homebrew/bin/ffmpeg"
+    try:
+        r = subprocess.run([exe, "-hide_banner", "-nostats", "-i", str(mp4), "-vn", "-af",
+                            f"silencedetect=n={GAP_DB}dB:d={GAP_SEC}", "-f", "null", "-"],
+                           capture_output=True, text=True, timeout=180)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return dialogue_gaps(parse_silences(r.stderr), plan.get("timeline") or [])
+
+
 def upload_bundle(cfg, conn, store, job, wo, suffix: str, d: pathlib.Path, p: dict) -> None:
     """편 번들 하나를 ves-outputs 로 올리고 tikitaka_videos 한 줄을 넣거나 갱신한다(생성 뒤·편집실 재렌더 뒤 공통)."""
     make_sprites(d)
@@ -618,6 +671,7 @@ def upload_bundle(cfg, conn, store, job, wo, suffix: str, d: pathlib.Path, p: di
     bundle = json.loads((d / "video.json").read_text(encoding="utf-8"))
     publish = _read_json(d / "publish.json")
     review = _read_json(d / "review.json")
+    gaps = audio_gaps(d)
     with conn.cursor() as c:
         c.execute(
             """INSERT INTO public.tikitaka_videos
@@ -635,6 +689,12 @@ def upload_bundle(cfg, conn, store, job, wo, suffix: str, d: pathlib.Path, p: di
              bundle.get("render_fingerprint"), duration_of(bundle, review), bundle.get("review_items"),
              json.dumps(bundle, ensure_ascii=False), json.dumps(publish, ensure_ascii=False),
              json.dumps(files, ensure_ascii=False)))
+        if gaps is not None:   # 0130 — 컬럼이 아직 없는 DB 에서는 건너뛴다(배포 창)
+            try:
+                c.execute("UPDATE public.tikitaka_videos SET audio_gaps=%s::jsonb WHERE work_order_id=%s AND suffix=%s",
+                          (json.dumps(gaps), wo, suffix))
+            except Exception as e:  # noqa: BLE001
+                print(f"[tikitaka_upload] 원본 소리 빈 자리 기록 실패(무시): {e}")
 
 
 class Upload:

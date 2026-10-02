@@ -108,18 +108,18 @@ export async function applyState(client,videoId){
 }
 
 async function videoRow(client,wo,suffix){
- const [r]=await rows(client.from('tikitaka_videos').select('id,node_id,render_fingerprint,files,work_title,episode,title').eq('work_order_id',wo).eq('suffix',suffix).limit(1));
+ const [r]=await rows(client.from('tikitaka_videos').select('id,node_id,render_fingerprint,files,work_title,episode,title,audio_gaps').eq('work_order_id',wo).eq('suffix',suffix).limit(1));
  if(!r)throw Error('맥미니 영상을 찾을 수 없습니다.');return r;
 }
 
 // 편집실 payload — local_videos_api.editor_payload + remote_videos_api.patch_payload 와 같은 결과
 export async function remoteEditorPayload(client,key){
  const {wo,suffix}=parseKey(key),r=await videoRow(client,wo,suffix),files=r.files||{};
- const need=['video.json','edit_plan.json','subtitle_segments.json','checkpoint_resources.json','labels.json','fx.json','framing.json','tts_caption_segments.json'];
+ const need=['video.json','edit_plan.json','subtitle_segments.json','checkpoint_resources.json','labels.json','fx.json','framing.json','tts_caption_segments.json','sfx.json'];
  const cues=[],media=['shorts.mp4','editor_scan.mp4',...Object.keys(files).filter(k=>TTS_NAME.test(k)||/^sprites\/sprite_\d{3}\.jpg$/.test(k)||/^assets\/logo_(work|platform)\./.test(k))];
  const url=await signMany(client,[...need,...media].map(n=>files[n]?.key));
  const at=n=>files[n]?url.get(files[n].key):null;
- const [video,plan,segs,res,labels,fx,framing,caps]=await Promise.all(need.map(n=>at(n)?json(at(n)).catch(()=>null):Promise.resolve(null)));
+ const [video,plan,segs,res,labels,fx,framing,caps,sfxDoc]=await Promise.all(need.map(n=>at(n)?json(at(n)).catch(()=>null):Promise.resolve(null)));
  if(!video||!plan)throw Error('서버의 영상 묶음이 비어 있어요.');
  const [src]=await rows(client.from('work_orders').select('source_sha256').eq('id',wo).limit(1));
  const [source]=src?.source_sha256?await rows(client.from('sources').select('duration_sec').eq('sha256',src.source_sha256).limit(1)):[];
@@ -154,13 +154,13 @@ export async function remoteEditorPayload(client,key){
  const logos={};for(const k of ['work','platform']){const f=Object.keys(files).find(n=>n.startsWith(`assets/logo_${k}.`));if(f&&at(f))logos[k]=at(f);}
  const speed=(plan.timeline||[]).filter(c=>Number(c.playback_speed||1)!==1||c.hold_sec);
  const band=framing?.band;
- return {row:{run_id:key,status:'ready',duration_sec:duration,work_order_id:null,draft,draft_at:draftAt,
+ return {row:{run_id:key,status:'ready',duration_sec:duration,work_order_id:null,draft,draft_at:draftAt,audio_gaps:Array.isArray(r.audio_gaps)?r.audio_gaps:[],sfx:Array.isArray(sfxDoc?.sfx)?sfxDoc.sfx:[],
    timeline:{schema:'editor_timeline/v1',clip_fps:CLIP_FPS,engine_rules:false,clips,subtitles:subs,tts,top_title:layout.top_title||'',title_segments:layout.title_segments||[],bottom_label:layout.bottom_label||''},sprites},
   prevOv:{texts:labelsAsTexts(labels)},
   meta:{key,title:video.title,work:video.work,episode:video.episode,status:video.status,render_fingerprint:r.render_fingerprint,
    labels:(labels?.labels||[]).length,dropped_labels:labels?.dropped||[],final_url:at('shorts.mp4'),draft_note:note,
    timing_note:speed.length?`배속이나 멈춤이 걸린 구간 ${speed.length}개는 완성본과 같은 속도로 재생해요.`:'',
-   logos,apply,restored_from:restored,can_check:false,fx_edit:true,frame_edit:true,phrase_edit:true,   // 맥미니가 ai-video ffe1002f·ae8cc2f7 이후라 화면 위치·구절 줄바꿈을 받는다(remote_videos_api 와 같이)
+   logos,apply,restored_from:restored,can_check:false,fx_edit:true,frame_edit:true,phrase_edit:true,sfx_edit:true,   // 맥미니가 ai-video ffe1002f·ae8cc2f7 이후라 화면 위치·구절 줄바꿈을 받는다(remote_videos_api 와 같이)
    framing:framing?.schema==='tikitaka_framing/v1'&&Array.isArray(framing.clips)?framing:null,render_layout:typeof band?.y==='number'?{band_y:Math.round(band.y)}:{},
    render_design:displayDesign(render.design||{}),remote_node:r.node_id,serverless:true,
    video_id:r.id,files_sha:{work:files[Object.keys(files).find(n=>n.startsWith('assets/logo_work.'))]?.sha256||null,platform:files[Object.keys(files).find(n=>n.startsWith('assets/logo_platform.'))]?.sha256||null}}};

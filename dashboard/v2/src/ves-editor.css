@@ -269,7 +269,7 @@ button:hover{background:var(--panel2);border-color:var(--line2)}
 .lab div{border-bottom:1px solid var(--line);gap:7px}
 .lab div::before{content:"";width:7px;height:7px;border-radius:2px;flex-shrink:0}
 .lab .rl::before,.lab .srcl::before{display:none}
-.lab #lclips::before{background:var(--clip)} .lab div:nth-child(3)::before{background:var(--title)}
+.lab #lclips::before{background:var(--clip)} .lab #lttl::before{background:var(--title)}
 .lab #lsubs::before{background:var(--sub)} .lab #ltts::before{background:var(--tts)}
 .lab #ltxt::before{background:var(--txt)} .lab #lai::before{background:transparent;
   border:1.5px dashed var(--ai);width:5px;height:5px}

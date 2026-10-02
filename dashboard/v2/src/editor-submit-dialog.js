@@ -2,7 +2,7 @@
 // 편집실(ves-editor.js)의 로컬 제출 분기가 window.__workspaceConfirmSubmit 으로 부른다.
 // 제출 전 검사(src/editor-checks.js beforeSubmit) 결과도 여기서 보인다: stop 이 있으면 제출하지 않고 고치러 돌아간다.
 // 합성 전 예상 길이로만 걸린 것(estimated)은 '그래도 제출'을 남긴다 — 실제로 겹치면 엔진이 거절하고 편집실에 사유가 뜬다.
-const NAMES={clips:'구간',tts:'내레이션',title:'제목',subtitles:'자막',texts:'텍스트·보조 자막',design:'디자인',emphasis:'강조',zooms:'줌'};
+const NAMES={clips:'구간',tts:'내레이션',title:'제목',subtitles:'자막',texts:'텍스트·보조 자막',design:'디자인',emphasis:'강조',zooms:'줌',sfx:'효과음'};
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const list=(cls,title,items)=>items.length?`<section class="submit-${cls}"><h3>${title}</h3><ul>${items.map(t=>`<li>${esc(t)}</li>`).join('')}</ul></section>`:'';
 export function confirmSubmit(keys,{version='',stop=[],warnings=[],estimated=false}={}){

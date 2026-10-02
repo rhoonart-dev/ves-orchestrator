@@ -94,6 +94,17 @@ export function analyze(cur,H){
  if(last&&last.b>m.total+1e-3){last.c.ckBad=true;
   items.push({level:'bad',kind:'tts',i:last.c.ti,block:true,real:last.real,
    text:`내레이션 ${q(last.c.text)}${ig(last.c.text)} 영상 끝을 ${sec(last.b-m.total)} 넘어요. 구간을 늘리거나 문구를 줄여 주세요.${guess(last.real)}`});}
+ // 4) 원본 소리가 비어 있는 자리(0130 — 완성본에서 원음이 나와야 하는데 소리가 완전히 빈 곳). 렌더한 시간축을 원본 시각으로 바꿔
+ //    지금 구간에 아직 남아 있으면 지금 시간축 자리로 알린다(잘라냈으면 사라진다)
+ {const gaps=(cur.row&&cur.row.audio_gaps)||[],rb=(cur.row.timeline.clips||[]);
+  gaps.forEach(g=>{let t=0,src=null;
+   for(const b of rb){const sp=+b.playback_speed||1,d=(+b.end_sec-+b.start_sec)/sp+(+b.hold_sec||0);
+    if(+g.start>=t-1e-3&&+g.start<t+d){src=+b.start_sec+Math.min(+g.start-t,(+b.end_sec-+b.start_sec)/sp)*sp;break;}t+=d;}
+   if(src==null)return;
+   const c=live.find(x=>src>=x.start-1e-3&&src<x.end);if(!c)return;
+   const out=c.out+(src-c.start)/H.clipSpd(c),len=Math.max(0.1,+g.end-+g.start);
+   items.push({level:'warn',kind:'clip',i:c.i,text:`${H.fmt(out)}부터 ${len.toFixed(1)}초 동안 원본 소리가 비어 있어요(${c.i+1}번 구간).`});
+  });}
  // 3) 원음이 꺼진 구간: 덮개는 이전 구간에서 물려받는다
  const base=(cur.row.timeline.clips||[]).map(c=>({s:+c.start_sec,e:+c.end_sec,cover:!!c.cover}));
  const voiced=placed.map(p=>[p.a,p.b]),silent=[];

@@ -1,9 +1,10 @@
 import {config} from './config.js';
 import {setupScrollbars} from './scrollbars.js';
-import {createLocalEditorClient,loadLocalVideo} from './local-editor-client.js?v=web-1';
-import {confirmSubmit} from './editor-submit-dialog.js?v=render-123';
-import './editor-checks.js?v=render-123';   // window.__edChecks — 제출 전 검사(ves-editor.js 가 부른다)
+import {createLocalEditorClient,loadLocalVideo} from './local-editor-client.js?v=sfx-1';
+import {confirmSubmit} from './editor-submit-dialog.js?v=sfx-1';
+import './editor-checks.js?v=gap-1';   // window.__edChecks — 제출 전 검사(ves-editor.js 가 부른다)
 import './editor-fx.js?v=render-123';
+import './editor-sfx.js?v=sfx-1';   // window.__edSfx — 효과음 줄 · 효과음 목록
 import './editor-frame.js?v=render-123';   // window.__edFrame — 구간 화면 위치(미리보기 자르기·끌기)       // window.__edFx — 강조·줌 편집
 import {mountNotes} from './editor-notes.js?v=rf-2';
 import {setupHoverTips} from './hover-tip.js?v=4';
@@ -64,6 +65,7 @@ async function bootLocal(client){
    window.layoutShorts?.();if(window.__railOn==='logo')window.renderRailPanel?.('logo');return r;})
   .catch(e=>{window.__edLogoList={error:e.message};if(window.__railOn==='logo')window.renderRailPanel?.('logo');});
  window.__edLoadLogos();
+ window.__edSfx?.setup({client,editable:payload.meta.sfx_edit});   // 엔진이 효과음을 받을 때만 넣고 뺄 수 있다(ai-video sfx_user)
  window.__edFx?.setEditable(payload.meta.fx_edit);   // 엔진이 강조·줌을 받을 때만 바꿀 수 있다
  window.__edFrame?.setup(payload.meta.framing,payload.meta.frame_edit);   // 구간 모델을 만들기 전에(렌더 때 고정한 구간을 되살린다)
  window.__edPhraseEdit=!!payload.meta.phrase_edit;   // 내레이션 문구 줄바꿈 = 자막 구절 경계(엔진 ae8cc2f7)
@@ -92,7 +94,7 @@ async function boot(){
  if(!roles.data.some(r=>['reviewer','operator','admin'].includes(r.role)))throw new Error('편집하려면 검수자나 관리자 권한이 필요해요.');
  const payload=await bootLocal(client);
  step(3);
- await import('./ves-editor.js?v=aud-1');
+ await import('./ves-editor.js?v=sfx-1');
  const root=document.getElementById('tlRoot');root.style.display='flex';root.style.flexDirection='column';
  const notes=showLocalNotes(payload);setupScrollbars();setupHoverTips();mountStatusBar();
  mountAccount(client,data.user,roles.data.map(r=>r.role));

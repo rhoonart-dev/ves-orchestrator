@@ -1,5 +1,5 @@
 import {needWorkPc,apiUrl,localize} from './local-only.js?v=web-1';
-import {isRemoteKey,remoteEditorPayload,remoteLogos,remoteSaveDraft,remoteSubmit,remoteCheck} from './remote-editor-data.js?v=3';
+import {isRemoteKey,remoteEditorPayload,remoteLogos,remoteSaveDraft,remoteSubmit,remoteCheck} from './remote-editor-data.js?v=sfx-1';
 // Local bundle mode for the ported editor: auth stays on the real VES client; every data call the
 // editor makes is answered from /api/local-videos (ai-video videos/<suffix>/ bundles). Nothing is
 // written to VES tables; the only VES reads are the voice settings (ops_config) and voice preview. Submissions are recorded as edits and re-render the video in the background — see scripts/local_videos_api.py.
