@@ -70,8 +70,9 @@ export function mountHistory(root,{client=null,role=null,params=new URLSearchPar
      shown.map(j=>{const wo=data.wo.get(j.work_order_id)||{},pin=(j.required_caps||[]).find(c=>c.startsWith('node:'));
       const ep=wo.episode??j.params?.episode;const work=wo.work_title||j.params?.work_title||j.params?.folder_name||'';
       const acts=canEdit?[['failed','dead','cancelled'].includes(j.status)?`<button type="button" data-act="retry" data-id="${j.id}">재시도</button>`:'',
-       ['pending','running','blocked'].includes(j.status)?`<button type="button" class="danger" data-act="cancel" data-id="${j.id}">취소</button>`:'',
-       j.work_order_id&&wo.status&&wo.status!=='cancelled'?`<button type="button" class="danger" data-act="cancel-wo" data-id="${j.work_order_id}" title="이 잡이 속한 작업지시를 통째로 취소해요. 남은 잡과 검수 대기 카드가 같이 닫히고, 소스 소진에서도 빠져요">작업지시 취소</button>`:''].join(''):'';
+       // 단계 멈춤 = 이 줄(잡) 하나 · 작업 취소 = 이 잡이 속한 작업지시 전체(빨강). 확인 창에 무엇이 멈추는지 이름으로 보여 준다
+       ['pending','running','blocked'].includes(j.status)?`<button type="button" data-act="cancel" data-id="${j.id}" data-what="${esc([chOf(j)?chName(chOf(j)):'',work,ep!=null&&ep!==''?`${ep}회차`:''].filter(Boolean).join(' · '))}" data-step="${esc(kindKo(j.kind))}" data-tip="이 단계만 멈춰요. 다른 단계는 그대로예요">단계 멈춤</button>`:'',
+       j.work_order_id&&wo.status&&wo.status!=='cancelled'?`<button type="button" class="danger" data-act="cancel-wo" data-id="${j.work_order_id}" data-what="${esc([chOf(j)?chName(chOf(j)):'',work,ep!=null&&ep!==''?`${ep}회차`:''].filter(Boolean).join(' · '))}" data-tip="이 작업을 통째로 취소해요. 남은 단계와 검수 카드도 닫혀요">작업 취소</button>`:''].join(''):'';
       return `<tr><td>${esc(kindKo(j.kind))}</td><td><span class="hist-st ${TONE[j.status]||'mut'}"${j.status==='running'&&j.progress?.label?` data-tip="${esc(j.progress.label)}"`:''}>${STATUS[j.status]||esc(j.status)}</span></td>
        <td class="tnum">${j.attempt??0}/${j.max_attempts??3}</td>
        <td class="mono">${esc(j.node_id||'')}${pin?` <small title="이 맥에서만 돌아요">${esc(pin.replace('node:',''))} 고정</small>`:''}</td>
@@ -122,12 +123,13 @@ export function mountHistory(root,{client=null,role=null,params=new URLSearchPar
  }
  async function act(b){
   const kind=b.dataset.act,id=b.dataset.id,msg=t=>{const m=root.querySelector('.hist-msg');if(m)m.textContent=t;};
-  const ask={retry:{title:'이 작업을 다시 돌릴까요?',ok:'다시 돌리기'},cancel:{title:'이 작업을 취소할까요?',body:'하던 일은 여기서 멈추고, 다시 돌리려면 새로 걸어야 해요.',ok:'작업 취소',cancel:'닫기',danger:true},
-   'cancel-wo':{title:'이 작업지시를 통째로 취소할까요?',body:'남은 작업과 검수 대기 카드가 같이 닫혀요.',ok:'통째로 취소',cancel:'닫기',danger:true}}[kind];
+  const what=b.dataset.what||'이 작업',step=b.dataset.step||'이 단계';
+  const ask={retry:{title:'이 작업을 다시 돌릴까요?',ok:'다시 돌리기'},cancel:{title:`'${step}' 단계만 멈출까요?`,body:`${what}의 '${step}'만 멈춰요. 다른 단계는 그대로예요. 다시 돌리려면 재시도를 눌러요.`,ok:'단계 멈춤',cancel:'닫기'},
+   'cancel-wo':{title:'작업을 통째로 취소할까요?',body:`${what} 작업을 통째로 취소해요. 남은 단계와 검수 카드도 닫히고 되돌릴 수 없어요.`,ok:'작업 취소',cancel:'닫기',danger:true}}[kind];
   if(!await askConfirm(ask))return;
   b.disabled=true;
-  const [fn,args,done]={retry:['retry_job',{p_job:id},'다시 돌리도록 넣었어요.'],cancel:['cancel_job',{p_job:id,p_note:'workspace'},'취소했어요.'],
-   'cancel-wo':['cancel_work_order',{p_wo:id,p_note:'워크스페이스 작업 이력에서 취소'},'작업지시를 취소했어요.']}[kind];
+  const [fn,args,done]={retry:['retry_job',{p_job:id},'다시 돌리도록 넣었어요.'],cancel:['cancel_job',{p_job:id,p_note:'workspace'},'그 단계를 멈췄어요.'],
+   'cancel-wo':['cancel_work_order',{p_wo:id,p_note:'워크스페이스 작업 이력에서 취소'},'작업을 취소했어요.']}[kind];
   const {error:e}=await client.rpc(fn,args);
   if(e){b.disabled=false;msg('하지 못했어요: '+e.message);return;}
   await load();msg(done);
