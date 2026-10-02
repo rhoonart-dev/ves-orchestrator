@@ -43,6 +43,17 @@ def job_dir_name(work_order_id) -> str:
     return f"wo-{work_order_id}"
 
 
+# 엔진 설정 기본값(2026-10-02 사용자 결정) — 대본은 단계형 · 말 빠르기는 빠르게로 **고정**(작업 · 작품 값보다 이긴다),
+# 받아쓰기는 ElevenLabs · 덮개 컷 점검은 켬이 **기본**(작품 · 작업에서 바꿀 수 있다)
+FIXED_ARGS = {"script_flow": "staged", "speed": "fast"}
+DEFAULT_ARGS = {"stt": "elevenlabs", "cover_cut_guard": True}
+
+
+def effective_args(task_args: dict | None, work_args: dict | None) -> dict:
+    """기본값 < 작품 엔진 설정(work_cards.engine_args, 시작할 때 값) < 작업에 준 값 < 고정값. 순수."""
+    return {**DEFAULT_ARGS, **(work_args or {}), **(task_args or {}), **FIXED_ARGS}
+
+
 def engine_args(args: dict | None) -> list:
     """엔진 선택 인자 → argv 조각. 허용 밖의 키나 이상한 값은 PermanentError(사람이 작업을 다시 걸어야 풀린다)."""
     out = []
@@ -413,6 +424,15 @@ class Generate:
         p = dict(job.get("params") or {})
         p["logo_asset"] = pinned_logo(conn, job)   # 없으면 None — 엔진은 작품 가이드의 '로고:' 를 쓴다
         p["task_guides"] = task_guides(cfg, conn, p)
+        work_args = {}
+        if p.get("work_title"):
+            try:
+                with conn.cursor() as c:
+                    c.execute("SELECT engine_args FROM public.work_cards WHERE work_title = %s", (p["work_title"],))
+                    work_args = (c.fetchone() or {}).get("engine_args") or {}
+            except Exception as e:  # noqa: BLE001
+                print(f"[tikitaka_generate] 작품 엔진 설정 읽기 실패(기본값으로): {e}")
+        p["args"] = effective_args(p.get("args"), work_args)   # 저장해 둔 작업도 시작할 때 지금 작품 설정을 읽는다
         p["template"] = render_template(conn, p)    # 채널 × 작품(없으면 작품 기본) 렌더 템플릿(0133) — 없으면 None
         return p
 
