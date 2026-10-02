@@ -1,5 +1,7 @@
 엔진 글꼴 — 편집실·채널 템플릿 미리보기를 실제 렌더와 같은 글꼴로 보여 주려고 함께 둔다.
 원본은 ai-video app/assets/fonts. 2026-09-30 배포처 사용권 확인.
+2026-10-02: 파일 배포가 허용되지 않는 폰트(잘난체 · 잘난체 고딕 · 그리운 공정체 · 와구리체)는 이 폴더(공개 저장소로 배포됨)에서 빼고
+Supabase 비공개 저장소 ves-fonts 에 두었다. 로그인한 사람에게만 서명 링크로 불러온다(src/engine-fonts.js).
 
 여기어때 잘난체 (Jalnan.ttf) · 여기어때 잘난체 고딕 (JalnanGothic.ttf)
   Copyright © GC COMPANY All rights reserved. Font Designed by Sandoll Inc.
@@ -14,3 +16,12 @@
 
 본고딕 Noto Sans CJK KR Black (NotoSansCJKkr-Black.woff2) · 물마루 Mulmaru (Mulmaru.woff2)
   SIL Open Font License 1.1 — OFL.txt
+
+페이퍼로지 Paperlogy (Paperlogy-6SemiBold ~ 9Black.ttf) · 프리젠테이션 Freesentation (Freesentation-6SemiBold ~ 9Black.ttf) · 에이투지체 A2Z (A2Z-6SemiBold ~ 9Black.ttf)
+  배포처 사용권 요약(2026-10-02 사용자 확인): 영상 · 웹사이트 · 임베딩 사용 가능, OFL 해당(수정 · 복제 · 배포 가능, 유료 판매 금지).
+  제목에는 블랙 · 엑스트라볼드, 자막에는 볼드 · 세미볼드만 쓴다.
+
+와구리체 WAGURI (WAGURI.ttf, 패밀리 'WAGURI TTF')
+  배포처 사용권 요약(2026-10-02 사용자 확인): 영상 · 웹사이트 · 임베딩 사용 가능, OFL 비해당(파일 수정 · 배포 불가).
+  제목 전용 서체(배포처 안내) — 자막 목록에는 넣지 않는다.
+  이 폴더에 두지 않고 비공개 저장소 ves-fonts 에서 불러온다. OTF 판은 크롬이 거부해서 TTF 판을 쓴다.

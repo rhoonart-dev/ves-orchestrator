@@ -44,7 +44,7 @@ export function mountChannelTemplates(root,{client,role,channel}={}){
    top=`<div class="ct-scope"><button type="button" data-scope="channel" class="${scope==='channel'?'on':''}">${esc(current.name)}에서만</button><button type="button" data-scope="work" class="${scope==='work'?'on':''}">모든 채널 기본</button></div>
     <p class="ct-state">${state}</p>`;
    body=`<div class="template-split ct-split"><div class="ct-left"><form class="template-form rt-form"><fieldset ${writable?'':'disabled'}>
-     ${loads.length&&writable?`<div class="ct-load"><select data-load><option value="">불러오기…</option>${loads.map((l,i)=>`<option value="${i}">${esc(l.label)}</option>`).join('')}</select></div>`:''}
+     ${loads.length&&writable?`<div class="ct-load"><select data-load data-font><option value="" data-ff="">불러오기…</option>${loads.map((l,i)=>`<option value="${i}" data-ff="${esc(l.d?.title_font||'Jalnan')}"${l.d?.title_color?` data-c1="${esc(l.d.title_color)}"`:''}${l.d?.title_color2?` data-c2="${esc(l.d.title_color2)}"`:''}>${esc(l.label)}</option>`).join('')}</select></div>`:''}
      <section class="ct-logo"><h3>작품 로고</h3><div class="ct-logo-row"><span class="rt-none">작품 관리에 올린 로고를 불러오는 중…</span></div></section>
      ${voiceHtml()}
      ${fieldsHtml(scope==='channel'?(ch||{}):(wd||{}),scope==='channel'?(wd||{}):{})}

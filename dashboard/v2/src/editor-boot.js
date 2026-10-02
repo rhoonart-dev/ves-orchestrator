@@ -1,5 +1,7 @@
 import {config} from './config.js';
 import {setupScrollbars} from './scrollbars.js';
+import {loadEngineFonts} from './engine-fonts.js?v=1';
+import './font-picker.js?v=1';   // 폰트 칸 — 이름을 그 폰트로
 import {createLocalEditorClient,loadLocalVideo} from './local-editor-client.js?v=sfx-1';
 import {confirmSubmit} from './editor-submit-dialog.js?v=sfx-2';
 import './editor-checks.js?v=sfx-2';   // window.__edChecks — 제출 전 검사(ves-editor.js 가 부른다)
@@ -65,6 +67,7 @@ async function bootLocal(client){
    window.layoutShorts?.();if(window.__railOn==='logo')window.renderRailPanel?.('logo');return r;})
   .catch(e=>{window.__edLogoList={error:e.message};if(window.__railOn==='logo')window.renderRailPanel?.('logo');});
  window.__edLoadLogos();
+ loadEngineFonts(client);   // 배포 금지 사용권 폰트는 비공개 저장소에서(src/engine-fonts.js)
  window.__edSfx?.setup({client,editable:payload.meta.sfx_edit});   // 엔진이 효과음을 받을 때만 넣고 뺄 수 있다(ai-video sfx_user)
  window.__edFx?.setEditable(payload.meta.fx_edit);   // 엔진이 강조·줌을 받을 때만 바꿀 수 있다
  window.__edFrame?.setup(payload.meta.framing,payload.meta.frame_edit);   // 구간 모델을 만들기 전에(렌더 때 고정한 구간을 되살린다)
@@ -94,7 +97,7 @@ async function boot(){
  if(!roles.data.some(r=>['reviewer','operator','admin'].includes(r.role)))throw new Error('편집하려면 검수자나 관리자 권한이 필요해요.');
  const payload=await bootLocal(client);
  step(3);
- await import('./ves-editor.js?v=sfx-5');
+ await import('./ves-editor.js?v=font-1');
  const root=document.getElementById('tlRoot');root.style.display='flex';root.style.flexDirection='column';
  const notes=showLocalNotes(payload);setupScrollbars();setupHoverTips();mountStatusBar();
  mountAccount(client,data.user,roles.data.map(r=>r.role));
