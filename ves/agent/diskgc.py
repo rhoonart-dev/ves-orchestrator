@@ -27,6 +27,8 @@ RULES = (
     ("cache/publish", 2),                     # 발행 폴백 사본
     ("cache/localize", 2),                    # 현지화 작업본
     ("cache/drive_tmp", 1),                   # 인입 임시파일
+    ("cache/compilations", 7),                # 합본 작업 폴더 — 완성본은 저장소 + 원본 캐시로 옮긴 뒤라 남은 건 계획·기록뿐(2026-10-02)
+    ("cache/clip_fp", 7),                     # 클립 겹침 찾기용 소리 · 지문 — 지워지면 다음에 다시 받는다(2026-10-02)
 )
 EMERGENCY_FREE_GB = 25    # 이 아래면 보존일 무시하고 오래된 순으로 더 지운다
 EMERGENCY_TARGET_GB = 60  # 이만큼 확보되면 멈춘다

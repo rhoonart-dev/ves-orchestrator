@@ -5680,3 +5680,11 @@ def test_derive_actions_skips_stale_works():
     got = [a["text"].split("」")[0][1:] for a in derive_actions(rows, [], dt.date(2026, 9, 29))]
     assert got == ["요즘 작품", "기록 없음"]
     assert len(derive_actions(rows, [])) == 3
+
+
+def test_diskgc_rules_cover_new_pipeline_caches():
+    """합본 작업 폴더 · 클립 겹침 보관분은 7일 뒤 지운다. 영상 만들기 잡 폴더는 편집실 · 썸네일이 쓰므로 넣지 않는다."""
+    from ves.agent.diskgc import RULES
+    rules = dict(RULES)
+    assert rules["cache/compilations"] == 7 and rules["cache/clip_fp"] == 7
+    assert not any("outputs_tikitaka_grid" in r for r in rules)
