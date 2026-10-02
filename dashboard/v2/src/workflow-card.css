@@ -105,4 +105,7 @@
 .tr-card .tr-must.danger{background:var(--danger-bg);color:var(--danger)}.tr-card .tr-must.danger b{color:var(--danger)}
 /* 지역 제한 확인 체크(선택 C) — 체크해야 승인 버튼이 눌린다 */
 .tr-card .tr-geo{display:flex;align-items:center;gap:10px;margin-top:14px;background:var(--dot-warn-bg);color:var(--status-warn);border-radius:12px;padding:12px 14px;font-size:13px;font-weight:600;cursor:pointer}
-.tr-card .tr-geo input{width:18px;height:18px;margin:0;accent-color:var(--status-warn);flex:none}
+.tr-card .tr-geo input{appearance:none;-webkit-appearance:none;width:18px;height:18px;margin:0;border:0;border-radius:5px;background:var(--surface);flex:none;display:grid;place-items:center;cursor:pointer}
+.tr-card .tr-geo input:checked{background:var(--solid)}
+.tr-card .tr-geo input:checked::after{content:'';width:9px;height:5px;border-left:2px solid var(--on-solid);border-bottom:2px solid var(--on-solid);transform:translateY(-1px) rotate(-45deg)}
+.tr-card .tr-geo input:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
