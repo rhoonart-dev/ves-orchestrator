@@ -2,7 +2,8 @@ import {esc} from './review-details.js?v=web-1';
 import {visibleChannels,withWorkOverrides} from './channel-visibility.js';
 import {templateFields,changedDesign} from './template-model.js';
 import {readAll} from './review-service.js?v=web-1';
-import {swatch,cleanDesign,sameDesign,fieldsHtml,wireColors,mountPreview} from './render-templates.js?v=tpl-4';
+import {swatch,cleanDesign,sameDesign,fieldsHtml,wireColors,mountPreview} from './render-templates.js?v=tpl-5';
+import './font-picker.js?v=1';   // 작품 고르기 드롭다운
 import {loadCatalog} from './work-catalog.js?v=hide-1';
 import {loadWorkAssets} from './work-assets-data.js?v=1';
 // 채널 템플릿 — 채널을 고르고 작품 탭마다 영상 모양을 정한다(0134). '이 채널에서만'은 작품 기본 위에 칸 단위로 얹고,
@@ -33,7 +34,9 @@ export function mountChannelTemplates(root,{client,role,channel}={}){
   const oldHtml=`<details class="ct-old"><summary>예전 칸 · 크기 · 위치 · 화면비 <small>채널 전체 값 · 새 파이프라인 렌더에는 아직 안 쓰여요</small></summary>
     <form class="template-form ct-old-form"><fieldset ${writable?'':'disabled'}>${['제목','자막','내레이션 자막','영상 영역'].map(g=>{const fs=templateFields.filter(f=>f[0]===g&&OLD_KEYS.has(f[1]));return fs.length?`<section><h3>${g}</h3><div class="template-fields">${fs.map(([,k,l,t,min,max])=>{const v=old[k]??'';return `<label>${l}${t==='onoff'?`<select name="${k}"><option value="">켬 (기본)</option><option value="false" ${v===false||v==='false'?'selected':''}>끔</option></select>`:`<input name="${k}" type="${t==='number'?'number':'text'}" value="${esc(v)}" placeholder="${t==='ratio'?'예: 13:9':'기본값 사용'}" ${t==='number'?`min="${min}" max="${max}" step="1"`:''}>`}</label>`;}).join('')}</div></section>`:'';}).join('')}
      <p class="rt-status" role="status"></p>${writable?'<div class="rt-actions"><span></span><button type="submit" class="primary">예전 칸 저장</button></div>':''}</fieldset></form></details>`;
-  const tabs=works.map(w=>`<button type="button" class="ct-tab${w===work?' on':''}" data-work="${esc(w)}">${swatch(effective(current.token_slug,w))}${esc(w)}${designs.has(key(current.token_slug,w))||chanVoices.has(key(current.token_slug,w))?'<i class="ct-dot" title="이 채널에서만 따로 정한 값이 있어요"></i>':''}</button>`).join('');
+  // 작품 고르기 — 채널 이름 옆 드롭다운(src/font-picker.js 목록 모양). 줄마다 이 채널 값의 제목 두 색 알약(오른쪽 끝), 아직 안 정한 작품은 '아직 안 정함'(2026-10-02 사용자)
+  const tabs=works.length?`<div class="ct-work"><select data-work-pick data-font data-pill-btn aria-label="작품">${works.map(w=>{const d=effective(current.token_slug,w),mine=designs.has(key(current.token_slug,w))||chanVoices.has(key(current.token_slug,w));
+   return `<option value="${esc(w)}" data-ff=""${w===work?' selected':''} data-c1="${esc(d.title_color||'#FFFFFF')}" data-c2="${esc(d.title_color2||'#FFFF00')}"${mine?'':' data-note="아직 안 정함"'}>${esc(w)}</option>`;}).join('')}</select></div>`:'';
   let top='',body='<p class="workbench-note">이 채널에 생성 대상 작품이 없어요. 채널 관리에서 작품을 붙이면 여기서 모양을 정할 수 있어요.</p>';
   if(work){
    const ch=chanDesign(),wd=workDesign();
@@ -41,8 +44,8 @@ export function mountChannelTemplates(root,{client,role,channel}={}){
     :(wd?'이 작품을 만드는 모든 채널의 기본이에요. 채널에서 따로 정한 칸은 그 값이 이겨요.':'아직 기본값이 없어요. 채널마다 따로 정하지 않은 칸은 엔진 기본이에요.');
    const others=[...designs.entries()].filter(([k])=>k.endsWith('\u0000'+work)&&!k.startsWith(current.token_slug+'\u0000')).map(([k,d])=>{const slug=k.split('\u0000')[0];return {label:`${channels.find(c=>c.token_slug===slug)?.name||slug}의 값`,d};});
    const loads=[...(scope==='channel'&&wd?[{label:'모든 채널 기본 값',d:wd}]:[]),...others,...presets.map(p=>({label:`기존 템플릿 · ${p.name}`,d:p.design}))];
-   top=`<div class="ct-scope"><button type="button" data-scope="channel" class="${scope==='channel'?'on':''}">${esc(current.name)}에서만</button><button type="button" data-scope="work" class="${scope==='work'?'on':''}">모든 채널 기본</button></div>
-    <p class="ct-state">${state}</p>`;
+   // '이 채널에서만 / 모든 채널 기본' 고르기는 뺐다 — 채널을 골라 정하는 화면이라 값은 늘 이 채널 × 이 작품(2026-10-02 사용자). 작품 기본은 불러오기에만 남는다
+   void state;
    body=`<div class="template-split ct-split"><div class="ct-left"><form class="template-form rt-form"><fieldset ${writable?'':'disabled'}>
      ${loads.length&&writable?`<div class="ct-load"><select data-load data-font><option value="" data-ff="">불러오기…</option>${loads.map((l,i)=>`<option value="${i}" data-ff="${esc(l.d?.title_font||'Jalnan')}"${l.d?.title_color?` data-c1="${esc(l.d.title_color)}"`:''}${l.d?.title_color2?` data-c2="${esc(l.d.title_color2)}"`:''}>${esc(l.label)}</option>`).join('')}</select></div>`:''}
      <section class="ct-logo"><h3>작품 로고</h3><div class="ct-logo-row"><span class="rt-none">작품 관리에 올린 로고를 불러오는 중…</span></div></section>
@@ -50,12 +53,12 @@ export function mountChannelTemplates(root,{client,role,channel}={}){
      ${fieldsHtml(scope==='channel'?(ch||{}):(wd||{}),scope==='channel'?(wd||{}):{})}
      <p class="rt-status" role="status"></p>
      <div class="rt-actions">${writable&&(scope==='channel'?ch:wd)?`<button type="button" class="rt-retire" data-clear>${scope==='channel'?'따로 정한 값 지우기':'기본값 지우기'}</button>`:''}<span></span>${writable?'<button type="button" data-reset>되돌리기</button><button type="submit" class="primary">저장</button>':'<span class="rt-none">운영자만 바꿀 수 있어요.</span>'}</div>
-    </fieldset></form>${oldHtml}</div><aside class="template-preview ct-side rt-preview" aria-label="실제 모양 보기"></aside></div>`;
+    </fieldset></form>${oldHtml}</div><aside class="template-preview ct-side rt-preview" aria-label="적용 모습 미리보기"></aside></div>`;
   }
-  main.innerHTML=`<header><div><h2>${esc(current.name)}</h2><p>작품마다 영상 모양을 정해요. 저장한 값은 다음 작업부터 써요.</p></div></header>
-   <div class="ct-top"><div class="ct-tabs">${tabs}</div>${top}</div>${body}`;
-  main.querySelectorAll('[data-work]').forEach(b=>b.onclick=()=>{if(b.dataset.work===work||!leave())return;work=b.dataset.work;render();});
-  main.querySelectorAll('[data-scope]').forEach(b=>b.onclick=()=>{if(b.dataset.scope===scope||!leave())return;scope=b.dataset.scope;render();});
+  main.innerHTML=`<header><div class="ct-head"><h2>${esc(current.name)}</h2>${tabs}<p>작품마다 영상 모양을 정해요. 저장한 값은 다음 작업부터 써요.</p></div></header>
+   ${top?`<div class="ct-top">${top}</div>`:''}${body}`;
+  const pick=main.querySelector('[data-work-pick]');
+  if(pick)pick.onchange=()=>{if(pick.value===work)return;if(!leave()){pick.value=work;pick.dispatchEvent(new Event('change'));return;}work=pick.value;render();};
   const oldForm=main.querySelector('.ct-old-form');
   if(oldForm)oldForm.onsubmit=async e=>{e.preventDefault();if(!writable)return;const st=oldForm.querySelector('.rt-status');
    try{const next=changedDesign(old,Object.fromEntries(new FormData(oldForm)));st.textContent='저장 중…';
@@ -74,7 +77,7 @@ export function mountChannelTemplates(root,{client,role,channel}={}){
    e.target.value='';changed();status('불러온 값이에요. 저장해야 바뀌어요.');void ch;});
   f.querySelector('[data-reset]')?.addEventListener('click',()=>render());
   f.querySelector('[data-clear]')?.addEventListener('click',async()=>{
-   if(!confirm(scope==='channel'?`${current.name}에서 따로 정한 값을 지울까요? 그 뒤로는 모든 채널 기본을 따라요.`:`'${work}' 작품의 기본값을 지울까요?`))return;
+   if(!confirm(scope==='channel'?`${current.name}에서 정한 값을 지울까요? 그 뒤로는 엔진 기본으로 만들어요.`:`'${work}' 작품의 기본값을 지울까요?`))return;
    const r=scope==='channel'?await client.rpc('set_channel_work_design',{p_slug:current.token_slug,p_work:work,p_design:null}):await client.rpc('set_work_design',{p_work:work,p_design:null});
    if(r.error){status(r.error.message);return;}
    scope==='channel'?designs.delete(key(current.token_slug,work)):workDefaults.delete(work);render();});
@@ -97,7 +100,8 @@ export function mountChannelTemplates(root,{client,role,channel}={}){
  function voiceHtml(){
   const wv=(workArgs.get(work)||{}).voice||'',cv=chanVoices.get(key(current.token_slug,work))||'';
   const cur=scope==='channel'?cv:wv;
-  const first=scope==='channel'?`모든 채널 기본 따르기 · ${wv?voiceName(wv):'엔진 기본'}`:'엔진 기본';
+  // 목소리도 채널마다 직접 고른다(2026-10-02 사용자) — 고르지 않으면 작품 엔진 설정 목소리, 그것도 없으면 엔진 기본으로 만든다
+  const first=scope==='channel'?`고르지 않음 · ${wv?voiceName(wv):'엔진 기본'}으로 만들어요`:'엔진 기본';
   return `<section class="ct-voice"><h3>내레이션 목소리</h3><div class="ct-voice-row"><select data-voice ${writable?'':'disabled'}><option value="">${esc(first)}</option>${voiceList.map(v=>`<option value="${esc(v.id)}"${v.id===cur?' selected':''}>${esc(voiceName(v.id))}</option>`).join('')}</select><button type="button" class="ct-listen" data-listen>들어 보기</button></div><p class="rt-none">고르면 바로 저장돼요. 다음 작업부터 이 목소리로 만들어요.</p></section>`;
  }
  function wireVoice(){
@@ -112,7 +116,7 @@ export function mountChannelTemplates(root,{client,role,channel}={}){
    sel.disabled=!writable;const st=main.querySelector('.rt-form .rt-status');
    if(r.error){if(st)st.textContent=r.error.message;return;}
    if(scope==='channel'){v?chanVoices.set(k,v):chanVoices.delete(k);}
-   if(st)st.textContent=`목소리를 ${v?voiceName(v):scope==='channel'?'모든 채널 기본':'엔진 기본'}(으)로 바꿨어요.`;};
+   if(st)st.textContent=v?`목소리를 ${voiceName(v)}(으)로 바꿨어요.`:'목소리를 고르지 않았어요. 작품 기본 목소리로 만들어요.';};
  }
  // 작품 로고(작품 관리 에셋) — '이 채널에서만'이면 고르기(채널 관리 로고 칸과 같은 값), '모든 채널 기본'이면 작품 기본 로고 보기만.
  // 권리사 칸에는 작품 관리에 올린 권리사 로고도 고를 수 있게 넣는다
@@ -133,7 +137,7 @@ export function mountChannelTemplates(root,{client,role,channel}={}){
    if(error){alert(error.message);return;}
    b.dataset.default?logoPicks.get(w).delete(slug):logoPicks.get(w).set(slug,b.dataset.logo);
    main.querySelectorAll('[data-logo]').forEach(x=>x.classList.toggle('on',x===b));
-   const st=main.querySelector('.rt-form .rt-status');if(st)st.textContent='로고를 바꿨어요. 실제 모양 보기를 다시 누르면 이 로고로 그려요.';});
+   const st=main.querySelector('.rt-form .rt-status');if(st)st.textContent='로고를 바꿨어요. 적용 모습 미리보기를 다시 누르면 이 로고로 그려요.';});
   const sel=main.querySelector('select[name=platform_image]');
   const up=[...(a?.platform?.holder_logos||[]),...(a?.logos?.platform_logo||[])];
   if(sel&&up.length&&!sel.querySelector('[data-up]')){

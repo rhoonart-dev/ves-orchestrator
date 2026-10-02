@@ -1,7 +1,7 @@
 import {esc} from './review-details.js?v=web-1';
 import {fontFull} from './font-picker.js?v=1';   // 폰트 칸 — 이름을 그 폰트로(저절로 바뀐다)
 const FONT_DEF={title_font:'Jalnan',subtitle_font:'NotoSansCJKkr-Black',tts_font:'NotoSansCJKkr-Black'};   // 비우면 엔진 기본
-// 영상 모양(0133 · 0134) 공용 — 새 파이프라인이 실제로 쓰는 칸, 값 정리, '실제 모양 보기'(맥미니가 실제 영상 한 편을 이 값으로 다시 렌더한 두 장).
+// 영상 모양(0133 · 0134) 공용 — 새 파이프라인이 실제로 쓰는 칸, 값 정리, '적용 모습 미리보기'(맥미니가 실제 영상 한 편을 이 값으로 다시 렌더한 두 장).
 // 화면은 채널 템플릿(channel-templates.js): 채널 → 작품 탭 → 이 채널 값 / 모든 채널(작품 기본).
 const BASE_FONTS=[['JalnanGothic','여기어때 잘난체 고딕'],['Jalnan','여기어때 잘난체 2'],['NotoSansCJKkr-Black','Noto Sans 블랙'],['mulmaru','물마루'],['Griun','그리운 경찰공평체']];
 // 굵기가 여러 개인 폰트는 제목에는 굵은 것, 자막 · 내레이션에는 중간 굵기만 보인다 · 와구리체는 제목 전용(2026-10-02 사용자)
@@ -46,14 +46,14 @@ export function wireColors(form,onChange){
  form.querySelectorAll('input[name$=color]').forEach(t=>t.addEventListener('input',()=>{if(/^#[0-9a-f]{6}$/i.test(t.value))form.querySelector(`[data-for="${t.name}"]`).value=t.value;}));
 }
 
-// 실제 모양 보기 — box 안에 영상 고르기 · 버튼 · 두 장. getDesign() 은 지금 칸의 (저장 전 포함) 최종 값
+// 적용 모습 미리보기 — box 안에 영상 고르기 · 버튼 · 두 장. getDesign() 은 지금 칸의 (저장 전 포함) 최종 값
 export function mountPreview(box,{client,videos,writable,getDesign,status,target,emptyText}){
  let preview=null,poll=0,dead=false;
- box.innerHTML=`<h3>실제 모양 보기</h3><p>맥미니가 고른 영상 한 편을 지금 칸의 값으로 다시 렌더해요. 저장하지 않은 값도 그대로 보여요. 1분쯤 걸려요.</p>
-  <div class="rt-pick"><select data-video>${videos.map(v=>`<option value="${v.id}">${esc(v.work_title)} · ${esc(String(v.title||v.suffix).replace(/\s*\n\s*/g,' '))}</option>`).join('')||`<option value="">${esc(emptyText||'맥미니에서 만든 영상이 없어요')}</option>`}</select><button type="button" class="rt-go" ${writable&&videos.length?'':'disabled'}>실제 모양 보기</button></div><div class="rt-shots"></div>`;
+ box.innerHTML=`<h3>적용 모습 미리보기</h3><p>맥미니가 고른 영상 한 편을 지금 칸의 값으로 다시 렌더해요. 저장하지 않은 값도 그대로 보여요. 1분쯤 걸려요.</p>
+  <div class="rt-pick"><select data-video>${videos.map(v=>`<option value="${v.id}">${esc(v.work_title)} · ${esc(String(v.title||v.suffix).replace(/\s*\n\s*/g,' '))}</option>`).join('')||`<option value="">${esc(emptyText||'맥미니에서 만든 영상이 없어요')}</option>`}</select><button type="button" class="rt-go" ${writable&&videos.length?'':'disabled'}>적용 모습 미리보기</button></div><div class="rt-shots"></div>`;
  const shots=box.querySelector('.rt-shots');
  const draw=()=>{
-  if(!preview){shots.innerHTML='<p class="rt-none">영상을 고르고 실제 모양 보기를 눌러 주세요.</p>';return;}
+  if(!preview){shots.innerHTML='<p class="rt-none">영상을 고르고 적용 모습 미리보기를 눌러 주세요.</p>';return;}
   if(preview.state==='running'){shots.innerHTML='<p class="rt-wait">맥미니가 만들고 있어요. 창을 닫아도 계속 만들어요.</p>';return;}
   if(preview.state==='failed'){shots.innerHTML=`<p class="rt-fail">${esc(preview.error||'만들지 못했어요')}</p>`;return;}
   let now=null;try{now=getDesign();}catch{}
@@ -72,7 +72,11 @@ export function mountPreview(box,{client,videos,writable,getDesign,status,target
   preview={id:data,state:'running',design};draw();watch();};
  draw();
  // 화면을 다시 열면 이 영상들로 본 마지막 미리보기를 보여 준다(만드는 중이면 이어서 기다린다)
- if(videos.length)client.from('render_template_previews').select('id,state,error,files,design').in('video_id',videos.map(v=>v.id)).order('created_at',{ascending:false}).limit(1)
-  .then(({data})=>{const last=data?.[0];if(dead||preview||!last)return;const {work_asset_id,...design}=last.design||{};preview={id:last.id,state:last.state,design};draw();watch();});
+ // 채널 화면이면 그 채널 값으로 만든 것만(0138) — 종전엔 같은 작품의 가장 최근 것을 모든 채널에 보여 줬다
+ const slug=target?.()?.p_slug??null;
+ if(videos.length){let q=client.from('render_template_previews').select('id,state,error,files,design').in('video_id',videos.map(v=>v.id));
+  q=slug?q.eq('token_slug',slug):q.is('token_slug',null);
+  q.order('created_at',{ascending:false}).limit(1)
+  .then(({data})=>{const last=data?.[0];if(dead||preview||!last)return;const {work_asset_id,...design}=last.design||{};preview={id:last.id,state:last.state,design};draw();watch();});}
  return {refresh:draw,release:()=>{dead=true;clearTimeout(poll);}};
 }

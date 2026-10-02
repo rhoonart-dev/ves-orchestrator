@@ -1,6 +1,7 @@
 // 폰트 고르기 — 기본 선택 상자는 크롬이 목록 글꼴을 못 바꾸게 해서, 폰트 칸만 직접 그린 목록으로 바꾼다(2026-10-02 사용자).
 // <select data-font data-default="기본값 이름" data-default-value="기본값 폰트"> 을 두면 저절로 바뀐다.
-// 템플릿 고르기처럼 값이 폰트가 아닌 목록은 option 에 data-ff(그 줄 글꼴) · data-c1 · data-c2(제목 두 줄 색)를 단다. 고르면 원래 select 의 값을 바꾸고 change 를 보내므로
+// 템플릿 고르기처럼 값이 폰트가 아닌 목록은 option 에 data-ff(그 줄 글꼴) · data-c1 · data-c2(제목 두 줄 색) · data-note(오른쪽 작은 글)를 단다.
+// select 에 data-pill-first 가 있으면 색 알약을 이름 앞에, data-pill-btn 이면 닫힌 칸에도 알약을 오른쪽 끝에 둔다(작품 고르기). 고르면 원래 select 의 값을 바꾸고 change 를 보내므로
 // 편집실(dsSet) · 채널 템플릿 화면의 기존 처리가 그대로 돈다. 글꼴은 엔진 폰트 이름(src/editor-shell.css · src/engine-fonts.js).
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const W=[['6SemiBold','세미볼드'],['7Bold','볼드'],['8ExtraBold','엑스트라볼드'],['9Black','블랙']];
@@ -24,13 +25,13 @@ function enhance(sel){
  const box=document.createElement('div');box.className='fp';
  sel.style.display='none';sel.after(box);
  const def=sel.dataset.default||'';
- const opts=()=>[...sel.options].map(o=>({v:o.value,t:o.textContent.trim(),ff:o.dataset.ff??o.value,c:[o.dataset.c1,o.dataset.c2].filter(Boolean)}));
+ const opts=()=>[...sel.options].map(o=>({v:o.value,t:o.textContent.trim(),ff:o.dataset.ff??o.value,note:o.dataset.note||'',c:[o.dataset.c1,o.dataset.c2].filter(Boolean)}));
  const dots=o=>o.c.length?`<i class="fp-dots">${o.c.map(c=>`<b style="background:${esc(c)}"></b>`).join('')}</i>`:'';
  const draw=open=>{
   const cur=opts().find(o=>o.v===sel.value)||opts()[0]||{v:'',t:''};
-  box.innerHTML=`<button type="button" class="fp-btn" ${sel.disabled?'disabled':''} style="font-family:${family(cur.ff||sel.dataset.defaultValue)}">${esc(cur.t)}${CHEVRON}</button>
+  box.innerHTML=`<button type="button" class="fp-btn" ${sel.disabled?'disabled':''} style="font-family:${family(cur.ff||sel.dataset.defaultValue)}">${sel.dataset.pillFirst!==undefined&&cur.c?.length?dots(cur):''}<span class="fp-cur">${esc(cur.t)}</span>${sel.dataset.pillFirst===undefined&&sel.dataset.pillBtn!==undefined&&cur.c?.length?dots(cur):''}${CHEVRON}</button>
    <div class="fp-list" role="listbox" ${open?'':'hidden'}>${opts().map(o=>`<button type="button" role="option" class="fp-item${o.v===sel.value?' on':''}" data-v="${esc(o.v)}"
-    style="font-family:${family(o.ff||sel.dataset.defaultValue)}"><span>${esc(o.t)}</span>${dots(o)}${!o.v&&def?`<small>${esc(def)}</small>`:''}</button>`).join('')}</div>`;
+    style="font-family:${family(o.ff||sel.dataset.defaultValue)}">${o.c.length&&sel.dataset.pillFirst!==undefined?dots(o):''}<span>${esc(o.t)}</span>${o.note?`<small>${esc(o.note)}</small>`:''}${o.c.length&&sel.dataset.pillFirst===undefined?dots(o):''}${!o.v&&def?`<small>${esc(def)}</small>`:''}</button>`).join('')}</div>`;
   box.querySelector('.fp-btn').onclick=e=>{e.preventDefault();e.stopPropagation();const l=box.querySelector('.fp-list');draw(l.hidden);
    if(!l.hidden)return;box.querySelector('.fp-item.on')?.scrollIntoView({block:'nearest'});};
   box.querySelectorAll('.fp-item').forEach(b=>b.onclick=e=>{e.preventDefault();e.stopPropagation();
