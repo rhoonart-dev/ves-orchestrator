@@ -1,4 +1,5 @@
 """0121 유튜브 원천 여러 채널 · 합본 · 작업 가이드 — 순수 함수."""
+from ves.adapters import base
 from ves.adapters import register_sources as rs
 from ves.adapters import tikitaka as tk
 from ves.adapters import youtube_clips as yc
@@ -108,3 +109,15 @@ def test_progress_all_versions_counts_every_script():
              {"step": "rebuild", "versions": 14}] + [{"step": f"review_v{n}", "at": "2026-10-02T10:00:00"} for n in (1, 3, 5, 9, 10, 11, 13)]
     assert tk.progress_of(steps, 14)["label"] == "렌더 7/7"
     assert tk.progress_of(steps, 14, all_versions=True)["label"] == "렌더 7/14"
+
+
+def test_clean_thumb_manual():
+    import pytest
+    doc = {"frames": [{"id": "c00_01"}, {"id": "c01_02"}], "colors": ["white", "yellow"]}
+    out = tk.clean_thumb_manual([{"frame": "c00_01", "label": "충격", "color": "yellow", "y": "800"},
+                                 {"frame": "c01_02", "style": "split", "parts": ["충", "격"], "color": "pink"}], doc)
+    assert out[0] == {"frame": "c00_01", "color": "yellow", "label": "충격", "y": 800}
+    assert out[1]["style"] == "split" and out[1]["color"] == "white"
+    with pytest.raises(base.PermanentError):
+        tk.clean_thumb_manual([{"frame": "nope"}], doc)
+    assert tk.THUMB_UP.match("frames/c00_01.jpg") and tk.THUMB_UP.match("thumb_3.png") and not tk.THUMB_UP.match("dashboard_run.log")

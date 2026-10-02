@@ -171,15 +171,23 @@ export function mountWorkbench(root,job,{service=null,role=null,refresh=null}={}
  async function prepareActions(item,ticket){
   const link=$('.open-editor'),note=$('.editor-readiness'),thumbs=$('.open-thumbs'),premiere=$('.open-premiere');
   link.removeAttribute('href');link.setAttribute('aria-disabled','true');thumbs.hidden=true;link.hidden=false;premiere.hidden=true;editNotes(null);editLabel(link,'편집실 열기');delete link.dataset.tip;
+  const thumbButton=b=>{
+   const th=b.thumbs||{};thumbs.hidden=false;
+   thumbs.querySelector('span').textContent=th.state==='running'?'썸네일 만드는 중':th.has_result?'썸네일 보기':'썸네일 생성';
+   thumbs.onclick=()=>{video.pause();openThumbnails({client:service?.client,video:b,onChange:async()=>{
+    if(!refresh)return;try{const next=(await refresh()).find(j=>j.id===job.id);if(disposed||!next)return;
+     job.bundles=next.bundles;const nb=next.bundles.find(x=>x.key===b.key);if(nb){item.bundle=nb;if(selectedId===item.id)prepareActions(item,ticket);}}catch{}}})};
+  };
   if(local){                                   // local bundle: open the local editor (edits are recorded, not rendered)
    const b=item.bundle;note.hidden=false;
-   if(b.remote){                               // 맥미니 영상: 편집실은 여기서 열고, 제출하면 그 맥미니가 다시 렌더한다(썸네일은 아직 작업 컴퓨터 영상만)
+   if(b.remote){                               // 맥미니 영상: 편집실은 여기서 열고, 제출하면 그 맥미니가 다시 렌더한다. 썸네일도 그 맥미니가 만든다(0129)
     if(!canReview){note.textContent='편집에는 검수자 권한이 필요합니다';return;}
     // 프리미어로 내보내기 — 서버 없이 브라우저가 만든다(웹 주소에서도 된다)
     const [,wo,suffix]=String(b.key||'').match(/^remote-([^/]+)\/(.+)$/)||[];
     if(wo&&canExport&&service?.client){premiere.hidden=false;premiere.onclick=()=>{video.pause();openPremiereExport(service.client,{wo,suffix});};}
     if(rendering(b)){note.textContent='다시 렌더하고 있어요. 끝나면 편집할 수 있어요.';return;}
     failureNote(note,b,[]);editNotes(b);
+    thumbButton(b);   // 썸네일 — 그 맥미니가 만든다(0129)
     link.href=`editor.html?local=1&run=${encodeURIComponent(item.id)}&back=${encodeURIComponent(job.id)}`;link.setAttribute('aria-disabled','false');renderTip(link);
     return;
    }
@@ -188,11 +196,7 @@ export function mountWorkbench(root,job,{service=null,role=null,refresh=null}={}
    if(!b.source_ok){note.textContent='원본 영상을 찾을 수 없어 편집할 수 없어요.';return;}
    if(rendering(b)){note.textContent='다시 렌더하고 있어요. 끝나면 편집할 수 있어요.';return;}
    // 썸네일 — 편집실 열기와 같은 조건(묶음 ready·원본 있음·렌더 중 아님)에서만. 결과가 있으면 '썸네일 보기'.
-   const th=b.thumbs||{};thumbs.hidden=false;
-   thumbs.querySelector('span').textContent=th.state==='running'?'썸네일 만드는 중':th.has_result?'썸네일 보기':'썸네일 생성';
-   thumbs.onclick=()=>{video.pause();openThumbnails({client:service?.client,video:b,onChange:async()=>{
-    if(!refresh)return;try{const next=(await refresh()).find(j=>j.id===job.id);if(disposed||!next)return;
-     job.bundles=next.bundles;const nb=next.bundles.find(x=>x.key===b.key);if(nb){item.bundle=nb;if(selectedId===item.id)prepareActions(item,ticket);}}catch{}}})};
+   thumbButton(b);
    failureNote(note,b,[]);editNotes(b);
    // 이어서 할 초안이 있으면 버튼 이름으로 알린다(편집실 목록 카드와 같은 말) — 올리면 저장 시각
    if(b.draft&&!b.draft.stale){editLabel(link,'이어서 편집');const at=b.draft.saved_at?new Date(b.draft.saved_at):null;
