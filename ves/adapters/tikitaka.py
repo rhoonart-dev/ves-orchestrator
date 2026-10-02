@@ -318,7 +318,7 @@ _RENDER_RE = re.compile(r"^review_(v\d+(?:_[A-Za-z0-9_-]+)?)$")
 STAGES = (("transcribe", "받아쓰기"), ("analyze", "장면 분석"), ("script", "대본 쓰기"), ("render", "영상 확인 · 렌더"))
 
 
-def progress_of(steps: list, total=None) -> dict | None:
+def progress_of(steps: list, total=None, all_versions: bool = False) -> dict | None:
     """run_log.json steps → {stage, label, done, rendered, total, sec_per_video, steps}. 순수 — 테스트 대상.
     단계형 대본은 분석보다 대본이 먼저 끝나기도 해서, 단계마다 '끝났나'를 따로 보고 아직 안 끝난 첫 단계를 '지금'으로 본다."""
     if not steps:
@@ -338,7 +338,10 @@ def progress_of(steps: list, total=None) -> dict | None:
         # 렌더 대상 = 순위표 앞 count 개(엔진 cli: ranking[:count]). 단계형은 순위표가 대본 수보다 짧을 수 있다(7-8화 #2: 14개 중 7개)
         rerank = next((x for x in reversed(steps) if x.get("step") in ("rebuild", "rerank") and x.get("ranking")), None)
         n_rank = len((rerank or {}).get("ranking") or []) or int(rebuild.get("versions") or 0)
-        total = min(int(total), n_rank) if total and n_rank else (n_rank or total)
+        if all_versions:                       # 모든 대본 렌더(--all-versions) — 순위표와 상관없이 대본 전부
+            total = int(rebuild.get("versions") or 0) or total
+        else:
+            total = min(int(total), n_rank) if total and n_rank else (n_rank or total)
     skipped = sorted({int(x["version"]) for x in steps if x.get("step") == "version_skipped" and str(x.get("version", "")).isdigit()})
     renders = []
     for x in steps:
@@ -448,7 +451,8 @@ class Generate:
     def progress(cfg, job):
         """실행기가 30초마다 부른다(0125). 잡 폴더의 run_log.json 으로 진행 단계를 센다."""
         log = _read_json(pathlib.Path(Generate._out_dir(cfg, job)) / "run_log.json") or {}
-        return progress_of(log.get("steps") or [], (job.get("params") or {}).get("count"))
+        p = job.get("params") or {}
+        return progress_of(log.get("steps") or [], p.get("count"), bool((p.get("args") or {}).get("all_versions")))
 
     @staticmethod
     def is_already_done(cfg, job):

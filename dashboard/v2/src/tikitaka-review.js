@@ -22,11 +22,13 @@ async function one(q){return (await rows(q.limit(1)))[0]||null;}
 async function load(client,videoId){
  const video=await one(client.from('tikitaka_videos').select('id,work_order_id,suffix,channel_slug,work_title,episode,title,render_fingerprint,publish,node_id').eq('id',videoId));
  if(!video)throw Error('영상을 찾지 못했어요.');
- const [review,channel,works]=await Promise.all([
+ const [review,channel,works,policy]=await Promise.all([
   one(client.from('tikitaka_reviews').select('*').eq('video_id',videoId)),
   one(client.from('channels_mirror').select('token_slug,name,channel_id').eq('token_slug',video.channel_slug)),
-  rows(client.from('laeebly_works').select('id,title,inspection_policy,company,geo_block_required,required_hashtags_description,required_hashtags_notice').eq('title',video.work_title))]);
- const work=works.length===1?works[0]:null;
+  rows(client.from('laeebly_works').select('id,title,inspection_policy,company,geo_block_required,required_hashtags_description,required_hashtags_notice').eq('title',video.work_title)),
+  one(client.from('channel_work_policies').select('inspection_policy').eq('token_slug',video.channel_slug).eq('work_title',video.work_title)).catch(()=>null)]);
+ // 채널 + 작품 검수 정책(0126)이 있으면 작품 정책을 덮는다 — 예: 재미쇼츠 × 로또는 권리사 검수 없이 바로 예약
+ const work=works.length===1?{...works[0],...(policy?.inspection_policy?{inspection_policy:policy.inspection_policy}:{})}:null;
  const ep=epNo(video.episode);
  const [application,inspection,job,parts,release,channelTimes]=await Promise.all([
   work&&channel?.channel_id?one(client.from('laeebly_applications').select('id,status,rejected_bool').eq('video_id',work.id).eq('youtube_channel_id',channel.channel_id).order('synced_at',{ascending:false})):null,

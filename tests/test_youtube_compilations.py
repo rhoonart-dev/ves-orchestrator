@@ -101,3 +101,10 @@ def test_progress_counts_ranking_and_skipped():
              {"step": "review_v1", "at": "2026-10-01T23:20:00"}, {"step": "version_skipped", "version": 3, "reason": "x"}]
     p = tk.progress_of(steps, 14)
     assert p["total"] == 7 and p["label"] == "렌더 2/7" and p["skipped"] == [3]
+
+
+def test_progress_all_versions_counts_every_script():
+    steps = [{"step": "transcript_polish"}, {"step": "grid"}, {"step": "rerank", "ranking": [1, 3, 5, 9, 10, 11, 13]},
+             {"step": "rebuild", "versions": 14}] + [{"step": f"review_v{n}", "at": "2026-10-02T10:00:00"} for n in (1, 3, 5, 9, 10, 11, 13)]
+    assert tk.progress_of(steps, 14)["label"] == "렌더 7/7"
+    assert tk.progress_of(steps, 14, all_versions=True)["label"] == "렌더 7/14"
