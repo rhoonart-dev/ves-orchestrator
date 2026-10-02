@@ -88,24 +88,33 @@ export async function listPublished(client,fromISO,toISO){
  const hidden=await hiddenChannels(client),gone=new Set((channels.data||[]).filter(c=>hidden.has(c.token_slug)).map(c=>c.channel_id));
  const list=(videos.data||[]).filter(v=>!gone.has(v.channel_id));   // 숨긴 채널 영상은 달력·홈에서 뺀다
  // 작업 화면 검수 카드에서 예약·공개한 맥미니 영상(0120 tikitaka_reviews) — 채널 동기화가 따라오기 전에도 바로 보이게. 같은 영상이면 동기화 쪽을 쓴다
+ const revVideo=new Map();   // 유튜브 id → 맥미니 영상 id(발행용으로 고른 썸네일을 찾는다)
  try{
-  const {data:revs}=await client.from('tikitaka_reviews').select('youtube_id,publish_at,meta,tikitaka_videos!inner(channel_slug,work_title,title)')
+  const {data:revs}=await client.from('tikitaka_reviews').select('video_id,youtube_id,publish_at,meta,tikitaka_videos!inner(channel_slug,work_title,title)')
    .eq('stage','scheduled').not('youtube_id','is',null).gte('publish_at',fromISO).lt('publish_at',toISO);
+  (revs||[]).forEach(r=>{if(r.youtube_id&&r.video_id)revVideo.set(r.youtube_id,r.video_id);});
   const have=new Set(list.map(v=>v.content_id)),slug=new Map((channels.data||[]).map(c=>[c.token_slug,c.channel_id]));
   for(const r of revs||[]){const ch=slug.get(r.tikitaka_videos?.channel_slug);if(!ch||gone.has(ch)||have.has(r.youtube_id))continue;
    list.push({content_id:r.youtube_id,channel_id:ch,title:r.meta?.title||String(r.tikitaka_videos?.title||'').replace(/\s*\n\s*/g,' '),work_title:r.tikitaka_videos?.work_title||'',published_at:r.publish_at});}
   list.sort((a,b)=>String(a.published_at).localeCompare(String(b.published_at)));
  }catch{}   // 못 읽어도 달력은 채널 동기화만으로 그린다
- const thumbs=await publishThumbs(client,list.map(v=>v.content_id));
+ const thumbs=await publishThumbs(client,list.map(v=>v.content_id),revVideo);
  return list.map(v=>({...v,channel_name:names.get(v.channel_id)||'',thumb_url:thumbs.get(v.content_id)||''}));
 }
 // 발행 썸네일(publish_thumbnails · ves-outputs/publish_thumbs/) — 예약 영상은 공개 전까지 유튜브 썸네일이 없어서 이걸 먼저 쓴다.
 // 못 읽어도 달력은 그대로 — 유튜브 썸네일로 돌아간다.
-async function publishThumbs(client,ids){
+// 검수 카드로 예약한 맥미니 영상은 작업 화면에서 발행용으로 고른 썸네일(0129 tikitaka_thumbnails.publish)을 쓴다.
+async function publishThumbs(client,ids,revVideo=new Map()){
  if(!ids.length)return new Map();
  try{
-  const {data,error}=await client.from('publish_thumbnails').select('content_id,object_key').in('content_id',ids);
-  if(error||!data?.length)return new Map();
+  const [pt,tt]=await Promise.all([
+   client.from('publish_thumbnails').select('content_id,object_key').in('content_id',ids),
+   revVideo.size?client.from('tikitaka_thumbnails').select('video_id,publish').in('video_id',[...new Set(revVideo.values())]):Promise.resolve({data:[]})]);
+  const byVideo=new Map((tt.data||[]).filter(r=>r.publish?.key).map(r=>[r.video_id,r.publish.key]));
+  const data=[...(pt.data||[])];
+  const got=new Set(data.map(r=>r.content_id));
+  for(const [yt,vid] of revVideo)if(!got.has(yt)&&byVideo.has(vid))data.push({content_id:yt,object_key:byVideo.get(vid)});
+  if(!data.length)return new Map();
   const signed=await client.storage.from('ves-outputs').createSignedUrls(data.map(r=>r.object_key),3600);
   const url=new Map((signed.data||[]).filter(s=>s.signedUrl).map(s=>[s.path,s.signedUrl]));
   return new Map(data.filter(r=>url.has(r.object_key)).map(r=>[r.content_id,url.get(r.object_key)]));
