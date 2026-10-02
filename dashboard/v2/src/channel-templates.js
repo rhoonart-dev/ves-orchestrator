@@ -10,7 +10,7 @@ import {loadWorkAssets} from './work-assets-data.js?v=1';
 // 아래 '예전 칸'(크기 · 위치 · 화면비)은 예전 파이프라인 채널 값 — 새 파이프라인 렌더에는 아직 안 쓰이지만 나중을 위해 그대로 둔다.
 const OLD_KEYS=new Set(['title_size','title_size2','subtitles','subtitle_size','tts_size','tts_y_margin','aspect_ratio','video_width','video_y']);
 export function mountChannelTemplates(root,{client,role,channel}={}){
- let dead=false,assets=new Map(),logoPicks=new Map(),channels=[],overrides=[],current=null,work=null,scope='channel',designs=new Map(),workDefaults=new Map(),presets=[],videos=[],saving=false,preview=null;
+ let dead=false,voiceList=[],chanVoices=new Map(),workArgs=new Map(),audio=null,assets=new Map(),logoPicks=new Map(),channels=[],overrides=[],current=null,work=null,scope='channel',designs=new Map(),workDefaults=new Map(),presets=[],videos=[],saving=false,preview=null;
  const writable=['operator','admin'].includes(role);
  root.innerHTML='<div class="template-layout"><aside class="template-sidebar"><label>채널 검색<input type="search" placeholder="채널 검색" aria-label="템플릿 채널 검색"></label><div class="template-channels"></div></aside><section class="template-main"><p role="status">채널 템플릿을 불러오는 중…</p></section></div>';
  const main=root.querySelector('.template-main'),list=root.querySelector('.template-channels'),search=root.querySelector('input');
@@ -26,14 +26,14 @@ export function mountChannelTemplates(root,{client,role,channel}={}){
  function renderList(){list.innerHTML=channels.filter(c=>c.name.includes(search.value.trim())).map(c=>`<button type="button" data-slug="${esc(c.token_slug)}" class="has-av${c===current?' active':''}"><span class="tc-av">${c.avatar_url?`<img src="${esc(c.avatar_url)}" alt="" referrerpolicy="no-referrer">`:esc((c.name||'?').slice(0,1))}</span><span class="tc-txt">${esc(c.name)}<small>${c.works?.length||0}개 작품</small></span></button>`).join('');
   list.querySelectorAll('button').forEach(b=>b.onclick=()=>{if(saving||!leave())return;current=channels.find(c=>c.token_slug===b.dataset.slug);work=current.works?.[0]||null;scope='channel';render();});}
  function render(){
-  renderList();preview?.release();preview=null;
+  renderList();preview?.release();preview=null;if(audio){audio.pause();audio=null;}
   const works=current.works||[];
   if(work&&!works.includes(work))work=works[0]||null;
   const override=overrides.find(o=>o.token_slug===current.token_slug),old=override?.design??current.design??{};
   const oldHtml=`<details class="ct-old"><summary>예전 칸 · 크기 · 위치 · 화면비 <small>채널 전체 값 · 새 파이프라인 렌더에는 아직 안 쓰여요</small></summary>
     <form class="template-form ct-old-form"><fieldset ${writable?'':'disabled'}>${['제목','자막','내레이션 자막','영상 영역'].map(g=>{const fs=templateFields.filter(f=>f[0]===g&&OLD_KEYS.has(f[1]));return fs.length?`<section><h3>${g}</h3><div class="template-fields">${fs.map(([,k,l,t,min,max])=>{const v=old[k]??'';return `<label>${l}${t==='onoff'?`<select name="${k}"><option value="">켬 (기본)</option><option value="false" ${v===false||v==='false'?'selected':''}>끔</option></select>`:`<input name="${k}" type="${t==='number'?'number':'text'}" value="${esc(v)}" placeholder="${t==='ratio'?'예: 13:9':'기본값 사용'}" ${t==='number'?`min="${min}" max="${max}" step="1"`:''}>`}</label>`;}).join('')}</div></section>`:'';}).join('')}
      <p class="rt-status" role="status"></p>${writable?'<div class="rt-actions"><span></span><button type="submit" class="primary">예전 칸 저장</button></div>':''}</fieldset></form></details>`;
-  const tabs=works.map(w=>`<button type="button" class="ct-tab${w===work?' on':''}" data-work="${esc(w)}">${swatch(effective(current.token_slug,w))}${esc(w)}${designs.has(key(current.token_slug,w))?'<i class="ct-dot" title="이 채널에서만 따로 정한 값이 있어요"></i>':''}</button>`).join('');
+  const tabs=works.map(w=>`<button type="button" class="ct-tab${w===work?' on':''}" data-work="${esc(w)}">${swatch(effective(current.token_slug,w))}${esc(w)}${designs.has(key(current.token_slug,w))||chanVoices.has(key(current.token_slug,w))?'<i class="ct-dot" title="이 채널에서만 따로 정한 값이 있어요"></i>':''}</button>`).join('');
   let top='',body='<p class="workbench-note">이 채널에 생성 대상 작품이 없어요. 채널 관리에서 작품을 붙이면 여기서 모양을 정할 수 있어요.</p>';
   if(work){
    const ch=chanDesign(),wd=workDesign();
@@ -46,6 +46,7 @@ export function mountChannelTemplates(root,{client,role,channel}={}){
    body=`<div class="template-split ct-split"><div class="ct-left"><form class="template-form rt-form"><fieldset ${writable?'':'disabled'}>
      ${loads.length&&writable?`<div class="ct-load"><select data-load><option value="">불러오기…</option>${loads.map((l,i)=>`<option value="${i}">${esc(l.label)}</option>`).join('')}</select></div>`:''}
      <section class="ct-logo"><h3>작품 로고</h3><div class="ct-logo-row"><span class="rt-none">작품 관리에 올린 로고를 불러오는 중…</span></div></section>
+     ${voiceHtml()}
      ${fieldsHtml(scope==='channel'?(ch||{}):(wd||{}),scope==='channel'?(wd||{}):{})}
      <p class="rt-status" role="status"></p>
      <div class="rt-actions">${writable&&(scope==='channel'?ch:wd)?`<button type="button" class="rt-retire" data-clear>${scope==='channel'?'따로 정한 값 지우기':'기본값 지우기'}</button>`:''}<span></span>${writable?'<button type="button" data-reset>되돌리기</button><button type="submit" class="primary">저장</button>':'<span class="rt-none">운영자만 바꿀 수 있어요.</span>'}</div>
@@ -89,7 +90,29 @@ export function mountChannelTemplates(root,{client,role,channel}={}){
   preview=mountPreview(main.querySelector('.ct-side'),{client,videos:vids,writable,status,emptyText:'이 작품을 맥미니에서 만든 영상이 아직 없어요. 한 번 만든 뒤 볼 수 있어요.',
    target:()=>({p_work:work,p_slug:scope==='channel'?current.token_slug:null}),
    getDesign:()=>scope==='channel'?{...(workDesign()||{}),...formDesign()}:formDesign()});
-  fillAssets();
+  fillAssets();wireVoice();
+ }
+ // 내레이션 목소리(0136) — '이 채널에서만'은 채널 × 작품 목소리(비우면 모든 채널 기본), '모든 채널 기본'은 작품 엔진 설정의 voice. 고르면 바로 저장
+ const voiceName=id=>{const v=voiceList.find(x=>x.id===id);return v?`${v.name}${v.gender?` (${v.gender})`:''}`:(id?id.replace(/^elevenlabs:/,''):'');};
+ function voiceHtml(){
+  const wv=(workArgs.get(work)||{}).voice||'',cv=chanVoices.get(key(current.token_slug,work))||'';
+  const cur=scope==='channel'?cv:wv;
+  const first=scope==='channel'?`모든 채널 기본 따르기 · ${wv?voiceName(wv):'엔진 기본'}`:'엔진 기본';
+  return `<section class="ct-voice"><h3>내레이션 목소리</h3><div class="ct-voice-row"><select data-voice ${writable?'':'disabled'}><option value="">${esc(first)}</option>${voiceList.map(v=>`<option value="${esc(v.id)}"${v.id===cur?' selected':''}>${esc(voiceName(v.id))}</option>`).join('')}</select><button type="button" class="ct-listen" data-listen>들어 보기</button></div><p class="rt-none">고르면 바로 저장돼요. 다음 작업부터 이 목소리로 만들어요.</p></section>`;
+ }
+ function wireVoice(){
+  const sel=main.querySelector('[data-voice]'),btn=main.querySelector('[data-listen]');if(!sel)return;
+  const stop=()=>{if(audio){audio.pause();audio=null;}btn.textContent='들어 보기';};
+  btn.onclick=()=>{if(audio){stop();return;}const id=sel.value||(scope==='channel'?(workArgs.get(work)||{}).voice:'');const v=voiceList.find(x=>x.id===id);
+   if(!v?.preview_url){btn.textContent='들을 수 있는 소리가 없어요';setTimeout(()=>{btn.textContent='들어 보기';},1500);return;}
+   audio=new Audio(v.preview_url);audio.onended=stop;audio.play().catch(stop);btn.textContent='멈추기';};
+  sel.onchange=async()=>{const v=sel.value||null,k=key(current.token_slug,work);sel.disabled=true;let r;
+   if(scope==='channel')r=await client.rpc('set_channel_work_voice',{p_slug:current.token_slug,p_work:work,p_voice:v});
+   else{const args={...(workArgs.get(work)||{})};if(v)args.voice=v;else delete args.voice;r=await client.rpc('set_work_engine_args',{p_work:work,p_args:args});if(!r.error)workArgs.set(work,args);}
+   sel.disabled=!writable;const st=main.querySelector('.rt-form .rt-status');
+   if(r.error){if(st)st.textContent=r.error.message;return;}
+   if(scope==='channel'){v?chanVoices.set(k,v):chanVoices.delete(k);}
+   if(st)st.textContent=`목소리를 ${v?voiceName(v):scope==='channel'?'모든 채널 기본':'엔진 기본'}(으)로 바꿨어요.`;};
  }
  // 작품 로고(작품 관리 에셋) — '이 채널에서만'이면 고르기(채널 관리 로고 칸과 같은 값), '모든 채널 기본'이면 작품 기본 로고 보기만.
  // 권리사 칸에는 작품 관리에 올린 권리사 로고도 고를 수 있게 넣는다
@@ -122,14 +145,17 @@ export function mountChannelTemplates(root,{client,role,channel}={}){
  else Promise.all([
   readAll(()=>client.from('channels_mirror').select('token_slug,name,design,works,avatar_url').order('name')).then(c=>visibleChannels(client,c)).then(c=>withWorkOverrides(client,c)),
   readAll(()=>client.from('channel_design_overrides').select('token_slug,design').order('token_slug')),
-  readAll(()=>client.from('channel_work_designs').select('token_slug,work_title,design').order('token_slug')),
+  readAll(()=>client.from('channel_work_designs').select('token_slug,work_title,design,voice').order('token_slug')),
   readAll(()=>client.from('work_cards').select('work_title,render_design').not('render_design','is',null).order('work_title')),
   readAll(()=>client.from('render_templates').select('id,name,design').is('retired_at',null).order('name')),
-  client.from('tikitaka_videos').select('id,title,suffix,work_title,created_at').order('created_at',{ascending:false}).limit(60).then(r=>r.data||[])
- ]).then(([c,o,cw,wd,t,v])=>{if(dead)return;channels=c;overrides=o;
-  designs=new Map(cw.map(x=>[key(x.token_slug,x.work_title),x.design]));workDefaults=new Map(wd.map(x=>[x.work_title,x.render_design]));presets=t;videos=v;
+  client.from('tikitaka_videos').select('id,title,suffix,work_title,created_at').order('created_at',{ascending:false}).limit(60).then(r=>r.data||[]),
+  client.from('tts_voices').select('id,name,gender,preview_url,sort').eq('active',true).order('sort').order('name').then(r=>r.data||[]),
+  readAll(()=>client.from('work_cards').select('work_title,engine_args').order('work_title'))
+ ]).then(([c,o,cw,wd,t,v,vl,wa])=>{if(dead)return;channels=c;overrides=o;voiceList=vl;workArgs=new Map(wa.map(x=>[x.work_title,x.engine_args||{}]));
+  chanVoices=new Map(cw.filter(x=>x.voice).map(x=>[key(x.token_slug,x.work_title),x.voice]));
+  designs=new Map(cw.filter(x=>x.design&&Object.keys(x.design).length).map(x=>[key(x.token_slug,x.work_title),x.design]));workDefaults=new Map(wd.map(x=>[x.work_title,x.render_design]));presets=t;videos=v;
   current=c.find(x=>x.token_slug===channel)||c[0];
   if(current){work=current.works?.[0]||null;render();list.querySelector('.active')?.scrollIntoView({block:'nearest'});}else main.textContent='등록된 채널이 없습니다.';})
   .catch(e=>{if(!dead)main.textContent='템플릿을 불러오지 못했어요. '+(e.message||'');});
- return()=>{dead=true;preview?.release();};
+ return()=>{dead=true;preview?.release();if(audio)audio.pause();};
 }
