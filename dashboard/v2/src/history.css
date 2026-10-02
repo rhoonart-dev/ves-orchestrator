@@ -65,3 +65,4 @@ td.hist-err{margin:0}
 .hist-why[aria-expanded="true"] svg{transform:rotate(180deg)}
 .hist-prog{margin-left:6px;font-size:11px;color:var(--secondary)}
 .hist-why.is-past{background:var(--inset);color:var(--muted)}.hist-why.is-past:hover,.hist-why.is-past[aria-expanded="true"]{background:var(--hover);color:var(--ink)}
+.hist-acts button[data-act="cancel"]{color:var(--ink)}   /* 단계 멈춤은 검정, 작업 취소만 빨강 */
