@@ -22,3 +22,6 @@
 .acc-table input{width:100%;min-width:140px}
 .acc-table select:disabled,.acc-table input:disabled{color:var(--muted)}
 @media(max-width:760px){.acc-panel{padding:18px 16px}}
+
+/* 닉네임(0139) — 각자 계정 창에서 정한다 */
+.acc-nick{white-space:nowrap;font-weight:600}.acc-nick .acc-none{font-weight:400;color:var(--muted)}

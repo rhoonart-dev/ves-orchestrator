@@ -49,6 +49,10 @@
 .video-list-card.has-heart .video-list-copy{padding-right:22px}
 /* 카드 제목 두 줄(썸네일과 같게) — 줄마다 한 줄, 넘치면 … */
 .video-list-copy strong .tl{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.heart-intro{position:absolute;left:9px;top:52px;z-index:3;width:min(240px,calc(100% - 18px));background:var(--surface);color:var(--ink);border-radius:12px;padding:12px 14px;box-shadow:0 10px 28px rgba(0,0,0,.28)}
-.heart-intro p{margin:0 0 10px;font-size:12px;line-height:1.55}
-.heart-intro button{border:0;border-radius:8px;background:var(--solid);color:var(--on-solid);font:inherit;font-size:12px;font-weight:600;padding:6px 14px;cursor:pointer}
+.heart-intro{position:absolute;left:8px;top:54px;z-index:3;width:min(232px,calc(100% - 16px));background:var(--surface);color:var(--ink);border-radius:16px;padding:12px 14px 12px;box-shadow:0 8px 24px rgba(0,0,0,.25);animation:heart-intro-in .18s ease-out;transform-origin:18px -8px}
+/* 말풍선 꼬리 — 하트 버튼 가운데를 가리킨다 */
+.heart-intro::before{content:'';position:absolute;left:14px;top:-7px;width:16px;height:16px;background:inherit;border-radius:3px;transform:rotate(45deg)}
+.heart-intro p{position:relative;margin:0;font-size:12px;line-height:1.55;word-break:keep-all}
+.heart-intro p b{color:#ff4f8b}
+.heart-intro button{display:block;margin:10px 0 0 auto;border:0;border-radius:999px;background:#ff4f8b;color:#fff;font:inherit;font-size:12px;font-weight:600;padding:5px 14px;cursor:pointer}
+@keyframes heart-intro-in{from{opacity:0;transform:scale(.92)}to{opacity:1;transform:none}}

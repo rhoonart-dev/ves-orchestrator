@@ -12,6 +12,10 @@ export function mountAccess(root, {client = null, role = null, email = ""} = {})
     if (dead) return;
     rows = error ? [] : (data || []).sort((a, b) => ROLES.findIndex(r => r[0] === b.role) - ROLES.findIndex(r => r[0] === a.role) || String(a.email).localeCompare(String(b.email)));
     err = error ? error.message : "";
+    // 닉네임(0139 user_profiles) — 계정 창에서 각자 정한 이름
+    const ids = (rows || []).map(u => u.user_id).filter(Boolean);
+    if (ids.length){ const {data:pf} = await client.from("user_profiles").select("user_id,nickname").in("user_id", ids);
+      if (dead) return; const nick = new Map((pf || []).map(p => [p.user_id, p.nickname])); rows.forEach(u => { u.nickname = nick.get(u.user_id) || ""; }); }
     draw();
   }
   function draw(){
@@ -20,9 +24,10 @@ export function mountAccess(root, {client = null, role = null, email = ""} = {})
     const body = !rows ? '<p class="acc-note">불러오는 중…</p>'
       : err ? `<p class="acc-note acc-err">목록을 불러오지 못했어요. ${esc(err)}</p>`
       : !rows.length ? '<p class="acc-note">사용자가 없어요.</p>'
-      : `<div class="acc-table"><table><thead><tr><th>이메일</th><th>권한</th><th>메모</th><th></th></tr></thead><tbody>${rows.map((u, i) => {
+      : `<div class="acc-table"><table><thead><tr><th>이메일</th><th>닉네임</th><th>권한</th><th>메모</th><th></th></tr></thead><tbody>${rows.map((u, i) => {
           const self = String(u.email).toLowerCase() === me;
           return `<tr data-i="${i}"><td class="acc-mail"><span>${esc(u.email)}</span>${self ? '<small>나</small>' : ""}</td>
+            <td class="acc-nick">${esc(u.nickname || "")}</td>
             <td><select aria-label="권한" ${self ? "disabled" : ""}>${ROLES.map(([k, l]) => `<option value="${k}" ${u.role === k ? "selected" : ""}>${l}</option>`).join("")}</select></td>
             <td><input type="text" value="${esc(u.note || "")}" placeholder="메모" aria-label="메모" ${self ? "disabled" : ""}></td>
             <td>${self ? "" : '<button type="button" class="acc-save" disabled>저장</button>'}</td></tr>`;
