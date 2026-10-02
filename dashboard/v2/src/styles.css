@@ -132,3 +132,7 @@ dialog{background:var(--surface);color:var(--ink)}form input{background:var(--in
 .pr-limit b{display:block;font-size:12px;margin-bottom:3px}
 .pr-limit p{margin:0;font-size:12px;line-height:1.6;color:var(--secondary)}
 
+
+/* 닉네임(0139) — 계정 창, 팀이 같이 보는 표시에 이메일 대신 */
+.account-nick{display:flex;align-items:center;gap:10px;font-size:12px}.account-nick>span{flex:none;font-weight:600}
+.account-nick input{flex:1;min-width:0;border:0;border-radius:8px;background:var(--inset);padding:8px 10px;font:inherit;font-size:13px;color:var(--ink)}
