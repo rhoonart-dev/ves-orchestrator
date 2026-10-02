@@ -78,7 +78,9 @@ def should_pin(result) -> bool:
 def post_success(cfg, conn, job, result):
     """★acquire→generate 어피니티(첫 전체 회전 실측): acquire 는 mm-06, generate 는
     다른 노드에 떨어져 '소스 캐시 없음' 즉사 — upload/ingest/evaluate 핀(_pin_dependents)과
-    같은 규약으로 이 구간만 빠져 있던 것을 메운다."""
+    같은 규약으로 이 구간만 빠져 있던 것을 메운다.
+    tikitaka_generate 는 고정하지 않는다(2026-10-02) — 원본이 없으면 스스로 받으므로(ensure_cached) 놀고 있는 노드가 가져간다.
+    한 원본으로 여러 채널 작업을 걸었을 때 원본을 받은 노드 한 대에 줄 서던 것."""
     if not should_pin(result):
         return
     cap = [f"node:{cfg.node_id}"]
@@ -86,7 +88,14 @@ def post_success(cfg, conn, job, result):
         c.execute(
             """UPDATE public.job_queue
                   SET required_caps = required_caps || %s::text[], updated_at=now()
-                WHERE work_order_id=%s AND kind IN ('generate','tikitaka_generate')
+                WHERE work_order_id=%s AND kind = 'generate'
                   AND status='pending'
                   AND NOT required_caps @> %s::text[]""",
             (cap, job["work_order_id"], cap))
+
+
+def ensure_cached(cfg, conn, sha256: str) -> str:
+    """sha 로 등록된 원본을 이 노드 캐시에 둔다(이미 있으면 그대로). tikitaka_generate 가 원본을 받은 노드가 아니어도
+    스스로 받게 — 같은 원본으로 여러 채널 작업을 한꺼번에 걸면 노드마다 나눠 돈다(2026-10-02 사용자 요청)."""
+    out = run(cfg, conn, {"params": {"source_sha256": sha256}}, {})
+    return out.get("source", "")
