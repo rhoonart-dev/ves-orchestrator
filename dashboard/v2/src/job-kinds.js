@@ -6,5 +6,6 @@ export const JOB_KIND={
  register_sources:'소스 등록',scan_drive_shorts:'드라이브 쇼츠 확인',zanmang_autopilot:'잔망루피 자동화',zanmang_decision:'잔망루피 검수 반영',
  editor_assets:'편집실 준비',scan_work_logos:'로고 찾기',
  tikitaka_generate:'영상 만들기',tikitaka_upload:'영상 올리기',tikitaka_apply_edit:'다시 렌더',tikitaka_publish:'유튜브 올리기',
+ tikitaka_thumbnails:'썸네일 만들기',template_preview:'실제 모양 보기',
  youtube_overlap:'겹치는 장면 찾기',build_compilation:'합본 만들기'};
 export const jobKindKo=k=>JOB_KIND[k]||k||'?';
