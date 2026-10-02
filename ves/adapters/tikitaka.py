@@ -424,6 +424,11 @@ class Generate:
     def enrich_params(cfg, conn, job):
         p = dict(job.get("params") or {})
         p["logo_asset"] = pinned_logo(conn, job)   # 없으면 None — 엔진은 작품 가이드의 '로고:' 를 쓴다
+        sha = p.get("source_sha256")
+        if sha and not os.path.exists(cfgmod.source_cache_path(cfg, sha)):
+            from ves.adapters import acquire
+            print(f"[tikitaka_generate] 이 노드에 원본이 없어 받는다: {sha[:12]}")
+            acquire.ensure_cached(cfg, conn, sha)   # 실패하면 build_argv 가 다시 시도할 오류로 멈춘다
         p["task_guides"] = task_guides(cfg, conn, p)
         work_args = {}
         if p.get("work_title"):
@@ -454,7 +459,7 @@ class Generate:
             raise base.PermanentError("원본 파일(sha256)이 없어요 — 새 방식은 소스 창고의 파일만 받아요")
         src = cfgmod.source_cache_path(cfg, sha)
         if not os.path.exists(src):
-            raise base.PermanentError(f"원본 캐시가 이 노드에 없어요: {src} — acquire 가 다른 노드에서 돌았을 수 있어요")
+            raise RuntimeError(f"원본을 이 노드로 받지 못했어요: {src} — 다시 시도해요")
         argv = build_argv_pure(cfgmod.engine_py(cfg, "ai_video"), p, src, Generate._out_dir(cfg, job))
         guides = p.get("task_guides") or []
         if guides:

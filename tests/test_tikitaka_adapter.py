@@ -179,3 +179,25 @@ def test_effective_args_channel_voice_wins():
     from ves.adapters.tikitaka import effective_args
     assert effective_args({"voice": "a"}, {"voice": "b"}, "elevenlabs:c")["voice"] == "elevenlabs:c"
     assert effective_args({}, {"voice": "elevenlabs:b"}, None)["voice"] == "elevenlabs:b"
+
+
+def test_generate_fetches_missing_source(tmp_path, monkeypatch):
+    """원본을 받은 노드가 아니어도 시작할 때 스스로 받는다 — 여러 채널 작업이 노드마다 나눠 돈다."""
+    from ves import config as cfgmod
+    from ves.adapters import acquire, tikitaka
+    got = []
+    monkeypatch.setattr(cfgmod, "source_cache_path", lambda cfg, sha: str(tmp_path / sha))
+    monkeypatch.setattr(acquire, "ensure_cached", lambda cfg, conn, sha: got.append(sha) or "downloaded")
+    monkeypatch.setattr(tikitaka, "pinned_logo", lambda conn, job: None)
+    monkeypatch.setattr(tikitaka, "task_guides", lambda cfg, conn, p: [])
+    monkeypatch.setattr(tikitaka, "render_template", lambda conn, p: None)
+
+    class Conn:
+        def cursor(self): raise RuntimeError("db 없음")
+
+    p = tikitaka.Generate.enrich_params(None, Conn(), {"id": "j", "params": {"source_sha256": "abc"}})
+    assert got == ["abc"] and p["args"]["script_flow"] == "staged"
+    (tmp_path / "abc").write_bytes(b"x")
+    got.clear()
+    tikitaka.Generate.enrich_params(None, Conn(), {"id": "j", "params": {"source_sha256": "abc"}})
+    assert got == []
