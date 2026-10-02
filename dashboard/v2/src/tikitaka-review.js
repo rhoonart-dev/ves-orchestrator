@@ -49,12 +49,12 @@ export function suggestTime(times,now=new Date()){
  for(let i=0;i<60&&taken.has(kst(d).date);i++)d=new Date(d.getTime()+24*3600e3);
  return {date:kst(d).date,time:usual,known:count.size>0};
 }
-// 유튜브 제목 · 설명 · 태그 기본값 — 영상을 만들 때 정한 값(publish.json) + 레이블리 필수 표기
+// 유튜브 제목 · 설명 기본값 — 영상을 만들 때 정한 값(publish.json) + 레이블리 필수 표기
 function metaDefault(video,work){
  const p=video.publish||{};
  const tags=(p.hashtags||[]).map(h=>String(h).replace(/^#/,'').trim()).filter(Boolean);
- const head=[[p.work||video.work_title,p.episode||video.episode].filter(Boolean).join(' '),p.copy].filter(Boolean);
- if(work?.required_hashtags_notice)head.push(String(work.required_hashtags_notice).trim());
+ const head=[p.work||video.work_title,p.copy].filter(Boolean);   // 첫 줄은 작품명만 — 회차는 두 회차 합본이면 엔진이 마지막 회차만 적어서 뺐다
+ // required_hashtags_notice 는 레이블리가 만드는 사람에게 주는 안내(예: '식별코드는 꼭 설명란에')라 설명란에 넣지 않는다
  const line=[...tags.map(t=>'#'+t),...String(work?.required_hashtags_description||'').split(/\s+/).filter(Boolean).map(t=>t.startsWith('#')?t:'#'+t)];
  return {title:String(p.title||video.title||'').replace(/\s*\n\s*/g,' ').trim(),description:[head.join('\n'),[...new Set(line)].join(' ')].filter(Boolean).join('\n\n'),tags};
 }
@@ -90,7 +90,21 @@ export function mountTikitakaReview(root,{client,videoId,title,canReview,editHre
   const st=d&&stageOf(d).key;
   poll=setTimeout(()=>refresh(true),['uploading','submitting','submitted','waiting'].includes(st)?15000:60000);
  }
+ // 1분마다 새로 그려도 사람이 고치던 값(설명 · 제목 · 태그 · 시각 등)은 그대로 둔다 — 같은 판일 때만
+ const KEEP=['yt_title','yt_desc','pub_date','pub_time','episode_part','remarks','reject_note','is_aired'];
+ let kept=null;
+ function keepForm(){
+  if(!d)return;const vals={};for(const n of KEEP){const el=root.querySelector(`[name="${n}"]`);if(el)vals[n]=el.value;}
+  const meta=root.querySelector('details.tr-meta');
+  if(Object.keys(vals).length)kept={fp:d.video.render_fingerprint,vals,metaOpen:meta?meta.open:null};
+ }
+ function restoreForm(){
+  if(!kept||kept.fp!==d.video.render_fingerprint)return;
+  for(const [n,v] of Object.entries(kept.vals)){const el=root.querySelector(`[name="${n}"]`);if(el)el.value=v;}
+  const meta=root.querySelector('details.tr-meta');if(meta&&kept.metaOpen!==null)meta.open=kept.metaOpen;
+ }
  function draw(){
+  keepForm();
   const {video,review:r,channel,work,application:a,inspection:i,job,parts,release}=d,st=stageOf(d);
   const policy=work?.inspection_policy,aired=r?.is_aired;
   const route=r&&!['internal','rejected'].includes(st.key)?r.route:policy==='required'?'rights':policy==='none'?'direct':policy==='unaired_only'?null:undefined;
@@ -107,7 +121,7 @@ export function mountTikitakaReview(root,{client,videoId,title,canReview,editHre
   else if(!policy)blockers.push('이 작품의 검수 정책이 정해지지 않았어요. 권리사 검수 탭의 작품 검수 정책에서 정해 주세요.');
   if(work&&(!a||a.status!==true||a.rejected_bool))blockers.push('이 채널의 작품 사용 신청이 아직 승인되지 않았어요. 레이블리에서 사용 신청을 먼저 확인해 주세요.');
   const meta=r?.meta?.title&&st.key!=='internal'?r.meta:metaDefault(video,work);
-  const metaHtml=(open=false)=>`<details class="tr-meta"${open?' open':''}><summary>유튜브에 올릴 정보 <small>제목 · 설명 · 태그</small></summary><div class="tr-form"><label>제목<input name="yt_title" maxlength="100" value="${esc(meta.title)}"></label><label>설명<textarea name="yt_desc" rows="5">${esc(meta.description)}</textarea></label><label>태그 <small>쉼표로 나눠요</small><input name="yt_tags" value="${esc((meta.tags||[]).join(', '))}"></label><p class="tr-hint">영상을 만들 때 정해진 값이에요. 고치면 올릴 때 고친 값으로 올라가요.</p></div></details>`;
+  const metaHtml=(open=false)=>`<details class="tr-meta"${open?' open':''}><summary>유튜브에 올릴 정보 <small>제목 · 설명</small></summary><div class="tr-form"><label>제목<input name="yt_title" maxlength="100" value="${esc(meta.title)}"></label><label>설명<textarea name="yt_desc" rows="5">${esc(meta.description)}</textarea></label><p class="tr-hint">영상을 만들 때 정해진 값이에요. 고치면 올릴 때 고친 값으로 올라가요.</p></div></details>`;
   const releaseHtml=()=>release?`<div class="tr-must"><b>지켜야 할 공개 시각</b><p>${esc(video.episode||release.episode_label||'')}이 ${esc(release.platform||'원작 플랫폼')}에서 ${esc(longTime(release.release_at))}에 공개돼요. 그 뒤로 공개해 주세요.</p><small>발행 일정 · 작품 공개 일정에서 가져왔어요</small></div>`:'';
   const sug=suggestTime(d.channelTimes.map(x=>x.publish_at));
   const timeHtml=(label,hint,date,time)=>`<div class="tr-form"><label>${label} <small>${hint}</small><span class="tr-row"><input type="date" name="pub_date" value="${date}" required><input type="time" name="pub_time" value="${time}" required></span></label></div>`;
@@ -126,6 +140,7 @@ export function mountTikitakaReview(root,{client,videoId,title,canReview,editHre
     acts=rejecting?'<button type="button" class="tr-btn" data-act="cancel-reject">취소</button><button type="button" class="tr-btn danger" data-act="reject">반려하기</button>':'<button type="button" class="tr-btn danger" data-act="open-reject">반려</button><button type="button" class="tr-btn pri" data-act="approve">승인하고 예약 발행</button>';
     if(!rejecting)acts+='';
     notice=notice||'예약 발행을 누르면 영상이 비공개로 먼저 올라가고, 정한 시각에 저절로 공개돼요.';
+    if(work?.geo_block_required)notice+=' 지역 제한이 필요한 작품이라, 공개 시각 전에 유튜브 스튜디오에서 지역 제한을 설정해 주세요.';
    }else{body='';acts='';}
    if(blockers.length){acts=acts.replace(/data-act="approve"/,'data-act="approve" disabled');}
   }else if(st.key==='rejected'){
@@ -161,10 +176,15 @@ export function mountTikitakaReview(root,{client,videoId,title,canReview,editHre
    const past=r.publish_at&&Date.parse(r.publish_at)<=Date.now();
    body=status('scheduled',when?`${when} ${past?'공개됨':'공개 예정'}`:'예약했어요',p(r.publish_kind==='studio'?'스튜디오에서 공개·예약한 시각이에요. 발행 일정에도 올라가요.':'정한 시각에 유튜브가 공개로 바꿔요. 발행 일정에도 올라가요.'));
    acts=r.youtube_id?`<a class="tr-btn" href="https://www.youtube.com/watch?v=${encodeURIComponent(r.youtube_id)}" target="_blank" rel="noopener noreferrer">유튜브에서 보기 ↗</a>`:'';
+   if(r.meta?.geo_block_todo&&!past){   // 지역 제한은 사람이 스튜디오에서(올리기 권한만 있는 채널이 많다)
+    body+=`<div class="tr-must"><b>지역 제한 설정</b><p>공개 시각 전에 유튜브 스튜디오에서 지역 제한을 설정해 주세요.</p></div>`;
+    if(r.youtube_id)acts=`<a class="tr-btn" href="https://studio.youtube.com/video/${encodeURIComponent(r.youtube_id)}/edit" target="_blank" rel="noopener noreferrer">스튜디오에서 열기 ↗</a>`+acts;
+   }
   }
   if(!canReview)acts='';
   const top=round?`${round}차 검수`:'내부 검수';
   root.innerHTML=`<section class="workflow-card tr-card"><div class="workflow-card-top"><span>검수 진행</span><span>${esc(top)}</span></div><h3>${esc(title||video.title||'')}</h3><p class="workflow-card-policy">${esc(policyText)}${channel?.name?' · '+esc(channel.name):''}</p><ol class="workflow-steps" aria-label="진행 단계">${steps.map((t,n)=>`<li ${n===at?'aria-current="step"':''}>${t}</li>`).join('')}</ol>${body}${blockers.length&&st.key==='internal'?blockers.map(b=>`<p class="workflow-notice">${esc(b)}</p>`).join(''):''}${notice?`<p class="workflow-notice">${esc(notice)}</p>`:''}<p class="tr-error" role="alert"></p>${acts?`<div class="tr-acts">${acts}</div>`:''}${!canReview&&st.key==='internal'?'<p class="workbench-note">검수는 검수자부터 할 수 있어요.</p>':''}</section>`;
+  restoreForm();
   bind();
  }
  const val=n=>root.querySelector(`[name="${n}"]`)?.value;
@@ -178,7 +198,7 @@ export function mountTikitakaReview(root,{client,videoId,title,canReview,editHre
   on('reject',async()=>{const note=val('reject_note')?.trim();if(!note)throw Error('반려 사유를 적어 주세요.');
    await rpc('tikitaka_review_reject',{p_video:videoId,p_based_on:d.video.render_fingerprint,p_note:note});rejecting=false;await after('반려했어요.');});
   on('approve',async()=>{
-   const tags=(val('yt_tags')||'').split(',').map(t=>t.trim().replace(/^#/,'')).filter(Boolean);
+   const tags=[];   // 유튜브 태그 칸은 쓰지 않는다 — 해시태그는 설명란에만(2026-10-02 사용자 결정)
    const air=val('is_aired');const date=val('pub_date'),time=val('pub_time');
    const args={p_video:videoId,p_based_on:d.video.render_fingerprint,p_meta:{title:(val('yt_title')||'').trim(),description:val('yt_desc')||'',tags},
     p_episode_part:val('episode_part')?+val('episode_part'):null,p_remarks:val('remarks')||null,
