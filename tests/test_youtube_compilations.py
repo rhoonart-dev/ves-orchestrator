@@ -121,3 +121,15 @@ def test_clean_thumb_manual():
     with pytest.raises(base.PermanentError):
         tk.clean_thumb_manual([{"frame": "nope"}], doc)
     assert tk.THUMB_UP.match("frames/c00_01.jpg") and tk.THUMB_UP.match("thumb_3.png") and not tk.THUMB_UP.match("dashboard_run.log")
+
+
+def test_dialogue_gaps_only_in_original_audio_clips():
+    err = "[silencedetect] silence_start: 32.19\n silence_end: 32.55 | silence_duration: 0.36\n" \
+          "silence_start: 36.82\n silence_end: 37.2\n silence_start: 42.5\n silence_end: 43.42\n silence_start: 50.0\n silence_end: 50.1\n"
+    sil = tk.parse_silences(err)
+    assert sil[0] == (32.19, 32.55) and len(sil) == 4
+    timeline = [{"clip_start_sec": 0, "clip_end_sec": 30}, {"clip_start_sec": 100, "clip_end_sec": 106},       # 0~36 원음
+                {"clip_start_sec": 200, "clip_end_sec": 201.5, "cover": True, "use_original_audio": False},     # 36~37.5 덮개
+                {"clip_start_sec": 300, "clip_end_sec": 315}]                                                   # 37.5~52.5 원음
+    gaps = tk.dialogue_gaps(sil, timeline)
+    assert gaps == [{"start": 32.19, "end": 32.55}, {"start": 42.5, "end": 43.42}]   # 덮개 안 · 짧은 것은 빼고
