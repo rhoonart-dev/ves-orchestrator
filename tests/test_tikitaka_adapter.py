@@ -165,3 +165,11 @@ def test_render_template_reads_db_and_tolerates_missing():
     assert render_template(Conn(Cur({"t": t})), {"work_title": "w", "channel_slug": "c"}) == t
     assert render_template(Conn(Cur({"t": None})), {"work_title": "w"}) is None
     assert render_template(Conn(Cur(boom=True)), {"work_title": "w"}) is None
+
+
+def test_effective_args_defaults_fixed_and_overrides():
+    from ves.adapters.tikitaka import effective_args
+    assert effective_args({}, {}) == {"stt": "elevenlabs", "cover_cut_guard": True, "script_flow": "staged", "speed": "fast"}
+    got = effective_args({"cover_cut_guard": False, "speed": "normal"}, {"voice": "elevenlabs:x", "stt": "default", "script_flow": "single"})
+    assert got["cover_cut_guard"] is False and got["stt"] == "default" and got["voice"] == "elevenlabs:x"
+    assert got["speed"] == "fast" and got["script_flow"] == "staged"
