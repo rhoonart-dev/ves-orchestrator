@@ -19,6 +19,7 @@ import {setupHoverTips} from './hover-tip.js?v=4';
 import {setupWheelScroll} from './wheel-scroll.js';
 import {setupLayoutMotion} from './layout-motion.js';
 import {mountWorkbench} from './workbench.js?v=list-2';
+import {loadEngineFonts} from './engine-fonts.js?v=1';
 import {sampleJobs} from './review-model.js';
 import {loadLocalJobs} from './local-jobs.js?v=room-1';
 import {mountReview} from './review.js?v=room-1';
@@ -127,7 +128,7 @@ try{
   if(next.status==='ready')client.auth.getUser().then(({data})=>{if(data?.user)drawAccountRobot(data.user);},()=>{});
   $('account-email').textContent=next.user?.email||'';
   $('account-role').textContent=({viewer:'보기만',reviewer:'검수',operator:'운영',admin:'관리자'})[next.role]||'';
-  if(next.status==='ready')$('password').value='';
+  if(next.status==='ready'){$('password').value='';loadEngineFonts(client);}   // 템플릿 미리보기 폰트(배포 금지 사용권은 비공개 저장소에서)
   draw();
  });
 }catch{authState={status:'error',user:null,role:null,message:'로그인 서버에 연결하지 못했습니다. 잠시 후 새로고침해 주세요.'};$('submit-login').disabled=true;}

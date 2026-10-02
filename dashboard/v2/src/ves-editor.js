@@ -444,7 +444,21 @@ function layoutShorts(){
   const TITLE_FONTS = { "Jalnan": "EngineJalnan", "여기어때 잘난체 2 TTF": "EngineJalnan",
     "JalnanGothic": "EngineJalnanGothic", "여기어때 잘난체 고딕 TTF": "EngineJalnanGothic",
     "mulmaru": "EngineMulmaru", "물마루": "EngineMulmaru", "Griun": "EngineGriun", "그리운 경찰공평체": "EngineGriun",
-    "Noto Sans CJK KR": "EngineNotoBlack", "NotoSansCJKkr-Black": "EngineNotoBlack" };
+    "Noto Sans CJK KR": "EngineNotoBlack", "NotoSansCJKkr-Black": "EngineNotoBlack",
+    // 2026-10-02 추가 — 굵기마다 따로(src/editor-shell.css @font-face · 와구리체는 src/engine-fonts.js)
+    "페이퍼로지 세미볼드": "EnginePaperlogy6SemiBold", "Paperlogy-6SemiBold": "EnginePaperlogy6SemiBold",
+    "페이퍼로지 볼드": "EnginePaperlogy7Bold", "Paperlogy-7Bold": "EnginePaperlogy7Bold",
+    "페이퍼로지 엑스트라볼드": "EnginePaperlogy8ExtraBold", "Paperlogy-8ExtraBold": "EnginePaperlogy8ExtraBold",
+    "페이퍼로지 블랙": "EnginePaperlogy9Black", "Paperlogy-9Black": "EnginePaperlogy9Black",
+    "프리젠테이션 세미볼드": "EngineFreesentation6SemiBold", "Freesentation-6SemiBold": "EngineFreesentation6SemiBold",
+    "프리젠테이션 볼드": "EngineFreesentation7Bold", "Freesentation-7Bold": "EngineFreesentation7Bold",
+    "프리젠테이션 엑스트라볼드": "EngineFreesentation8ExtraBold", "Freesentation-8ExtraBold": "EngineFreesentation8ExtraBold",
+    "프리젠테이션 블랙": "EngineFreesentation9Black", "Freesentation-9Black": "EngineFreesentation9Black",
+    "와구리체": "EngineWaguri", "WAGURI": "EngineWaguri",
+    "에이투지체 세미볼드": "EngineA2Z6SemiBold", "A2Z-6SemiBold": "EngineA2Z6SemiBold",
+    "에이투지체 볼드": "EngineA2Z7Bold", "A2Z-7Bold": "EngineA2Z7Bold",
+    "에이투지체 엑스트라볼드": "EngineA2Z8ExtraBold", "A2Z-8ExtraBold": "EngineA2Z8ExtraBold",
+    "에이투지체 블랙": "EngineA2Z9Black", "A2Z-9Black": "EngineA2Z9Black" };
   ot.style.fontFamily = `${TITLE_FONTS[d.title_font || "Jalnan"] || "EngineJalnan"},"Noto Sans KR",sans-serif`;
   ot.style.fontWeight = "400";            // 엔진 글꼴은 굵기가 하나뿐 — 브라우저가 가짜 굵게를 입히지 않게
   // 줄별 배경 박스(ai-video 8661b2ed 렌더러와 같은 자): 여백 = 0.30×글자 크기(사방), 둥근 반지름 = 0.25×글자 크기.
@@ -614,7 +628,21 @@ const CANVAS_W = 1080, CANVAS_H = 1920, SUB_W_BASE = 0.852;
 //  · 자리: subtitle_band_offset 이 있으면 자막 윗변 = 영상 밴드 아랫변 + offset.
 const V3_FONTS = { "": ["EngineNotoBlack", 1], "Noto Sans CJK KR": ["EngineNotoBlack", 1],
   "여기어때 잘난체 2 TTF": ["EngineJalnan", 1 / 1.38], "여기어때 잘난체 고딕 TTF": ["EngineJalnanGothic", 1 / 1.38],
-  "물마루": ["EngineMulmaru", 1 / 1.38], "그리운 경찰공평체": ["EngineGriun", 1 / 1.38] };
+  "물마루": ["EngineMulmaru", 1 / 1.38], "그리운 경찰공평체": ["EngineGriun", 1 / 1.38],
+  // 2026-10-02 추가 — 비율은 libass 실측(같은 Fontsize 에서 Pillow 글자 높이 ÷ libass 글자 높이)
+  "페이퍼로지 세미볼드": ["EnginePaperlogy6SemiBold", 1 / 1.45], "Paperlogy-6SemiBold": ["EnginePaperlogy6SemiBold", 1 / 1.45],
+  "페이퍼로지 볼드": ["EnginePaperlogy7Bold", 1 / 1.45], "Paperlogy-7Bold": ["EnginePaperlogy7Bold", 1 / 1.45],
+  "페이퍼로지 엑스트라볼드": ["EnginePaperlogy8ExtraBold", 1 / 1.45], "Paperlogy-8ExtraBold": ["EnginePaperlogy8ExtraBold", 1 / 1.45],
+  "페이퍼로지 블랙": ["EnginePaperlogy9Black", 1 / 1.45], "Paperlogy-9Black": ["EnginePaperlogy9Black", 1 / 1.45],
+  "프리젠테이션 세미볼드": ["EngineFreesentation6SemiBold", 1 / 1.56], "Freesentation-6SemiBold": ["EngineFreesentation6SemiBold", 1 / 1.56],
+  "프리젠테이션 볼드": ["EngineFreesentation7Bold", 1 / 1.56], "Freesentation-7Bold": ["EngineFreesentation7Bold", 1 / 1.56],
+  "프리젠테이션 엑스트라볼드": ["EngineFreesentation8ExtraBold", 1 / 1.56], "Freesentation-8ExtraBold": ["EngineFreesentation8ExtraBold", 1 / 1.56],
+  "프리젠테이션 블랙": ["EngineFreesentation9Black", 1 / 1.56], "Freesentation-9Black": ["EngineFreesentation9Black", 1 / 1.56],
+  "와구리체": ["EngineWaguri", 1 / 1.06], "WAGURI": ["EngineWaguri", 1 / 1.06],
+  "에이투지체 세미볼드": ["EngineA2Z6SemiBold", 1 / 1.44], "A2Z-6SemiBold": ["EngineA2Z6SemiBold", 1 / 1.44],
+  "에이투지체 볼드": ["EngineA2Z7Bold", 1 / 1.44], "A2Z-7Bold": ["EngineA2Z7Bold", 1 / 1.44],
+  "에이투지체 엑스트라볼드": ["EngineA2Z8ExtraBold", 1 / 1.44], "A2Z-8ExtraBold": ["EngineA2Z8ExtraBold", 1 / 1.44],
+  "에이투지체 블랙": ["EngineA2Z9Black", 1 / 1.44], "A2Z-9Black": ["EngineA2Z9Black", 1 / 1.44] };
 function v3SubFont(d){ return V3_FONTS[d.subtitle_font || ""] || V3_FONTS[""]; }
 const V3_SUB_OUTLINE = 8;                 // ASS Outline(px, 1920 캔버스)
 function subEff(i){                       // 이 줄에 실제로 적용될 값(줄별 > 이 편 > 기본)
@@ -3361,6 +3389,13 @@ document.documentElement.dataset.theme = "dark";
     ["여기어때 잘난체 2 TTF", "여기어때 잘난체"],
     ["여기어때 잘난체 고딕 TTF", "여기어때 잘난체 고딕"],
     ["물마루", "물마루"], ["그리운 경찰공평체", "그리운 경찰공평체"]];
+  // 굵기가 여러 개인 폰트는 제목에는 굵은 것, 자막에는 중간 굵기만 보인다 · 와구리체는 제목 전용(2026-10-02 사용자)
+  const TITLE_FONT_LIST = [...FONTS, ["와구리체", "와구리체"], ["페이퍼로지 블랙", "페이퍼로지 블랙"], ["페이퍼로지 엑스트라볼드", "페이퍼로지 엑스트라볼드"],
+    ["프리젠테이션 블랙", "프리젠테이션 블랙"], ["프리젠테이션 엑스트라볼드", "프리젠테이션 엑스트라볼드"],
+    ["에이투지체 블랙", "에이투지체 블랙"], ["에이투지체 엑스트라볼드", "에이투지체 엑스트라볼드"]];
+  const TEXT_FONT_LIST = [...FONTS.slice(1), ["페이퍼로지 볼드", "페이퍼로지 볼드"], ["페이퍼로지 세미볼드", "페이퍼로지 세미볼드"],
+    ["프리젠테이션 볼드", "프리젠테이션 볼드"], ["프리젠테이션 세미볼드", "프리젠테이션 세미볼드"],
+    ["에이투지체 볼드", "에이투지체 볼드"], ["에이투지체 세미볼드", "에이투지체 세미볼드"]];
   const ph = k => { const b = dsBase(k); return b != null && b !== "" ? "지금: " + b : ""; };
   const dnum = (k, label, hint) => `<label class="dfld"><span>${label}</span>
     <input value="${esc(dsGet(k) ?? "")}" placeholder="${esc(ph(k) || hint || "")}"
@@ -3383,8 +3418,11 @@ document.documentElement.dataset.theme = "dark";
     <input value="${esc(dsGet(k) ?? "")}" placeholder="${esc(ph(k) || hint || "")}"
       onchange="dsSet('${k}',this.value)">
     <button type="button" onclick="stepFld(this,2,${base})" aria-label="크게">${EI.plus}</button></span></label>`;
+  // 폰트 칸은 이름을 그 폰트로 보여 주는 목록으로 바뀐다(src/font-picker.js) — 기본값은 정식 이름으로
+  const FONT_DEF = { title_font: "Jalnan", subtitle_font: "NotoSansCJKkr-Black" };
+  const fontAttr = k => FONT_DEF[k] ? ` data-font data-default-value="${esc(dsBase(k) || FONT_DEF[k])}" data-default="${esc(window.__fontFull ? window.__fontFull(dsBase(k) || FONT_DEF[k]) : "")}"` : "";
   const dsel = (k, label, opts) => `<label class="dfld"><span>${label}</span>
-    <select onchange="dsSet('${k}',this.value)">${opts.map(([v, t]) =>
+    <select onchange="dsSet('${k}',this.value)"${fontAttr(k)}>${opts.map(([v, t]) =>
       `<option value="${v}" ${String(dsGet(k) ?? "") === v ? "selected" : ""}>${esc(t)}</option>`).join("")}
     </select></label>`;
   const dcol = (k, label) => { const v = dsGet(k) ?? "";
@@ -3411,7 +3449,7 @@ document.documentElement.dataset.theme = "dark";
   const tline = (m, i) => { const t = String((m && m.title) || "").split("\n")[i]; return t ? ` <em>${esc(t)}</em>` : ""; };
   window.titleTabHtml = m => `
     <div class="dgrp"><b>공통</b>
-      ${dsel("title_font", "폰트", FONTS)}
+      ${dsel("title_font", "폰트", TITLE_FONT_LIST)}
       ${dmove("title_y", "세로 위치")}
     </div>
     <div class="dgrp"><b>1줄${tline(m, 0)}</b>
@@ -3464,7 +3502,7 @@ document.documentElement.dataset.theme = "dark";
       const nCk = subCk.size, allCk = nCk && nCk === m.subs.length;
       railPanel.innerHTML = `<h3>대사 자막 <span class="faint">${live}/${m.subs.length}</span></h3>
         <div class="dgrp"><b>공통 스타일</b>
-          ${dsel("subtitle_font", "폰트", [["", "기본 (Noto Sans CJK KR Black)"], ...FONTS.slice(1)])}
+          ${dsel("subtitle_font", "폰트", [["", "기본 (Noto Sans CJK KR Black)"], ...TEXT_FONT_LIST])}
           ${dstep("subtitle_size", "기본 크기", "예: 62", +dsBase("subtitle_size") || 62)}
           ${dcol("subtitle_color", "기본 색")}
           ${dsGet("subtitle_font") || dsBase("subtitle_font")
