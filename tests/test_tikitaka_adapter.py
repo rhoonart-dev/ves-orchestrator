@@ -125,3 +125,43 @@ def test_cached_source_sha():
     assert cached_source_sha("/Users/x/Movies/ep1.mp4", "/opt/ves/cache/sources") is None
     assert cached_source_sha(f"/tmp/{sha}", "/opt/ves/cache/sources") is None
     assert cached_source_sha("", "/opt/ves/cache/sources") is None
+
+
+def test_generate_passes_render_template(tmp_path, monkeypatch):
+    """렌더 템플릿(0133)이 있으면 잡 폴더에 template_design.json 을 쓰고 --design-json 으로 넘긴다."""
+    import json
+    from ves import config as cfgmod
+    from ves.adapters.tikitaka import Generate
+    src = tmp_path / "src.mp4"
+    src.write_bytes(b"x")
+    monkeypatch.setattr(cfgmod, "source_cache_path", lambda cfg, sha: str(src))
+    monkeypatch.setattr(cfgmod, "engine_dir", lambda cfg, eng: str(tmp_path / "engine"))
+    monkeypatch.setattr(cfgmod, "engine_py", lambda cfg, eng: "/py")
+    params = {"work_title": "w", "episode": 1, "count": 1, "source_sha256": "abc", "work_order_id": "wo1",
+              "template": {"name": "지금불륜 · 노랑 빨강 제목", "design": {"title_color": "#FDE657"}}}
+    argv = Generate.build_argv(None, {"id": "j", "work_order_id": "wo1", "params": params})
+    f = argv[argv.index("--design-json") + 1]
+    assert json.loads(open(f, encoding="utf-8").read())["design"] == {"title_color": "#FDE657"}
+    params.pop("template")
+    assert "--design-json" not in Generate.build_argv(None, {"id": "j", "work_order_id": "wo1", "params": params})
+
+
+def test_render_template_reads_db_and_tolerates_missing():
+    from ves.adapters.tikitaka import render_template
+
+    class Cur:
+        def __init__(self, row=None, boom=False): self.row, self.boom = row, boom
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def execute(self, *a):
+            if self.boom: raise RuntimeError("없는 함수")
+        def fetchone(self): return self.row
+
+    class Conn:
+        def __init__(self, cur): self.cur = cur
+        def cursor(self): return self.cur
+
+    t = {"id": "t1", "name": "n", "design": {"title_color": "#FFFFFF"}, "from": "channel"}
+    assert render_template(Conn(Cur({"t": t})), {"work_title": "w", "channel_slug": "c"}) == t
+    assert render_template(Conn(Cur({"t": None})), {"work_title": "w"}) is None
+    assert render_template(Conn(Cur(boom=True)), {"work_title": "w"}) is None

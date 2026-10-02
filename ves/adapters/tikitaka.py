@@ -156,6 +156,22 @@ def pinned_logo(conn, job) -> dict | None:
     return (row["manifest"] or [None])[0]
 
 
+def render_template(conn, p: dict) -> dict | None:
+    """이 작업의 렌더 템플릿 {id, name, design, from} — 작업을 시작할 때의 지정값(0133). 표가 아직 없는 DB 면 None."""
+    work, slug = p.get("work_title"), p.get("channel_slug")
+    if not work:
+        return None
+    try:
+        with conn.cursor() as c:
+            c.execute("SELECT public.render_template_for(%s, %s) AS t", (slug or "", work))
+            row = c.fetchone()
+    except Exception as e:  # noqa: BLE001
+        print(f"[tikitaka_generate] 렌더 템플릿 읽기 실패(템플릿 없이 진행): {e}")
+        return None
+    t = (row or {}).get("t")
+    return t if isinstance(t, dict) and t.get("design") else None
+
+
 def fetch_asset(cfg, asset: dict) -> str:
     """고정한 로고 파일을 노드 캐시로(sha 확인). 경로를 돌려준다."""
     import hashlib as _h
@@ -397,6 +413,7 @@ class Generate:
         p = dict(job.get("params") or {})
         p["logo_asset"] = pinned_logo(conn, job)   # 없으면 None — 엔진은 작품 가이드의 '로고:' 를 쓴다
         p["task_guides"] = task_guides(cfg, conn, p)
+        p["template"] = render_template(conn, p)    # 채널 × 작품(없으면 작품 기본) 렌더 템플릿(0133) — 없으면 None
         return p
 
     @staticmethod
@@ -420,6 +437,15 @@ class Generate:
                 files.append(str(gdir / name))
             at = argv.index("--out") + 2
             argv[at:at] = [x for f in files for x in ("--guide", f)]
+        tpl = p.get("template")
+        if tpl and tpl.get("design"):
+            # 대시보드 렌더 템플릿 — 템플릿 항목은 design_preset 값을 덮는다(엔진 --design-json, 직접 준 --design-* 가 이긴다)
+            out = pathlib.Path(Generate._out_dir(cfg, job))
+            out.mkdir(parents=True, exist_ok=True)
+            (out / "template_design.json").write_text(json.dumps({"design": tpl["design"], "template": tpl.get("name")},
+                                                                  ensure_ascii=False, indent=1), encoding="utf-8")
+            at = argv.index("--out") + 2
+            argv[at:at] = ["--design-json", str(out / "template_design.json")]
         asset = p.get("logo_asset")
         if asset:
             # 작업에 직접 준 엔진 인자(logo_width 등)가 이기도록 --out 바로 뒤, 엔진 선택 인자 앞에 넣는다
@@ -882,4 +908,63 @@ class Thumbs:
         except Exception as e:
             final = int(job.get("attempt") or 1) >= int(job.get("max_attempts") or 3)
             _thumb_set(conn, vid, state="failed" if final else "running", error=str(e)[-500:])
+            raise
+
+
+# ───────── template_preview (네이티브) — 렌더 템플릿 '실제 모양 보기'(0133) ─────────
+# 고른 영상을 만든 맥미니가 그 영상을 템플릿으로 한 번 다시 렌더해(작업 폴더는 그대로) 대사 · 내레이션 두 장을 올린다.
+PREVIEW_FRAMES = ("dialogue", "narration")
+
+
+def _preview_set(conn, pid, **kw) -> None:
+    sets = ", ".join(f"{k} = %s" for k in kw)
+    vals = [json.dumps(v, ensure_ascii=False) if k == "files" else v for k, v in kw.items()]
+    with conn.cursor() as c:
+        c.execute(f"UPDATE public.render_template_previews SET {sets}, updated_at = now() WHERE id = %s", (*vals, pid))
+
+
+class TemplatePreview:
+    @staticmethod
+    def run(cfg, conn, job, deps):
+        import subprocess
+        import tempfile
+        from ves.storage.supabase_storage import Store
+        p = job.get("params") or {}
+        pid, wo, suffix = p.get("preview_id"), p.get("work_order_id"), str(p.get("suffix") or "")
+        if not (pid and wo and SUFFIX_RE.match(suffix) and isinstance(p.get("design"), dict)):
+            raise base.PermanentError("실제 모양 보기 잡 정보가 이상해요")
+        job_dir = pathlib.Path(cfgmod.engine_dir(cfg, "ai_video")) / OUT_ROOT / job_dir_name(wo)
+        try:
+            if not (job_dir / "videos" / suffix / "video.json").is_file():
+                raise base.PermanentError("이 맥미니에 그 영상의 작업 폴더가 없어요. 다른 영상으로 골라 주세요.")
+            with tempfile.TemporaryDirectory(prefix="tpl-preview-") as td:
+                tdp = pathlib.Path(td)
+                (tdp / "design.json").write_text(json.dumps({"design": p["design"]}, ensure_ascii=False), encoding="utf-8")
+                r = subprocess.run([cfgmod.engine_py(cfg, "ai_video"), "-m", "app.tikitaka.template_preview", str(job_dir), suffix,
+                                    "--design", str(tdp / "design.json"), "--out", str(tdp / "out")],
+                                   cwd=cfgmod.engine_dir(cfg, "ai_video"), env=cfgmod.job_env(cfg),
+                                   capture_output=True, text=True, timeout=900)
+                out = last_json_line(r.stdout)
+                if r.returncode != 0 or not out.get("frames"):
+                    why = out.get("error") or ((r.stderr or r.stdout or "").strip().splitlines()[-1:] or [""])[0]
+                    raise base.PermanentError(f"실제 모양을 만들지 못했어요. {str(why)[:300]}")
+                store = Store(cfg.supabase_url, cfg.supabase_service_key)
+                files = {}
+                for name in PREVIEW_FRAMES:
+                    rel = (out.get("frames") or {}).get(name)
+                    f = tdp / "out" / rel if rel else None
+                    if f and f.is_file():
+                        key = f"template_previews/{pid}/{name}.jpg"
+                        store.upload("ves-outputs", key, str(f), content_type="image/jpeg")
+                        files[name] = key
+            if not files:
+                raise base.PermanentError("실제 모양 그림이 나오지 않았어요.")
+            _preview_set(conn, pid, state="done", error=None, files=files)
+            return {"preview_id": pid, "files": len(files)}
+        except base.PermanentError as e:
+            _preview_set(conn, pid, state="failed", error=str(e)[:500])
+            raise
+        except Exception as e:
+            final = int(job.get("attempt") or 1) >= int(job.get("max_attempts") or 3)
+            _preview_set(conn, pid, state="failed" if final else "running", error=str(e)[-500:])
             raise
