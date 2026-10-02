@@ -4,7 +4,7 @@ import {loadSources,workSummary,videoRows,epUsable,epUsed,epTries,epLeft,epRemai
 import {workPosters} from './work-posters.js';
 import {icon} from './icons.js';
 import {enhanceDropdowns} from './dropdowns.js';
-import {guideFragment} from './workbench.js?v=rev-1';
+import {guideFragment} from './workbench.js?v=list-1';
 import {GuideDetails} from './guide-details.js';
 import {esc} from './review-details.js?v=web-1';
 import {loadRoom,renderRoom} from './source-room.js';

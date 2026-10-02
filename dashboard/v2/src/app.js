@@ -18,7 +18,7 @@ import {setupScrollbars} from './scrollbars.js';
 import {setupHoverTips} from './hover-tip.js?v=4';
 import {setupWheelScroll} from './wheel-scroll.js';
 import {setupLayoutMotion} from './layout-motion.js';
-import {mountWorkbench} from './workbench.js?v=rev-1';
+import {mountWorkbench} from './workbench.js?v=list-1';
 import {sampleJobs} from './review-model.js';
 import {loadLocalJobs} from './local-jobs.js?v=room-1';
 import {mountReview} from './review.js?v=room-1';
