@@ -25,6 +25,10 @@ async function loadRemoteJobs(client,names){
    .in('work_order_id',[...new Set(rows.map(r=>r.work_order_id))]).order('created_at',{ascending:false}).limit(200);
   for(const j of jobs||[]){const vid=j.params?.video_id;if(vid&&!applies.has(vid))applies.set(vid,{edit_id:j.id,state:{pending:'queued',running:'running',succeeded:'done'}[j.status]||'failed',error:j.status==='failed'||j.status==='dead'?String(j.error||'').slice(-300):null,node:jobNode(j),finished_at:j.finished_at||j.updated_at});}
  }
+ // 썸네일(0129) — 맥미니 영상은 그 맥미니가 만든다. 버튼 이름(만들기 · 보기 · 만드는 중)에 쓴다
+ const thumbs=new Map();
+ if(rows.length){const {data:th}=await client.from('tikitaka_thumbnails').select('video_id,state,version').in('video_id',rows.map(r=>r.id)).then(r=>r,()=>({data:[]}));
+  (th||[]).forEach(t=>thumbs.set(t.video_id,{state:t.state,has_result:(t.version||0)>0}));}
  // 작업 번호(0121 tikitaka_tasks) — '5-6화 #3' 처럼 부르고, 만든 시각은 작업을 저장한 때
  const tasks=new Map();
  if(rows.length){const {data:ts}=await client.from('tikitaka_tasks').select('work_order_id,work_no,episode_key,created_at,started_at,source_compilations(name)').in('work_order_id',[...new Set(rows.map(r=>r.work_order_id))]).then(r=>r,()=>({data:[]}));(ts||[]).forEach(t=>tasks.set(t.work_order_id,t));}
@@ -37,7 +41,7 @@ async function loadRemoteJobs(client,names){
   return {id:'MV-'+wo,source:'local-bundle',remote:true,raw:wo,work:r.work_title,workId:r.work_title,episode:epLabel(r.episode),title:t?`${ep} #${t.work_no}`:ep,note:t?(t.source_compilations?.name||'원본 파일'):'',workNo:t?.work_no??null,madeAt:t?.created_at||null,
    channelId:r.channel_slug||null,channel:r.channel_slug?(ch?.name||r.channel_slug):'채널 미배정',youtubeChannelId:ch?.channel_id||null,channelAvatar:ch?.avatar_url||null,
    createdAt:list.map(x=>x.updated_at||x.created_at).sort().pop(),videos:list.length,nodeId:r.node_id,status:'내부 검수',fileCountLabel:'완성 영상',
-   bundles:list.map(x=>({key:`remote-${wo}/${x.suffix}`,video_id:x.id,apply:applies.get(x.id)||null,suffix:x.suffix,version:x.version,tag:x.tag,title:x.title,status:'ready',render_fingerprint:x.render_fingerprint,
+   bundles:list.map(x=>({key:`remote-${wo}/${x.suffix}`,video_id:x.id,thumbs:thumbs.get(x.id)||{},apply:applies.get(x.id)||null,suffix:x.suffix,version:x.version,tag:x.tag,title:x.title,status:'ready',render_fingerprint:x.render_fingerprint,
     review_items:x.review_items,labels:0,duration:Number(x.duration_sec)||0,remote:true,node:x.node_id,src:signed.get(x.files?.['shorts.mp4']?.key)||''}))};
  });
  return withRunning(client,names,made);

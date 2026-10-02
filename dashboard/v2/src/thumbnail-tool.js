@@ -25,25 +25,39 @@ export function openThumbnails({client,video,onChange=()=>{}}){
  let data=null,items=[],poll=0,busy=false,closed=false;
  const dlg=document.createElement('dialog');dlg.className='thumb-dialog';
  document.body.append(dlg);
- const media=f=>localMedia(key,'thumbnails/'+f)+(data?.version?`&v=${data.version}`:'');
+ // 맥미니 영상(0129) — 그 맥미니가 만들고 결과는 저장소(ves-outputs)에서 서명 주소로 읽는다. 작업 컴퓨터 영상은 예전처럼 로컬 서버
+ const remote=!!video.remote,vid=video.video_id;let urls={};
+ const media=f=>remote?(urls[f]||''):localMedia(key,'thumbnails/'+f)+(data?.version?`&v=${data.version}`:'');
+ async function loadRemote(){
+  const {data:row,error}=await client.from('tikitaka_thumbnails').select('*').eq('video_id',vid).maybeSingle();
+  if(error)throw Error(error.message);
+  const files=row?.files||{},rels=Object.keys(files);urls={};
+  if(rels.length){const {data:su}=await client.storage.from('ves-outputs').createSignedUrls(rels.map(r=>files[r]),6*3600);
+   (su||[]).forEach((u,i)=>{if(u.signedUrl)urls[rels[i]]=u.signedUrl;});}
+  return {state:{state:row?.state||'none',has_result:!!row?.doc,error:row?.error,manual:!!row?.manual,publish_rank:row?.publish?.rank??null,updated_at:row?.updated_at},
+   doc:row?.doc||null,manual:row?.manual||null,publish:row?.publish||null,version:row?.version||0};
+ }
+ const rpc=async(fn,args)=>{const {error}=await client.rpc(fn,args);if(error)throw Error(error.message);};
  const frameOf=id=>data?.doc?.frames?.find(f=>f.id===id);
  const close=()=>{closed=true;clearTimeout(poll);dlg.close();dlg.remove();onChange();};
  dlg.addEventListener('cancel',e=>{e.preventDefault();close();});
 
  async function load(){
   clearTimeout(poll);
-  try{data=await assetRequest(client,`/api/local-videos/thumbnails?key=${encodeURIComponent(key)}`);}
+  try{data=remote?await loadRemote():await assetRequest(client,`/api/local-videos/thumbnails?key=${encodeURIComponent(key)}`);}
   catch(e){dlg.innerHTML=`<div class="thumb-head"><div>${heading}</div><button class="thumb-close" aria-label="닫기">✕</button></div><p class="thumb-error">${esc(e.message)}</p>`;dlg.querySelector('.thumb-close').onclick=close;return;}
   if(closed)return;
   if(!items.length&&data.doc)items=(data.manual||[]).length?data.manual.map(fromManual):data.doc.picks.map(fromPick);
   render();
-  if(data.state.state==='running')poll=setTimeout(load,2000);
+  if(data.state.state==='running')poll=setTimeout(load,remote?4000:2000);
  }
  async function act(action){
   if(busy)return;busy=true;
   try{
-   await assetRequest(client,'/api/local-videos/thumbnails',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({key,action,...(action==='manual'?{manual:items.map(({why,...it})=>({...it,...(why?{why}:{})}))}:{})})});
+   const manual=action==='manual'?items.map(({why,...it})=>({...it,...(why?{why}:{})})):null;
+   if(remote)await rpc('request_tikitaka_thumbnails',{p_video:vid,p_action:action,p_manual:manual});
+   else await assetRequest(client,'/api/local-videos/thumbnails',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({key,action,...(manual?{manual}:{})})});
    if(action==='reset')items=[];
   }catch(e){busy=false;const m=dlg.querySelector('.thumb-msg');if(m)m.textContent=e.message;return;}
   busy=false;load();
@@ -52,7 +66,8 @@ export function openThumbnails({client,video,onChange=()=>{}}){
  // 발행용 고르기 — 새로 만들지 않고 어떤 번호를 올릴지만 남긴다(rank 비우면 취소)
  async function choose(rank){
   if(busy)return;busy=true;
-  try{await assetRequest(client,'/api/local-videos/thumbnails',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key,action:'choose',rank:rank===''?null:+rank})});}
+  try{if(remote)await rpc('choose_tikitaka_thumbnail',{p_video:vid,p_rank:rank===''?null:+rank});
+   else await assetRequest(client,'/api/local-videos/thumbnails',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key,action:'choose',rank:rank===''?null:+rank})});}
   catch(e){busy=false;const m=dlg.querySelector('.thumb-msg');if(m)m.textContent=e.message;return;}
   busy=false;load();
  }
@@ -84,7 +99,7 @@ export function openThumbnails({client,video,onChange=()=>{}}){
    ${st.state==='failed'?`<p class="thumb-warn">${esc(st.error||'썸네일을 만들지 못했어요.')}</p>`:''}
    <p class="thumb-msg" role="status"></p>
    ${!doc?`<div class="thumb-empty"><h3>${running?'썸네일을 만드는 중이에요':'아직 만든 썸네일이 없어요'}</h3>
-     <p>${running?'처음이면 15초쯤 걸려요. 창을 닫아도 계속 만들어요.':'AI가 썸네일 후보를 만들고, 이후에 장면·문구를 직접 바꿀 수 있어요.'}</p>
+     <p>${running?(remote?'이 영상을 만든 맥미니가 만들어요. 1~2분쯤 걸리고, 창을 닫아도 계속 만들어요.':'처음이면 15초쯤 걸려요. 창을 닫아도 계속 만들어요.'):'AI가 썸네일 후보를 만들고, 이후에 장면·문구를 직접 바꿀 수 있어요.'}</p>
      <button class="primary" data-act="run" ${running?'disabled':''}>${running?'만드는 중…':'썸네일 만들기'}</button></div>`:`
    <section class="thumb-sec"><div class="thumb-sec-head"><h3>만든 썸네일 <span>${picks.length}</span></h3><div>
      ${st.manual?`<button data-act="reset" ${running?'disabled':''}>처음 추천으로 되돌리기</button>`:''}
