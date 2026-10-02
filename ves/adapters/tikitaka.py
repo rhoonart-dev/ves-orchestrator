@@ -29,7 +29,7 @@ ARG_FLAGS = {
     "voice": "--voice", "speed": "--speed", "copy": "--copy", "copy_pos": "--copy-pos",
     "logo_width": "--logo-width", "range": "--range", "pov": "--pov", "stt": "--stt",
 }
-BOOL_FLAGS = {"cover_cut_guard": "--cover-cut-guard"}
+BOOL_FLAGS = {"cover_cut_guard": "--cover-cut-guard", "all_versions": "--all-versions"}   # all_versions: 순위표 밖 대본까지 전부 렌더
 # 편 폴더 이름: v8 · v8_r3637-3820 (엔진 bundle.py 규약). .prev_<ns> 는 이전 번들 보관분이라 뺀다.
 SUFFIX_RE = re.compile(r"^v\d{1,2}(_[A-Za-z0-9_-]+)?$")
 
@@ -335,26 +335,30 @@ def progress_of(steps: list, total=None) -> dict | None:
     rebuild = next((x for x in steps if x.get("step") == "rebuild"), None)
     if rebuild:
         done.append("script")
-        total = int(rebuild.get("versions") or 0) or total
+        # 렌더 대상 = 순위표 앞 count 개(엔진 cli: ranking[:count]). 단계형은 순위표가 대본 수보다 짧을 수 있다(7-8화 #2: 14개 중 7개)
+        rerank = next((x for x in reversed(steps) if x.get("step") in ("rebuild", "rerank") and x.get("ranking")), None)
+        n_rank = len((rerank or {}).get("ranking") or []) or int(rebuild.get("versions") or 0)
+        total = min(int(total), n_rank) if total and n_rank else (n_rank or total)
+    skipped = sorted({int(x["version"]) for x in steps if x.get("step") == "version_skipped" and str(x.get("version", "")).isdigit()})
     renders = []
     for x in steps:
         m = _RENDER_RE.match(str(x.get("step") or ""))
         if m and m.group(1) not in [r[0] for r in renders]:
             renders.append((m.group(1), x.get("at")))
     rendered = len(renders)
-    if total and rendered >= int(total):
+    if total and rendered + len(skipped) >= int(total):
         done.append("render")
     stage = next((k for k, _ in STAGES if k not in done), "render")
     label = dict(STAGES)[stage]
     if stage == "render" and total:
-        label = f"렌더 {min(rendered, int(total))}/{int(total)}"
+        label = f"렌더 {min(rendered + len(skipped), int(total))}/{int(total)}"
     spv = None
     if len(renders) >= 2:
         import datetime as _dt
         ts = sorted(_dt.datetime.fromisoformat(a) for _, a in renders if a)
         if len(ts) >= 2:
             spv = round((ts[-1] - ts[0]).total_seconds() / (len(ts) - 1))
-    return {"stage": stage, "label": label, "done": done, "rendered": rendered, "total": int(total) if total else None,
+    return {"stage": stage, "label": label, "done": done, "rendered": rendered, "skipped": skipped, "total": int(total) if total else None,
             "sec_per_video": spv, "steps": {**{k: at.get(v) for k, v in (("transcribe", "transcript_polish"), ("analyze", "grid"), ("script", "rebuild"))},
                       "last_render": renders[-1][1] if renders else None}}
 
@@ -427,7 +431,14 @@ class Generate:
         if not bundles:
             tail = (stderr or stdout or "")[-600:]
             raise base.PermanentError(f"엔진은 끝났는데 편 번들(videos/*/video.json)이 없어요. 로그 끝: {tail}")
-        return {"run_dir": out_dir, "videos": [s for s, _ in bundles]}
+        log = _read_json(pathlib.Path(out_dir) / "run_log.json") or {}
+        skipped = {}
+        for x in log.get("steps") or []:
+            if x.get("step") == "version_skipped":
+                skipped[str(x.get("version"))] = str(x.get("reason") or "")[:300]
+        done = {s.split("_")[0] for s, _ in bundles}
+        skipped = [{"version": int(v), "reason": r} for v, r in skipped.items() if v.isdigit() and f"v{v}" not in done]
+        return {"run_dir": out_dir, "videos": [s for s, _ in bundles], "skipped": skipped}   # 검사에서 빠진 편(엔진 2026-10-02)
 
     @staticmethod
     def classify_error(rc, stderr, stdout):

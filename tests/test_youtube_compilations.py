@@ -92,3 +92,12 @@ def test_progress_of_stages_and_render_count():
     p = tk.progress_of(steps, 14)
     assert p["label"] == "렌더 2/14" and p["rendered"] == 2 and p["sec_per_video"] == 540
     assert tk.progress_of([], 14) is None
+
+
+def test_progress_counts_ranking_and_skipped():
+    steps = [{"step": "transcript_polish", "at": "2026-10-01T22:41:00"}, {"step": "grid", "at": "2026-10-01T22:54:00"},
+             {"step": "rerank", "ranking": [1, 3, 5, 9, 10, 11, 13], "at": "2026-10-01T23:12:00"},
+             {"step": "rebuild", "versions": 14, "ranking": [1, 3, 5, 9, 10, 11, 13], "at": "2026-10-01T23:12:00"},
+             {"step": "review_v1", "at": "2026-10-01T23:20:00"}, {"step": "version_skipped", "version": 3, "reason": "x"}]
+    p = tk.progress_of(steps, 14)
+    assert p["total"] == 7 and p["label"] == "렌더 2/7" and p["skipped"] == [3]
