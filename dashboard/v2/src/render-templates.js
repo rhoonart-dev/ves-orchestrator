@@ -64,5 +64,8 @@ export function mountPreview(box,{client,videos,writable,getDesign,status,target
   btn.disabled=false;if(error){status?.(error.message);return;}
   preview={id:data,state:'running',design};draw();watch();};
  draw();
+ // 화면을 다시 열면 이 영상들로 본 마지막 미리보기를 보여 준다(만드는 중이면 이어서 기다린다)
+ if(videos.length)client.from('render_template_previews').select('id,state,error,files,design').in('video_id',videos.map(v=>v.id)).order('created_at',{ascending:false}).limit(1)
+  .then(({data})=>{const last=data?.[0];if(dead||preview||!last)return;const {work_asset_id,...design}=last.design||{};preview={id:last.id,state:last.state,design};draw();watch();});
  return {refresh:draw,release:()=>{dead=true;clearTimeout(poll);}};
 }
