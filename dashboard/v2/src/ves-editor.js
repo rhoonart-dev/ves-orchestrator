@@ -1501,13 +1501,19 @@ function draw(){
         if (e.shiftKey) return;               // ⇧클릭 = 범위 선택(click 에서)
         const r = el.getBoundingClientRect();
         const offL = e.clientX - r.left, offR = r.right - e.clientX;
-        if (offL < 8 || offR < 8) return;             // 가장자리는 트림 담당
+        // 가장자리는 트림 담당 — 고른 구간은 날개(12px, bindBlk 의 WING)까지. 종전 8px 이라 8~12px 을 잡고 늘이면
+        // 늘이기와 순서 바꾸기가 함께 돌아 구간 자리가 바뀌었다(2026-10-02 사용자 '명절에 1억' v6)
+        const wing = el.classList.contains("sel") ? 12 : 8;
+        if (offL < wing || offR < wing) return;
         e.preventDefault(); e.stopPropagation();
         const from = +el.dataset.i;
         const live = cur.model.final.filter(c => !c.dead);
+        // ⇧로 여러 구간을 골라 두고 그중 하나를 끌면 고른 구간을 한 묶음으로 옮긴다(완성본 순서 그대로)
+        const group = multiSel.kind === "clip" && multiSel.idx.length > 1 && multiSel.idx.includes(from)
+          ? multiSel.idx.slice() : [from];
         const bar = document.createElement("div"); bar.className = "insbar";
         $("#inner").appendChild(bar);
-        el.classList.add("dragging");
+        group.forEach(g => document.querySelector(`#inner .blk.c[data-i="${g}"]`)?.classList.add("dragging"));
         let to = live.findIndex(c => c.i === from);
         const mv = ev => {
           el.__moved = true;
@@ -1524,8 +1530,23 @@ function draw(){
         };
         const up = () => {
           window.removeEventListener("mousemove", mv); window.removeEventListener("mouseup", up);
-          bar.remove(); el.classList.remove("dragging");
+          bar.remove(); document.querySelectorAll("#inner .blk.c.dragging").forEach(b => b.classList.remove("dragging"));
           if (!el.__moved) return;
+          if (group.length > 1){
+            // 놓은 자리 뒤에서 묶음 밖 첫 구간 앞에 넣는다(묶음 안에 놓으면 제자리)
+            let k = to; while (k < live.length && group.includes(live[k].i)) k++;
+            const target = k < live.length ? cur.model.clips[live[k].i] : null;
+            const objs = group.map(g => cur.model.clips[g]);
+            const order0 = cur.model.clips.slice();
+            snap();
+            cur.model.clips = cur.model.clips.filter(c => !objs.includes(c));
+            const at = target ? cur.model.clips.indexOf(target) : cur.model.clips.length;
+            cur.model.clips.splice(at < 0 ? cur.model.clips.length : at, 0, ...objs);
+            if (cur.model.clips.every((c, n) => c === order0[n])){ undoStack.pop(); return; }   // 제자리
+            multiSel = { kind: null, idx: [] };
+            refresh("clip", cur.model.clips.indexOf(objs[0]));
+            return;
+          }
           const curPos = live.findIndex(c => c.i === from);
           if (to === curPos || to === curPos + 1) return;      // 제자리
           // 시각 고정(장면 따라가기 끔) 자막이 있으면 알린다 — 그 줄만 제자리에 남는다
