@@ -33,7 +33,7 @@ export function summarize(jobs,now=Date.now()){
  if(total&&done.has('script')&&done.has('analyze'))pct=50+Math.round(45*Math.min(rendered+skipped,total)/total);
  if(up?.status==='running')pct=97;if(state==='done')pct=100;
  let eta=null;
- if(state==='busy'&&p.stage==='render'&&p.sec_per_video&&total){
+ if(state==='busy'&&p.stage==='render'&&p.sec_per_video&&total&&rendered+skipped<total){
   const left=Math.max(0,total-rendered-skipped),from=p.steps?.last_render?Date.parse(p.steps.last_render+'+09:00'):Date.parse(gen.progress_at||now);
   eta=new Date((Number.isFinite(from)?from:now)+left*p.sec_per_video*1000);
  }
@@ -50,10 +50,17 @@ export function summarize(jobs,now=Date.now()){
  return {state,label,pct,eta,steps,total,rendered,skipped,node:gen.node_id||acq?.node_id||null,started:acq?.started_at||gen.started_at,error:dead?.error||null};
 }
 
+// 끝나는 예상 — 지난 시각이면 그 시각 대신 상태로 말한다(예상보다 오래 걸리는 중)
+export function etaText(s,now=Date.now()){
+ if(s.state==='failed')return '다시 걸어 주세요';
+ if(!s.eta)return '';
+ const late=now-s.eta.getTime();
+ return late<=0?`${kst(s.eta)}쯤 끝나요`:late<10*60e3?'곧 끝나요':'예상보다 오래 걸리고 있어요';
+}
 // 카드 안 막대 + 한 줄
 export function barHtml(s){
  if(!s)return '';
- return `<div class="jp-bar"><i style="width:${s.pct}%"></i></div><div class="jp-line"><b>${esc(s.label)}</b><span>${s.eta?`${esc(kst(s.eta))}쯤 끝나요`:s.state==='failed'?'다시 걸어 주세요':''}</span></div>`;
+ return `<div class="jp-bar"><i style="width:${s.pct}%"></i></div><div class="jp-line"><b>${esc(s.label)}</b><span>${etaText(s)}</span></div>`;
 }
 
 const ICON={done:'<path d="m5 12 4 4L19 6"/>',now:'<circle cx="12" cy="12" r="8"/><path d="M12 8v4l2.5 1.5"/>',wait:'<circle cx="12" cy="12" r="1.2"/>'};
@@ -62,7 +69,7 @@ export function openProgress(job,s){
  const d=document.createElement('dialog');d.className='jp-dlg';d.tabIndex=-1;
  d.innerHTML=`<header><div><h3>${esc(job.title)} ${s.state==='failed'?'· 만들지 못했어요':s.state==='done'?'· 다 만들었어요':'만드는 중'}</h3><p>${esc(job.work)} · ${esc(job.channel||'')}${s.node?` · ${esc(s.node)}`:''}${job.note?` · ${esc(job.note)}`:''}</p></div><button type="button" class="jp-x" aria-label="닫기">×</button></header>
   <ol class="jp-steps">${s.steps.map(x=>`<li class="${x.state}"><span class="jp-dot"><svg viewBox="0 0 24 24" aria-hidden="true">${ICON[x.state]}</svg></span><span class="jp-nm">${esc(x.label)}${x.note?`<small>${esc(x.note)}</small>`:''}${x.key==='render'&&s.total?`<span class="jp-mini">${Array.from({length:s.total},(_,i)=>`<i class="${i<s.rendered?'d':i===s.rendered&&x.state==='now'?'n':''}"></i>`).join('')}</span>`:''}</span><span class="jp-tm">${x.at?esc(kst(x.at.length===19?x.at+'+09:00':x.at)):''}</span></li>`).join('')}</ol>
-  ${s.eta?`<p class="jp-eta">남은 ${s.total-s.rendered-(s.skipped||0)}편 → ${esc(kst(s.eta))}쯤 끝나요</p>`:''}${s.error?`<p class="jp-eta bad">${esc(String(s.error).slice(-300))}</p>`:''}`;
+  ${s.eta?`<p class="jp-eta">남은 ${s.total-s.rendered-(s.skipped||0)}편 → ${esc(etaText(s))}</p>`:''}${s.error?`<p class="jp-eta bad">${esc(String(s.error).slice(-300))}</p>`:''}`;
  const close=()=>{d.close();d.remove();};
  d.querySelector('.jp-x').onclick=close;d.addEventListener('close',()=>d.remove());d.addEventListener('click',e=>{if(e.target===d)close();});
  document.body.append(d);d.showModal();d.focus();
