@@ -472,8 +472,9 @@ class Generate:
             # 대시보드 렌더 템플릿 — 템플릿 항목은 design_preset 값을 덮는다(엔진 --design-json, 직접 준 --design-* 가 이긴다)
             out = pathlib.Path(Generate._out_dir(cfg, job))
             out.mkdir(parents=True, exist_ok=True)
-            (out / "template_design.json").write_text(json.dumps({"design": tpl["design"], "template": tpl.get("name")},
-                                                                  ensure_ascii=False, indent=1), encoding="utf-8")
+            # 엔진은 {"design": {...}} 밖의 키를 거절한다(load_design_json) — 어디서 온 값인지는 잡 params.template 에 남는다
+            (out / "template_design.json").write_text(json.dumps({"design": tpl["design"]}, ensure_ascii=False, indent=1),
+                                                      encoding="utf-8")
             at = argv.index("--out") + 2
             argv[at:at] = ["--design-json", str(out / "template_design.json")]
         asset = p.get("logo_asset")

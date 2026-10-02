@@ -141,7 +141,7 @@ def test_generate_passes_render_template(tmp_path, monkeypatch):
               "template": {"name": "지금불륜 · 노랑 빨강 제목", "design": {"title_color": "#FDE657"}}}
     argv = Generate.build_argv(None, {"id": "j", "work_order_id": "wo1", "params": params})
     f = argv[argv.index("--design-json") + 1]
-    assert json.loads(open(f, encoding="utf-8").read())["design"] == {"title_color": "#FDE657"}
+    assert json.loads(open(f, encoding="utf-8").read()) == {"design": {"title_color": "#FDE657"}}   # 엔진은 다른 최상위 키를 거절한다
     params.pop("template")
     assert "--design-json" not in Generate.build_argv(None, {"id": "j", "work_order_id": "wo1", "params": params})
 
