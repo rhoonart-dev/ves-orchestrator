@@ -53,12 +53,22 @@ function scheduleMeasure(cur,H){
    if(r&&+r.duration_sec>0)measured.set(x.k,+r.duration_sec);else failed.add(x.k);
    if(r&&Array.isArray(r.phrases)&&r.phrases.length)measuredPh.set(x.k,{list:r.phrases.map(p=>({text:p.text,start:+p.start_sec,end:+p.end_sec})),note:r.phrases_note||''});});
   if(!res||res.ok===false)window.__edToast&&window.__edToast('내레이션 길이를 재지 못했어요. '+((res&&res.error)||''));
+  syncDur(cur,H);
   window.__edRedraw&&window.__edRedraw();
  },500);
+}
+// 잰 길이를 타임라인 블록 길이로 — 새로 넣거나 고친 내레이션 블록이 실제 목소리 길이만큼 그려져, 그 길이에 맞춰 덮개 구간을 만들 수 있다.
+// 편집 기록(실행 취소)에는 넣지 않는다 — 사람이 고친 게 아니라 잰 값이다. 바뀐 줄이 있으면 true
+function syncDur(cur,H){
+ let ch=false;
+ for(const t of (cur&&cur.model&&cur.model.tts)||[]){const v=measured.get(H.cueKey(t));
+  if(v>0&&Math.abs((+t.dur||0)-v)>0.01){t.dur=+v.toFixed(3);ch=true;}}
+ return ch;
 }
 
 export function analyze(cur,H){
  if(!newPipeline(cur)||!cur.model)return null;
+ if(syncDur(cur,H))setTimeout(()=>window.__edRedraw&&window.__edRedraw(),0);   // 전에 잰 문구로 되돌아온 줄 등 — 다음 그리기에 반영
  const m=cur.model,items=[],muted=new Map(),subWarn=new Set(),lens=new Map();
  const live=(m.final||[]).filter(c=>!c.dead);
  // 1) 구간 밖으로 밀려난 내레이션·보조 자막: 엔진은 조용히 뺀다

@@ -36,3 +36,4 @@
 /* '수정됨' 칩 — 편집을 반영해 다시 만든 영상(카드 둘째 줄 · 좁은 화면 영상 선택 줄) */
 .video-edited{display:inline-block;margin-right:6px;padding:1px 7px;border-radius:999px;background:color-mix(in srgb,var(--accent) 14%,var(--surface));color:var(--accent);font-weight:600;font-size:9px;line-height:1.6;vertical-align:1px}
 .mobile-current-title .video-edited{margin:0 0 0 6px;font-size:10px}
+.video-skip{margin-left:8px;font-size:10px;font-weight:500;color:var(--secondary);background:var(--inset);border-radius:999px;padding:3px 8px;cursor:default}

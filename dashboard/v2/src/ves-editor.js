@@ -157,10 +157,10 @@ function buildModel(){
   const tts = (d.tts ? d.tts.map(t => { const src = +t.source_time_sec,
                  text = t.text || "", voice = t.voice || "", speed = t.speed || "normal";
                  return { src, dur: +t.duration_sec || 3, text, voice, speed,
-                          ...keyAt(src, text, voice, speed) }; })
+                          ...keyAt(src, text, voice, speed), at: t.start_sec != null ? +t.start_sec : null }; })
                : tlTts.map(t => ({ src: +t.source_sec || 0, dur: +t.duration_sec || 3,
                  text: t.text || "", voice: t.voice || "", speed: t.speed || "normal",
-                 key: t.key || null, stale: false })));
+                 key: t.key || null, stale: false, at: t.edited_start != null ? +t.edited_start : null })));
   // follow = 장면 따라가기(앵커 유지). 끄면 완성본 시각에 못박힌다.
   // 앵커가 없는 줄은 따라갈 장면이 없으므로 기본이 '시각 고정'이다.
   const subs = (tl.subtitles || []).map((s, i) => ({ start: +s.edited_start || 0,
@@ -215,7 +215,7 @@ function buildModel(){
     frame_x: fxBase(i) })).filter(c => c.end > c.start);
   const baseTts = tlTts.map(t => ({ src: +t.source_sec || 0, dur: +t.duration_sec || 3,
     text: t.text || "", voice: t.voice || "", speed: t.speed || "normal",
-    key: t.key || null, stale: false }));
+    key: t.key || null, stale: false, at: t.edited_start != null ? +t.edited_start : null }));
   const baseSubs = (tl.subtitles || []).map((sv, i) => ({ start: +sv.edited_start || 0,
     end: +sv.edited_end || 0, src: sv.source_sec, text: sv.text || "", i0: i, del: false,
     follow: sv.source_sec != null }));
@@ -261,9 +261,13 @@ function resolveCues(tts, finalClips){
     if (containing.length){
       const exact = cur && cur.row && cur.row.timeline && cur.row.timeline.engine_rules === false
         && containing.find(sp => Math.abs(sp.s - t.src) < 0.002);
-      const sp = exact || containing[0];
-      return { ...t, ti, out: sp.base + (t.src - sp.s) / sp.sp, span: sp,
-        multi: containing.length > 1, contained: true };
+      const hint = t.at != null ? +t.at : (t._raw && t._raw.start_sec != null ? +t._raw.start_sec : null);
+      const outOf = sp => sp.base + (t.src - sp.s) / sp.sp;
+      const sp = containing.length > 1 && hint != null
+        ? containing.reduce((a, b) => Math.abs(outOf(b) - hint) < Math.abs(outOf(a) - hint) ? b : a)
+        : exact || containing[0];
+      return { ...t, ti, out: outOf(sp), span: sp,
+        multi: containing.length > 1, placed: containing.length > 1 && hint != null && !!window.__edPlacement, contained: true };
     }
     // 경계 밖 — 엔진 스냅: 앵커 뒤 첫 조각 시작, 없으면 마지막 조각 끝 -0.5
     const after = spans.filter(sp => sp.s >= t.src);
@@ -1384,7 +1388,7 @@ function draw(){
   h += `<div class="track" data-lab="ltts" style="${trackStyle(ttsL.n)}">`;
   m.cues.forEach((q, k) => {
     if (q.dropped) return;
-    const warn = q.snapped || q.multi;
+    const warn = q.snapped || (q.multi && !q.placed);
     // 경계선은 늘 긋고, 칸마다 구절 글자는 블록이 넉넉할 때만(좁으면 문장 한 줄)
     const ph = phrasesOf(q), cells = ph.list.length > 1, wide = blkW(q.dur) > 90;
     // 자리는 정수 px 로 — %·소수 px 면 선이 픽셀 사이에 걸려 어떤 건 1px, 어떤 건 2px 로 보인다
@@ -1404,7 +1408,7 @@ function draw(){
   h += `<div class="track" data-lab="ltxt" style="${trackStyle(txL.n)}">`;
   (m.textCues || []).forEach((q, k) => {
     if (q.dropped) return;
-    const warn = q.snapped || q.multi;
+    const warn = q.snapped || (q.multi && !q.placed);
     h += `<div class="blk x${warn ? " warned" : ""}${q.ckBad ? " ck-bad" : ""}${tinyCls(q.dur)}" data-k="txt" data-i="${q.ti}"
       title="${esc(q.text)}" style="left:${q.out * px}px;width:${blkW(q.dur)}px;${blkTop(txL.lane[k])}">${esc(q.text)}
       ${warn ? `<span class="wb">!</span>` : ""}</div>`;
@@ -1495,12 +1499,12 @@ function draw(){
           (edge, d) => { snap();
             if (edge === "end") it.dur = +Math.max(0.5, it.dur + d).toFixed(3);
             else if (edge === "start"){
-              const hit = outToSrc(Math.max(0, parseFloat(el.style.left) / px));
+              const o = Math.max(0, parseFloat(el.style.left) / px), hit = outToSrc(o);
               if (hit){ const grow = it.src - hit.src;
-                it.src = +hit.src.toFixed(3); it.dur = +Math.max(0.5, it.dur + grow).toFixed(3); }
+                it.src = +hit.src.toFixed(3); it.at = +o.toFixed(3); it.dur = +Math.max(0.5, it.dur + grow).toFixed(3); }
             } else {
-              const hit = outToSrc(Math.max(0, parseFloat(el.style.left) / px));
-              if (hit) it.src = +hit.src.toFixed(3);
+              const o = Math.max(0, parseFloat(el.style.left) / px), hit = outToSrc(o);
+              if (hit){ it.src = +hit.src.toFixed(3); it.at = +o.toFixed(3); }   // 놓은 자리 — 같은 장면이 두 구간에 있어도 여기
             }
             refresh(kindName, i); });
       });
@@ -1970,14 +1974,14 @@ function select(kind, i, el, noSeek){
     const q = m.cues[i];
     h = `<div class="khead"><span class="sw" style="background:var(--tts)"></span>
       <span class="ttl">내레이션</span></div>
-      ${q.multi ? `<div class="alert warn">같은 장면이 두 구간에 있어서 앞 구간에 붙어요.</div>` : ""}
+      ${q.multi && !q.placed ? `<div class="alert warn">같은 장면이 두 구간에 있어서 앞 구간에 붙어요.</div>` : ""}
       ${q.lost || q.dropped ? (window.__edChecks ? window.__edChecks.ttsPanel(cur, i, edH()) : "") : ""}`;
   } else if (kind === "txt"){
     const q = m.textCues[i];
     h = `<div class="khead"><span class="sw" style="background:var(--txt)"></span>
       <span class="ttl">텍스트</span></div>
       ${q.lost || q.dropped ? `<div class="alert warn ck-bad">이 텍스트는 빠져요. 원래 장면이 지금 구간에 없어요.</div>`
-        : q.multi ? `<div class="alert warn">같은 장면이 두 구간에 있어서 앞 구간에 붙어요.</div>` : ""}`;
+        : q.multi && !q.placed ? `<div class="alert warn">같은 장면이 두 구간에 있어서 앞 구간에 붙어요.</div>` : ""}`;
   } else if (kind === "sfx" || kind === "sfxa"){
     h = window.__edSfx ? window.__edSfx.sideHtml(cur, kind, i, editMode, edH()) : "";
   } else if (kind === "sub"){
@@ -2535,8 +2539,10 @@ window.addTxtAt = () => { snap();
 // ── 추가 — 재생 지점·⇧드래그 범위 기준 ──
 window.addTtsAt = () => { snap();
   const v = $("#vid"), src = +(v.currentTime || 0).toFixed(3);
+  const at0 = curOut();
   cur.model.tts.push({ src, dur: 3, text: "(내레이션 문구)", voice:
-    (cur.model.tts[0] || {}).voice || "ko_female", speed: (cur.model.tts[0] || {}).speed || "normal" });
+    (cur.model.tts[0] || {}).voice || "ko_female", speed: (cur.model.tts[0] || {}).speed || "normal",
+    at: at0 != null ? +at0.toFixed(3) : null });
   cur.model.tts.sort((a, b) => a.src - b.src);
   refresh("tts", cur.model.tts.findIndex(t => t.src === src));
 };
@@ -2651,7 +2657,7 @@ window.startHere = () => {
     if (!hit){ toast("재생 헤드가 구간 밖에 있어요"); return; }
     snap();
     const it = (kind === "tts" ? m.tts : m.texts)[i];
-    it.src = +hit.src.toFixed(3);                  // 앵커를 헤드 지점으로
+    it.src = +hit.src.toFixed(3); it.at = +outT.toFixed(3);   // 앵커를 헤드 지점으로
     it.dur = +(endOut - outT).toFixed(3);          // 끝은 그대로
     refresh(kind, i);
   } else if (kind === "clip"){
@@ -2771,7 +2777,7 @@ function multiTrim(edge){
       const it = (kind === "tts" ? m.tts : m.texts)[sp.i];
       if (edge === "end") it.dur = +(outT - sp.a).toFixed(3);
       else { const hit = outToSrc(outT);
-        if (hit){ it.src = +hit.src.toFixed(3); it.dur = +(sp.b - outT).toFixed(3); } }
+        if (hit){ it.src = +hit.src.toFixed(3); it.at = +outT.toFixed(3); it.dur = +(sp.b - outT).toFixed(3); } }
     }
   }
   multiSel = { kind: null, idx: [] }; curSel = null;
@@ -2913,7 +2919,8 @@ function collectOv(forDraft){
   if (JSON.stringify(m.tts) !== cur.orig.tts){
     d.tts = m.tts.filter(t => String(t.text).trim()).map(t => ({
       text: String(t.text).trim(), source_time_sec: +t.src.toFixed(3),
-      duration_sec: +t.dur.toFixed(3), voice: t.voice, speed: t.speed || "normal" })); n++; }
+      duration_sec: +t.dur.toFixed(3), voice: t.voice, speed: t.speed || "normal",
+      ...(t.at != null ? { start_sec: +(+t.at).toFixed(3) } : {}) })); n++; }
   else if (forDraft && (cur.row.draft || {}).tts) d.tts = null;
   // 제목 — 창(E8)이 있으면 top_title 과 **한 몸**으로 나간다. 승계가 title 키를 통째로
   // 교체하므로 창을 빼고 보내면 엔진이 checkpoint_style 의 AI 창을 다시 얹어, 고친 제목이
@@ -2937,16 +2944,17 @@ function collectOv(forDraft){
       if (forDraft && su.del) o.del = true;
       // 장면 따라가기 켬 = 앵커 동봉(엔진이 최종 타임라인으로 재배치).
       // 끔 = 앵커 없이 → start_sec 그대로 박힌다(V3-b 계약).
-      // 같은 장면이 여러 구간에 있는 줄(_amb)은 제출 때 원본 시각을 빼고 편집실이 고른 자리를 그대로 보낸다 — 엔진은 첫 구간에 붙인다.
-      // 초안에는 남긴다(다시 열 때 '장면 따라가기'가 켜진 채로)
-      if (su.src != null && su.follow && (forDraft || !su._amb)) o.source_time_sec = +(+su.src).toFixed(3);
+      // 같은 장면이 여러 구간에 있는 줄(_amb)은 엔진이 start_sec 에 가까운 구간을 고르면(f39398f7, __edPlacement) 원본 시각도 보낸다.
+      // 옛 엔진(첫 구간에 붙인다)에는 원본 시각을 빼고 편집실이 고른 자리를 그대로 보낸다. 초안에는 늘 남긴다
+      if (su.src != null && su.follow && (forDraft || !su._amb || window.__edPlacement)) o.source_time_sec = +(+su.src).toFixed(3);
       if (su.style && Object.keys(su.style).length) o.style = { ...su.style };
       return o; }); n++; }
   else if (forDraft && (cur.row.draft || {}).subtitles) d.subtitles = null;
   if (JSON.stringify(m.texts) !== cur.orig.texts){
     d.texts = m.texts.filter(t => String(t.text).trim()).map(t => ({
       ...(t._raw || {}), text: String(t.text).trim(),
-      source_time_sec: +t.src.toFixed(3), duration_sec: +t.dur.toFixed(3) })); n++; }
+      source_time_sec: +t.src.toFixed(3), duration_sec: +t.dur.toFixed(3),
+      ...(t.at != null ? { start_sec: +(+t.at).toFixed(3) } : {}) })); n++; }
   else if (forDraft && (cur.row.draft || {}).texts) d.texts = null;
   if (window.__edFx){ const fx = window.__edFx.collect(cur, forDraft); Object.assign(d, fx); n += Object.keys(fx).length; }
   if (window.__edSfx){ const sf = window.__edSfx.collect(cur, forDraft, edH(), !!d.clips);
@@ -3564,7 +3572,7 @@ document.documentElement.dataset.theme = "dark";
         </div>
         <div class="drawList">${m.tts.length ? m.tts.map((t, i) => {
           const q = (m.cues || [])[i];
-          const warn = q && (q.snapped || q.multi);
+          const warn = q && (q.snapped || (q.multi && !q.placed));
           return `<div class="tplItem${ttsCk.has(i) ? " ck" : ""}">
             <input type="checkbox" ${ttsCk.has(i) ? "checked" : ""}
               onclick="event.stopPropagation()" onchange="ttsCkToggle(${i},this.checked)">

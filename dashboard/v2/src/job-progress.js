@@ -47,8 +47,14 @@ export function summarize(jobs,now=Date.now()){
   st('render',done.has('render')||state==='done'||up?.status==='running',now_==='render',p.steps?.last_render,total?`${Math.min(rendered+skipped,total)}/${total}편${skipped?` · ${skipped}편 검사에서 빠짐`:''}${p.sec_per_video?` · 편당 약 ${mins(p.sec_per_video)}`:''}`:''),
   st('upload',up?.status==='succeeded',now_==='upload',up?.finished_at),
  ];
- return {state,label,pct,eta,steps,total,rendered,skipped,node:gen.node_id||acq?.node_id||null,started:acq?.started_at||gen.started_at,error:dead?.error||null};
+ const skippedList=(gen.result?.skipped||[]).map(x=>({version:x.version,reason:reasonKo(x.reason)}));
+ return {state,label,pct,eta,steps,total,rendered,skipped,skippedList,node:gen.node_id||acq?.node_id||null,started:acq?.started_at||gen.started_at,error:dead?.error||null};
 }
+
+// 빠진 편 이유 — 엔진이 남긴 말(영어 섞임)을 짧은 한국어로. 모르는 건 그대로 보인다
+const REASONS=[[/review cut overlaps protected dialogue\/TTS/i,'대사 · 내레이션 구간과 화면 자르기가 겹쳐요'],[/^묶음 거절/,'렌더는 됐지만 작업 목록에 올릴 묶음을 만들지 못했어요'],
+ [/^묶음 실패/,'렌더는 됐지만 작업 목록에 올릴 묶음을 만들지 못했어요'],[/덮개 (재검토 소진|길이 부족)/,'내레이션 아래 깔 화면이 모자라요']];
+const reasonKo=r=>{const t=String(r||'');const hit=REASONS.find(([re])=>re.test(t));return hit?hit[1]:t;};
 
 // 끝나는 예상 — 지난 시각이면 그 시각 대신 상태로 말한다(예상보다 오래 걸리는 중)
 export function etaText(s,now=Date.now()){
@@ -69,7 +75,7 @@ export function openProgress(job,s){
  const d=document.createElement('dialog');d.className='jp-dlg';d.tabIndex=-1;
  d.innerHTML=`<header><div><h3>${esc(job.title)} ${s.state==='failed'?'· 만들지 못했어요':s.state==='done'?'· 다 만들었어요':'만드는 중'}</h3><p>${esc(job.work)} · ${esc(job.channel||'')}${s.node?` · ${esc(s.node)}`:''}${job.note?` · ${esc(job.note)}`:''}</p></div><button type="button" class="jp-x" aria-label="닫기">×</button></header>
   <ol class="jp-steps">${s.steps.map(x=>`<li class="${x.state}"><span class="jp-dot"><svg viewBox="0 0 24 24" aria-hidden="true">${ICON[x.state]}</svg></span><span class="jp-nm">${esc(x.label)}${x.note?`<small>${esc(x.note)}</small>`:''}${x.key==='render'&&s.total?`<span class="jp-mini">${Array.from({length:s.total},(_,i)=>`<i class="${i<s.rendered?'d':i===s.rendered&&x.state==='now'?'n':''}"></i>`).join('')}</span>`:''}</span><span class="jp-tm">${x.at?esc(kst(x.at.length===19?x.at+'+09:00':x.at)):''}</span></li>`).join('')}</ol>
-  ${s.eta?`<p class="jp-eta">남은 ${s.total-s.rendered-(s.skipped||0)}편 → ${esc(etaText(s))}</p>`:''}${s.error?`<p class="jp-eta bad">${esc(String(s.error).slice(-300))}</p>`:''}`;
+  ${s.eta?`<p class="jp-eta">남은 ${s.total-s.rendered-(s.skipped||0)}편 → ${esc(etaText(s))}</p>`:''}${s.skippedList?.length?`<div class="jp-skip"><b>빠진 편 ${s.skippedList.length}개</b>${s.skippedList.map(x=>`<p><span>v${esc(x.version)}</span>${esc(x.reason)}</p>`).join('')}</div>`:''}${s.error?`<p class="jp-eta bad">${esc(String(s.error).slice(-300))}</p>`:''}`;
  const close=()=>{d.close();d.remove();};
  d.querySelector('.jp-x').onclick=close;d.addEventListener('close',()=>d.remove());d.addEventListener('click',e=>{if(e.target===d)close();});
  document.body.append(d);d.showModal();d.focus();

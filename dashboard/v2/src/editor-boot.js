@@ -2,9 +2,9 @@ import {config} from './config.js';
 import {setupScrollbars} from './scrollbars.js';
 import {loadEngineFonts} from './engine-fonts.js?v=1';
 import './font-picker.js?v=1';   // 폰트 칸 — 이름을 그 폰트로
-import {createLocalEditorClient,loadLocalVideo} from './local-editor-client.js?v=sfx-1';
+import {createLocalEditorClient,loadLocalVideo} from './local-editor-client.js?v=place-1';
 import {confirmSubmit} from './editor-submit-dialog.js?v=sfx-2';
-import './editor-checks.js?v=sfx-2';   // window.__edChecks — 제출 전 검사(ves-editor.js 가 부른다)
+import './editor-checks.js?v=place-1';   // window.__edChecks — 제출 전 검사(ves-editor.js 가 부른다)
 import './editor-fx.js?v=render-123';
 import './editor-sfx.js?v=sfx-1';   // window.__edSfx — 효과음 줄 · 효과음 목록
 import './editor-frame.js?v=sfx-1';   // window.__edFrame — 구간 화면 위치(미리보기 자르기·끌기)       // window.__edFx — 강조·줌 편집
@@ -71,6 +71,7 @@ async function bootLocal(client){
  window.__edSfx?.setup({client,editable:payload.meta.sfx_edit});   // 엔진이 효과음을 받을 때만 넣고 뺄 수 있다(ai-video sfx_user)
  window.__edFx?.setEditable(payload.meta.fx_edit);   // 엔진이 강조·줌을 받을 때만 바꿀 수 있다
  window.__edFrame?.setup(payload.meta.framing,payload.meta.frame_edit);   // 구간 모델을 만들기 전에(렌더 때 고정한 구간을 되살린다)
+ window.__edPlacement=!!payload.meta.placement;   // 같은 장면 여러 구간 = 놓은 자리(start_sec)로(엔진 f39398f7)
  window.__edPhraseEdit=!!payload.meta.phrase_edit;   // 내레이션 문구 줄바꿈 = 자막 구절 경계(엔진 ae8cc2f7)
  window.__edRenderLayout=payload.meta.render_layout||{};   // 완성본 실제 배치(안전 구역 맞춤 뒤 영상 칸 y·로고 정렬)
  window.__sbMain=sb;window.__workspaceReviewId='local';
@@ -97,7 +98,7 @@ async function boot(){
  if(!roles.data.some(r=>['reviewer','operator','admin'].includes(r.role)))throw new Error('편집하려면 검수자나 관리자 권한이 필요해요.');
  const payload=await bootLocal(client);
  step(3);
- await import('./ves-editor.js?v=font-1');
+ await import('./ves-editor.js?v=place-2');
  const root=document.getElementById('tlRoot');root.style.display='flex';root.style.flexDirection='column';
  const notes=showLocalNotes(payload);setupScrollbars();setupHoverTips();mountStatusBar();
  mountAccount(client,data.user,roles.data.map(r=>r.role));
