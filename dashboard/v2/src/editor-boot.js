@@ -2,7 +2,7 @@ import {config} from './config.js';
 import {setupScrollbars} from './scrollbars.js';
 import {createLocalEditorClient,loadLocalVideo} from './local-editor-client.js?v=sfx-1';
 import {confirmSubmit} from './editor-submit-dialog.js?v=sfx-1';
-import './editor-checks.js?v=gap-1';   // window.__edChecks — 제출 전 검사(ves-editor.js 가 부른다)
+import './editor-checks.js?v=sfx-2';   // window.__edChecks — 제출 전 검사(ves-editor.js 가 부른다)
 import './editor-fx.js?v=render-123';
 import './editor-sfx.js?v=sfx-1';   // window.__edSfx — 효과음 줄 · 효과음 목록
 import './editor-frame.js?v=render-123';   // window.__edFrame — 구간 화면 위치(미리보기 자르기·끌기)       // window.__edFx — 강조·줌 편집
