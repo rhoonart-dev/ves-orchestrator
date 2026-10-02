@@ -427,3 +427,9 @@ body.editing #tlRoot #inner .blk.t.sel .phd{top:4px;bottom:4px}
 #edBar .eb-save #draftchip:not(:empty)+#saveMsg:not(:empty)::before{content:'· ';color:var(--faint,#5e5e64)}
 @media(max-width:760px){#edBar .g-mark,#edBar .g-mark+.sep{display:none}}   /* 좁으면 I·O·Enter 부터 뺀다 — 실행 취소와 저장 상태는 남긴다 */
 #undoToast,#edToast{bottom:44px}   /* 알림은 안내 줄 위에 */
+/* 원음 줄 — 나오는 곳 회색 · 내레이션 때문에 꺼지는 곳 노란 점선 */
+#inner .track.aud{position:relative}
+#inner .track.aud i{position:absolute;top:7px;height:6px;border-radius:3px;pointer-events:auto}
+#inner .track.aud .aud-on{background:#8e8e93;opacity:.55}
+#inner .track.aud .aud-off{background:repeating-linear-gradient(90deg,#ffb340 0 3px,transparent 3px 6px);opacity:1}
+#laud{height:20px}

@@ -1293,6 +1293,25 @@ function draw(){
   });
   h += `</div>`;
 
+  // 원음 줄 — 원음이 나오는 곳은 회색, 꺼지는 곳은 노란 점선(렌더와 같은 규칙: apply_edit narration_mute).
+  // 일반 구간은 내레이션이 나오는 동안만 끄고, 덮개 구간은 내레이션이 있거나 배속·멈춤이면 통째로 끈다(editor-checks muted)
+  {
+    const voiced = m.cues.filter(q => !q.dropped).map(q => [q.out, q.out + q.dur]);
+    const off = [];
+    m.final.forEach(c => {
+      if (c.dead) return;
+      const a = c.out, b = c.out + clipDur(c);
+      if (m.checks && m.checks.muted && m.checks.muted.get(c.i)) { off.push([a, b]); return; }
+      voiced.forEach(([x, y]) => { const s0 = Math.max(a, x), e0 = Math.min(b, y); if (e0 - s0 > 1e-3) off.push([s0, e0]); });
+    });
+    off.sort((u, v) => u[0] - v[0]);
+    const merged = [];
+    off.forEach(([x, y]) => { const l = merged[merged.length - 1]; if (l && x <= l[1] + 1e-3) l[1] = Math.max(l[1], y); else merged.push([x, y]); });
+    h += `<div class="track aud" data-lab="laud" style="height:20px"><i class="aud-on" style="left:0;width:${Math.max(0, m.total * px)}px"></i>`;
+    merged.forEach(([x, y]) => { h += `<i class="aud-off" style="left:${x * px}px;width:${Math.max(2, (y - x) * px)}px" title="${esc(fmt(x) + " ~ " + fmt(y))} 원음 꺼짐 · 내레이션이 나오는 동안"></i>`; });
+    h += `</div>`;
+  }
+
   // 제목
   h += `<div class="track" data-lab="lttl" style="${trackStyle(1)}"><div class="blk ttl" data-k="title" data-i="0"
     style="left:0;width:${Math.max(60, m.total * px)}px">${esc(m.title.replace(/\n/g, " ⏎ ")) || "(제목 없음)"}</div></div>`;
