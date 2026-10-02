@@ -127,6 +127,11 @@ export function openThumbnails({client,video,onChange=()=>{}}){
   dlg.querySelector('.thumb-close').onclick=close;
   dlg.querySelectorAll('[data-act]').forEach(b=>b.onclick=()=>act(b.dataset.act));
   dlg.querySelectorAll('[data-choose]').forEach(b=>b.onclick=()=>choose(b.dataset.choose));
+  // 맥미니 영상은 저장소 주소(다른 출처)라 download 속성이 안 먹는다 — 받아서 파일로 저장한다
+  if(remote)dlg.querySelectorAll('.thumb-dl').forEach(a=>a.onclick=async e=>{e.preventDefault();
+   try{const r=await fetch(a.href);if(!r.ok)throw new Error();const u=URL.createObjectURL(await r.blob());
+    const t=document.createElement('a');t.href=u;t.download=a.getAttribute('download');document.body.append(t);t.click();t.remove();setTimeout(()=>URL.revokeObjectURL(u),1000);}
+   catch{a.textContent='다시 눌러 주세요';}});
   dlg.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>{
    if(items.length>=MAX){dlg.querySelector('.thumb-msg').textContent=`썸네일은 ${MAX}장까지 고를 수 있어요.`;return;}
    items.push({frame:b.dataset.add,style:'line',label:'',color:'white',y:''});render();
