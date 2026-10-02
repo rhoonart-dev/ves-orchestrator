@@ -5688,3 +5688,17 @@ def test_diskgc_rules_cover_new_pipeline_caches():
     rules = dict(RULES)
     assert rules["cache/compilations"] == 7 and rules["cache/clip_fp"] == 7
     assert not any("outputs_tikitaka_grid" in r for r in rules)
+
+
+def test_laeebly_newly_approved_and_add_works():
+    from ves.scheduler.laeebly_sync import newly_approved, add_works
+    apps = [{"id": "a", "status": True, "rejected_bool": False, "youtube_channel_id": "UC1", "work_title": "불륜"},
+            {"id": "b", "status": True, "rejected_bool": False, "youtube_channel_id": "UC1", "work_title": "로또"},
+            {"id": "c", "status": False, "rejected_bool": False, "youtube_channel_id": "UC2", "work_title": "불륜"},
+            {"id": "d", "status": True, "rejected_bool": True, "youtube_channel_id": "UC3", "work_title": "불륜"},
+            {"id": "e", "status": True, "rejected_bool": False, "youtube_channel_id": "UC4", "work_title": "새작품"}]
+    old = {"a": False, "b": True, "c": False, "d": False}
+    assert newly_approved(apps, old) == [("UC1", "불륜"), ("UC4", "새작품")]
+    assert add_works(["로또"], "불륜") == ["로또", "불륜"]
+    assert add_works(["로또"], "로또") is None
+    assert add_works(None, "불륜") == ["불륜"]
