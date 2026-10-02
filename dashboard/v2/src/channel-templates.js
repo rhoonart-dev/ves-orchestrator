@@ -2,7 +2,7 @@ import {esc} from './review-details.js?v=web-1';
 import {visibleChannels,withWorkOverrides} from './channel-visibility.js';
 import {templateFields,changedDesign} from './template-model.js';
 import {readAll} from './review-service.js?v=web-1';
-import {swatch,cleanDesign,sameDesign,fieldsHtml,wireColors,mountPreview} from './render-templates.js?v=tpl-3';
+import {swatch,cleanDesign,sameDesign,fieldsHtml,wireColors,mountPreview} from './render-templates.js?v=tpl-4';
 import {loadCatalog} from './work-catalog.js?v=hide-1';
 import {loadWorkAssets} from './work-assets-data.js?v=1';
 // 채널 템플릿 — 채널을 고르고 작품 탭마다 영상 모양을 정한다(0134). '이 채널에서만'은 작품 기본 위에 칸 단위로 얹고,
