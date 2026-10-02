@@ -25,6 +25,12 @@ async function loadRemoteJobs(client,names){
    .in('work_order_id',[...new Set(rows.map(r=>r.work_order_id))]).order('created_at',{ascending:false}).limit(200);
   for(const j of jobs||[]){const vid=j.params?.video_id;if(vid&&j.status==='succeeded'&&!doneJob.has(vid))doneJob.set(vid,j.id);if(vid&&!applies.has(vid))applies.set(vid,{edit_id:j.id,state:{pending:'queued',running:'running',succeeded:'done'}[j.status]||'failed',error:j.status==='failed'||j.status==='dead'?String(j.error||'').slice(-300):null,node:jobNode(j),finished_at:j.finished_at||j.updated_at});}
  }
+ const hearts=new Map();   // 하트(0139) — 팀이 같이 보는 '괜찮다' 표시
+ if(rows.length){const {data:hr}=await client.from('tikitaka_video_hearts').select('video_id,hearted_by,hearted_email,hearted_at').in('video_id',rows.map(r=>r.id));
+  const ids=[...new Set((hr||[]).map(x=>x.hearted_by).filter(Boolean))];   // 누른 사람은 닉네임으로(user_profiles · 0139)
+  const {data:pf}=ids.length?await client.from('user_profiles').select('user_id,nickname').in('user_id',ids):{data:[]};
+  const nick=new Map((pf||[]).map(p=>[p.user_id,p.nickname]));
+  (hr||[]).forEach(x=>hearts.set(x.video_id,{name:nick.get(x.hearted_by)||'',email:x.hearted_email,at:x.hearted_at}));}
  if(rows.length){const {data:sr}=await client.from('user_seen_renders').select('video_id,seen_job').in('video_id',rows.map(r=>r.id));(sr||[]).forEach(x=>seen.set(x.video_id,x.seen_job));}
  // 썸네일(0129) — 맥미니 영상은 그 맥미니가 만든다. 버튼 이름(만들기 · 보기 · 만드는 중)에 쓴다
  const thumbs=new Map();
@@ -42,7 +48,7 @@ async function loadRemoteJobs(client,names){
   return {id:'MV-'+wo,source:'local-bundle',remote:true,raw:wo,work:r.work_title,workId:r.work_title,episode:epLabel(r.episode),title:t?`${ep} #${t.work_no}`:ep,note:t?(t.source_compilations?.name||'원본 파일'):'',workNo:t?.work_no??null,madeAt:t?.created_at||null,
    channelId:r.channel_slug||null,channel:r.channel_slug?(ch?.name||r.channel_slug):'채널 미배정',youtubeChannelId:ch?.channel_id||null,channelAvatar:ch?.avatar_url||null,
    createdAt:list.map(x=>x.updated_at||x.created_at).sort().pop(),videos:list.length,nodeId:r.node_id,status:'내부 검수',fileCountLabel:'완성 영상',
-   bundles:list.map(x=>({key:`remote-${wo}/${x.suffix}`,video_id:x.id,thumbs:thumbs.get(x.id)||{},apply:applies.get(x.id)||null,edited:doneJob.get(x.id)||null,unseen:!!doneJob.get(x.id)&&seen.get(x.id)!==doneJob.get(x.id),suffix:x.suffix,version:x.version,tag:x.tag,title:x.title,status:'ready',render_fingerprint:x.render_fingerprint,
+   bundles:list.map(x=>({key:`remote-${wo}/${x.suffix}`,video_id:x.id,thumbs:thumbs.get(x.id)||{},apply:applies.get(x.id)||null,edited:doneJob.get(x.id)||null,unseen:!!doneJob.get(x.id)&&seen.get(x.id)!==doneJob.get(x.id),heart:hearts.get(x.id)||null,suffix:x.suffix,version:x.version,tag:x.tag,title:x.title,status:'ready',render_fingerprint:x.render_fingerprint,
     review_items:x.review_items,labels:0,duration:Number(x.duration_sec)||0,remote:true,node:x.node_id,src:signed.get(x.files?.['shorts.mp4']?.key)||''}))};
  });
  return withRunning(client,names,made);
