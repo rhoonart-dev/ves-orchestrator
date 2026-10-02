@@ -17,10 +17,10 @@
  .rights-layout{grid-template-columns:var(--layout-sidebar-width) minmax(0,1fr);gap:var(--layout-gap)}
  .rights-filters{padding:var(--layout-panel-padding);border-radius:var(--layout-panel-radius)}
  /* 작업 폴더: the video list takes the room the 9:16 player leaves, never narrower than a filter panel */
- .workbench-body{grid-template-columns:minmax(var(--layout-sidebar-width),.9fr) minmax(230px,1.15fr) minmax(280px,1fr)}
+ .workbench-body{grid-template-columns:minmax(var(--layout-sidebar-width),.85fr) minmax(230px,1fr) minmax(360px,1.25fr)}   /* 오른쪽 검수 칸을 넓게(2026-10-02) */
 }
 @media(min-width:1700px){
- .workbench-body{grid-template-columns:minmax(var(--layout-sidebar-width),340px) minmax(0,1fr) 370px}
+ .workbench-body{grid-template-columns:minmax(var(--layout-sidebar-width),320px) minmax(0,1fr) 460px}
 }
 @media(max-width:1250px){
 }
