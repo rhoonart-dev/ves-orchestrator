@@ -59,9 +59,14 @@ function scheduleMeasure(cur,H){
 }
 // 잰 길이를 타임라인 블록 길이로 — 새로 넣거나 고친 내레이션 블록이 실제 목소리 길이만큼 그려져, 그 길이에 맞춰 덮개 구간을 만들 수 있다.
 // 편집 기록(실행 취소)에는 넣지 않는다 — 사람이 고친 게 아니라 잰 값이다. 바뀐 줄이 있으면 true
+// 잰 값이 없으면 렌더 때 만든 소리의 길이(초안에 예전 추정치·기본 3초가 남아 블록이 실제보다 길던 것, 2026-10-03).
+// 길이를 잴 수 없는 영상(맥미니)의 새 문구는 글자 수 추정치 — 기본 3초보다는 실제에 가깝다
 function syncDur(cur,H){
  let ch=false;
- for(const t of (cur&&cur.model&&cur.model.tts)||[]){const v=measured.get(H.cueKey(t));
+ for(const t of (cur&&cur.model&&cur.model.tts)||[]){
+  if(placeholder(t))continue;
+  const L=cueLength(cur,t,H);
+  const v=L.real?L.sec:!local().measure?H.ttsEst(t):0;
   if(v>0&&Math.abs((+t.dur||0)-v)>0.01){t.dur=+v.toFixed(3);ch=true;}}
  return ch;
 }
