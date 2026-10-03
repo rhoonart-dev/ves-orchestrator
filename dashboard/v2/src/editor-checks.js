@@ -28,10 +28,10 @@ function newPipeline(cur){return !!(cur&&cur.row&&cur.row.timeline&&cur.row.time
 export function cueLength(cur,t,H){
  const k=H.cueKey(t);
  if(measured.has(k))return {sec:measured.get(k),real:true};
- if(t.key&&!t.stale){                  // 렌더 때 만든 소리 그대로: 그때 잰 길이
-  const o=(cur.row.timeline.tts||[]).find(x=>Math.abs((+x.source_sec||0)-t.src)<0.01&&String(x.text||'')===String(t.text||''));
-  if(o&&+o.duration_sec>0)return {sec:+o.duration_sec,real:true};
- }
+ // 렌더 때 만든 소리와 문구·목소리·속도가 같으면 그때 잰 길이 — 줄을 다른 장면으로 옮겨도 소리는 같다(2026-10-03, 맥미니는 다시 잴 수 없다)
+ const same=x=>String(x.text||'')===String(t.text||'')&&(x.voice||'')===(t.voice||'')&&(x.speed||'normal')===(t.speed||'normal');
+ const o=(cur.row.timeline.tts||[]).find(x=>+x.duration_sec>0&&same(x));
+ if(o)return {sec:+o.duration_sec,real:true};
  return {sec:H.ttsEst(t)*MARGIN,real:false,pending:pending.has(k),failed:failed.has(k)};
 }
 
@@ -53,27 +53,11 @@ function scheduleMeasure(cur,H){
    if(r&&+r.duration_sec>0)measured.set(x.k,+r.duration_sec);else failed.add(x.k);
    if(r&&Array.isArray(r.phrases)&&r.phrases.length)measuredPh.set(x.k,{list:r.phrases.map(p=>({text:p.text,start:+p.start_sec,end:+p.end_sec})),note:r.phrases_note||''});});
   if(!res||res.ok===false)window.__edToast&&window.__edToast('내레이션 길이를 재지 못했어요. '+((res&&res.error)||''));
-  syncDur(cur,H);
   window.__edRedraw&&window.__edRedraw();
  },500);
 }
-// 잰 길이를 타임라인 블록 길이로 — 새로 넣거나 고친 내레이션 블록이 실제 목소리 길이만큼 그려져, 그 길이에 맞춰 덮개 구간을 만들 수 있다.
-// 편집 기록(실행 취소)에는 넣지 않는다 — 사람이 고친 게 아니라 잰 값이다. 바뀐 줄이 있으면 true
-// 잰 값이 없으면 렌더 때 만든 소리의 길이(초안에 예전 추정치·기본 3초가 남아 블록이 실제보다 길던 것, 2026-10-03).
-// 길이를 잴 수 없는 영상(맥미니)의 새 문구는 글자 수 추정치 — 기본 3초보다는 실제에 가깝다
-function syncDur(cur,H){
- let ch=false;
- for(const t of (cur&&cur.model&&cur.model.tts)||[]){
-  if(placeholder(t))continue;
-  const L=cueLength(cur,t,H);
-  const v=L.real?L.sec:!local().measure?H.ttsEst(t):0;
-  if(v>0&&Math.abs((+t.dur||0)-v)>0.01){t.dur=+v.toFixed(3);ch=true;}}
- return ch;
-}
-
 export function analyze(cur,H){
  if(!newPipeline(cur)||!cur.model)return null;
- if(syncDur(cur,H))setTimeout(()=>window.__edRedraw&&window.__edRedraw(),0);   // 전에 잰 문구로 되돌아온 줄 등 — 다음 그리기에 반영
  const m=cur.model,items=[],muted=new Map(),subWarn=new Set(),lens=new Map();
  const live=(m.final||[]).filter(c=>!c.dead);
  // 1) 구간 밖으로 밀려난 내레이션·보조 자막: 엔진은 조용히 뺀다
